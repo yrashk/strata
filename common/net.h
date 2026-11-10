@@ -12,9 +12,23 @@
  *             receive on the same machine at once. Deterministic, so runs
  *             that compare machines (conformance, -T virtual) can use it.
  *   -N peer   a built-in test peer on the other end, at every address but
- *             the sender's own: it answers ICMP echo requests (ping) and
- *             echoes UDP datagrams sent to port 7, at once (deterministic
- *             too); everything else it ignores (TCP needs a second machine).
+ *             the sender's own and 192.0.2.0/24 (TEST-NET-1: nothing there
+ *             answers, so tests have an address that times out): it answers
+ *             ICMP echo requests (ping), echoes UDP datagrams sent to port
+ *             7 and answers DNS queries (UDP port 53) for the names of its
+ *             table: peer.test = 10.0.0.2, two.test = 10.0.0.2 and 10.0.0.3,
+ *             www.peer.test = a CNAME for peer.test, other *.test: no such
+ *             name. Other names are looked up for real through the NAT's UDP
+ *             (common/netnat.h), unless `-N peer,nodns`: then they do not
+ *             exist either, and the peer is fully deterministic. TCP needs a
+ *             second machine (or -N nat).
+ *   -N nat[,fwd=HOSTPORT:GUESTPORT]...
+ *             the real network through a user-mode NAT (common/netnat.h):
+ *             the guest is 10.0.2.15, the gateway (the host) 10.0.2.2, DNS
+ *             10.0.2.3; UDP, TCP and ICMP echo go out through host sockets
+ *             (no privileges). Each fwd= listens on 127.0.0.1:HOSTPORT and
+ *             passes connections to the guest's GUESTPORT; a port that is
+ *             busy is reported and skipped. STATUS bit 25 tells the guest.
  *   -N udp:LPORT:HOST:RPORT
  *             a cable to another simulator over host UDP: each packet is one
  *             datagram, sent from local port LPORT to HOST:RPORT; datagrams
@@ -42,6 +56,9 @@
 
 #include "platform.h"
 
+#if defined(__EMSCRIPTEN__) && !defined(NET_NO_NAT)
+#define NET_NO_NAT                                     /* (no host sockets in the browser) */
+#endif
 #ifndef __EMSCRIPTEN__
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -51,7 +68,15 @@
 #include <unistd.h>
 #endif
 
-enum { NET_NONE, NET_LOOP, NET_UDP, NET_PEER };
+#ifndef __EMSCRIPTEN__
+#include "netnat.h"
+#endif
+
+enum { NET_NONE, NET_LOOP, NET_UDP, NET_PEER, NET_NAT };
+static bool net_nodns;                          /* -N peer,nodns: the peer's names only */
+static unsigned net_hint;                       /* STATUS bits 31..26: a host number the link suggests (0: none) */
+static void net_rx_push(const uint8_t *p, unsigned n);
+static int net_room(void);
 static int net_mode = NET_NONE;
 static int net_fd = -1;                         /* the UDP socket (NET_UDP) */
 static uint8_t net_q[NET_QLEN][NET_MTU];        /* received packets */
@@ -65,7 +90,26 @@ static uint64_t net_txn;                        /* its bytes so far */
 static inline bool net_host_open(const char *mode) {
   if (!strcmp(mode, "none")) { net_mode = NET_NONE; return true; }
   if (!strcmp(mode, "loop")) { net_mode = NET_LOOP; return true; }
-  if (!strcmp(mode, "peer")) { net_mode = NET_PEER; return true; }
+  if (!strcmp(mode, "peer") || !strcmp(mode, "peer,nodns")) {
+    net_mode = NET_PEER;
+    net_nodns = mode[4] != 0;
+#ifndef __EMSCRIPTEN__
+    nat_init(net_rx_push, net_room);                   /* (names it does not know: the NAT's UDP) */
+#endif
+    return true;
+  }
+#ifndef __EMSCRIPTEN__
+  if (!strncmp(mode, "nat", 3) && (mode[3] == 0 || mode[3] == ',')) {
+    net_mode = NET_NAT;
+    nat_init(net_rx_push, net_room);
+    for (const char *o = strchr(mode, ','); o; o = strchr(o + 1, ',')) {
+      unsigned hp, gp;
+      if (sscanf(o, ",fwd=%u:%u", &hp, &gp) == 2 && hp && hp < 65536 && gp && gp < 65536) nat_forward(hp, gp);
+      else { fprintf(stderr, "bad -N nat option %s (fwd=HOSTPORT:GUESTPORT)\n", o); return false; }
+    }
+    return true;
+  }
+#endif
 #ifndef __EMSCRIPTEN__
   if (!strncmp(mode, "udp:", 4)) {
     char host[256];
@@ -102,12 +146,13 @@ static inline bool net_host_open(const char *mode) {
     return true;
   }
 #endif
-  fprintf(stderr, "bad -N (none, loop, peer or udp:LPORT:HOST:RPORT)\n");
+  fprintf(stderr, "bad -N (none, loop, peer[,nodns], nat[,fwd=H:G...] or udp:LPORT:HOST:RPORT)\n");
   return false;
 }
 
 /* A packet arrived on the link: into the receive queue, or dropped. */
-static inline void net_rx_push(const uint8_t *p, unsigned n) {
+static int net_room(void) { return NET_QLEN - net_qcnt; }
+static void net_rx_push(const uint8_t *p, unsigned n) {
   if (net_qcnt == NET_QLEN) { net_drops++; return; }
   int i = (net_qhead + net_qcnt) % NET_QLEN;
   memcpy(net_q[i], p, n);
@@ -123,13 +168,105 @@ static inline uint16_t net_csum(const uint8_t *p, unsigned n, uint32_t s) {
   return (uint16_t)s;
 }
 
+/* The peer's names (-N peer): the DNS answer (r, returned length) to the query
+ * q of n bytes, or 0 if the name is not one of the peer's (and forwarding is
+ * on: it is looked up for real). */
+static inline unsigned net_dns_local(const uint8_t *q, unsigned n, uint8_t *r) {
+  char name[128];
+  unsigned o = 12, k = 0;
+  if (n < 17) return 0;
+  while (o < n && q[o]) {                              /* the question's name */
+    unsigned l = q[o++];
+    if (l > 63 || o + l > n || k + l + 1 >= sizeof name) return 0;
+    if (k) name[k++] = '.';
+    for (unsigned i = 0; i < l; i++) { char ch = (char)q[o++]; name[k++] = ch >= 'A' && ch <= 'Z' ? ch + 32 : ch; }
+  }
+  name[k] = 0;
+  if (o + 5 > n) return 0;
+  unsigned qend = o + 5, qtype = (unsigned)q[o + 1] << 8 | q[o + 2];
+  bool test = k >= 5 && !strcmp(name + k - 5, ".test");
+  if (!test && !net_nodns) return 0;
+  static const struct { const char *name, *cname; uint32_t a[2]; } tab[] = {
+    {"peer.test", NULL, {0x0a000002u, 0}},
+    {"two.test", NULL, {0x0a000002u, 0x0a000003u}},
+    {"www.peer.test", "peer.test", {0x0a000002u, 0}},
+  };
+  int e = -1;
+  for (unsigned i = 0; i < sizeof tab / sizeof tab[0]; i++) if (!strcmp(name, tab[i].name)) e = (int)i;
+  memcpy(r, q, qend);
+  r[2] = (uint8_t)(0x80 | (q[2] & 1));                 /* a response; RD as asked */
+  r[3] = (uint8_t)(0x80 | (e < 0 ? 3 : 0));            /* RA; NXDOMAIN if unknown */
+  r[4] = 0; r[5] = 1; r[6] = r[7] = r[8] = r[9] = r[10] = r[11] = 0;
+  if (e < 0 || (qtype != 1 && qtype != 255)) return qend;
+  unsigned w = qend, an = 0, owner = 12;               /* answers: names by pointer */
+  if (tab[e].cname) {
+    r[w] = 0xc0; r[w + 1] = 12;
+    r[w + 2] = 0; r[w + 3] = 5; r[w + 4] = 0; r[w + 5] = 1;
+    r[w + 6] = 0; r[w + 7] = 0; r[w + 8] = 1; r[w + 9] = 44; /* TTL 300 */
+    unsigned rd = w + 12, x = rd;
+    for (const char *c = tab[e].cname; *c;) {
+      const char *dot = strchr(c, '.');
+      unsigned l = dot ? (unsigned)(dot - c) : (unsigned)strlen(c);
+      r[x++] = (uint8_t)l;
+      memcpy(r + x, c, l);
+      x += l;
+      c += l + (dot ? 1 : 0);
+    }
+    r[x++] = 0;
+    r[w + 10] = 0; r[w + 11] = (uint8_t)(x - rd);
+    owner = rd;
+    w = x;
+    an++;
+  }
+  for (int i = 0; i < 2 && tab[e].a[i]; i++) {
+    r[w] = (uint8_t)(0xc0 | owner >> 8); r[w + 1] = (uint8_t)owner;
+    r[w + 2] = 0; r[w + 3] = 1; r[w + 4] = 0; r[w + 5] = 1;
+    r[w + 6] = 0; r[w + 7] = 0; r[w + 8] = 1; r[w + 9] = 44;
+    r[w + 10] = 0; r[w + 11] = 4;
+    uint32_t a = tab[e].a[i];
+    r[w + 12] = (uint8_t)(a >> 24); r[w + 13] = (uint8_t)(a >> 16); r[w + 14] = (uint8_t)(a >> 8); r[w + 15] = (uint8_t)a;
+    w += 16;
+    an++;
+  }
+  r[7] = (uint8_t)an;
+  return w;
+}
+
 /* The built-in peer (-N peer) sees a packet: an ICMP echo request comes back
- * as a reply, a UDP datagram to port 7 comes back to its sender. */
+ * as a reply, a UDP datagram to port 7 comes back to its sender, a DNS query
+ * is answered (or forwarded). */
 static inline void net_peer(const uint8_t *p, unsigned n) {
   static uint8_t r[NET_MTU];
   if (n < 20 || (p[0] >> 4) != 4) return;
   unsigned hl = (p[0] & 15) * 4u, tl = (unsigned)p[2] << 8 | p[3];
   if (hl < 20 || tl > n || tl < hl + 8 || !memcmp(p + 12, p + 16, 4)) return;
+  if (p[16] == 192 && p[17] == 0 && p[18] == 2) return; /* TEST-NET-1: nobody is there */
+  if (p[9] == 17 && ((unsigned)p[hl + 2] << 8 | p[hl + 3]) == 53) { /* DNS */
+    unsigned ul = (unsigned)p[hl + 4] << 8 | p[hl + 5];
+    if (ul < 8 || hl + ul > tl) return;
+    unsigned m = net_dns_local(p + hl + 8, ul - 8, r + hl + 8);
+    if (!m) {
+#ifndef __EMSCRIPTEN__
+      nat_udp_in((uint32_t)p[12] << 24 | (uint32_t)p[13] << 16 | (uint32_t)p[14] << 8 | p[15],
+                 (uint32_t)p[16] << 24 | (uint32_t)p[17] << 16 | (uint32_t)p[18] << 8 | p[19], p + hl, ul);
+#endif
+      return;
+    }
+    memcpy(r, p, hl);                                  /* the answer, from the address asked */
+    memcpy(r + 12, p + 16, 4);
+    memcpy(r + 16, p + 12, 4);
+    r[8] = 64;
+    uint8_t *l = r + hl;
+    l[0] = p[hl + 2]; l[1] = p[hl + 3]; l[2] = p[hl]; l[3] = p[hl + 1];
+    l[4] = (uint8_t)((m + 8) >> 8); l[5] = (uint8_t)(m + 8); l[6] = l[7] = 0;
+    unsigned t = hl + 8 + m;
+    r[2] = (uint8_t)(t >> 8); r[3] = (uint8_t)t;
+    r[10] = r[11] = 0;
+    uint16_t c = (uint16_t)~net_csum(r, hl, 0);
+    r[10] = (uint8_t)(c >> 8); r[11] = (uint8_t)c;
+    net_rx_push(r, t);
+    return;
+  }
   memcpy(r, p, tl);
   memcpy(r + 12, p + 16, 4); /* from the address it was sent to */
   memcpy(r + 16, p + 12, 4);
@@ -170,6 +307,9 @@ static inline void net_tx_done(uint64_t n) {
   if (net_mode == NET_LOOP) net_rx_push(net_txb, (unsigned)n);
   else if (net_mode == NET_PEER) net_peer(net_txb, (unsigned)n);
 #ifndef __EMSCRIPTEN__
+  else if (net_mode == NET_NAT) nat_input(net_txb, (unsigned)n);
+#endif
+#ifndef __EMSCRIPTEN__
   else if (net_mode == NET_UDP) (void)!send(net_fd, net_txb, (size_t)n, 0);
 #endif
 }
@@ -177,6 +317,7 @@ static inline void net_tx_done(uint64_t n) {
 /* Now and then: datagrams that have arrived from the peer. */
 static inline void net_host_poll(void) {
 #ifndef __EMSCRIPTEN__
+  if (net_mode == NET_NAT || (net_mode == NET_PEER && !net_nodns)) { nat_poll(); return; }
   if (net_mode != NET_UDP) return;
   uint8_t b[NET_MTU + 1];
   for (;;) {
@@ -189,16 +330,18 @@ static inline void net_host_poll(void) {
 }
 
 /* Packets can still arrive from outside (an idle machine is not deadlocked). */
-static inline bool net_live(void) { return net_mode == NET_UDP; }
+static inline bool net_live(void) { return net_mode == NET_UDP || net_mode == NET_NAT || (net_mode == NET_PEER && !net_nodns); }
 
 static inline int net_rx_count(void) { return net_qcnt; }
 static inline const uint8_t *net_rx_head(unsigned *n) { *n = net_qlen[net_qhead]; return net_q[net_qhead]; }
 static inline void net_rx_pop(void) { net_qhead = (net_qhead + 1) % NET_QLEN; net_qcnt--; }
 
-/* The STATUS register: next length | queued << 16 | link << 24 | drops << 32. */
+/* The STATUS register: next length | queued << 16 | link << 24 | NAT link
+ * (the guest is 10.0.2.15) << 25 | a suggested host number << 26 | drops << 32. */
 static inline uint64_t net_status(void) {
   uint64_t len = net_qcnt ? net_qlen[net_qhead] : 0;
-  return len | (uint64_t)net_qcnt << 16 | (uint64_t)(net_mode != NET_NONE) << 24 | (uint64_t)net_drops << 32;
+  return len | (uint64_t)net_qcnt << 16 | (uint64_t)(net_mode != NET_NONE) << 24 | (uint64_t)(net_mode == NET_NAT) << 25 |
+         (uint64_t)(net_hint & 63) << 26 | (uint64_t)net_drops << 32;
 }
 
 #endif

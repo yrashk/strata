@@ -43,7 +43,7 @@ IMAGES  := $(patsubst examples/%.s,$(BUILD)/examples/%.stx,$(EXAMPLES))
 PROGS   := $(patsubst examples/%.s,$(BUILD)/prog/%,$(EXAMPLES))
 EMU     := $(BUILD)/strata-emu -c $(NCORES)
 
-.PHONY: all examples test clean lint run run-emu boot boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
+.PHONY: all examples test clean lint run run-emu boot boot-net boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
 
 all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl
 
@@ -54,11 +54,11 @@ $(BUILD)/sasm: asm/sasm.c asm/isa.h
 # the JIT (emu/jit/): each backend compiles to nothing on other hosts
 JIT_SRC := emu/jit/jit.c emu/jit/jit_arm64.c emu/jit/jit_x86_64.c
 
-$(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/net.h
+$(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/net.h common/netnat.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
 
-$(BUILD)/strata-rtl: $(RTL) sim/main.cpp common/stx.h common/platform.h common/display.h common/net.h asm/isa.h
+$(BUILD)/strata-rtl: $(RTL) sim/main.cpp common/stx.h common/platform.h common/display.h common/net.h common/netnat.h asm/isa.h
 	@mkdir -p $(BUILD)
 	verilator --cc --exe --build -j 0 -O3 --x-assign fast --x-initial fast \
 	  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
@@ -143,7 +143,7 @@ UTILS   := sh ls cat rm df ps free uptime devs hexdump cores sched seq grep wc u
 SPROGS  := $(patsubst %,$(BUILD)/prog/%,$(SERVERS))
 UPROGS  := $(patsubst %,$(BUILD)/prog/%,$(UTILS))
 # the network programs (os/servers/net.s is the server): no sources on the disk
-NETUTILS := ping nc tcpecho ifconfig netstat
+NETUTILS := ping nc tcpecho ifconfig netstat host
 NPROGS  := $(patsubst %,$(BUILD)/prog/%,$(NETUTILS))
 USRCS   := $(patsubst %,$(BUILD)/src/%.s,$(UTILS))
 EXSRCS  := $(patsubst %,$(BUILD)/src/%.s,$(OS_EXAMPLES))
@@ -209,7 +209,7 @@ DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(NPROGS) $(BUILD)/prog/untag $(WS
 # The same files with their tags (mkdisk -t TAGS applies to the files after it).
 # The file system has no directories: `ls /bin` lists the files tagged bin,
 # `ls /src/demo` those tagged both src and demo.
-DISK_ARGS := -t doc $(filter-out %/rc,$(OS_FILES)) -t etc $(filter %/rc,$(OS_FILES)) \
+DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc %/resolv,$(OS_FILES)) \
              -t sys $(SPROGS) -t bin $(UPROGS) $(BUILD)/prog/untag -t bin,net $(NPROGS) -t bin,ws $(WSPROGS) \
              -t demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units \
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) \
@@ -228,15 +228,23 @@ $(BUILD)/disk-ws.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) os/files
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WS_ARGS)
 
 # the emulator boots StrataOS with 12 cores; the RTL with NCORES
-BOOT_EMU := $(BUILD)/strata-emu -c 12 -N peer
+BOOT_EMU := $(BUILD)/strata-emu -c 12
+# the network of the interactive boots: the real one through the emulator's
+# user-mode NAT (common/netnat.h), with the guest's web servers reachable
+# from the host: http://localhost:8080/ (httpd, port 80) and :8000 (Forth's
+# httpd.fs). A busy host port is reported and skipped. `make boot
+# BOOT_NET="-N peer"` for the offline test peer instead.
+BOOT_NET ?= -N nat,fwd=8080:80,fwd=8000:8000
 
 boot: $(BUILD)/strata-emu os
 	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
-	@$(BOOT_EMU) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
+	@$(BOOT_EMU) $(BOOT_NET) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
+
+boot-net: boot
 
 boot-ws: $(BUILD)/strata-emu $(BUILD)/bootrom.stx $(BUILD)/disk-ws.img
 	@cp $(BUILD)/disk-ws.img $(BUILD)/disk-run.img
-	@$(BOOT_EMU) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
+	@$(BOOT_EMU) $(BOOT_NET) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
 
 boot-demo: $(BUILD)/strata-emu os
 	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
@@ -244,7 +252,7 @@ boot-demo: $(BUILD)/strata-emu os
 
 boot-rtl: $(BUILD)/strata-rtl os
 	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
-	@$(BUILD)/strata-rtl -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
+	@$(BUILD)/strata-rtl $(BOOT_NET) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
 
 boot-rtl-demo: $(BUILD)/strata-rtl os
 	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
@@ -373,7 +381,7 @@ test-wasm: $(WEB)/strata-emu.js $(BUILD)/strata-emu $(BUILD)/sasm examples $(BUI
 # one build for the page's worker and for node (tools/wasm-run.js, the tests)
 # (emu/jit/jit_wasm.c is the JIT: it generates WebAssembly at run time and
 # installs it in the module's function table, hence ALLOW_TABLE_GROWTH)
-$(WEB)/strata-emu.js: web/web.c emu/emu.c emu/jit/jit_wasm.c emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/net.h
+$(WEB)/strata-emu.js: web/web.c emu/emu.c emu/jit/jit_wasm.c emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/net.h common/netnat.h
 	@mkdir -p $(WEB)
 	$(EMCC) -std=gnu11 -O3 -Wall -DNO_SDL -o $@ web/web.c emu/jit/jit_wasm.c \
 	  -sMODULARIZE=1 -sEXPORT_NAME=createStrata -sENVIRONMENT=worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \

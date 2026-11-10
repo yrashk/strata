@@ -1,0 +1,4 @@
+# The DNS resolvers of the network server (net), in order; `ifconfig dns A B`
+# changes them while it runs. Under -N nat, 10.0.2.3 works as well.
+nameserver 8.8.8.8
+nameserver 1.1.1.1
