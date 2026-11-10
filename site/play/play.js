@@ -278,7 +278,7 @@ function fitScreen() {
 // at, at least the 1152 columns ws's status strip needs (narrower, its
 // labels overlap) and 560 rows. When even that does not fit, Auto scales
 // the display down instead.
-function screenGeometry(minW = 1152, minH = 560, maxW = 1280, maxH = 800) {
+function screenGeometry(minW = 640, minH = 400, maxW = 1280, maxH = 800) {
   const d = dpr(), room = screenRoom();
   for (let k = unitPx(); k >= 1 && k / d >= READABLE; k--) {
     const w = Math.min(maxW, Math.floor(room.w * d / k / 8) * 8);

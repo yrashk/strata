@@ -217,10 +217,10 @@ $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 os: $(BUILD)/bootrom.stx $(BUILD)/disk.img
 
 # the same disk with an rc that starts the window server (make boot-ws)
-DISK_WS_FILES := $(filter-out os/files/rc,$(DISK_FILES)) os/files-ws/rc
+DISK_WS_ARGS := $(subst os/files/rc,os/files-ws/rc,$(DISK_ARGS))
 
-$(BUILD)/disk-ws.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_WS_FILES)
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WS_FILES)
+$(BUILD)/disk-ws.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) os/files-ws/rc
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WS_ARGS)
 
 # the emulator boots StrataOS with 12 cores; the RTL with NCORES
 BOOT_EMU := $(BUILD)/strata-emu -c 12

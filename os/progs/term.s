@@ -21,10 +21,13 @@
 ; fetched without blocking. Nothing is polled.
 ;
 ; D-LS: the library's buffers 13 KiB, strips 5 KiB, fonts 3 KiB, and the
-; grid: 47 rows of 158 cells (a full-screen tile at 1280 x 800), 15 KiB.
+; grid: 47 rows of 160 cells (a full-screen tile at 1280 x 800), 15 KiB.
+; Scrollback: 512 rows in far memory, the top 160 KiB of the arena (which
+; is the band otherwise: wc_keep).
 
 GRID_CAP  = 47                          ; ring rows of the grid
-GRID_STR  = 158                         ; cells per ring row
+GRID_STR  = 160                         ; cells per ring row (a row: 320 bytes, whole words)
+FAR_ROWS  = 512                         ; scrollback kept in far memory (the arena's top 160 KiB)
 RDMAX     = 512                         ; bytes read from the shell at a time
 
         .text                           ; instruction Local Store
@@ -53,7 +56,9 @@ tm_cmd:   .ascii "sh -i"                ; the shell
 tm_nl:    .ascii "\n"                   ; Enter
 tm_nows:  .ascii "term: no window server (run ws first)\n"
 tm_nows_e:                              ; (its end)
+        .align 8                        ; transfer buffers
 tm_grid:  .space GRID_CAP * GRID_STR * 2 ; the cells
+tm_rbuf:  .space GRID_STR * 2           ; a row of far history, being drawn
         .text                           ; code
 
 main:
@@ -64,6 +69,9 @@ main:
         la    a0, tm_args               ; a command to type first?
         call  sys_args                  ; a0 = its length
         mv    s3, a0                    ; s3 = that
+        la    t0, wc_keep               ; the arena's top: far history, not band
+        li    t1, FAR_ROWS * GRID_STR * 2 ; ...
+        sd    t1, 0(t0)                 ; ...
         la    a0, tm_title              ; our window; the server interrupts us
         li    a1, 1                     ;   when events wait
         call  wc_open                   ; ...
@@ -79,6 +87,14 @@ tm_win: la    a0, tm_ts                 ; the grid, drawn through the band
         li    a3, GRID_STR              ; ...
         la    a4, wc_surf               ; ...
         call  term_init                 ; ...
+        la    a0, tm_ts                 ; the scrollback in the arena's top
+        li    a1, 0                     ; (c0)
+        clen  a2, c0                    ; ...
+        li    t0, FAR_ROWS * GRID_STR * 2 ; ...
+        sub   a2, a2, t0                ; ...
+        li    a3, FAR_ROWS              ; ...
+        la    a4, tm_rbuf               ; ...
+        call  term_far                  ; ...
         call  tm_resize                 ; columns and rows from the window's size
         call  sys_pipe                  ; the shell's input: a0 read, a1 write
         bltz  a0, tm_end                ; ...
