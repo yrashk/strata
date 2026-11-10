@@ -32,12 +32,21 @@
  *                           0x4108 STATE (read: u16 x, u16 y, u8 buttons, u8
  *                           events queued, u8 0, u8 bit 0 = the pointer is
  *                           over the display)
+ *   0x4200  network         0x4200 TX (write: one transfer = one IPv4
+ *           interface       packet, NET_MTU bytes at most), 0x4208 RX (a read
+ *                           completes when a packet is queued: byte i is the
+ *                           packet's byte i, zero past its end; the packet
+ *                           leaves the queue), 0x4210 STATUS (read: u16 length
+ *                           of the next queued packet, u8 packets queued, u8
+ *                           bit 0 link up, u32 packets dropped), 0x4218
+ *                           CANCEL (write: completes every waiting RX read
+ *                           with zeros, consuming nothing)
  *
  * Device registers are 8 bytes, little endian, at 8-byte-aligned ports; a
  * transfer moves one byte per beat to consecutive ports. A register is
  * latched when its byte 0 is read and a write takes effect when its byte 7
  * is written. A read that cannot complete yet (console input, break, WAIT,
- * VSYNC, the pointer's EVENT) stays in flight until it can, without holding up anything else.
+ * VSYNC, the pointer's EVENT, the network's RX) stays in flight until it can, without holding up anything else.
  *
  * The framebuffer is ordinary system memory (T3): a fixed window of FB_SIZE
  * bytes at FB_BASE, of which the display scans out the first height x stride
@@ -90,6 +99,14 @@
 #define PTR_QLEN 16         /* events the device queues */
 #define PTR_CAPS 0x0307u    /* platform info: buttons left | right | middle, wheel y | wheel x << 8 */
 enum { PTR_MOVE = 1, PTR_BUTTON, PTR_WHEEL, PTR_ENTER, PTR_LEAVE }; /* event kinds */
+#define DEV_NET 0x4200u     /* the network interface: raw IPv4 packets, no link-layer framing */
+#define NET_TX 0x00u        /* write: a transfer that starts here is one packet */
+#define NET_RX 0x08u        /* read: waits for a packet; the transfer gets its first bytes */
+#define NET_STATUS 0x10u    /* read: next length | queued << 16 | link << 24 | drops << 32 */
+#define NET_CANCEL 0x18u    /* write: completes every waiting RX read with zeros */
+#define NET_WINDOW 0x20u
+#define NET_MTU 1500u       /* largest packet; platform info */
+#define NET_QLEN 16         /* received packets the device queues */
 
 #define FB_BASE 0x3000000u
 #define FB_SIZE 0x1000000u
@@ -108,8 +125,9 @@ enum { PTR_MOVE = 1, PTR_BUTTON, PTR_WHEEL, PTR_ENTER, PTR_LEAVE }; /* event kin
 #define PT_FB 5
 #define PT_TIMER 6
 #define PT_POINTER 7
+#define PT_NET 8
 
-#define PLAT_ENTRIES 7 /* the pointer device (PT_POINTER) is not announced yet: work in progress */
+#define PLAT_ENTRIES 9
 #define PLAT_LEN (32 + 32 * PLAT_ENTRIES)
 #define BLK_IDENT_LEN 64
 
@@ -160,6 +178,8 @@ static inline void plat_build_fb(uint8_t *buf, int ncores, uint64_t disk_blocks,
   plat_entry(e + 5 * 32, PT_FB, 0, 3, 0xffff, FB_BASE, FB_SIZE,
              (uint64_t)fb_w | (uint64_t)fb_h << 16 | (uint64_t)(fb_w * 4) << 32 | (uint64_t)FB_FORMAT << 48);
   plat_entry(e + 6 * 32, PT_TIMER, 0, 4, 0xffff, DEV_TIMER, TMR_WINDOW, TMR_HZ);
+  plat_entry(e + 7 * 32, PT_POINTER, 0, 4, 0xffff, DEV_POINTER, PTR_WINDOW, PTR_CAPS);
+  plat_entry(e + 8 * 32, PT_NET, 0, 4, 0xffff, DEV_NET, NET_WINDOW, NET_MTU); /* info: the MTU */
   uint32_t sum = 0;
   for (int i = 0; i < PLAT_LEN; i++) sum += buf[i];
   plat_put(buf + 16, sum, 4);

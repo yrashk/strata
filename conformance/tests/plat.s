@@ -4,16 +4,18 @@
 ;
 ; What it checks (common/platform.h)
 ;   * Header (32 bytes): "STPD", u16 version 1, u16 entry size 32, u16
-;     entries 7, u16 cores, u32 total length 256, u32 checksum, 12 bytes
+;     entries 9, u16 cores, u32 total length 320, u32 checksum, 12 bytes
 ;     reserved (zero).
-;   * checksum = the sum of all 256 bytes with the checksum field taken as
+;   * checksum = the sum of all 320 bytes with the checksum field taken as
 ;     zero, mod 2^32.
-;   * The seven entries (u16 type, u16 index, u16 space, u16 node, u64 info,
+;   * The nine entries (u16 type, u16 index, u16 space, u16 node, u64 info,
 ;     u64 base, u64 size): system memory (T3, 64 MiB), cluster store (T2,
 ;     256 KiB), console (info 3 = output | input), the platform table itself,
 ;     block device 0 (node = ncores, info = 8192 blocks), the framebuffer
 ;     (1280 x 800, stride 5120, format 1 = XRGB8888, at 0x3000000 in T3,
-;     16 MiB) and the timer (info = 1000000 ticks per second). "node" is
+;     16 MiB), the timer (info = 1000000 ticks per second), the pointer
+;     (info 0x0307: three buttons, two wheels; ports 0x4100, 0x10) and the
+;     network interface (info = MTU 1500; ports 0x4200, 0x20). "node" is
 ;     0xffff when nothing can be given to the device.
 ;   * Bytes past the table (still inside the window) read as zero.
 
@@ -21,16 +23,18 @@
 
         .data                           ; data Local Store
         .align 8                        ; transfer buffer
-tbl:    .space 256                      ; the table
+tbl:    .space 320                      ; the table
 past:   .space 32                       ; bytes after it
 ; expected entries: (type | index << 16 | space << 32 | node << 48), info, base, size
 expect: .dword 1 | 0 << 16 | 3 << 32 | 0xffff << 48, 0, 0, 0x4000000             ; memory: T3
         .dword 1 | 1 << 16 | 2 << 32 | 0xffff << 48, 0, 0, 0x40000               ; memory: T2
         .dword 2 | 0 << 16 | 4 << 32 | 0xffff << 48, 3, 0, 0x100                 ; console
-        .dword 3 | 0 << 16 | 4 << 32 | 0xffff << 48, 1, 0x1000, 256             ; platform table
+        .dword 3 | 0 << 16 | 4 << 32 | 0xffff << 48, 1, 0x1000, 320             ; platform table
         .dword 4 | 0 << 16 | 4 << 32, 8192, 0x2000, 0x300                        ; block device (node patched in: ncores)
         .dword 5 | 0 << 16 | 3 << 32 | 0xffff << 48, 1280 | 800 << 16 | 5120 << 32 | 1 << 48, 0x3000000, 0x1000000 ; framebuffer
         .dword 6 | 0 << 16 | 4 << 32 | 0xffff << 48, 1000000, 0x3000, 0x20      ; timer
+        .dword 7 | 0 << 16 | 4 << 32 | 0xffff << 48, 0x0307, 0x4100, 0x10       ; pointer
+        .dword 8 | 0 << 16 | 4 << 32 | 0xffff << 48, 1500, 0x4200, 0x20         ; network interface
 
         .text                           ; instruction Local Store
 main:
@@ -38,7 +42,7 @@ main:
         bnez  t0, park                  ; only core 0 runs the test
         la    s1, tbl                   ; s1 = table buffer
         li    t0, 0x1000                ; the platform table's window
-        li    t1, 288                   ; the table and 32 bytes past it
+        li    t1, 352                   ; the table and 32 bytes past it
         tget  tg1, s1, c3, t0, t1       ; read it
         twait tg1                       ; wait for it
 
@@ -49,8 +53,8 @@ main:
         ld    a0, 8(s1)                 ; entries, cores, length
         csrr  a1, ncores                ; cores
         slli  a1, a1, 16                ; in bits 16..31
-        ori   a1, a1, 7                 ; 7 entries
-        li    t0, 256 << 32             ; total length 256
+        ori   a1, a1, 9                 ; 9 entries
+        li    t0, 320 << 32             ; total length 320
         or    a1, a1, t0                ; expected
         call  chk                       ; check
         lwu   s2, 16(s1)                ; s2 = the stored checksum
@@ -69,7 +73,7 @@ ck_loop:
         lbu   t2, 0(t2)                 ; the byte
         add   t1, t1, t2                ; add it
         addi  t0, t0, 1                 ; next
-        li    t3, 256                   ; table length
+        li    t3, 320                   ; table length
         bne   t0, t3, ck_loop           ; loop
         andi  t2, s2, 0xff              ; take the checksum field's own bytes back out
         sub   t1, t1, t2                ; byte 16
@@ -102,7 +106,7 @@ en_loop:
         ld    a1, 0(t1)                 ; expected
         call  chk                       ; check
         addi  s4, s4, 1                 ; next
-        li    t0, 28                    ; 7 entries x 4 words
+        li    t0, 36                    ; 9 entries x 4 words
         bne   s4, t0, en_loop           ; loop
 
 ; ---- past the end ---------------------------------------------------------------------------------

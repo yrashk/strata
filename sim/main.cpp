@@ -1,7 +1,7 @@
 // strata-rtl: runs an .stx image on the Verilated Strata RTL.
 //
 //   strata-rtl [-t trace.txt] [-m max_cycles] [-d disk.img] [-i input.txt] [-b cycles]
-//              [-T real|virtual] [-g none] [-F frame.ppm] [-z scale] [-r WxH] [-H] image.stx
+//              [-T real|virtual] [-g none] [-F frame.ppm] [-z scale] [-r WxH] [-H] [-N mode] image.stx
 //
 // Console output goes to stdout; console input comes from the -i file or
 // stdin (an interactive terminal is put in character mode) and from the
@@ -13,7 +13,9 @@
 // (-T real, the default) or clock cycles / 100 (-T virtual). The first
 // write into the framebuffer window (or the first PRESENT) opens a window
 // that scans out the framebuffer memory live (common/display.h); closing it
-// ends the run. Exit status: 0 if every core halted (or the window was
+// ends the run. The network interface's link (-N: none, loop, or a UDP
+// cable to another simulator) is the host side in common/net.h, shared with
+// the emulator. Exit status: 0 if every core halted (or the window was
 // closed), 1 on a fault or timeout.
 
 #include <cstdio>
@@ -29,6 +31,7 @@
 #include "../common/stx.h"
 #include "../common/platform.h"
 #include "../common/display.h"
+#include "../common/net.h"
 
 #ifndef NCORES
 #define NCORES 4
@@ -80,6 +83,25 @@ extern "C" int sim_getc() {
   return host_getc();
 }
 
+// network interface: TX bytes, the next RX packet, STATUS (common/net.h)
+static uint8_t net_cur[NET_MTU]; // the packet an RX read is being served from
+static unsigned net_curlen;
+extern "C" void sim_net_tx(int idx, char b, int last) {
+  net_tx_put((uint64_t)idx, (uint8_t)b);
+  if (last) net_tx_done((uint64_t)idx + 1);
+}
+extern "C" int sim_net_rx_take() {
+  if (!net_rx_count()) return -1;
+  unsigned n;
+  const uint8_t *p = net_rx_head(&n);
+  memcpy(net_cur, p, n);
+  net_curlen = n;
+  net_rx_pop();
+  return (int)n;
+}
+extern "C" char sim_net_rx_byte(int idx) { return idx >= 0 && (unsigned)idx < net_curlen ? (char)net_cur[idx] : 0; }
+extern "C" long long sim_net_status() { return (long long)net_status(); }
+
 extern "C" long long sim_time_us() { return virtual_time ? -1 : (long long)host_us(); }
 
 // The display's copy of the scanned-out framebuffer, read out of the
@@ -126,7 +148,7 @@ static void usage() {
   fprintf(stderr,
           "usage: strata-rtl [-t trace.txt] [-m max_cycles] [-d disk.img] [-i input.txt] [-b cycles]\n"
           "                  [-T real|virtual] [-g none] [-F frame.ppm] [-z scale] [-r WxH] [-H]\n"
-          "                  image.stx\n"
+          "                  [-N mode] image.stx\n"
           "  -t FILE     write an instruction trace\n"
           "  -m N        stop after N cycles (timeout)\n"
           "  -d FILE     block device image\n"
@@ -138,6 +160,7 @@ static void usage() {
           "  -z N        window scale (default 1)\n"
           "  -r WxH      framebuffer size (default 1280x800; width a multiple of 8, 320x200..2560x1600)\n"
           "  -H          when every core has halted, keep the window open until it is closed\n"
+          "  -N MODE     network link: none (default), loop, or udp:LPORT:HOST:RPORT (common/net.h)\n"
           "(%d cores in this build)\n", NCORES);
   exit(2);
 }
@@ -179,6 +202,8 @@ int main(int argc, char **argv) {
     } else if (!strcmp(argv[i], "-z") && more) {
       scale = atoi(argv[++i]);
       if (scale < 1 || scale > 8) usage();
+    } else if (!strcmp(argv[i], "-N") && more) {
+      if (!net_host_open(argv[++i])) return 2;
     } else if (!strcmp(argv[i], "-H")) {
       hold = true;
     } else if (argv[i][0] != '-' && !path) {
@@ -232,6 +257,7 @@ int main(int argc, char **argv) {
     if (break_at && cycles == break_at) host_breaks++;
     if ((cycles & 8191) == 0) {   // now and then: terminal input, window events
       host_poll();
+      net_host_poll();
       if (host_quit) break;
     }
   }
