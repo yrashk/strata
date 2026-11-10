@@ -12,7 +12,14 @@ const PRESETS = {
     files: ["bootrom.stx", "disk.img"],
     args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
     fitScreen: true,
-    about: "The boot ROM finds the disk, loads the kernel into every core's Local Stores, and StrataOS starts its servers and the shell on 12 cores. Try help, ls, ps, -n 3 mandel, or ws for the window server (click the screen; Alt+P launches programs, Alt+Enter opens a terminal).",
+    about: "The boot ROM finds the disk, loads the kernel into every core's Local Stores, and StrataOS starts its servers and the shell on 12 cores. Try help, ls, ps, -n 3 mandel, or ws for the window server (click the screen; Alt+P launches programs, Alt+Enter opens a terminal, Alt+? lists the keys).",
+  },
+  osws: {
+    files: ["bootrom.stx", "disk-ws.img"],
+    args: ["-c", "12", "-d", "disk-ws.img", "bootrom.stx"],
+    fitScreen: true,
+    screenKeys: true,
+    about: "StrataOS on 12 cores with the window server started at boot (its rc runs ws): the real ws, its terminals running the real shell. A key help comes up after the splash; any key or click dismisses it. Alt+Enter opens a terminal, Alt+P the launch palette, a click focuses a tile, the wheel scrolls a terminal back, Alt+? shows the help again.",
   },
   ws: {
     files: ["wsdemo.stx"],
@@ -157,6 +164,36 @@ canvas.addEventListener("keydown", (e) => {
   sendText(e.altKey && s !== "\x03" ? "\x1b" + s : s);
 });
 canvas.addEventListener("click", () => canvas.focus());
+
+// The canvas's mouse: the pointer device (web/web.c web_pointer; op = the
+// PTR_* kinds of common/platform.h). Positions are framebuffer pixels.
+function sendPtr(op, a, b) { if (W && !stopped) W.postMessage({ t: "ptr", op, a, b }); }
+function ptrAt(e) {
+  const r = canvas.getBoundingClientRect();
+  return [Math.floor((e.clientX - r.left) * canvas.width / r.width), Math.floor((e.clientY - r.top) * canvas.height / r.height)];
+}
+const BUTTON = [0, 2, 1]; // DOM left, middle, right -> device bit 0 left, 1 right, 2 middle
+canvas.addEventListener("pointermove", (e) => sendPtr(1, ...ptrAt(e)));
+canvas.addEventListener("pointerdown", (e) => {
+  if (e.button > 2) return;
+  canvas.setPointerCapture(e.pointerId);
+  sendPtr(1, ...ptrAt(e));
+  sendPtr(2, BUTTON[e.button], 1);
+});
+canvas.addEventListener("pointerup", (e) => { if (e.button <= 2) sendPtr(2, BUTTON[e.button], 0); });
+canvas.addEventListener("pointerenter", (e) => { sendPtr(4, 0, 0); sendPtr(1, ...ptrAt(e)); });
+canvas.addEventListener("pointerleave", () => sendPtr(5, 0, 0));
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+let wheelY = 0, wheelX = 0; // pixel deltas, one notch per 100 px (one line = one notch)
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const k = e.deltaMode === 0 ? 1 : 100;
+  wheelY += e.deltaY * k; wheelX += e.deltaX * k;
+  const ny = Math.trunc(wheelY / 100), nx = Math.trunc(wheelX / 100);
+  if (!ny && !nx) return;
+  wheelY -= ny * 100; wheelX -= nx * 100;
+  sendPtr(3, -ny, nx); // > 0: away from the user (DOM deltaY < 0)
+}, { passive: false });
 
 // ---------------------------------------------------------------- screen
 // Changed rows from the worker, already RGBA.
@@ -324,6 +361,7 @@ function onWorker(w, m) {
   case "status": {
     const t = performance.now();
     stat = m;
+    canvas.style.cursor = m.ptr ? "none" : ""; // the guest draws its own
     mips = (m.steps - last.steps) / ((t - last.t) * 1000);
     last = { t, steps: m.steps };
     statusEl.textContent = "running · " + statusLine();

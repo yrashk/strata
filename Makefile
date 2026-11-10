@@ -337,7 +337,7 @@ bench: $(BUILD)/strata-emu examples $(BUILD)/forth.stx
 #             interpreted and with the WebAssembly JIT (tools/test-wasm.sh)
 EMCC ?= emcc
 WEB := $(BUILD)/web
-WEB_IMAGES := $(BUILD)/bootrom.stx $(BUILD)/disk.img $(BUILD)/forth.stx \
+WEB_IMAGES := $(BUILD)/bootrom.stx $(BUILD)/disk.img $(BUILD)/disk-ws.img $(BUILD)/forth.stx \
               $(BUILD)/examples/gfx.stx $(BUILD)/examples/hello.stx $(BUILD)/examples/mandel.stx \
               $(BUILD)/ws/wsdemo.stx
 .PHONY: web-assets wasm web-code web-site test-wasm
@@ -354,7 +354,7 @@ $(WEB)/strata-emu.js: web/web.c emu/emu.c emu/jit/jit_wasm.c emu/jit/jit.h emu/j
 	$(EMCC) -std=gnu11 -O3 -Wall -DNO_SDL -o $@ web/web.c emu/jit/jit_wasm.c \
 	  -sMODULARIZE=1 -sEXPORT_NAME=createStrata -sENVIRONMENT=worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
 	  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=192MB -sALLOW_TABLE_GROWTH=1 \
-	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_malloc,_free \
+	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_malloc,_free \
 	  -sEXPORTED_RUNTIME_METHODS=callMain,FS,HEAPU8,wasmMemory,wasmTable
 
 wasm: $(WEB)/strata-emu.js web-assets

@@ -12,7 +12,9 @@
 # markers and the last frame (-F): the status strip, a focused tile's amber
 # edge, terminal text.
 # In the script, ESC W makes ws ignore the keyboard for a second: time for
-# programs to start and draw.
+# programs to start and draw (it works while the key help is shown). The
+# space after each start dismisses the help (shown when the splash ends; the
+# key is not passed on).
 set -e
 BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
@@ -21,7 +23,7 @@ T=$BUILD/test-ws
 mkdir -p $T
 cp "$DISK" $T/disk.img
 W='\033W'
-printf "ws\n$W$W$W${W}echo ws-term-ok > wsmark\n$W\033pwm\n$W$W\033pwclock\n$W$W\033\n$W${W}ps\n$W\0332$W\033q$W$W\0331$W\033Qcat wsmark\nws\n$W$W$W${W}cores\n$W$W\033H" > $T/keys
+printf "ws\n$W$W$W${W} echo ws-term-ok > wsmark\n$W\033pwm\n$W$W\033pwclock\n$W$W\033\n$W${W}ps\n$W\0332$W\033q$W$W\0331$W\033Qcat wsmark\nws\n$W$W$W${W} cores\n$W$W\033H" > $T/keys
 $BUILD/strata-emu -c 12 -g none -m 40000000000 -F $T/frame.ppm -d $T/disk.img -i $T/keys "$ROM" > $T/out.txt 2>&1 || {
   echo "test-ws: FAILED: the emulator exited with an error"; tail -5 $T/out.txt; exit 1; }
 fail() { echo "test-ws: FAILED: $1"; tail -20 $T/out.txt; exit 1; }

@@ -109,7 +109,7 @@ enum { PTR_MOVE = 1, PTR_BUTTON, PTR_WHEEL, PTR_ENTER, PTR_LEAVE }; /* event kin
 #define PT_TIMER 6
 #define PT_POINTER 7
 
-#define PLAT_ENTRIES 7 /* the pointer device (PT_POINTER) is not announced yet: work in progress */
+#define PLAT_ENTRIES 8
 #define PLAT_LEN (32 + 32 * PLAT_ENTRIES)
 #define BLK_IDENT_LEN 64
 
@@ -160,6 +160,7 @@ static inline void plat_build_fb(uint8_t *buf, int ncores, uint64_t disk_blocks,
   plat_entry(e + 5 * 32, PT_FB, 0, 3, 0xffff, FB_BASE, FB_SIZE,
              (uint64_t)fb_w | (uint64_t)fb_h << 16 | (uint64_t)(fb_w * 4) << 32 | (uint64_t)FB_FORMAT << 48);
   plat_entry(e + 6 * 32, PT_TIMER, 0, 4, 0xffff, DEV_TIMER, TMR_WINDOW, TMR_HZ);
+  plat_entry(e + 7 * 32, PT_POINTER, 0, 4, 0xffff, DEV_POINTER, PTR_WINDOW, PTR_CAPS);
   uint32_t sum = 0;
   for (int i = 0; i < PLAT_LEN; i++) sum += buf[i];
   plat_put(buf + 16, sum, 4);

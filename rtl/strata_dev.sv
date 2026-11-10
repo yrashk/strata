@@ -8,12 +8,15 @@
 //   0x3000  timer           NOW, FREQ, DEADLINE (read/write), WAIT
 //   0x4000  framebuffer     PRESENT (write), VSYNC
 //           controller
+//   0x4100  pointer         EVENT (a waiting read; a write completes the
+//                           waiting ones with 0), STATE
 //
 // Device transfers move single bytes. A stream port ignores the byte index; a
 // ROM or register reads byte `addr + i`. A register is latched when its byte
 // 0 is read and a written value takes effect when its byte 7 is written.
 // Reads that have nothing to give yet (console input with no byte, the break
-// port, WAIT before the deadline, VSYNC before the next refresh) answer
+// port, WAIT before the deadline, VSYNC before the next refresh, EVENT with
+// no event queued) answer
 // `retry` before any byte, so the bus is not held while waiting; the Transfer
 // Unit asks again later.
 //
@@ -24,6 +27,11 @@
 // the bus tells us which master asks (`master`: core i's Transfer Unit is
 // master 2i). PRESENT asks the simulator harness to show the framebuffer; on
 // an FPGA it does nothing yet.
+//
+// Pointer: in simulation the events and the state come from the harness
+// (common/display.h: the window's mouse or a -P script); on an FPGA there is
+// no pointer yet: STATE reads 0 (not over the display) and EVENT waits until
+// a write releases it.
 //
 // Block device protocol (see common/platform.h): a command arrives on the
 // submission stream; the buffer capability arrives through this node's
@@ -218,6 +226,19 @@ module strata_dev
   logic [NCORES-1:0] brk_wait, brk_rel;
   logic        brk_rel_me;     // the current transfer's core has a release waiting
   logic [7:0]  rom_b;
+  // pointer: ptr_have/ptr_ev = an event fetched from the host, not yet read;
+  // ptr_wait/ptr_rel per core, as for the break port (a write to EVENT
+  // completes every EVENT read waiting at that moment with 0)
+  logic        is_ptr_ev, ptr_st_hit, ptr_have, ptr_rel_me;
+  logic [63:0] ptr_ev, lat_ptr, ptr_st, lat_pst;
+  logic [NCORES-1:0] ptr_wait, ptr_rel;
+  assign is_ptr_ev  = t_port == DEV_PTR_EVENT;
+  assign ptr_st_hit = ra >= DEV_PTR_STATE && ra < DEV_PTR_STATE + 64'd8;
+  always_comb begin
+    ptr_rel_me = 0;
+    for (int c = 0; c < NCORES; c++)
+      if (int'(t_core) == c && ptr_rel[c]) ptr_rel_me = 1;
+  end
   assign is_con_in = t_port == DEV_CON_IN;
   assign is_cq     = t_port == BLK_CQ;
   assign is_brk    = t_port == DEV_CON_BRK;
@@ -253,7 +274,7 @@ module strata_dev
   always_comb begin
     rom_hit = 1;
     rom_b   = 8'd0;
-    if (ra >= DEV_PLAT && ra < DEV_PLAT + 64'(PLAT_LEN)) rom_b = plat[8'(ra - DEV_PLAT)];
+    if (ra >= DEV_PLAT && ra < DEV_PLAT + 64'(PLAT_LEN)) rom_b = plat[9'(ra - DEV_PLAT)];
     else if (ra >= DEV_BLK0 && ra < DEV_BLK0 + 64'(IDENT_LEN)) rom_b = ident(int'(ra - DEV_BLK0));
     else rom_hit = 0;
   end
@@ -278,7 +299,7 @@ module strata_dev
         if (t_port == DEV_CONSOLE) begin
           wready       = con_tx_ready;
           con_tx_valid = wvalid;
-        end else if (t_port == DEV_CON_REL) begin
+        end else if (t_port == DEV_CON_REL || t_port == DEV_PTR_EVENT) begin
           wready       = 1;
         end else begin
           wready       = 1;
@@ -314,6 +335,22 @@ module strata_dev
             rvalid = 1;
             rdata  = t_idx < 8 ? {56'b0, lat_vs[8*t_idx[2:0] +: 8]} : 64'd0;
           end
+        end else if (is_ptr_ev) begin                // completes on an event, or 0 on a release
+          if (t_idx == 0) begin
+            if (ptr_rel_me) begin
+              rvalid = 1;
+              rdata  = 64'd0;
+            end else if (ptr_have) begin
+              rvalid = 1;
+              rdata  = {56'b0, ptr_ev[7:0]};
+            end else retry = 1;
+          end else begin
+            rvalid = 1;
+            rdata  = t_idx < 8 ? {56'b0, lat_ptr[8*t_idx[2:0] +: 8]} : 64'd0;
+          end
+        end else if (ptr_st_hit) begin               // byte 0 reads the live state, the rest the latch
+          rvalid = 1;
+          rdata  = {56'b0, ra[2:0] == 0 ? ptr_st[7:0] : lat_pst[8*ra[2:0] +: 8]};
         end else if (tmr_hit) begin
           rvalid = 1;
           rdata  = {56'b0, tmr_val[8*ra[2:0] +: 8]};
@@ -363,6 +400,44 @@ module strata_dev
       end
     end
   end
+
+  // pointer state: the event held for a read, releases, the latches
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      ptr_have <= 0;
+      ptr_ev   <= '0;
+      ptr_wait <= '0;
+      ptr_rel  <= '0;
+    end else begin
+      if (ts == T_RUN && !t_we && is_ptr_ev && t_idx == 0 && rvalid) begin
+        lat_ptr <= ptr_rel_me ? 64'd0 : ptr_ev;     // the bytes after byte 0
+        if (!ptr_rel_me) ptr_have <= 0;             // the event is the reader's
+      end
+`ifdef SIMULATION
+      else if (!ptr_have && ts == T_RUN && !t_we && is_ptr_ev && t_idx == 0) begin
+        longint e;                                  // fetched while a read is being tried
+        e = sim_ptr_pop();
+        if (e >= 0) begin
+          ptr_have <= 1;
+          ptr_ev   <= e;
+        end
+      end
+`endif
+      if (ts == T_RUN && !t_we && ptr_st_hit && ra[2:0] == 0 && rvalid) lat_pst <= ptr_st;
+      for (int c = 0; c < NCORES; c++) begin
+        if (ts == T_RUN && is_ptr_ev && !t_we && t_idx == 0 && int'(t_core) == c) begin
+          ptr_wait[c] <= !rvalid;                   // tried: waits, or completes now
+          if (rvalid) ptr_rel[c] <= 0;
+        end
+        if (ts == T_RUN && t_we && t_port == DEV_PTR_EVENT && wvalid && ptr_wait[c]) ptr_rel[c] <= 1;
+      end
+    end
+  end
+`ifdef SIMULATION
+  always_ff @(posedge clk) ptr_st <= sim_ptr_state(ts == T_RUN && !t_we && ptr_st_hit && ra[2:0] == 0 ? 1 : 0);
+`else
+  assign ptr_st = '0;
+`endif
 
   // timer and VSYNC state: latches, DEADLINE writes, armed VSYNC reads
   logic [63:0] wa;          // byte address of the current write beat

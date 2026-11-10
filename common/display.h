@@ -274,12 +274,17 @@ static inline uint64_t host_ptr_pop(void) {
   uint64_t e = host_ptr_q[host_ptr_head];
   host_ptr_head = (host_ptr_head + 1) % PTR_QLEN;
   host_ptr_cnt--;
+  host_ptr_used = true;
   return e;
+}
+/* STATE as the guest reads it; host_ptr_state() also notes that it did. */
+static inline uint64_t host_ptr_peek(void) {
+  return (uint64_t)host_ptr_x | (uint64_t)host_ptr_y << 16 | (uint64_t)host_ptr_btn << 32 |
+         (uint64_t)host_ptr_cnt << 40 | (uint64_t)host_ptr_in << 56;
 }
 static inline uint64_t host_ptr_state(void) {
   host_ptr_used = true;
-  return (uint64_t)host_ptr_x | (uint64_t)host_ptr_y << 16 | (uint64_t)host_ptr_btn << 32 |
-         (uint64_t)host_ptr_cnt << 40 | (uint64_t)host_ptr_in << 56;
+  return host_ptr_peek();
 }
 
 /* -P file: scripted pointer input, for tests. One event per line:

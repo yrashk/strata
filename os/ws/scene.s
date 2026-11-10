@@ -4,8 +4,9 @@
 ;
 ; scn_build() turns the model into the display list, back to front:
 ;   the grid background (below the strip), the status strip (lattice.s),
-;   every tile (frame.s), and the command palette over everything when it is
-;   open; or, while the splash runs, only the splash (splash.s).
+;   every tile (frame.s), the command palette when it is open, the key help
+;   when it is shown, and the pointer's cursor over everything (pointer.s);
+;   or, while the splash runs, only the splash (splash.s).
 ; It is rebuilt before every commit (a few hundred items: tens of thousands
 ; of instructions, a small fraction of drawing even one terminal line), so
 ; the list is always exactly the model; damage says which pixels to draw.
@@ -67,8 +68,10 @@ sb_w:   la    t0, m_nwin                ; ...
         j     sb_w                      ; ...
 sb_pal: la    t0, m_pal_open            ; the palette?
         ld    t0, 0(t0)                 ; ...
-        beqz  t0, sb_ret                ; no
+        beqz  t0, sb_hp                 ; no
         call  pal_emit                  ; yes
+sb_hp:  call  help_emit                 ; the help, if shown
+        call  cur_emit                  ; the cursor, on top
 sb_ret: la    a0, scn_items             ; the list
         call  gfx_count                 ; ...
         mv    a1, a0                    ; ...
