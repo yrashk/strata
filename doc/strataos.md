@@ -637,11 +637,16 @@ reference counts per process).
 → id; 1 READ (0 at the end of the file), 2 WRITE, 4 CLOSE (a written file is
 saved to disk when its last reference closes; files being written are held
 in a 128 KiB region); 10 DIR (data = a tag path, none = every file) → count
-+ 32-byte records (24 bytes name, u64 size), -4 no such tag; 11 UNLINK;
++ 32-byte records (24 bytes name, u64 size; 126 at most), and in the reply's
+mode word the *facets*: a tag set (bit t = tag number t) of the other tags
+the matching files carry; -4 no such tag; 11 UNLINK;
 12 TAG / 13 UNTAG (data = path, a zero byte, a tag name) → 0, -4, -6 (64
 tags in use), -1 (bad tag name); 14 TAGS (data = a path, none = every tag)
 → count + 32-byte records (16 bytes name, u64 files carrying it, u64 tag
-number); 27 STAT (data = path) → size; 28 LOADIMG (from `proc` when
+number); 15 RENAME (data = path, a zero byte, a new path) → 0, -4, -6, -1
+(bad new name): the file takes the new path's name and gains its tags
+(created if new), keeping its own tags, its blocks and its directory entry;
+another file of the new name is deleted; 27 STAT (data = path) → size; 28 LOADIMG (from `proc` when
 spawning: data = path, handle = most bytes, mode = arena offset, the arena
 as attachment: fs copies the program image into it and the arena goes back
 with the reply) → size; 32 STATFS → data: u64 total blocks, used blocks,
@@ -666,9 +671,31 @@ a write keeps its tags. DIR takes a path of tags and lists the files that
 carry all of them (`/` or nothing: every file); when its last component is
 not a tag but names a file carrying the others, it lists that file. UNLINK
 through a path deletes the file (to take it out of a directory, untag it).
-A tag that no file carries any more disappears. Utilities: `ls [-t] [PATH]`,
-`tag FILE TAG...`, `untag FILE TAG...`, `tags [FILE...]`; the shell completes
-file names behind a tag path (`cat /doc/mo` Tab).
+A tag that no file carries any more disappears. A component `-tag` (before
+the name; in DIR also last) *excludes*: the file must not carry that tag, so
+`ls /src/-demo` lists the sources that are not demos and `ls /-bin` every
+file not tagged bin (excluding a tag that does not exist excludes nothing).
+A path that creates (opening for writing, RENAME's new path) cannot exclude
+(-1), and a tag name cannot start with `-`.
+
+**Subdirectories are facets.** DIR also answers the other tags that at least
+one matching file carries: the OR of their tag sets, without the path's own
+tags (one loop over the 128 sets; nothing on the disk changes). These are
+the ways to narrow the listing further, as subdirectories would be: `ls /src`
+shows the files tagged src, then `demo/`; `ls /src/demo` narrows to both;
+`ls /` shows every file, then every tag in use. A path naming one file has
+no facets. The shell's Tab completes facets in a path like folders (`cat
+/sr` Tab gives `/src/`, with no space after it).
+
+Utilities: `ls [-t] [PATH]` (files, then facets as `tag/`; `-t` adds each
+file's tags), `cat`, `cp [-t] SRC DST` (a copy; DST's path gives it tags,
+`-t` also copies SRC's; names are unique, so DST must name another file),
+`mv SRC DST` (RENAME; `mv notes /todo/notes` or `mv notes /todo/` keeps the
+name and adds the tag), `rm FILE...`, `touch FILE...` (creates empty files;
+an existing file the path does not name gets the path's tags), `tag FILE
+TAG...`, `untag FILE TAG...`, `retag FILE [TAG...]` (exactly these tags),
+`tags [FILE...]`, `df`; the shell completes file names and facets behind a
+tag path (`cat /doc/mo` Tab).
 
 **Bare-metal programs and redirection.** A program without the marker has
 no library, so `prog < in > out` uses 34/35: `proc` has `fs` copy the
@@ -755,7 +782,8 @@ ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47.
 - Builtins: help, echo, set, unset, history, jobs, fg, wait, kill, sleep
   (decimal seconds), time, clear, source, exit, halt, run, true, false.
   A builtin in a pipeline or in the background runs in a child shell.
-- Programs on disk: ls, cat, rm, df, tag, untag, tags, ps, free, uptime,
+- Programs on disk: ls, cat, cp, mv, rm, touch, df, tag, untag, retag,
+  tags, ps, free, uptime,
   devs, hexdump, cores,
   sched (`sched` shows the slice and switch rates; `sched 500us` / `sched 5ms`
   sets it; `rc` may set it at boot),
@@ -941,7 +969,8 @@ in `os/ws/`).
   of the tag table (4 blocks, right after the directory; 0 = none): 64 tag
   names of 16 bytes (zero-padded; a zero first byte = a free slot), then 128
   u64 tag sets, one per directory entry (bit t of set f = entry f carries
-  tag t). `mkdisk -t tag,tag...` tags the files named after it.
+  tag t). `mkdisk -t tag,tag...` tags the files named after it (a tag name
+  has no `/` and does not start with `-`).
 - Memory handed over by the boot ROM: c0 = [0, 15 MiB), and **c13 =
   [16 MiB, 48 MiB)**: system memory above the load area and below the
   framebuffer window; and core 0 also gets **c14 = the framebuffer window
@@ -1057,8 +1086,8 @@ closes; `-H`: without the half-close, for web servers that drop
 half-closed connections; a refused connection is tried again for 10 s),
 `nc -l PORT` (receive one connection), `nc -u HOST PORT` / `nc -u -l
 PORT` (UDP), `tcpecho [PORT [COUNT]]` (a TCP echo server, port 7),
-`ifconfig [ADDRESS | dns A [B]]` (also shows the resolvers) and
-`netstat`.
+`ifconfig [ADDRESS | dns A [B]]` (also shows the resolvers),
+`netstat` and `httpd` (2.11).
 
 **In the browser** (`site/play/net.js`, `web/web.c`; the page's Network
 menu): *test peer* (`-N peer`: the built-in peer and its names; every other
@@ -1070,6 +1099,55 @@ host numbers, 10.0.0.1, 10.0.0.2, ..., through STATUS's hint); *relay*
 types, nothing by default; `tools/netrelay` is that relay: the same NAT
 behind a small WebSocket server on 127.0.0.1:8765, `-f HOSTPORT:GUESTPORT`
 for inbound).
+
+### 2.11 The HTTP server (`httpd`)
+
+`httpd [-p PORT] [-c CONNS]` (`os/progs/httpd.s`, tagged `bin,net`) serves
+the file system over HTTP/1.0 and 1.1: GET and HEAD, one response per
+connection (`Connection: close`, no keep-alive). `httpd &` at the shell;
+with the emulator's port forwarding (`-N nat,fwd=8080:80`) a browser on the
+host opens `http://localhost:8080/`.
+
+- **URLs are tag paths.** `/TAG/TAG/NAME` opens NAME through that path (the
+  file must carry the tags, as `cat /TAG/TAG/NAME` would); `/TAG/TAG/` (a
+  trailing slash) is a generated listing of the files carrying every tag
+  (DIR; `-TAG` excludes, as in `ls`): name, size and the file's tags as
+  links to `/TAG/`, and DIR's facets as links that narrow the listing
+  (`/src/` links `/src/demo/`). `/` is the file named `index.html` (any
+  tags) if there is one, else the listing of every file, which is always at
+  `/~/`. `/TAG` without the slash, when no file has that name but the path
+  is a tag path, is a 301 to `/TAG/`. `/~ps` is generated from `proc`'s
+  INFO, CORES and PS: uptime, cores, processes, context switches and the
+  KiB they moved. `%XX` is decoded; a query (`?...`) is ignored.
+- **Responses.** `Content-Type` from the extension (`html`/`htm`, `txt`,
+  `css`, `js`, `json`, `png`, `jpg`, `gif`, `svg`, `ico`; `s`, `fs`, `md`,
+  `c`, `h` as `text/plain`; no extension: `text/plain` if the first chunk
+  looks like text, else `application/octet-stream`) and `Content-Length`
+  for files; generated pages end with the connection (no
+  `Content-Length`). Files of any size go out in chunks of 4032 bytes, one
+  `sys_read` and one `sys_write` each (the socket's 2 KiB send buffer paces
+  them). Errors are small HTML pages: 400 (a malformed request line, a bad
+  `%XX`, a path over 256 bytes), 404, 405 (other methods; `Allow: GET,
+  HEAD`).
+- **Connections.** No connection open: `httpd` blocks in ACCEPT. Some
+  open: it polls them (non-blocking READ and ACCEPT, a 5 ms sleep when
+  nothing happened), up to CONNS at a time (1..3, default 3; `net` has 4
+  sockets and the listener takes one). A request is complete at the blank
+  line after its headers (or when the client half-closes); only the
+  request line and the last bytes are kept once 1 KiB has arrived, so
+  headers of any length are fine. A connection that sends no complete
+  request in 10 s is closed. A response is written to the end before
+  other connections are read again; after it `httpd` closes, so its side
+  of each connection spends `net`'s 500 ms TIME-WAIT on a socket.
+- **Log**: a line per request on standard output, `METHOD TARGET STATUS
+  BYTES` (BYTES: the body sent), before the connection is closed.
+- **The site** on the disk is tagged `www`: `index.html` (about the
+  machine, with links to the tag listings, some sources and `/~ps`) and
+  `style.css`, which the generated pages use too. A file written under
+  `/www/` is at that URL at once.
+- D-LS: 31,280 bytes of data with the library (the response buffer, a
+  4 KiB buffer shared by DIR records, file chunks and PS records, the tag
+  tables, 3 KiB of requests); code: 12.3 KiB of the 32 KiB I-LS.
 
 ## 3. Tests
 
@@ -1103,6 +1181,19 @@ for inbound).
   file, UDP, RST, three inbound connections through `fwd=`.
   `tools/test-wasm.sh` also runs StrataOS in the WebAssembly build with
   the page's DNS over HTTPS (a stubbed fetch) and through `tools/netrelay`.
+- `tools/test-net.sh`: TCP/IP. One machine with the test peer (`-N peer`,
+  `-j -T virtual`): ping over loopback and to the peer, TCP through
+  `tcpecho` (a 300 KB file compared with itself), UDP, a refused connection,
+  `netstat`, compared with `tools/test-net.out`; then two emulators linked
+  over host UDP: ping, TCP both ways, UDP.
+- `tools/test-http.sh`: `httpd`. One machine (`-j -T virtual`) fetches
+  pages over loopback with `echo REQUEST | nc 127.0.0.1 80`: the index, a
+  listing and its facets, files by tag path, `%XX` and a query, HEAD, 301,
+  400, 404, 405, `/~ps`, a 300 KB file (sizes against `wc` and the host),
+  `/` without `index.html`, and browser-style requests (CR LF, a 3 KB
+  Cookie header) from the test disk `build/http-test/disk.img`, compared
+  with `tools/test-http.out`; then two emulators over host UDP: a quick
+  request is answered while a slow connection waits.
 - `tools/test-as.sh` (run on its own, not by `make test`): the self-hosted
   assembler against `sasm`, including a StrataOS boot that assembles and
   runs a program.

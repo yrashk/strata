@@ -187,9 +187,10 @@ footer { margin-top: 80px; padding: 40px 32px 56px; text-align: center; color: v
 .bands.small { position: relative; inset: auto; gap: 6px; margin: 0 auto 28px; max-width: 520px; opacity: 0.6; }
 .bands.small span { height: 4px; margin: 0 auto; animation: none; }
 
-/* mid widths: the in-page section links give way to the pages */
+/* mid widths: the in-page section links give way to the pages (on the
+   other pages too: links to the landing page's sections, ../#idea) */
 @media (max-width: 1180px) {
-  .links a[href^="#"] { display: none; }
+  .links a[href^="#"], .links a[href^="../#"] { display: none; }
 }
 @media (max-width: 820px) {
   .cards, .cards.three, .split { grid-template-columns: 1fr; }

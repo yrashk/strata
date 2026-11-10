@@ -10,6 +10,14 @@
 // The build id (tools/web-stamp.sh puts the commit here): every asset URL
 // carries it, so a browser never mixes files of two deploys.
 const BUILD = "__BUILD__";
+
+// Safari on iPhone and iPad keeps compiled WebAssembly in a small pool and
+// kills the page when the JIT fills it: there the JIT keeps at most 256
+// regions alive (all cores) and translates only code run 200 times. Shared
+// with the Forth playground (site/forth/forth.js).
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const JIT_LIMITS = IOS ? { jitBudget: 256, jitHot: 200 } : {};
 const V = "?v=" + BUILD;
 
 const PRESETS = {
@@ -106,10 +114,13 @@ let stopped = true;    // the machine has stopped (halted, deadlock, exit) or no
 let stat = null;       // the worker's latest status message
 let last = { t: 0, steps: 0 }, mips = 0, runStart = 0;
 
-// ?jit=0 starts with the JIT off; the checkbox restarts the current preset
+// ?jit=0 starts with the JIT off, ?jit=1 on; the checkbox restarts the
+// current preset. On iPhone and iPad the JIT starts off: Safari there kills
+// the page once compiled WebAssembly fills its pool, even with the JIT's
+// budget (JIT_LIMITS, used if it is turned on).
 const params = new URLSearchParams(location.search);
 const jitBox = $("jit");
-jitBox.checked = params.get("jit") !== "0";
+jitBox.checked = params.get("jit") === "1" || (params.get("jit") !== "0" && !IOS);
 
 let wasmModule = null;
 async function compileWasm() {
@@ -419,7 +430,7 @@ async function run(key) {
     w.onmessage = (e) => onWorker(w, e.data);
     w.onerror = (e) => { if (w === W) setStopped("error: " + (e.message || "the worker failed")); };
     // the module and the images are copied (structured clone), so Reset can reuse them
-    w.postMessage({ t: "start", wasm, files: p.files.map((name, i) => ({ name, data: bufs[i] })), args, net });
+    w.postMessage(Object.assign({ t: "start", wasm, files: p.files.map((name, i) => ({ name, data: bufs[i] })), args, net }, JIT_LIMITS));
     if (p.screenKeys) canvas.focus(); else term.focus();
   } catch (e) {
     setStopped("error: " + (e && e.message ? e.message : e));
@@ -478,3 +489,55 @@ $("demos").addEventListener("change", (e) => {
 const want = params.get("run"), demo = params.get("demo");
 if (want && PRESETS[want])
   run(want).then(() => { if (want === "forth" && demo && /^[\w-]+$/.test(demo)) pasteDemo(demo); });
+
+// ---------------------------------------------------------------- touch keys
+// A phone or tablet has no hardware keyboard: the soft keyboard types only
+// into text fields, and it has no Alt, Ctrl or Esc. So on a touch screen a
+// key bar under the screen sends those, and its Keyboard button focuses a
+// hidden field whose input goes to the machine as the canvas keyboard would
+// (Ctrl and Alt are sticky for the next key).
+(() => {
+  const bar = $("touchkeys"), field = $("tkin");
+  if (!bar || !matchMedia("(pointer: coarse)").matches) return;
+  const unesc = (s) => s.replace(/\\x([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+                        .replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+  let ctrl = false, alt = false;
+  const mods = () => { for (const b of bar.querySelectorAll(".tk-mod")) b.classList.toggle("on", b.dataset.tk === "ctrl" ? ctrl : alt); };
+  const send = (s) => {
+    if (ctrl && s.length === 1 && /[a-z@\[\\\]^_ ]/i.test(s)) s = String.fromCharCode(s.toUpperCase().charCodeAt(0) & 31);
+    if (alt && s !== "\x03") s = "\x1b" + s;
+    ctrl = alt = false;
+    mods();
+    sendText(s);
+  };
+  // show the bar while the screen is shown (StrataOS, ws, gfx, Forth with a screen)
+  new MutationObserver(() => { bar.hidden = screenPanel.classList.contains("collapsed"); })
+    .observe(screenPanel, { attributes: true, attributeFilter: ["class"] });
+  bar.hidden = screenPanel.classList.contains("collapsed");
+  let typing = false; // the soft keyboard is up (the field has focus)
+  field.addEventListener("focus", () => { typing = true; });
+  field.addEventListener("blur", () => { typing = false; });
+  const refocus = (was) => { if (was) field.focus({ preventScroll: true }); };
+  for (const b of bar.querySelectorAll("button")) {
+    b.addEventListener("mousedown", (e) => e.preventDefault()); // (a mouse: keep the field's focus)
+    b.addEventListener("click", () => {
+      const was = typing; // a tap on a button may take the focus: give it back (the keyboard stays up)
+      const tk = b.dataset.tk;
+      if (tk === "kbd") { field.focus({ preventScroll: true }); return; }
+      if (tk === "ctrl") ctrl = !ctrl, mods();
+      else if (tk === "alt") alt = !alt, mods();
+      else send(unesc(b.dataset.send));
+      refocus(was);
+    });
+  }
+  field.addEventListener("beforeinput", (e) => {
+    e.preventDefault(); // nothing collects in the field; every key goes out at once
+    if (e.inputType === "deleteContentBackward") send("\x7f");
+    else if (e.inputType === "insertLineBreak" || e.inputType === "insertParagraph") send("\n");
+    else if (e.data) for (const ch of e.data) send(ch);
+  });
+  field.addEventListener("keydown", (e) => { // keys the soft keyboard reports only as keydown
+    if (e.key === "Enter") { e.preventDefault(); send("\n"); }
+    else if (e.key === "Backspace" && !field.value) { e.preventDefault(); send("\x7f"); }
+  });
+})();

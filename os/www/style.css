@@ -1,0 +1,30 @@
+/* StrataOS httpd: the default site's stylesheet (also used by the listings) */
+:root {
+  --bg: #fbfaf7; --fg: #1d1d1b; --dim: #6b6a65; --rule: #dedbd2;
+  --link: #1f5f8b; --code: #f0ede4;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161614; --fg: #e8e6df; --dim: #9a978e; --rule: #34332f;
+    --link: #7fb6dc; --code: #24231f;
+  }
+}
+body {
+  background: var(--bg); color: var(--fg);
+  font: 16px/1.5 ui-sans-serif, system-ui, sans-serif;
+  max-width: 48rem; margin: 2rem auto; padding: 0 1rem;
+}
+h1 { font-size: 1.6rem; margin-bottom: 0.5rem; }
+h2 { font-size: 1.15rem; margin-top: 2rem; border-bottom: 1px solid var(--rule); }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre { font: 0.92em/1.4 ui-monospace, Menlo, monospace; background: var(--code); }
+code { padding: 0 0.2em; }
+pre { padding: 0.75rem; overflow-x: auto; }
+.lead { color: var(--dim); }
+.facets a { margin-right: 0.4em; }
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+th, td { text-align: left; padding: 0.15rem 0.6rem 0.15rem 0; border-bottom: 1px solid var(--rule); }
+td a { margin-right: 0.3em; }
+td.n { text-align: right; font-variant-numeric: tabular-nums; padding-right: 1.2rem; }
+.foot { margin-top: 2rem; color: var(--dim); font-size: 0.9rem; }

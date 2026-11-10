@@ -89,6 +89,7 @@ test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-break.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-sh.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-net.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-http.sh $(BUILD)/bootrom.stx $(BUILD)/http-test/disk.img
 	BUILD=$(BUILD) ./tools/test-ws.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-preempt.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-boot-jit.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/demo.txt
@@ -145,11 +146,11 @@ OS_EXCLUDE := clock gfx
 OS_EXAMPLES := $(filter-out $(OS_EXCLUDE),$(patsubst examples/%.s,%,$(EXAMPLES)))
 PROGS   := $(patsubst %,$(BUILD)/prog/%,$(OS_EXAMPLES))
 SERVERS := proc dev fs tty pipe net
-UTILS   := sh ls cat rm df ps free uptime devs hexdump cores sched seq grep wc upper spin tag tags
+UTILS   := sh ls cat rm df ps free uptime devs hexdump cores sched seq grep wc upper spin tag tags cp mv touch
 SPROGS  := $(patsubst %,$(BUILD)/prog/%,$(SERVERS))
 UPROGS  := $(patsubst %,$(BUILD)/prog/%,$(UTILS))
 # the network programs (os/servers/net.s is the server): no sources on the disk
-NETUTILS := ping nc tcpecho ifconfig netstat host
+NETUTILS := ping nc tcpecho ifconfig netstat host httpd
 NPROGS  := $(patsubst %,$(BUILD)/prog/%,$(NETUTILS))
 USRCS   := $(patsubst %,$(BUILD)/src/%.s,$(UTILS))
 EXSRCS  := $(patsubst %,$(BUILD)/src/%.s,$(OS_EXAMPLES))
@@ -171,6 +172,10 @@ $(UPROGS) $(NPROGS): $(BUILD)/prog/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
 $(BUILD)/prog/untag: $(BUILD)/prog/tag
 	cp $< $@
 
+# retag too (it replaces a file's tags)
+$(BUILD)/prog/retag: $(BUILD)/prog/tag
+	cp $< $@
+
 # the window server and its clients (os/ws/, os/lib/gfx.s, os/lib/wsclient.s)
 WSPROGS := $(patsubst %,$(BUILD)/prog/%,ws term wmandel wclock)
 $(WSPROGS): $(BUILD)/prog/%: os/progs/%.s $(wildcard os/ws/*.s) os/lib/gfx.s os/lib/font/font.s os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
@@ -185,6 +190,7 @@ $(BUILD)/prog/as: os/progs/as.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
 
+# Every source on the disk carries a copy of the library after the program.
 $(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s
 	@mkdir -p $(BUILD)/src
 	grep -v '^[[:space:]]*\.include' $< > $@
@@ -209,18 +215,22 @@ $(BUILD)/src/as.s: os/progs/as.s
 FORTH_DISK := $(BUILD)/prog/forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
               $(wildcard lang/forth/demos/*.fs)
 
-DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(NPROGS) $(BUILD)/prog/untag $(WSPROGS) $(PROGS) $(BUILD)/prog/as \
+DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as \
               $(BUILD)/prog/units $(SRCS) $(USRCS) $(FORTH_DISK)
 
 # The same files with their tags (mkdisk -t TAGS applies to the files after it).
 # The file system has no directories: `ls /bin` lists the files tagged bin,
 # `ls /src/demo` those tagged both src and demo.
 DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc %/resolv,$(OS_FILES)) \
-             -t sys $(SPROGS) -t bin $(UPROGS) $(BUILD)/prog/untag -t bin,net $(NPROGS) -t bin,ws $(WSPROGS) \
+             -t sys $(SPROGS) -t bin $(UPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag -t bin,net $(NPROGS) -t bin,ws $(WSPROGS) \
              -t demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units \
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) \
              -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
              -t forth,demo $(wildcard lang/forth/demos/*.fs)
+# the web site httpd serves (index.html at /, the stylesheet of every page)
+WWW_FILES  := $(wildcard os/www/*)
+DISK_FILES += $(WWW_FILES)
+DISK_ARGS  += -t www $(WWW_FILES)
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS)
@@ -305,6 +315,16 @@ $(BUILD)/prog/forth: $(FORTH_OS_SRC) $(BUILD)/forth-os/corefs.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -I lang/forth/os -I $(BUILD)/forth-os -o $@ lang/forth/forth.s
 
+# the disk of tools/test-http.sh: the standard one plus two requests as a
+# browser sends them (CR LF; a 3 KB Cookie header), which the console cannot type
+$(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
+	@mkdir -p $(BUILD)/http-test
+	printf 'GET /www/style.css HTTP/1.1\r\nHost: localhost:8080\r\nUser-Agent: Mozilla/5.0 (test)\r\nAccept: text/css,*/*;q=0.1\r\nAccept-Language: en\r\nConnection: keep-alive\r\n\r\n' >$(BUILD)/http-test/browser.req
+	{ printf 'GET /doc/about?x=1 HTTP/1.1\r\nHost: localhost:8080\r\nCookie: '; for i in $$(seq 1 80); do printf 'c%s=0123456789abcdef0123456789abcdef; ' $$i; done; \
+	  printf '\r\nAccept: */*\r\n\r\n'; } >$(BUILD)/http-test/cookie.req
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
+test: $(BUILD)/http-test/disk.img
+
 # the disk of `make test-forth`: the standard one plus the test files
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs)
 	@mkdir -p $(BUILD)/forth-test
@@ -367,7 +387,10 @@ bench: $(BUILD)/strata-emu examples $(BUILD)/forth.stx
 #             browser (site/code/), by tools/web-code.py
 # web-docs    build/web-docs/: the manual on the web, isa/ (every instruction)
 #             and arch/ (the architecture outline), by doc/manual/gen/genweb.py
-#             from the manual's sources (the same data as make manual)
+#             from the manual's sources (the same data as make manual); and
+#             forth/ (every Forth word with its source, and a playground that
+#             runs the play page's worker), by doc/manual/gen/genforth.py
+#             from lang/forth/
 # web-site    build/web-site/: site/ with build/web/ under play/ and
 #             build/web-code/ under code/; preview it with
 #             python3 -m http.server --directory build/web-site
@@ -391,8 +414,8 @@ $(WEB)/strata-emu.js: web/web.c emu/emu.c emu/jit/jit_wasm.c emu/jit/jit.h emu/j
 	@mkdir -p $(WEB)
 	$(EMCC) -std=gnu11 -O3 -Wall -DNO_SDL -o $@ web/web.c emu/jit/jit_wasm.c \
 	  -sMODULARIZE=1 -sEXPORT_NAME=createStrata -sENVIRONMENT=worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
-	  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=192MB -sALLOW_TABLE_GROWTH=1 \
-	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_malloc,_free \
+	  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=128MB -sALLOW_TABLE_GROWTH=1 \
+	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_jit_wasm_set_budget,_malloc,_free \
 	  -sEXPORTED_RUNTIME_METHODS=callMain,FS,HEAPU8,wasmMemory,wasmTable
 
 wasm: $(WEB)/strata-emu.js web-assets

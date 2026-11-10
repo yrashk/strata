@@ -1,0 +1,134 @@
+strata$ ifconfig
+net: 10.0.0.1, link up
+net0  inet 10.0.0.1  mtu 1500  link up
+      packets in 0  out 0  dropped 0
+      device: queued 0  lost 0
+strata$ httpd & sleep 1
+httpd: listening on port 80
+[1] PID
+strata$ echo GET / HTTP/1.0 | nc 127.0.0.1 80 > r1
+GET / 200 2789
+strata$ grep HTTP/ < r1
+HTTP/1.0 200 OK
+strata$ grep Content < r1
+Content-Type: text/html; charset=utf-8
+Content-Length: 2789
+strata$ grep "<h1>" < r1
+<h1>StrataOS 0.1</h1>
+strata$ echo GET /www/ HTTP/1.1 | nc 127.0.0.1 80 > r2
+GET /www/ 200 663
+strata$ cat r2
+HTTP/1.0 200 OK
+Server: StrataOS/0.1 httpd
+Connection: close
+Content-Type: text/html; charset=utf-8
+
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>/www</title><link rel="stylesheet" href="/style.css"></head><body>
+<h1><a href="/~/">/</a><a href="/www/">www</a>/</h1>
+<table>
+<tr><th>file</th><th>bytes</th><th>tags</th></tr>
+<tr><td><a href="/www/index.html">index.html</a></td><td class="n">2789</td><td><a href="/www/">www</a> </td></tr>
+<tr><td><a href="/www/style.css">style.css</a></td><td class="n">1312</td><td><a href="/www/">www</a> </td></tr>
+</table>
+<p>2 files</p>
+<p class="foot"><a href="/">home</a> &middot; <a href="/~/">every file</a> &middot; <a href="/~ps">what the machine is doing</a> &middot; StrataOS 0.1 httpd</p>
+</body></html>
+strata$ echo GET /src/ HTTP/1.0 | nc 127.0.0.1 80 > r3
+GET /src/ 200 4345
+strata$ grep facets < r3
+<p class="facets">narrower: <a href="/src/demo/">demo/</a> </p>
+strata$ echo GET /www/style.css HTTP/1.0 | nc 127.0.0.1 80 > r4
+GET /www/style.css 200 1312
+strata$ grep Content < r4
+Content-Type: text/css
+Content-Length: 1312
+strata$ wc < r4
+36 194 1424
+strata$ cat /www/style.css | wc
+30 181 1312
+strata$ echo GET /www/index%2Ehtml?x=1 HTTP/1.1 | nc 127.0.0.1 80 > r5
+GET /www/index%2Ehtml?x=1 200 2789
+strata$ grep HTTP/ < r5
+HTTP/1.0 200 OK
+strata$ echo HEAD /src/sh.s HTTP/1.1 | nc 127.0.0.1 80 > r6
+HEAD /src/sh.s 200 0
+strata$ cat r6
+HTTP/1.0 200 OK
+Server: StrataOS/0.1 httpd
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 317171
+
+strata$ echo GET /www/nosuch.html HTTP/1.0 | nc 127.0.0.1 80 > r7
+GET /www/nosuch.html 404 106
+strata$ cat r7
+HTTP/1.0 404 Not Found
+Server: StrataOS/0.1 httpd
+Connection: close
+Content-Type: text/html; charset=utf-8
+Content-Length: 106
+
+<!DOCTYPE html>
+<html><head><title>404 Not Found</title></head><body><h1>404 Not Found</h1></body></html>
+strata$ echo GET /bin HTTP/1.0 | nc 127.0.0.1 80 > r8
+GET /bin 301 122
+strata$ cat r8
+HTTP/1.0 301 Moved Permanently
+Server: StrataOS/0.1 httpd
+Connection: close
+Content-Type: text/html; charset=utf-8
+Content-Length: 122
+Location: /bin/
+
+<!DOCTYPE html>
+<html><head><title>301 Moved Permanently</title></head><body><h1>301 Moved Permanently</h1></body></html>
+strata$ echo POST /www/ HTTP/1.0 | nc 127.0.0.1 80 > r9
+POST /www/ 405 124
+strata$ grep HTTP/ < r9
+HTTP/1.0 405 Method Not Allowed
+strata$ grep Allow: < r9
+Allow: GET, HEAD
+strata$ echo garbage | nc 127.0.0.1 80 > r10
+- - 400 110
+strata$ grep HTTP/ < r10
+HTTP/1.0 400 Bad Request
+strata$ nc 127.0.0.1 80 < /test/browser.req > r14
+GET /www/style.css 200 1312
+strata$ grep HTTP/ < r14
+HTTP/1.0 200 OK
+strata$ grep Content-Length < r14
+Content-Length: 1312
+strata$ nc 127.0.0.1 80 < /test/cookie.req > r15
+GET /doc/about?x=1 200 120
+strata$ grep HTTP/ < r15
+HTTP/1.0 200 OK
+strata$ grep Content-Length < r15
+Content-Length: 120
+strata$ sh -c "cat /test/browser.req; sleep 3" | nc 127.0.0.1 80 > r13 & sleep 2; echo two seconds later
+GET /www/style.css 200 1312
+[2] PID
+two seconds later
+strata$ wait %2
+[2] done  sh -c "cat /test/browser.req; sleep 3" | nc 127.0.0.1 80 > r13
+strata$ echo GET /~ps HTTP/1.0 | nc 127.0.0.1 80 > r11
+GET /~ps 200 3113
+strata$ grep "<h2>" < r11
+<h2>Cores</h2>
+<h2>Processes</h2>
+strata$ echo GET /src/sh.s HTTP/1.0 | nc 127.0.0.1 80 | wc
+GET /src/sh.s 200 317171
+6659 39384 317302
+strata$ cat sh.s | wc
+6653 39370 317171
+strata$ rm index.html
+strata$ echo GET / HTTP/1.0 | nc 127.0.0.1 80 > r12
+GET / 200 12324
+strata$ grep title < r12
+<html><head><meta charset="utf-8"><title>every file</title><link rel="stylesheet" href="/style.css"></head><body>
+strata$ rm r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15
+strata$ kill %1
+[1] killed  httpd
+strata$ wait
+strata$ 
+StrataOS: all cores halted

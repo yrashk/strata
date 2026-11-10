@@ -5,14 +5,17 @@
 ;   ls                    every file: name (padded to 26 columns), size
 ;   ls /TAG/TAG...        the files that carry every one of the tags
 ;   ls /TAG.../NAME       that one file, if it carries the tags
+;   ls /TAG/-TAG...       "-TAG": files that do not carry it (ls /src/-demo)
 ;   ls -t [PATH]          the same, with each file's tags after its size
 ;
 ; The file system has no directories: a "directory" is a set of tags (see
 ; os/servers/fs.s). Asks the file server for the files with sys_query
 ; (records of 32 bytes: a 24-byte name, zero-padded, and a 64-bit size) and,
-; with -t, for each file's tags with sys_tags. Prints "(no files)" when there
-; are none, and "ls: no such tag or file: PATH" (exit code 1) when a
-; component of the path is neither.
+; with -t, for each file's tags with sys_tags. Subdirectories are facets:
+; after the files come the other tags they carry, as "TAG/" (sys_facets,
+; named by sys_tags), the ways to narrow the listing (ls /src: demo/). Prints
+; "(no files)" when there are none, and "ls: no such tag or file: PATH"
+; (exit code 1) when a component of the path is neither.
 
         .data                           ; data Local Store
         .align 8                        ; aligned buffers
@@ -22,11 +25,13 @@ args:   .space 512                      ; the argument text
 path:   .dword 0                        ; the path's address
 plen:   .dword 0                        ; its length (0: every file)
 flag_t: .dword 0                        ; -t: show the tags
+facets: .dword 0                        ; the facets of the listing (a tag set)
 m_none: .ascii "(no files)\n"           ; output text
 m_none_e:                               ; end of the text above
 m_err:  .ascii "ls: no such tag or file: " ; error text
 m_err_e:                                ; end of the text above
 m_t:    .ascii "-t"                     ; the option
+m_sl:   .ascii "/"                      ; after a facet
 
         .text                           ; instruction Local Store
 _start:
@@ -71,6 +76,9 @@ query:
         bltz  a0, fail                  ; no such tag or file
         beqz  a0, none                  ; none
         mv    s0, a0                    ; s0 = records left
+        call  sys_facets                ; (before another request replaces it)
+        la    t0, facets                ; ...
+        sd    a0, 0(t0)                 ; ...
         la    s1, dir                   ; s1 = current record
 entry:
         mv    a0, s1                    ; the name's length (zero-padded, 24 bytes)
@@ -119,6 +127,36 @@ e_end:
         addi  s1, s1, 32                ; next record
         addi  s0, s0, -1                ; one fewer
         bnez  s0, entry                 ; more
+        la    t0, facets                ; then the facets, as "TAG/"
+        ld    s5, 0(t0)                 ; s5 = the set
+        beqz  s5, end                   ; none
+        la    a0, tagbuf                ; every tag, with its number
+        li    a1, 0                     ; ...
+        li    a2, 0                     ; ...
+        call  sys_tags                  ; a0 = how many
+        mv    s0, a0                    ; s0 = records left
+        la    s1, tagbuf                ; s1 = record
+f_l:
+        blez  s0, end                   ; no more
+        ld    t0, 24(s1)                ; a facet?
+        srl   t0, s5, t0                ; ...
+        andi  t0, t0, 1                 ; ...
+        beqz  t0, f_n                   ; no
+        mv    a0, s1                    ; its name
+        li    a1, 16                    ; ...
+        call  str_len                   ; ...
+        mv    a1, a0                    ; ...
+        mv    a0, s1                    ; ...
+        call  out_str                   ; ...
+        la    a0, m_sl                  ; "/"
+        li    a1, 1                     ; ...
+        call  out_str                   ; ...
+        call  out_nl                    ; ...
+f_n:
+        addi  s1, s1, 32                ; next tag
+        addi  s0, s0, -1                ; ...
+        j     f_l                       ; ...
+end:
         li    a0, 0                     ; exit code
         call  sys_exit                  ; flush stdout, end the process
 none:

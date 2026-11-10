@@ -140,6 +140,7 @@ g_cpfx:  .dword 0                       ; completion: the prefix typed
 g_cpl:   .dword 0                       ;             its length
 g_cdir:  .dword 0                       ; completion: the tag path before the name
 g_cdirl: .dword 0                       ;             its length (0: none)
+g_cfac:  .dword 0                       ; completion: the tag path's facets (a tag set)
 hlen:    .space NHIST * 8               ; history: length of each slot
 ebuf:    .space 256                     ; the line being edited (transfers: 8-aligned)
 hsave:   .space 256                     ; the new line while browsing the history
@@ -147,6 +148,7 @@ kbuf:    .space 16                      ; key bytes read ahead
 lbufs:   .space FDEPTH * LBSZ           ; line windows: [0] standard input, [d] scripts
 dirbuf:  .space NDIR * 32               ; fs DIR records; also file staging
 cand:    .space NCAND * 8               ; completion candidates
+ctags:   .space 64 * 32                 ; completion: fs TAGS records (facets)
 vars:    .space NVAR * VSZ              ; variables
 pool:    .space POOLSZ                  ; word texts (quotes removed, $ expanded)
 pool_end:                               ; end of the pool
@@ -252,8 +254,11 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "  -n N prog         run as N threads on N cores;  -c N prog: on core N\n" ; (continued)
          .ascii "  sh FILE           run a script;  sh -c \"line\" runs one line\n" ; (continued)
          .ascii "editing: arrows, Home/End, ^A ^E ^K ^U ^W ^L, Tab completes, ^D exits\n" ; (continued)
+         .ascii "files: no directories, tags; /a/b/f is f if it carries a and b\n" ; (continued)
+         .ascii "  ls [-t] [/a/-b]  files tagged a, not b (and tags to narrow by, c/)\n" ; (continued)
+         .ascii "  cat cp [-t] mv rm touch df   tag untag retag FILE TAG...   tags [FILE]\n" ; (continued)
          .ascii "programs:\n"           ; (continued)
-         .ascii "  ls cat rm df ps free uptime devs hexdump cores sched\n" ; (continued)
+         .ascii "  ps free uptime devs hexdump cores sched\n" ; (continued)
          .ascii "  seq grep wc upper spin as units sh\n" ; (continued)
          .ascii "  examples: hello mandel parsum race ...\n" ; (continued)
          .ascii "windows: ws starts the window server (Alt = Alt or Esc, then the key)\n" ; (continued)
@@ -1317,9 +1322,12 @@ ehs_set:
 
 ; ed_tab(): complete the word before the cursor. In command position the
 ; candidates are the builtins and the programs on the disk (files that start
-; with "STX2"); elsewhere every file name. One candidate: completed, and a
-; space added. Several: completed as far as they agree; a second Tab lists
-; them in columns and draws the prompt and the line again.
+; with "STX2"); elsewhere every file name. In a tag path ("/doc/mo", "/sr")
+; the files carrying the path's tags, and its facets (the other tags they
+; carry) as "tag/": tags work like folders. One candidate: completed, and a
+; space added (none after a tag's "/"). Several: completed as far as they
+; agree; a second Tab lists them in columns and draws the prompt and the
+; line again.
 ; s0 = word start, s1 = prefix length, s2 = command position, s3 = candidates,
 ; s4 = the length all candidates agree on, s5 = scratch; 56(sp) = a length
 ed_tab:
@@ -1408,9 +1416,12 @@ etb_files:
         ld    a2, 0(a2)                 ; ...
         call  sys_query                 ; a0 = files (< 0: none)
         mv    s5, a0                    ; s5 = their number
+        call  sys_facets                ; the other tags they carry
+        la    t0, g_cfac                ; (kept: is_prog sends requests)
+        sd    a0, 0(t0)                 ; ...
         li    s3, 0                     ; s3 = record
 etb_fl:
-        bge   s3, s5, etb_got           ; all seen (also if DIR failed)
+        bge   s3, s5, etb_fac           ; all seen (also if DIR failed)
         la    a0, dirbuf                ; its name (24 bytes, zero padded)
         slli  t0, s3, 5                 ; ...
         add   a0, a0, t0                ; ...
@@ -1420,6 +1431,40 @@ etb_fl:
         call  cand_add                  ; ...
         addi  s3, s3, 1                 ; next
         j     etb_fl                    ; ...
+etb_fac:
+        la    t0, g_cdirl               ; in a tag path: its facets, as "tag/"
+        ld    t0, 0(t0)                 ; ...
+        beqz  t0, etb_got               ; not in one
+        la    t0, g_cfac                ; ...
+        ld    t0, 0(t0)                 ; ...
+        beqz  t0, etb_got               ; none
+        la    a0, ctags                 ; every tag, with its number
+        li    a1, 0                     ; ...
+        li    a2, 0                     ; ...
+        call  sys_tags                  ; a0 = how many
+        mv    s5, a0                    ; s5 = their number
+        li    s3, 0                     ; s3 = record
+etb_tl:
+        bge   s3, s5, etb_got           ; all seen
+        la    a0, ctags                 ; the record
+        slli  t0, s3, 5                 ; ...
+        add   a0, a0, t0                ; ...
+        addi  s3, s3, 1                 ; (next)
+        ld    t0, 24(a0)                ; a facet?
+        la    t1, g_cfac                ; ...
+        ld    t1, 0(t1)                 ; ...
+        srl   t1, t1, t0                ; ...
+        andi  t1, t1, 1                 ; ...
+        beqz  t1, etb_tl                ; no
+        li    a1, 16                    ; its name (16 bytes, zero padded)
+        call  ntrim                     ; a1 = its length
+        add   t0, a0, a1                ; then "/" (over the padding or the
+        li    t1, '/'                   ; file count, which is not needed)
+        sb    t1, 0(t0)                 ; ...
+        addi  a1, a1, 1                 ; ...
+        li    a2, 0                     ; any tag will do
+        call  cand_add                  ; ...
+        j     etb_tl                    ; ...
 etb_got:
         la    t0, g_ncand               ; s3 = candidates
         ld    s3, 0(t0)                 ; ...
@@ -1467,7 +1512,11 @@ etb_ins:
 etb_insd:
         li    t0, 1                     ; a single candidate?
         bne   s3, t0, etb_many          ; no
-        li    a0, ' '                   ; yes: the word is complete
+        add   t0, s5, s4                ; a tag ("src/")? the path goes on
+        lbu   t0, -1(t0)                ; ...
+        li    t1, '/'                   ; ...
+        beq   t0, t1, etb_ret           ; ...
+        li    a0, ' '                   ; no: the word is complete
         call  ed_ins                    ; ...
         j     etb_ret                   ; ...
 etb_many:

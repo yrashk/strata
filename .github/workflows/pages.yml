@@ -48,6 +48,7 @@ jobs:
         run: make web-code
       - name: Generate the manual's web pages
         # web-docs: build/web-docs/ = isa/ (instruction set) + arch/ (outline)
+        # + forth/ (the Forth words and playground; its script is in site/forth/)
         run: make web-docs
       - name: Assemble the site
         run: |

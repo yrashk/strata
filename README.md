@@ -226,14 +226,18 @@ strata$ ws                          # the window server takes the screen
   commands and file names, quoting and variables, `;` `&&` `||`, pipelines
   of up to four stages, redirection, background jobs (`jobs`, `fg`, `wait`,
   `kill`), scripts and an `rc` file. Type `help`.
-- **Utilities**: `ls cat rm df ps free uptime devs hexdump cores sched seq
-  grep wc upper spin`, `units` (a program that pages its own code), and `as`.
-- **Networking**: `net` (the TCP/IP server: IPv4, ICMP, UDP, TCP, a DNS
-  resolver), `ping`, `host`, `nc`, `tcpecho`, `ifconfig`, `netstat`. With
-  `-N nat` the machine is on the real network; `tools/netrelay` does the
-  same for the browser's play page.
+- **Utilities**: `ls cat cp mv rm touch df tag untag retag tags ps free
+  uptime devs hexdump cores sched seq grep wc upper spin`, `units` (a program
+  that pages its own code), and `as`.
+- **Networking**: the `net` server (IPv4, ICMP, UDP, TCP, a DNS resolver)
+  and `ping host nc tcpecho ifconfig netstat httpd`. `httpd &` serves the disk
+  over HTTP: URLs are tag paths (`/src/demo/hello.s`, `/src/` lists the files
+  tagged `src`), `/` is the small site tagged `www`, `/~ps` shows what the
+  machine is doing (doc/strataos.md 2.11). With `-N nat` the machine is on the
+  real network; `tools/netrelay` does the same for the browser's play page.
   The sources of the programs and examples are on the disk, so they can be
-  rebuilt on the machine.
+  rebuilt on the machine (each utility's with the library appended). The
+  disk is 16 MiB.
 - **Cores.** `make boot` boots 12 cores: the system core, five servers and
   six cores free for threads. The minimum is 6 (the shell then shares a
   server's core). A worker core holds up to three threads.
@@ -397,7 +401,8 @@ the main points:
 - A console read cannot be cancelled, so `halt` may wait for one more key
   when a program was waiting for input.
 - The file system has tags instead of directories (`ls /src/demo` lists
-  the files tagged both `src` and `demo`), but files are contiguous runs of
+  the files tagged both `src` and `demo`, `ls /src/-demo` those tagged `src`
+  but not `demo`; subdirectories are facets: `ls /src` ends with `demo/`), but files are contiguous runs of
   blocks, a deleted file's space comes back only if it was the last one, and
   a disk holds at most 128 files and 64 tags.
 - The shell has no globbing and no `2>`.

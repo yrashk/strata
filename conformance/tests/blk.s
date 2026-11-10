@@ -4,7 +4,7 @@
 ;
 ; What it checks (common/platform.h)
 ;   * Identify ROM (0x2000, 64 bytes): "STBD", version 1, log2 block size 9,
-;     capacity in blocks (8192 with no disk image), 256 blocks per command,
+;     capacity in blocks (32768 with no disk image), 256 blocks per command,
 ;     queue depth 4.
 ;   * A command is 32 bytes written to the submission port (0x2100):
 ;     u8 op (1 read, 2 write, 3 flush), u8 reply core, u16 id, u32 blocks,
@@ -52,7 +52,7 @@ main:
         li    a1, 0x0009000144425453    ; "STBD", 1, 9
         call  chk                       ; check
         ld    a0, 8(s1)                 ; capacity
-        li    a1, 8192                  ; blocks (4 MiB: the default disk)
+        li    a1, 32768                 ; blocks (16 MiB: the default disk)
         call  chk                       ; check
         ld    a0, 16(s1)                ; max blocks per command | queue depth << 32
         li    a1, 256 | 4 << 32         ; expected
@@ -161,7 +161,7 @@ fill:
         li    a1, 0                     ; reply
         li    a2, 0x5556                ; id
         li    a3, 0                     ; none
-        li    a4, 8192                  ; lba = capacity
+        li    a4, 32768                 ; lba = capacity
         li    a5, 0                     ; offset
         call  blkdo                     ; run it
         li    a1, 0x5556                ; OK, 0 blocks
@@ -192,7 +192,7 @@ fill:
         li    a1, 0                     ; reply
         li    a2, 0x7002                ; id
         li    a3, 1                     ; one block
-        li    a4, 8192                  ; lba = capacity
+        li    a4, 32768                 ; lba = capacity
         li    a5, 3                     ; and a bad offset: lba is checked first
         call  blkdo                     ; run it
         li    a1, 0x7002 | 2 << 16      ; status 2 (lba)
@@ -201,7 +201,7 @@ fill:
         li    a1, 0                     ; reply
         li    a2, 0x7003                ; id
         li    a3, 2                     ; two blocks
-        li    a4, 8191                  ; the last block: the second is past the end
+        li    a4, 32767                 ; the last block: the second is past the end
         li    a5, 0                     ; offset
         call  blkdo                     ; run it
         li    a1, 0x7003 | 2 << 16      ; status 2

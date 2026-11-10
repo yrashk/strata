@@ -111,7 +111,8 @@ CW=$(printf '\027'); CL=$(printf '\014'); CD=$(printf '\004')
   printf 'tags n1 n2 n3 | upper\n'
   printf 'cat /work/n3 /notes/n2 n1\n'
   printf 'cat /work/n2 || cat /nosuch/n1\n'
-  printf 'cat /work/n%s\n' "$TAB"
+  printf 'cat /notes/work/n%s\n' "$TAB"
+  printf 'cat /work/n%s%s%s\n' "$TAB" "$TAB" "$CU"
   printf 'echo more >> /work/n1; tags n1\n'
   printf 'cat /notes/n%s%s%s\n' "$TAB" "$TAB" "$CU"
   printf 'untag n3 work; untag n1 work; ls /work\n'
@@ -119,6 +120,22 @@ CW=$(printf '\027'); CL=$(printf '\014'); CD=$(printf '\004')
   printf 'tag n1 a/b; tag nosuch x; untag; tags nosuch\n'
   printf 'wc < /notes/n1 > /out/w1; ls -t /out; cat /out/w1\n'
   printf 'rm /notes/n1 /notes/n2 n3 /out/w1; ls /notes; tags | grep notes\n'
+  # file utilities: facets (tags as subdirectories), exclusion, tag completion,
+  # cp, mv, touch, retag
+  printf 'echo one > /proj/p1; echo two > /proj/todo/p2; touch /proj/done/p3\n'
+  printf 'ls /proj; ls /proj/-done/-todo; ls /proj/todo/-done; ls /proj/-nosuch/p1\n'
+  printf 'ls -t /-proj/-bin/-src/-sys/-demo/-ws/-forth\n'
+  printf 'cat /proj%sp2\n' "$TAB"
+  printf 'cat /proj/t%s%s\n' "$TAB" "$TAB"
+  printf 'ls /proj/%s%s%s\n' "$TAB" "$TAB" "$CU"
+  printf 'cp /proj/p1 /copy/p4; cp -t p2 /copy/p5; ls -t /copy; cat p4 p5\n'
+  printf 'cp p1 /copy/p1; cp nosuch p6; cp p1; cp /todo/p1 p6\n'
+  printf 'mv p4 /done/; echo old > p6; mv p5 p6; ls -t /done; tags p6; cat p6\n'
+  printf 'mv nosuch p7; mv p6 /a/-b/p7; mv p6 0123456789012345678901234; mv p6\n'
+  printf 'touch p1 /proj/p8 /proj/-done/p9 0123456789012345678901234; ls -t /proj; cat p1\n'
+  printf 'touch /extra/p2; tags p2; cat p2\n'
+  printf 'retag p6 x y; tags p6; retag p6 y; tags p6; retag p6; tags p6; retag nosuch\n'
+  printf 'rm p1 p2 p3 p4 p6 p8; ls /proj\n'
   printf 'rm f1 f2 f3 s1 tfile\n'
   printf 'exit 3 &\n'
   printf 'wait\n'
@@ -133,6 +150,6 @@ awk 'f || /^strata\$ /{f=1; print}' "$tmp/raw.out" |
          -e 's/time: [0-9]+\.[0-9]+ s/time: T s/' -e 's/^(sourced) [0-9]+$/\1 PID/' | cat -v >"$tmp/out.txt"
 if [ $upd -eq 1 ]; then cp "$tmp/out.txt" "$here/tools/test-sh.out"; echo "tools/test-sh.out updated"; exit 0; fi
 if cmp -s "$tmp/out.txt" "$here/tools/test-sh.out"; then
-  printf '%-14s OK    line editing, history, completion, syntax, jobs, tags\n' shell; exit 0
+  printf '%-14s OK    line editing, history, completion, syntax, jobs, tags, file utilities\n' shell; exit 0
 fi
 printf '%-14s FAIL\n' shell; diff "$here/tools/test-sh.out" "$tmp/out.txt" | head -40; exit 1
