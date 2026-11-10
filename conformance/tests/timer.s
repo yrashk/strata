@@ -2,7 +2,7 @@
 ; timer.s: the timer (device 0x3000) and the framebuffer controller (0x4000)
 ; =============================================================================
 ;
-; What it checks (doc/strataos-0.2.md section 1.2; common/platform.h)
+; What it checks (doc/strataos.md section 1.2; common/platform.h)
 ;   * FREQ (0x3008) reads 1000000 (1 tick = 1 us).
 ;   * NOW (0x3000) never goes backwards; a register is LATCHED when its byte
 ;     0 is read: reading byte 0, waiting, then reading bytes 1..7 gives the

@@ -69,7 +69,7 @@ a conformance suite that holds them all to the same behaviour.
 | `fpga/` | Synthesis script, LiteDRAM adapter, a board top, pin constraints |
 | `web/` | The WebAssembly build of the emulator for the site's play page |
 | `site/` | The project site: the landing page, `play/` (the in-browser emulator) and `code/` (the source browser) |
-| `doc/` | The manual's LaTeX sources (`doc/manual/`), the StrataOS design specification (`doc/strataos-0.2.md`), schematics |
+| `doc/` | The manual's LaTeX sources (`doc/manual/`), the StrataOS design specification (`doc/strataos.md`), schematics |
 | `.github/workflows/` | CI: builds the manual, the WebAssembly emulator and the site, and publishes them |
 
 ## Building
@@ -229,8 +229,7 @@ header → the kernel into every core's Local Stores. The kernel loads
 and the login shell.
 
 The design, the message protocol and every operation number are in
-[`doc/strataos-0.2.md`](doc/strataos-0.2.md) (the file name is historical:
-it describes release 0.1) and in the manual's StrataOS chapter.
+[`doc/strataos.md`](doc/strataos.md) and in the manual's StrataOS chapter.
 
 ### The window server
 
@@ -356,7 +355,7 @@ the console is a UART.
   from `doc/manual/` and publishes it on
   [the project site](https://yrashk.github.io/strata/). To build it
   locally: `make manual` (needs tectonic).
-- [`doc/strataos-0.2.md`](doc/strataos-0.2.md): the devices and StrataOS,
+- [`doc/strataos.md`](doc/strataos.md): the devices and StrataOS,
   as a specification.
 - [`ROADMAP.md`](ROADMAP.md): what exists, what is missing, what is next.
 - The sources: every line of assembly is commented, and each file starts
@@ -383,5 +382,12 @@ the main points:
 
 ## License
 
+Licensed under either of
 
-License: TBD.
+- Apache License, Version 2.0 ([`LICENSE-APACHE`](LICENSE-APACHE))
+- MIT license ([`LICENSE-MIT`](LICENSE-MIT))
+
+at your option. Unless you explicitly state otherwise, any contribution
+intentionally submitted for inclusion in this work, as defined in the
+Apache-2.0 license, shall be dual licensed as above, without any additional
+terms or conditions.

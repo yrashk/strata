@@ -1,6 +1,6 @@
 # StrataOS 0.1 — step 4 working plan (agent notes; delete when integrated)
 
-Spec: doc/strataos-0.2.md section 2. Design summary: the header of os/kernel.s.
+Spec: doc/strataos.md section 2. Design summary: the header of os/kernel.s.
 Files: os/kernel.s (resident), os/kunits/{boot,ops,events}.s (kernel code units),
 os/servers/{proc,dev,fs,tty,pipe}.s, os/lib/{sys,srv}.s, os/progs/*.s, os/files/,
 os/demo.txt, firmware/{bootrom,fw}.s, tools/mkdisk.c, tools/compare-boot.sh,

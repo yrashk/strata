@@ -3,7 +3,7 @@
 ; =============================================================================
 ; args: -b 200000
 ;
-; What it checks (common/platform.h; doc/strataos-0.2.md section 1.2)
+; What it checks (common/platform.h; doc/strataos.md section 1.2)
 ;   * A break read (port 0x0010) waits, without holding up the machine,
 ;     until Ctrl-C is pressed; it then completes with 0x03 bytes.
 ;   * Each press completes one read: a second read waits again (here it

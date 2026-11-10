@@ -1,6 +1,6 @@
 # Step 5: the advanced shell (os/progs/sh.s) — working plan
 
-Spec: doc/strataos-0.2.md 2.4-2.7. Owner of os/progs/sh.s, tools/test-sh.sh, tools/test-sh.out.
+Spec: doc/strataos.md 2.4-2.7. Owner of os/progs/sh.s, tools/test-sh.sh, tools/test-sh.out.
 
 ## Design
 - Raw console only inside read_line (CONMODE 1 when stdin is the tty and the shell is

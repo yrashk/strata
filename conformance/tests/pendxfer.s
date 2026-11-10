@@ -3,7 +3,7 @@
 ; device read is ordered after it (as if synchronous)
 ; =============================================================================
 ;
-; What it checks (FINDINGS F5, doc/strataos-0.2.md 1.2: a transfer whose
+; What it checks (FINDINGS F5, doc/strataos.md 1.2: a transfer whose
 ; D-LS range overlaps an in-flight device read of the same core waits at
 ; issue until that read completes, as loads and stores do)
 ;   A. A break read is in flight into kbuf. A tput of kbuf issued after it

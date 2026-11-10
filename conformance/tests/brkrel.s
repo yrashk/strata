@@ -2,7 +2,7 @@
 ; brkrel.s: one release with break reads waiting on two cores
 ; =============================================================================
 ;
-; What it checks (FINDINGS F4, doc/strataos-0.2.md 1.2: one write to the
+; What it checks (FINDINGS F4, doc/strataos.md 1.2: one write to the
 ; release port completes EVERY break read waiting at that moment, on every
 ; core, with 0)
 ;   * Core 1 (given a copy of the device capability) and core 0 both wait on
