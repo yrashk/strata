@@ -232,7 +232,8 @@ T_DEVR   = 62                           ; the device root (for dev)
 T_CON    = 63                           ; console output (bare-metal programs' c2)
 
 ; ---- core 0 capability save table --------------------------------------------------
-K_POOL   = 0                            ; the arena pool's revoker
+K_POOL   = 0                            ; the revoker of the arena pool's low part ([1, 15) MiB)
+K_POOL2  = 1                            ; ... of its high part ([16, 48) MiB), if there is one
 K_MSG    = 48                           ; 48..55: core 0's message buffers (when home)
 K_STASH  = 56                           ; 56..59: attachments from proc / others
 K_FB     = 60                           ; the framebuffer's revoker (a revocable region of its own, made at boot)
@@ -4148,8 +4149,11 @@ k_hashigh: .dword 0                     ; core 0: the boot ROM gave a second hea
 k_hasfb:   .dword 0                     ; core 0: there is a framebuffer window
 k_fbpid:   .dword 0                     ; core 0: the process the framebuffer is lent to (0 none)
 k_pbase:   .dword 0                     ; core 0: the arena pool's base
-k_pgran:   .dword 0                     ; core 0: its granules
+k_pgran:   .dword 0                     ; core 0: its span in granules (both parts, the gap between them)
 k_pfree:   .dword 0                     ; core 0: of which free
+k_ptotal:  .dword 0                     ; core 0: granules arenas can use (the gap between the parts is not)
+k_p2base:  .dword 0                     ; core 0: the high part's base (0: none)
+k_p1end:   .dword 0                     ; core 0: boot: one past a part's last granule
 k_hdr:     .space 64                    ; core 0: the request being served
 k_cdata:   .space 64                    ; core 0: its first data words
 k_tbuf:    .space 24                    ; core 0: timer NOW, DEADLINE, WAIT result
