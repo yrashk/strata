@@ -46,6 +46,9 @@ jobs:
       - name: Collect the sources for the source browser
         # web-code: build/web-code/ = src/ (every .s and .fs) + manifest.json
         run: make web-code
+      - name: Generate the manual's web pages
+        # web-docs: build/web-docs/ = isa/ (instruction set) + arch/ (outline)
+        run: make web-docs
       - name: Assemble the site
         run: |
           mkdir -p public
@@ -53,6 +56,7 @@ jobs:
           cp doc/Strata-Architecture-Reference-Manual.pdf public/
           cp -r build/web/. public/play/
           cp -r build/web-code/. public/code/
+          cp -r build/web-docs/. public/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: public

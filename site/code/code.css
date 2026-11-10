@@ -2,23 +2,6 @@
    site's look (deep-blue grid, cyan and amber, cut corners). */
 :root {
   --nav-h: 57px;
-  /* syntax: the site's neon set */
-  --s-com: #5b7088;
-  --s-alu: #4de1ff;     /* ALU */
-  --s-mem: #59b4ff;     /* loads and stores */
-  --s-br: #c38bff;      /* branches, jumps; Forth control words */
-  --s-xfer: #ffb347;    /* transfers; Strata Forth words */
-  --s-cap: #ffcc66;     /* capability operations */
-  --s-page: #ff9a6b;    /* code paging */
-  --s-sys: #ff6b8b;     /* system, CSR access; Forth : ; */
-  --s-pseudo: #9bf0ff;  /* pseudo-instructions */
-  --s-dir: #8a9bff;     /* directives; Forth defining words */
-  --s-reg: #b4cde3;     /* x registers */
-  --s-creg: #f5d7a6;    /* c registers, transfer tags, Forth locals */
-  --s-csr: #ffa3c4;
-  --s-num: #5be3a1;
-  --s-str: #f29bd4;
-  --s-const: #8ff0d2;   /* NAME = value, CONSTANTS */
 }
 
 body.src-page { font-size: 16px; }
@@ -111,33 +94,7 @@ kbd { font: 11px var(--mono); color: var(--text); padding: 0 4px; margin: 0 1px;
 .src-groups .card p { font-size: 14px; }
 .src-groups .card em { font: 12px var(--mono); font-style: normal; color: var(--dim); display: block; margin-top: 8px; }
 
-/* ---------------------------------------------------------------- syntax */
-.c { color: var(--s-com); font-style: italic; }
-.c.h { color: #7d93ab; }
-.lb { color: #fff; font-weight: 600; }
-.k-alu { color: var(--s-alu); }
-.k-mem { color: var(--s-mem); }
-.k-branch { color: var(--s-br); }
-.k-xfer { color: var(--s-xfer); font-weight: 600; }
-.k-cap { color: var(--s-cap); font-weight: 600; }
-.k-page { color: var(--s-page); font-weight: 600; }
-.k-sys { color: var(--s-sys); font-weight: 600; }
-.k-pseudo { color: var(--s-pseudo); }
-.d { color: var(--s-dir); }
-.r { color: var(--s-reg); }
-.cr { color: var(--s-creg); }
-.csr { color: var(--s-csr); }
-.n { color: var(--s-num); }
-.s { color: var(--s-str); }
-.kc { color: var(--s-const); }
-.kd { color: var(--s-const); font-weight: 600; }
-/* Forth */
-.f-def { color: var(--s-sys); font-weight: 600; }
-.f-name { color: #fff; font-weight: 600; }
-.f-ctl { color: var(--s-br); }
-.f-dw { color: var(--s-dir); }
-.f-st { color: var(--s-xfer); }
-.f-loc { color: var(--s-creg); }
+/* syntax colours: ../hl.css */
 
 /* ---------------------------------------------------------------- mobile */
 @media (max-width: 820px) {

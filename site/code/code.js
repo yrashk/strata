@@ -1,9 +1,9 @@
 // The source browser. manifest.json (written by tools/web-code.py) lists
 // every Strata assembly and Forth file, grouped by area, with the keyword
 // lists of the real assembler (asm/sasm.c) and of Strata Forth; the files
-// themselves are under src/<path>. The highlighters below are line-at-a-time
-// scanners (Forth keeps one bit of state across lines: an open paren
-// comment), so a 6000-line file colours in a few milliseconds.
+// themselves are under src/<path>. The highlighters are the site's shared
+// line-at-a-time scanners (../hl.js), so a 6000-line file colours in a few
+// milliseconds.
 //
 // URLs: #path/to/file.s, #path/to/file.s:42, #path/to/file.s:42-50.
 "use strict";
@@ -19,141 +19,10 @@ let cur = null;             // the file shown
 let sel = null;             // [from, to] highlighted lines
 
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const sp = (cls, s) => `<span class="${cls}">${esc(s)}</span>`;
 
-// ---------------------------------------------------------------- Strata assembly
-let MN, DIRS, CSRS, XREGS;
-function asmInit(k) {
-  MN = new Map();
-  for (const [cat, list] of Object.entries(k.mnemonics)) for (const m of list) MN.set(m, cat);
-  DIRS = new Set(k.directives);
-  CSRS = new Set(k.csrs);
-  XREGS = new Set(k.xregs);
-}
-
-const RE_LABEL = /^(\s*)([A-Za-z_.$][\w.$]*):/;
-const RE_CONST = /^(\s*)([A-Za-z_.$][\w.$]*)(\s*)=(?!=)/;
-const RE_WORD = /^(\s*)([A-Za-z_.][\w.]*)/;
-const RE_OPS = /(;|#|\/\/)|"(?:[^"\\]|\\.)*"?|'(?:\\.|[^'\\])'?|\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|\d+)\b|[A-Za-z_.$][\w.$]*/g;
-const RE_CREG = /^(?:c(?:1[0-5]|[0-9])|tg(?:1[0-5]|[0-9]))$/;
-const RE_CAPS = /^[A-Z][A-Z0-9_]*[A-Z0-9]$/;
-const RE_RULE = /^\s*(?:[;#/\\]+\s*)?(?:-{3,}|={3,})/;
-
-function asmComment(s) { return `<span class="${RE_RULE.test(s) ? "c h" : "c"}">${esc(s)}</span>`; }
-
-function asmLine(s) {
-  let o = "", p = 0, m, mn = null, rest = s;
-  while ((m = RE_LABEL.exec(rest))) {
-    o += m[1] + sp("lb", m[2]) + ":";
-    p += m[0].length; rest = s.slice(p);
-  }
-  if ((m = RE_CONST.exec(rest))) {
-    o += m[1] + sp("kd", m[2]) + m[3] + "=";
-    p += m[0].length;
-  } else if ((m = RE_WORD.exec(rest))) {
-    const w = m[2].toLowerCase();
-    const cat = MN.get(w);
-    if (cat || w[0] === ".") {
-      mn = w;
-      o += m[1] + sp(cat ? "k-" + cat : "d", m[2]);
-      p += m[0].length;
-    }
-  }
-  return o + asmOps(s, p, mn === "csrr" || mn === "csrw");
-}
-
-function asmOps(s, p, csr) {
-  let o = "", last = p, m;
-  RE_OPS.lastIndex = p;
-  while ((m = RE_OPS.exec(s))) {
-    o += esc(s.slice(last, m.index));
-    const t = m[0], c = t[0];
-    if (m[1]) { o += asmComment(s.slice(m.index)); return o; }
-    if (c === '"' || c === "'") o += sp("s", t);
-    else if (c >= "0" && c <= "9") o += sp("n", t);
-    else if (XREGS.has(t)) o += sp("r", t);
-    else if (RE_CREG.test(t)) o += sp("cr", t);
-    else if (csr && CSRS.has(t)) o += sp("csr", t);
-    else if (RE_CAPS.test(t)) o += sp("kc", t);
-    else o += esc(t);
-    last = RE_OPS.lastIndex;
-  }
-  return o + esc(s.slice(last));
-}
-
-function asmLines(lines) {
-  return lines.map((s) => {
-    const t = s.trimStart();
-    if (t[0] === ";" || t[0] === "#" || t.startsWith("//"))
-      return esc(s.slice(0, s.length - t.length)) + asmComment(t);
-    return asmLine(s);
-  });
-}
-
-// ---------------------------------------------------------------- Forth
-const F_CTL = new Set(("if else then endif do ?do loop +loop leave unloop i j begin until while repeat again " +
-  "case of endof endcase exit recurse ahead [if] [else] [then] [defined] [undefined] catch throw abort " +
-  "execute ?dup").split(" "));
-const F_DW = new Set(("variable constant create value defer 2variable 2constant buffer: field: +field " +
-  "does> immediate is to postpone literal ['] ' [char] char compile, action-of [ ] marker").split(" "));
-const F_NAMED = new Set("variable constant create value defer 2variable 2constant buffer: field: +field marker is to".split(" "));
-const F_DEF = new Set(": :noname ; [: ;]".split(" "));
-const RE_FNUM = /^-?(?:\$-?[0-9a-f]+|#-?\d+|%-?[01]+|\d+\.?|'.')$/i;
-let F_ST = new Set();
-
-function forthLines(lines) {
-  let inParen = false;
-  return lines.map((s) => {
-    let o = "", p = 0;
-    if (inParen) {
-      const e = s.indexOf(")");
-      if (e < 0) return sp("c", s);
-      o = sp("c", s.slice(0, e + 1)); p = e + 1; inParen = false;
-    }
-    let want = null;            // "name": the next word is defined; "char"; "locals"
-    const re = /\S+/g;
-    re.lastIndex = p;
-    let m, last = p;
-    while ((m = re.exec(s))) {
-      o += esc(s.slice(last, m.index));
-      const t = m[0], w = t.toLowerCase(), end = m.index + t.length;
-      last = end;
-      if (want === "locals") {
-        o += sp("f-loc", t);
-        if (t === "}") want = null;
-        continue;
-      }
-      if (want === "name") { o += sp("f-name", t); want = null; continue; }
-      if (want === "char") { o += sp("s", t); want = null; continue; }
-      if (t === "\\") { o += sp("c", s.slice(m.index)); last = s.length; break; }
-      if (t === "(") {
-        const e = s.indexOf(")", end);
-        if (e < 0) { o += sp("c", s.slice(m.index)); inParen = true; last = s.length; break; }
-        o += sp("c", s.slice(m.index, e + 1)); last = re.lastIndex = e + 1;
-        continue;
-      }
-      if ((t.length > 1 && t.endsWith('"')) || w === ".(") {
-        const e = s.indexOf(w === ".(" ? ")" : '"', end + 1);
-        const stop = e < 0 ? s.length : e + 1;
-        o += sp("s", s.slice(m.index, stop)); last = re.lastIndex = stop;
-        continue;
-      }
-      if (F_DEF.has(w)) { o += sp("f-def", t); if (w === ":") want = "name"; continue; }
-      if (t === "{" ) { o += sp("f-loc", t); want = "locals"; continue; }
-      if (F_DW.has(w)) {
-        o += sp("f-dw", t);
-        if (F_NAMED.has(w)) want = "name";
-        else if (w === "[char]" || w === "char") want = "char";
-        continue;
-      }
-      if (F_CTL.has(w)) o += sp("f-ctl", t);
-      else if (F_ST.has(w)) o += sp("f-st", t);
-      else if (RE_FNUM.test(t)) o += sp("n", t);
-      else o += esc(t);
-    }
-    return o + esc(s.slice(last));
-  });
-}
+// ---------------------------------------------------------------- highlighting
+// The scanners are shared with the rest of the site: ../hl.js (StrataHL).
+const { asmLines, forthLines } = window.StrataHL;
 
 // ---------------------------------------------------------------- the tree
 function buildTree() {
@@ -276,7 +145,7 @@ async function show(f, range, scroll) {
     const html = f.lang === "forth" ? forthLines(lines) : asmLines(lines);
     const out = new Array(html.length);
     for (let i = 0; i < html.length; i++) out[i] = `<div class="L"><i>${i + 1}</i><b>${html[i] || " "}</b></div>`;
-    $("body").innerHTML = `<div class="src-code"><div class="src-lines" id="lines">${out.join("")}</div></div>`;
+    $("body").innerHTML = `<div class="src-code hl"><div class="src-lines" id="lines">${out.join("")}</div></div>`;
     document.body.dataset.renderMs = (performance.now() - t0).toFixed(1);
     if (!range) window.scrollTo({ top: 0, behavior: "instant" });
   }
@@ -392,8 +261,7 @@ fetch("manifest.json").then((r) => {
   return r.json();
 }).then((m) => {
   M = m;
-  asmInit(m.syntax.asm);
-  F_ST = new Set(m.syntax.forth.strata);
+  StrataHL.init(m.syntax);
   for (const g of m.groups) for (const f of g.files) { order.push(f); byPath.set(f.path, f); }
   buildTree();
   addEventListener("hashchange", route);
