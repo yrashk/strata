@@ -21,7 +21,10 @@
 // a fetch that answers every query with that JSON (the tests). With
 // -N web,nat and STRATA_RELAY=ws://... the guest's packets go to that relay
 // (tools/netrelay), with -N web and STRATA_TAB=1 to a BroadcastChannel (the
-// page's "relay" and "tab" modes).
+// page's "relay" and "tab" modes). STRATA_HTTP=PORT:PATH: once the guest
+// listens on PORT (web_port_listening), one GET of PATH through the page's
+// own connection calls (web_http_*, as sw.js uses them); the response goes
+// to the file STRATA_HTTP_OUT.
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -78,12 +81,36 @@ function write(fd, bytes) { if (bytes.length) fs.writeSync(fd, Buffer.from(bytes
   let link = null;
   if (web) link = net.link(M, () => {}, (t) => fs.writeSync(2, t + "\n"),
                            process.env.STRATA_RELAY ? { mode: "relay", url: process.env.STRATA_RELAY } : { mode: "tab" });
-  if (peer || web) {
+  const httpWant = process.env.STRATA_HTTP;
+  let httpStep = null;
+  if (httpWant) {
+    const [hp, ...hpath] = httpWant.split(":");
+    const port = +hp, buf = M._malloc(65536);
+    let cid = -1, got = [], done = false;
+    httpStep = () => {
+      if (done) return;
+      if (cid < 0) {
+        if (M._web_port_listening(port) !== 1) return;
+        cid = M._web_http_open(port);
+        const rq = Buffer.from(`GET ${hpath.join(":") || "/"} HTTP/1.0\r\nHost: localhost\r\n\r\n`);
+        M.HEAPU8.set(rq, buf);
+        M._web_http_send(cid, buf, rq.length);
+        return;
+      }
+      for (;;) {
+        const n = M._web_http_recv(cid, buf, 65536);
+        if (n > 0) { got.push(Buffer.from(M.HEAPU8.slice(buf, buf + n))); continue; }
+        if (n === 0) { done = true; M._web_http_close(cid); fs.writeFileSync(process.env.STRATA_HTTP_OUT || "/dev/stderr", Buffer.concat(got)); }
+        break;
+      }
+    };
+  }
+  if (peer || web || httpStep) {
     const stub = process.env.STRATA_DOH_STUB;
     const fetchFn = stub ? async () => ({ ok: true, json: async () => JSON.parse(stub) }) : globalThis.fetch;
     if (peer) net.peer(M, () => {}, fetchFn);
     // the answers come in promises: let them run between slices
-    while (M._web_run(50) >= 0) { flush(); await new Promise((r) => setImmediate(r)); }
+    while (M._web_run(50) >= 0) { flush(); if (httpStep) httpStep(); await new Promise((r) => setImmediate(r)); }
     if (link) link.stop();
   } else while (M._web_run(1000) >= 0) flush(); // (an interactive wait cannot end here: there is no input)
   M._web_finish();

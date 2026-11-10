@@ -11,6 +11,9 @@
 //     {t:"input", data: Uint8Array}     console bytes (terminal, canvas keys, pasted demos)
 //     {t:"break"}                       Ctrl-C
 //     {t:"ptr", op, a, b}               the canvas's mouse (web/web.c web_pointer)
+//     {t:"http", id, port, request: Uint8Array}   one HTTP exchange with the guest's server
+//                                       (sw.js: the guest's web server in the page)
+//     {t:"ports", ports: [80, 8000]}    which of these the guest listens on
 //   worker -> page
 //     {t:"started"} | {t:"exit", code} | {t:"error", msg}
 //     {t:"out", data: Uint8Array}       console output (stderr lines wrapped in amber), transferred
@@ -19,6 +22,8 @@
 //                                       (ptr: the guest reads the pointer: hide the page's cursor)
 //     {t:"stopped", state, faulted, steps, cores, live, now, jit}
 //     {t:"net", text}                   a note about the network (this tab's address, the relay)
+//     {t:"http", id, response: Uint8Array} | {t:"http", id, error: 503 | 504}
+//     {t:"ports", listening: {port: 1 | 0 | -1}}
 // Reset and picking another preset terminate the worker and start a new one.
 //
 // The loop: web_run(SLICE) runs machine rounds for a few milliseconds and
@@ -97,11 +102,66 @@ function pump() {
     lastStatus = now;
     postMessage(Object.assign({ t: "status" }, stats()));
   }
+  if (httpOpen.size) httpPump(now);
   if (wait >= 1 && !(inPending.length && M._web_stat(6) < HOST_INQ)) {
     // asleep until the deadline; the status line stays alive meanwhile
-    timer = setTimeout(pump, Math.min(Math.floor(wait), STATUS_MS));
+    // (an HTTP exchange in progress: back soon, to move its bytes)
+    timer = setTimeout(pump, Math.min(Math.floor(wait), httpOpen.size ? 5 : STATUS_MS));
   } else hop();
 }
+
+// ---- the guest's servers, for the page (sw.js) -------------------------------------------
+// One exchange: open a connection to the guest's port (web_http_open), send
+// the request, gather the response until the guest closes or Content-Length
+// is complete; then close (web_http_close). An empty answer: nothing listens.
+const httpOpen = new Map();  // id -> {cid, chunks, len, until}
+let httpBuf = 0;
+const HTTP_MAX = 65536;
+function httpStart(msg) {
+  if (!httpBuf) httpBuf = M._malloc(HTTP_MAX);
+  const cid = M._web_http_open(msg.port);
+  if (cid < 0) { postMessage({ t: "http", id: msg.id, error: 503 }); return; }
+  const rq = new Uint8Array(msg.request);
+  for (let o = 0; o < rq.length; o += HTTP_MAX) {
+    const part = rq.subarray(o, o + HTTP_MAX);
+    M.HEAPU8.set(part, httpBuf);
+    M._web_http_send(cid, httpBuf, part.length);
+  }
+  httpOpen.set(msg.id, { cid, chunks: [], len: 0, until: performance.now() + 30000 });
+}
+function httpDone(id, h, error) {
+  M._web_http_close(h.cid);
+  httpOpen.delete(id);
+  if (error || !h.len) { postMessage({ t: "http", id, error: error || 503 }); return; }
+  const response = new Uint8Array(h.len);
+  let o = 0;
+  for (const c of h.chunks) { response.set(c, o); o += c.length; }
+  postMessage({ t: "http", id, response }, [response.buffer]);
+}
+// complete once the header is there and Content-Length bytes follow it
+function httpComplete(h) {
+  const all = new Uint8Array(h.len);
+  let o = 0;
+  for (const c of h.chunks) { all.set(c, o); o += c.length; }
+  const text = new TextDecoder("latin1").decode(all.subarray(0, Math.min(all.length, 8192)));
+  const end = text.indexOf("\r\n\r\n");
+  if (end < 0) return false;
+  const m = /\r\ncontent-length:\s*(\d+)/i.exec(text.slice(0, end));
+  return m ? all.length >= end + 4 + +m[1] : false;
+}
+function httpPump(now) {
+  for (const [id, h] of httpOpen) {
+    for (;;) {
+      const n = M._web_http_recv(h.cid, httpBuf, HTTP_MAX);
+      if (n > 0) { h.chunks.push(M.HEAPU8.slice(httpBuf, httpBuf + n)); h.len += n; continue; }
+      if (n === 0) { httpDone(id, h); break; }
+      if (h.len && httpComplete(h)) { httpDone(id, h); break; }
+      if (now > h.until) httpDone(id, h, h.len ? 0 : 504);
+      break;
+    }
+  }
+}
+
 
 // Runs pump() after the messages already queued for the worker.
 const chan = new MessageChannel();
@@ -157,6 +217,16 @@ onmessage = (e) => {
     if (!running) return;
     feed();          // what was typed before it goes first, as far as it fits
     M._web_break();
+    hop();
+  } else if (msg.t === "http") {
+    if (!running) { postMessage({ t: "http", id: msg.id, error: 502 }); return; }
+    httpStart(msg);
+    hop();
+  } else if (msg.t === "ports") {
+    if (!running) return;
+    const listening = {};
+    for (const p of msg.ports) listening[p] = M._web_port_listening(p);
+    postMessage({ t: "ports", listening });
     hop();
   } else if (msg.t === "ptr") {
     if (!running) return;

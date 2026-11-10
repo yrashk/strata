@@ -393,6 +393,8 @@ function onWorker(w, m) {
     break;
   }
   case "net": $("netnote").textContent = m.text; break;
+  case "http": vmAnswer(m); break;
+  case "ports": vmPorts(m.listening); break;
   case "exit": setStopped(`exited (${m.code})`); break;
   case "error": setStopped("error: " + m.msg); break;
   }
@@ -463,6 +465,113 @@ function netNote() {
 $("net").addEventListener("change", () => { netNote(); if (current && $("net").value !== "relay") run(current); });
 $("relay").addEventListener("keydown", (e) => { if (e.key === "Enter" && current) { netNote(); run(current); } });
 netNote();
+
+// ---------------------------------------------------------------- the guest's web server
+// sw.js (scope vm/) turns a fetch of vm/PORT/PATH into a raw HTTP request and
+// asks this page; the emulator worker has the guest answer it (web_http_*).
+// While StrataOS runs, the worker is asked every 3 s which of the web ports
+// listen; one that starts listening opens a panel with the page in it.
+const VM_PORTS = [80, 8000];
+const vmWait = new Map();   // request id -> the Service Worker's MessagePort
+let vmSeq = 0;
+const vmSeen = {};          // port -> listening (1 / 0 / -1), and whether its panel was shown
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js" + V, { scope: "vm/" }).catch(() => { /* (no panel then) */ });
+  navigator.serviceWorker.addEventListener("message", (e) => {
+    const m = e.data, port = e.ports[0];
+    if (!m || m.t !== "vmhttp" || !port) return;
+    if (!W || stopped) { port.postMessage({ error: 502 }); return; }
+    const id = ++vmSeq;
+    vmWait.set(id, port);
+    W.postMessage({ t: "http", id, port: m.port, request: m.request });
+  });
+}
+function vmAnswer(m) {
+  const port = vmWait.get(m.id);
+  if (!port) return;
+  vmWait.delete(m.id);
+  if (m.response) port.postMessage({ response: m.response }, [m.response.buffer]);
+  else port.postMessage({ error: m.error || 502 });
+}
+setInterval(() => {
+  if (W && !stopped && (current === "os" || current === "osws")) W.postMessage({ t: "ports", ports: VM_PORTS });
+}, 3000);
+function vmPorts(listening) {
+  for (const p of VM_PORTS) {
+    const was = vmSeen[p] && vmSeen[p].on;
+    const on = listening[p] === 1;
+    vmSeen[p] = Object.assign(vmSeen[p] || {}, { on });
+    if (on && !was) vmShow(p, !vmSeen[p].shown);
+  }
+  vmChips();
+}
+
+// The panel: floating, draggable and resizable (a bottom sheet on a phone); it
+// never takes the focus from the terminal or the screen.
+const vm = { el: null, port: 80 };
+function vmUrl(p) { return new URL(`vm/${p}/`, location.href).href; }
+function vmBuild() {
+  const el = document.createElement("section");
+  el.className = "vmpanel";
+  el.hidden = true;
+  el.innerHTML = `<div class="vmbar"><span class="vmtitle"></span><a class="vmurl" target="_blank" rel="noopener"></a>` +
+    `<span class="vmbtns"><button class="small vmreload" title="Reload">↻</button>` +
+    `<button class="small vmopen" title="Open in a new tab">↗</button>` +
+    `<button class="small vmclose" title="Close (a chip stays)">✕</button></span></div>` +
+    `<iframe class="vmframe" title="The guest's web page" tabindex="-1"></iframe>`;
+  document.body.appendChild(el);
+  const chips = document.createElement("div");
+  chips.className = "vmchips";
+  document.body.appendChild(chips);
+  el.querySelector(".vmreload").addEventListener("click", () => { el.querySelector("iframe").src = vmUrl(vm.port); });
+  el.querySelector(".vmopen").addEventListener("click", () => window.open(vmUrl(vm.port), "_blank", "noopener"));
+  el.querySelector(".vmclose").addEventListener("click", () => { el.hidden = true; vmChips(); });
+  for (const b of el.querySelectorAll("button")) b.addEventListener("mousedown", (e) => e.preventDefault()); // (no focus)
+  // dragging by the bar
+  const bar = el.querySelector(".vmbar");
+  bar.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button, a") || matchMedia("(max-width: 700px)").matches) return;
+    e.preventDefault();
+    const r = el.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
+    el.querySelector("iframe").style.pointerEvents = "none";
+    const move = (ev) => {
+      el.style.left = Math.max(0, Math.min(innerWidth - 80, ev.clientX - dx)) + "px";
+      el.style.top = Math.max(0, Math.min(innerHeight - 40, ev.clientY - dy)) + "px";
+      el.style.right = el.style.bottom = "auto";
+    };
+    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); el.querySelector("iframe").style.pointerEvents = ""; };
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", up);
+  });
+  vm.el = el;
+  vm.chips = chips;
+}
+function vmShow(p, open) {
+  if (!vm.el) vmBuild();
+  vmSeen[p].shown = true;
+  if (!open && !vm.el.hidden) return;
+  vm.port = p;
+  vm.el.querySelector(".vmtitle").textContent = `Guest web server :${p}`;
+  const a = vm.el.querySelector(".vmurl");
+  a.href = a.textContent = vmUrl(p);
+  vm.el.querySelector("iframe").src = vmUrl(p);
+  if (open) vm.el.hidden = false;
+  vmChips();
+}
+function vmChips() {
+  if (!vm.chips) return;
+  vm.chips.textContent = "";
+  for (const p of VM_PORTS) {
+    if (!vmSeen[p] || !vmSeen[p].on || (!vm.el.hidden && vm.port === p)) continue;
+    const c = document.createElement("button");
+    c.className = "small vmchip";
+    c.textContent = `◉ web :${p}`;
+    c.title = `The guest's web server on port ${p}`;
+    c.addEventListener("mousedown", (e) => e.preventDefault());
+    c.addEventListener("click", () => { vm.el.hidden = false; vmShow(p, true); });
+    vm.chips.appendChild(c);
+  }
+}
 
 fetch("demos/index.txt" + V).then((r) => (r.ok ? r.text() : "")).then((txt) => {
   for (const name of txt.split(/\s+/).filter(Boolean)) {

@@ -125,3 +125,29 @@ button:disabled { opacity: 0.4; cursor: default; }
 /* the hidden field the soft keyboard types into (16px: iOS does not zoom) */
 .touchkeys .tk-in { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0.01; font-size: 16px;
   border: 0; padding: 0; resize: none; caret-color: transparent; background: transparent; color: transparent; }
+
+/* the guest's web server (play.js vmShow, sw.js): a floating panel, a chip when closed */
+.vmpanel {
+  position: fixed; right: 24px; bottom: 24px; width: min(640px, 92vw); height: min(460px, 70vh);
+  min-width: 260px; min-height: 160px; resize: both; overflow: hidden; z-index: 50;
+  display: flex; flex-direction: column; background: #05080f;
+  box-shadow: 0 0 0 1px var(--cyan), 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+.vmpanel[hidden] { display: none; }
+.vmbar {
+  display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 12px; cursor: move;
+  font: 12px var(--mono); color: var(--text); background: rgba(12, 22, 38, 0.95); user-select: none;
+}
+.vmtitle { color: var(--cyan); white-space: nowrap; }
+.vmurl { color: var(--dim, #5b7088); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.vmbtns { display: flex; gap: 6px; }
+.vmbtns .small { padding: 3px 9px; font-size: 13px; }
+.vmframe { flex: 1; width: 100%; border: 0; background: #fff; }
+.vmchips { position: fixed; right: 24px; bottom: 24px; z-index: 49; display: flex; gap: 8px; }
+.vmchip { background: rgba(12, 22, 38, 0.95); color: var(--cyan); }
+@media (max-width: 700px) {
+  .vmpanel { left: 0 !important; right: 0 !important; top: auto !important; bottom: 0 !important;
+             width: 100vw; height: 62vh; resize: none; }
+  .vmbar { cursor: default; }
+  .vmchips { right: 12px; bottom: 12px; }
+}

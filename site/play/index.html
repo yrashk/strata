@@ -126,6 +126,10 @@
         (Cloudflare's or Google's public DNS); or link two tabs of this page; or give a relay URL:
         <code>tools/netrelay</code> on your machine puts this machine on the real network through
         its user-mode NAT. The page connects only to the relay you type.</li>
+      <li>The guest's web server: run <code>httpd &amp;</code> in StrataOS and a panel shows its
+        site, served by the machine in this page (a Service Worker turns requests for
+        <code>vm/80/…</code> or <code>vm/8000/…</code> into connections to the guest; nothing leaves
+        the browser). The panel's link opens it in another tab of this browser.</li>
       <li>On the desktop: <code>make boot</code>, <code>make show-gfx</code>, <code>make forth</code>.</li>
     </ul>
   </section>

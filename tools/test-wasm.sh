@@ -132,6 +132,23 @@ else
   printf '%-14s SKIP (needs build/netrelay, python3, node with WebSocket)\n' web-relay
 fi
 
+# the page's view of the guest's web server: StrataOS runs httpd; node waits
+# until port 80 listens (web_port_listening: a SYN probe) and fetches / through
+# web_http_open / send / recv / close, the calls the play page's Service
+# Worker uses
+if [ -f "$b/disk.img" ] && [ -f "$b/bootrom.stx" ]; then
+  printf 'httpd &\nsleep 8\n' >"$tmp/http.in"
+  cp "$b/disk.img" "$tmp/http.img"
+  STRATA_HTTP="80:/" STRATA_HTTP_OUT="$tmp/http.resp" "$tmp/wemu" -c 8 -J -g none -N peer -m 4000000000 \
+    -d "$tmp/http.img" -i "$tmp/http.in" "$b/bootrom.stx" >"$tmp/http.out" 2>&1
+  if [ -f "$tmp/http.resp" ] && head -1 "$tmp/http.resp" | grep -q '^HTTP/1.0 200' && grep -q '</html>' "$tmp/http.resp" &&
+     grep -q '^GET / 200' "$tmp/http.out"; then
+    printf '%-14s OK   the page'"'"'s connection to the guest: httpd answers GET / (%s bytes)\n' web-http "$(wc -c <"$tmp/http.resp" | tr -d ' ')"
+  else
+    printf '%-14s FAIL\n' web-http; tail -15 "$tmp/http.out"; fail=1
+  fi
+fi
+
 n=${FUZZ:-60}
 if [ "$n" -gt 0 ] && command -v python3 >/dev/null 2>&1; then
   STRATA_JIT_HOT=1 python3 "$here/emu/jit/fuzz.py" -n "$n" --emu "$tmp/wemu" --sasm "$b/sasm" | tail -1 || fail=1
