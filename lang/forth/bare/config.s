@@ -15,4 +15,5 @@ PLAT_STUB = 0x100                       ; bytes of .text before the xexec trampo
 FAR_SNAP  = 0x20000                     ; c0 offset: the published D-LS snapshot (workers read it there)
 FAR_SRC   = 0x10000                     ; c0 offset: the embedded source text (core.fs, tools.fs, see.fs)
 PLAT_COMPACT = 0                        ; 0: every word has its own prologue and return (fast; 64 KiB of code space)
+PLAT_INLINE = 16                        ; primitives of up to 16 code bytes (4 instructions) are copied inline
 A_FILES   = 0                           ; (no files on bare metal: INCLUDED fails before it uses this)

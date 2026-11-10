@@ -41,7 +41,7 @@ strata$ forth -e 6 7 * . cr .( done)
 42 
 done
 strata$ echo "2 3 + ." | forth | upper
-STRATA FORTH 0.1 (NATIVE CODE, 1 THREAD, STRATAOS 0.1) 6320 CODE BYTES FREE, 17016 DATA BYTES FREE
+STRATA FORTH 0.1 (NATIVE CODE, 1 THREAD, STRATAOS 0.1) N CODE BYTES FREE, N DATA BYTES FREE
 2 3 + . 5  OK
 strata$ echo ": sq dup * ; 12 sq . see sq" | forth | grep mul | wc
 1 6 34

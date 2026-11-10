@@ -227,8 +227,10 @@ p2                        4
 p1                        4
 strata$ ls -t /-proj/-bin/-src/-sys/-demo/-ws/-forth
 about                         120  doc
-motd                         1402  doc
+motd                         1477  doc
 rc                              9  etc
+index.html                   2789  www
+style.css                    1312  www
 tfile                          11 
 f1                             15 
 s1                             33 
@@ -236,6 +238,7 @@ f2                              6
 f3                              0 
 doc/
 etc/
+www/
 strata$ cat /proj/p2
 two
 strata$ cat /proj/todo/p2 

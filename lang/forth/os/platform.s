@@ -12,7 +12,8 @@
 ; switch and nothing else, so everything lives there:
 ;   c0  the arena below the heap: code mirror, source text, the parcel
 ;   c1  the job board (atomics only, copyable) when started with -n N;
-;       otherwise still the endpoint of `proc`, which Forth does not use
+;       otherwise the endpoint of `proc`, which Forth uses only through
+;       (msg), until a LOOKUP through it (net.fs: "net") replaces it
 ;   c2  endpoint of `fs`     c3  endpoint of `tty`     c4  endpoint of `pipe`
 ;   c5  the message buffer (4 KiB)
 ;   c6  the far heap behind far@ / far!  (heap-cap)
@@ -44,6 +45,7 @@ OP_CLOSE  = 4                           ; close a handle
 SVC_WAIT  = 1                           ; svc WAIT_REPLY: a1 doorbell core, a2 timeout, a3 awaited base, a4 register
 SVC_EXIT  = 5                           ; svc EXIT: a1 = code
 SVC_CLOCK = 10                          ; svc CLOCK: c7 = the clock (read-only timer NOW)
+OP_LOOKUP = 25                          ; proc: a server's endpoint by name (it arrives in c6)
 R_FS      = 2                           ; endpoint registers: fs
 R_TTY     = 3                           ; tty
 R_PIPE    = 4                           ; pipe
@@ -193,7 +195,7 @@ pi_done:                                ; ready
 ; -----------------------------------------------------------------------------
 ; Messages
 ; -----------------------------------------------------------------------------
-; pl_call(a0 = server register 2..4, a1 = op, a2 = the server's id, a3 =
+; pl_call(a0 = server register 1..4, a1 = op, a2 = the server's id, a3 =
 ; length, a4 = mode) -> a0 = result. Data must be in the buffer already.
 ; Clobbers t0..t2, a0..a4.
 pl_call:                                ; leaf
@@ -205,17 +207,23 @@ pl_call:                                ; leaf
         sd    zero, 32(t0)              ; result
         li    t1, 64                    ; header size
         tput  tg9, t0, c5, zero, t1     ; D-LS -> the buffer
-        twait 1 << 9                    ; header and data must be in before the buffer leaves
+        twait (1 << 9) | (1 << 5)       ; header and data (ours: tg9; Forth's `5 tput`: tg5) must be in before the buffer leaves
         li    t1, R_TTY                 ; which endpoint?
         beq   a0, t1, pc_tty            ; the console
         li    t1, R_PIPE                ; ...
         beq   a0, t1, pc_pipe           ; a pipe
+        li    t1, 1                     ; ...
+        beq   a0, t1, pc_c1             ; c1: proc, or the server a LOOKUP put there
         csend c5, c2                    ; fs: lend it the buffer
         cbase a1, c2                    ; a1 = the core it names (for the doorbell)
         j     pc_wait                   ; ...
 pc_tty:                                 ; tty
         csend c5, c3                    ; lend it the buffer
         cbase a1, c3                    ; a1 = its core
+        j     pc_wait                   ; ...
+pc_c1:                                  ; register 1
+        csend c5, c1                    ; lend it the buffer
+        cbase a1, c1                    ; a1 = its core
         j     pc_wait                   ; ...
 pc_pipe:                                ; pipe
         csend c5, c4                    ; lend it the buffer
@@ -244,6 +252,62 @@ pl_hcall:                               ; leaf (tail-calls pl_call)
         ld    a0, pl_hreg(t0)           ; the server's register
         bnez  a0, pl_call               ; open: send
         li    a0, -1                    ; closed
+        ret                             ; done
+
+; plat_msg: the Forth word (MSG) ( handle len mode op reg -- result ), one
+; request to a server (net.fs is built on it; forth.s's p_msg jumps here,
+; with the data stack as it was). The header op, handle, length, mode goes to
+; the server behind endpoint register reg (1, 2 fs, 3 tty, 4 pipe; anything
+; else is fs) and the word sleeps until the answer is back. Request and
+; reply data are the buffer's bytes from 64 on: Forth moves them itself with
+; `5 tput` and `5 tget` (pl_call waits for tag tg5 before the buffer leaves).
+; Register 1 is proc's endpoint until a LOOKUP (op 25) through it succeeds:
+; the endpoint of the server named arrives in c6, where the heap is, so the
+; heap waits in the scratch register c7 meanwhile; the endpoint then
+; replaces proc's in c1, and register 1 is that server for good (a later
+; LOOKUP answers 0 at once). With threads (-n N) c1 is the job board: -1.
+plat_msg:                               ; a Forth word's body
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        mv    a0, s1                    ; a0 = the register
+        ld    a1, 0(s0)                 ; a1 = op
+        ld    a4, 8(s0)                 ; a4 = mode
+        ld    a3, 16(s0)                ; a3 = length
+        ld    a2, 24(s0)                ; a2 = handle
+        addi  s0, s0, 32                ; four cells off; the result replaces the fifth
+        li    t0, 1                     ; register 1?
+        bne   a0, t0, pm_call           ; no: an ordinary request
+        ld    t0, v_ncores(zero)        ; threads: c1 is the job board
+        bne   t0, a0, pm_fail           ; (v_ncores = 1: one thread)
+        li    t0, OP_LOOKUP             ; a LOOKUP?
+        bne   a1, t0, pm_call           ; no: an ordinary request
+        ld    a0, pl_c1srv(zero)        ; done already?
+        bnez  a0, pm_zero               ; yes: register 1 is that server
+        li    a0, 1                     ; (register 1)
+        cclear c7                       ; the scratch register holds the heap meanwhile:
+        cmov  c7, c6                    ; the endpoint arrives in c6
+        call  pl_call                   ; a0 = 0, or -4: no such server
+        bnez  a0, pm_home               ; none: proc stays in c1
+        cclear c1                       ; proc's endpoint makes room
+        cmov  c1, c6                    ; for the server's
+        li    t0, 1                     ; register 1 is a server now
+        sd    t0, pl_c1srv(zero)        ; ...
+pm_home:                                ; the heap goes back
+        cmov  c6, c7                    ; ...
+        cclear c7                       ; (empty again, as after TICKS)
+        j     pm_ret                    ; ...
+pm_call:                                ; send it and wait
+        call  pl_call                   ; a0 = the result
+        j     pm_ret                    ; ...
+pm_fail:                                ; no server behind register 1
+        li    a0, -1                    ; failed
+        j     pm_ret                    ; ...
+pm_zero:                                ; nothing to do
+        li    a0, 0                     ; success
+pm_ret:                                 ; a0 = the result
+        mv    s1, a0                    ; becomes the top of the stack
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 8                 ; pop
         ret                             ; done
 
 ; plat_write(a0 = D-LS address (8-aligned), a1 = length): standard output
@@ -419,13 +483,17 @@ pt_skip:                                ; next entry: skip past the name's zero
         addi  t0, t0, 1                 ; ...
         bnez  t4, pt_skip               ; ...
         j     pt_entry                  ; continue
-pt_hit:                                 ; t1 = 1: tools.fs, 2: see.fs
+pt_hit:                                 ; t1 = 1: tools.fs; 2, 3, 4: see.fs, net.fs, udp.fs
         la    a0, pl_ftools             ; "/tools.fs"
         li    a1, 9                     ; ...
         addi  t1, t1, -1                ; file 1?
         beqz  t1, pt_ret                ; yes
-        la    a0, pl_fsee               ; "/see.fs"
-        li    a1, 7                     ; ...
+        addi  t1, t1, -1                ; t1 = 0, 1, 2: the others have 7-byte names,
+        slli  t2, t1, 3                 ; one after another from pl_fsee:
+        sub   t1, t2, t1                ; t1 * 7
+        la    a0, pl_fsee               ; ...
+        add   a0, a0, t1                ; the name
+        li    a1, 7                     ; its length
 pt_ret:                                 ; a0, a1 = the file
         ret                             ; done
 pt_none:                                ; not in the table
