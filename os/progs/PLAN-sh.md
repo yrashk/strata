@@ -25,6 +25,7 @@ Spec: doc/strataos.md 2.4-2.7. Owner of os/progs/sh.s, tools/test-sh.sh, tools/t
 - [x] syntax: quotes, $?, $$, $NAME, set/unset, \x, ; && || & #, pipes, redirections
 - [x] jobs: jobs, fg, wait %n, kill, reports
 - [x] builtins: help echo set unset history jobs fg wait kill sleep time clear source exit halt run true false
+- [x] cd [PATH] / pwd: the current tag path (fs CWD); the prompt shows it away from "/"
 - [x] options -l -i -c FILE; plain stdin (no prompt) otherwise
 - [x] demo / test-break / test-preempt / test-as (StrataOS part) / boot-jit still pass
 - [x] compare-boot (emulator vs RTL): OK (takeover agent; it now also requires exit status 0)
@@ -34,8 +35,10 @@ Spec: doc/strataos.md 2.4-2.7. Owner of os/progs/sh.s, tools/test-sh.sh, tools/t
 ## Known limitations
 - Redraws use relative cursor moves: a line longer than the terminal width redraws wrongly.
 - Completion assumes an 80-column terminal; no completion inside quotes or of $NAME.
-- No `cd` (directories are tags, see os/servers/fs.s: there is no current one), no
-  globbing, no 2> redirection. Tab completes a file name behind a tag path (`cat /doc/mo`).
+- No globbing, no 2> redirection. Tab completes a file name behind a tag path
+  (`cat /doc/mo`) and under the current tag path (`cd`: kept by fs, see os/servers/fs.s).
+- A `cd` in a pipeline or in the background runs in a child shell (as in Unix): it does
+  not move the shell itself.
 
 ## Wrap-up (takeover agent)
 - Checked against spec 2.7 in scripted interactive runs: editing keys, history, Tab,

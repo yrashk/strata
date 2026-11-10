@@ -69,7 +69,9 @@
 ;   console      sys_conmode(0 cooked / 1 raw), sys_setfg(pid)
 ;   files        sys_dir(buf) -> n (32-byte records: name[24], u64 size), sys_unlink,
 ;                sys_stat(name, len) -> size, sys_statfs(buf), sys_readblk(n, buf);
-;                names are paths ("/tag/tag/name": the file must carry the tags)
+;                names are paths ("/tag/tag/name": the file must carry the tags;
+;                one without the leading "/" is under the current tag path),
+;                sys_cwd(buf) -> len, sys_chdir(path, len, buf) -> len (cd)
 ;   tags         sys_query(buf, path, len) -> n (DIR of a tag path), sys_tags(buf,
 ;                path or 0, len) -> n (32-byte records: name[16], u64 files, u64
 ;                number), sys_tag(name, len, tag, len), sys_untag(name, len, tag, len)
@@ -2131,4 +2133,59 @@ sys_rename:
 sys_facets:
         la    t0, sys_hdr               ; the reply's mode word
         ld    a0, 24(t0)                ; ...
+        ret                             ; done
+
+; ---- files: the current tag path (fs CWD) -------------------------------------
+; Every process has a current tag path, the tag-system analogue of a working
+; directory, kept by the file server: a path that does not start with "/" is
+; read under it ("notes" in /src/demo is /src/demo/notes; sys_query with no
+; path lists it). A child starts in its parent's (proc tells fs at SPAWN).
+OP_CWD     = 20                         ; fs: get / set the current tag path
+CWD_MAX    = 64                         ; its longest text
+
+; sys_cwd(a0 = buffer of CWD_MAX bytes) -> a0 = the length of the current tag
+; path, its text copied in ("/" at the root; "/src/demo", "/notes/-work")
+sys_cwd:
+        li    a2, 0                     ; mode 0: get
+        li    a3, 0                     ; no data
+        j     sys_cwdop                 ; shared path
+
+; sys_chdir(a0 = path, a1 = length, a2 = buffer of CWD_MAX bytes) -> a0 = the
+; new path's length, its text copied in; -4 no such tag (or no file carries
+; them all), -1 too long. The path is relative to the current one unless it
+; starts with "/"; ".." takes a component away; an empty path is "/"
+sys_chdir:
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        sd    a1, 8(sp)                 ; length
+        sd    a2, 16(sp)                ; buffer
+        call  sys_put                   ; the path -> the buffer
+        ld    a0, 16(sp)                ; ...
+        ld    a3, 8(sp)                 ; ...
+        li    a2, 1                     ; mode 1: set
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 24                ; release the frame
+; sys_cwdop(a0 = buffer, a2 = mode, a3 = length of the data put) -> a0 = length
+sys_cwdop:
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        sd    a0, 8(sp)                 ; buffer
+        mv    a4, a2                    ; mode
+        li    a0, 2                     ; fs
+        li    a1, OP_CWD                ; ...
+        li    a2, 0                     ; ...
+        call  sys_msg                   ; a0 = length or < 0
+        blez  a0, scw_ret               ; ...
+        li    t0, CWD_MAX               ; (at most the buffer)
+        bleu  a0, t0, scw_get           ; ...
+        mv    a0, t0                    ; ...
+scw_get:
+        sd    a0, 16(sp)                ; the length
+        mv    a1, a0                    ; the text -> the buffer
+        ld    a0, 8(sp)                 ; ...
+        call  sys_get                   ; ...
+        ld    a0, 16(sp)                ; the length
+scw_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 24                ; release the frame
         ret                             ; done

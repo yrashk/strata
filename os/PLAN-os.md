@@ -65,6 +65,11 @@ tools/test-break.sh, tools/test-preempt.sh, tools/test-as.sh (StrataOS part), Ma
   then a u64 tag set per entry). Names in requests are paths (`/tag/tag/name`); DIR
   takes a tag path (intersection); TAG 12, UNTAG 13, TAGS 14; `mkdisk -t`; `ls [-t]
   [PATH]`, `tag`/`untag` (one image), `tags`. A rewrite keeps the file's entry and tags.
+- [x] fs: a current tag path per process (CWD 20: get / set / inherit). fs keeps a
+  table of 32 x 64-byte texts keyed by the sender pid and reads relative paths (no
+  leading "/") under it, then normalizes `.` / `..`. Inheritance: proc sends CWD mode 2
+  (parent, child) in do_spawn between LOADIMG and CREATE (its block `cwd_inherit`);
+  CLEANUP frees the entry. fs D-LS 30.5 -> 33.2 KiB. Shell `cd` / `pwd`, prompt.
 - [x] kernel resident + units: boot, CREATE/DESTROY/MEMORY/STATS/NOTIFY/FREE/HALT,
       exits, ticks, self-paging (k_trap; never evicts the missing slot itself)
 - [x] dispatcher: run queue, switches (data extent + stack, code from image/mirror),

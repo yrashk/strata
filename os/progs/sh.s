@@ -29,6 +29,12 @@
 ; $? is the exit code, 130 when killed by Ctrl-C, 128 + cause after a fault.
 ; A non-zero status shows in the prompt: "[130] strata$ ".
 ;
+; The current tag path: `cd TAG` (or a/b, -x, /x/y, .., nothing for "/") and
+; `pwd`. The file server keeps it, per process (a child starts in its
+; parent's), and reads every name without a leading "/" under it: `ls` lists
+; it, `cat f` opens f if it carries its tags, `echo hi > f` gives f its tags.
+; Away from "/" the prompt shows it: "strata:/src/demo$ ".
+;
 ; Line editing (the console in raw mode while a line is being typed):
 ;   Left/Right Ctrl-B/F  move        Home/End Ctrl-A/E   start / end
 ;   Backspace            erase left  Delete              erase under the cursor
@@ -36,8 +42,9 @@
 ;   Ctrl-W               erase the word before the cursor
 ;   Up/Down Ctrl-P/N     history (32 lines)      Ctrl-L  clear the screen
 ;   Tab                  complete a command (first word: builtins and programs
-;                        on the disk) or a file name; a second Tab lists the
-;                        candidates in columns
+;                        on the disk) or a file name (and facets, as tag/, in
+;                        a tag path or under the current one); a second Tab
+;                        lists the candidates in columns
 ;   Ctrl-D               on an empty line: end of input (exit)
 ;   Ctrl-C               abandon the line (it arrives as an interrupt: the
 ;                        shell catches interrupts, so the read returns -2)
@@ -82,8 +89,8 @@ VNMAX   = 16                            ;   8 value length, 16 name (16 bytes),
 VVMAX   = 96                            ;   32 value (96 bytes)
 NDIR    = 128                           ; directory entries (fs DIR)
 NCAND   = 160                           ; completion candidates
-NBI     = 16                            ; builtins that run (the table has 2 more)
-NBIC    = 18                            ; names offered by completion
+NBI     = 18                            ; builtins that run (the table has 2 more)
+NBIC    = 20                            ; names offered by completion
 TERMW   = 80                            ; columns for listing candidates
 TK_WORD = 1                             ; token: a word
 TK_PIPE = 2                             ; token: |
@@ -158,6 +165,9 @@ qtxt:    .space MAXST * STXT            ; the same words, each in '...' (for sh 
 stg:     .space MAXST * 64              ; the stages
 jtab:    .space NJOB * JSZ              ; the background jobs
 argbuf:  .space 512                     ; our own arguments
+pnbuf:   .space 32                      ; is_prog: "/" and the name (from anywhere)
+g_cwd:   .space 64                      ; the current tag path ("/": the root)
+g_cwdl:  .dword 0                       ; its length (0 until known)
 numbuf:  .space 24                      ; digits for fmt_dec / is_prog
 numend:                                 ; one past them
 
@@ -172,11 +182,19 @@ w_shc:   .ascii "sh -c "                ; a builtin run by a child shell
 w_dollar: .ascii "$"                    ; a plain $
 bi_names: .ascii "help    echo    set     unset   history jobs    fg      wait    " ; builtins 1..8, 8 characters each
          .ascii "kill    sleep   clear   source  exit    halt    true    false   " ; builtins 9..16
+         .ascii "cd      pwd     "      ; builtins 17..18
          .ascii "time    run     "      ; completion only (handled by the parser)
 f_names: .ascii "none    illegal lsfault capinv  perm    bounds  xalign  ifault  " ; fault causes 0..7
          .ascii "xmiss   pend    capop   priv    halt    stop    svc     " ; fault causes 8..14
 m_prompt: .ascii "strata$ "             ; the prompt
 m_prompt_e:                             ; end of the text above
+m_pcwd:  .ascii "strata:"               ; the prompt away from the root: strata:/a/b$
+m_pend:  .ascii "$ "                    ; ...
+m_root:  .ascii "/"                     ; the root (programs are completed from it)
+m_cdno:  .ascii "sh: cd: no such tag: " ; error text
+m_cdno_e:                               ; end of the text above
+m_cdbad: .ascii "sh: cd: cannot go to " ; error text
+m_cdbad_e:                              ; end of the text above
 m_rb:    .ascii "] "                    ; after a number in brackets
 m_sh:    .ascii "sh: "                  ; error prefix
 m_colon: .ascii ": "                    ; error separator
@@ -245,6 +263,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "  help  echo ARGS  set [NAME VALUE]  unset NAME  history  clear\n" ; (continued)
          .ascii "  jobs  fg [%J]  wait [%J|PID]  kill PID|%J  sleep SECONDS  time CMD\n" ; (continued)
          .ascii "  source FILE  exit [N]  halt  true  false  run [-n N] PROG\n" ; (continued)
+         .ascii "  cd [PATH]  pwd    the current tag path: cd a/b, cd -c, cd /x, cd .., cd\n" ; (continued)
          .ascii "syntax:\n"             ; (continued)
          .ascii "  a ; b   a && b   a || b   a & b   lists; & runs in the background\n" ; (continued)
          .ascii "  a | b | c | d     pipeline (up to 4 stages)\n" ; (continued)
@@ -255,6 +274,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "  sh FILE           run a script;  sh -c \"line\" runs one line\n" ; (continued)
          .ascii "editing: arrows, Home/End, ^A ^E ^K ^U ^W ^L, Tab completes, ^D exits\n" ; (continued)
          .ascii "files: no directories, tags; /a/b/f is f if it carries a and b\n" ; (continued)
+         .ascii "  f (no leading /) is under the current path: f there carries its tags\n" ; (continued)
          .ascii "  ls [-t] [/a/-b]  files tagged a, not b (and tags to narrow by, c/)\n" ; (continued)
          .ascii "  cat cp [-t] mv rm touch df   tag untag retag FILE TAG...   tags [FILE]\n" ; (continued)
          .ascii "programs:\n"           ; (continued)
@@ -283,6 +303,7 @@ main:
         call  sys_pid                   ; remember our pid (for sys_setfg)
         la    t0, g_pid                 ; ...
         sd    a0, 0(t0)                 ; ...
+        call  cwd_get                   ; the current tag path (for the prompt)
         li    a0, 1                     ; the shell catches interrupts:
         call  sys_catch                 ;   blocking calls return -2 instead
         li    a0, 0                     ; is standard input the console?
@@ -440,7 +461,8 @@ own_con:
         and   a0, a0, t0                ; ...
         ret                             ; done
 
-; prompt(): "strata$ ", or "[N] strata$ " after a non-zero status
+; prompt(): "strata$ ", or "[N] strata$ " after a non-zero status; away from
+; the root it shows the current tag path: "strata:/src/demo$ "
 prompt:
         addi  sp, sp, -16               ; frame
         sd    ra, 0(sp)                 ; save ra
@@ -456,9 +478,26 @@ prompt:
         li    a1, 2                     ; ...
         call  out_str                   ; ...
 pr_p:
+        la    t0, g_cwdl                ; away from the root?
+        ld    t0, 0(t0)                 ; (the root is "/": one byte)
+        li    t1, 1                     ; ...
+        bgtu  t0, t1, pr_cwd            ; yes
         la    a0, m_prompt              ; "strata$ "
         li    a1, m_prompt_e - m_prompt ; ...
         call  out_str                   ; ...
+        j     pr_ret                    ; ...
+pr_cwd:
+        la    a0, m_pcwd                ; "strata:/a/b$ "
+        li    a1, 7                     ; ...
+        call  out_str                   ; ...
+        la    a0, g_cwd                 ; ...
+        la    t0, g_cwdl                ; ...
+        ld    a1, 0(t0)                 ; ...
+        call  out_str                   ; ...
+        la    a0, m_pend                ; ...
+        li    a1, 2                     ; ...
+        call  out_str                   ; ...
+pr_ret:
         ld    ra, 0(sp)                 ; restore ra
         addi  sp, sp, 16                ; release the frame
         ret                             ; done
@@ -1322,9 +1361,12 @@ ehs_set:
 
 ; ed_tab(): complete the word before the cursor. In command position the
 ; candidates are the builtins and the programs on the disk (files that start
-; with "STX2"); elsewhere every file name. In a tag path ("/doc/mo", "/sr")
-; the files carrying the path's tags, and its facets (the other tags they
-; carry) as "tag/": tags work like folders. One candidate: completed, and a
+; with "STX2", from the whole disk: proc runs them from "/"); elsewhere the
+; file names of the current tag path (every file at "/"). In a tag path
+; ("/doc/mo", "/sr", or relative: "sub/c") the files carrying the path's
+; tags, and its facets (the other tags they carry) as "tag/": tags work like
+; folders; away from "/" a plain argument gets the current path's facets
+; too. One candidate: completed, and a
 ; space added (none after a tag's "/"). Several: completed as far as they
 ; agree; a second Tab lists them in columns and draws the prompt and the
 ; line again.
@@ -1409,11 +1451,16 @@ etb_bl:
         addi  s5, s5, 1                 ; next
         j     etb_bl                    ; ...
 etb_files:
-        la    a0, dirbuf                ; the files: all, or those with the path's tags
-        la    a1, g_cdir                ; ...
+        la    a0, dirbuf                ; the files: the current path's, or those
+        la    a1, g_cdir                ; with the path's tags (relative to it)
         ld    a1, 0(a1)                 ; ...
         la    a2, g_cdirl               ; ...
         ld    a2, 0(a2)                 ; ...
+        bnez  a2, etb_q                 ; ...
+        beqz  s2, etb_q                 ; a command: every program, from the root
+        la    a1, m_root                ; (proc runs them from there)
+        li    a2, 1                     ; ...
+etb_q:
         call  sys_query                 ; a0 = files (< 0: none)
         mv    s5, a0                    ; s5 = their number
         call  sys_facets                ; the other tags they carry
@@ -1434,7 +1481,13 @@ etb_fl:
 etb_fac:
         la    t0, g_cdirl               ; in a tag path: its facets, as "tag/"
         ld    t0, 0(t0)                 ; ...
-        beqz  t0, etb_got               ; not in one
+        bnez  t0, etb_fc                ; in one
+        bnez  s2, etb_got               ; a command: none
+        la    t0, g_cwdl                ; an argument away from the root: the
+        ld    t0, 0(t0)                 ; current path's facets
+        li    t1, 1                     ; ...
+        bleu  t0, t1, etb_got           ; at the root: none
+etb_fc:
         la    t0, g_cfac                ; ...
         ld    t0, 0(t0)                 ; ...
         beqz  t0, etb_got               ; none
@@ -1784,7 +1837,22 @@ is_prog:
         addi  sp, sp, -16               ; frame
         sd    ra, 0(sp)                 ; save ra
         sd    s0, 8(sp)                 ; save s0
-        li    a2, 0                     ; open it
+        la    t0, pnbuf                 ; "/name": wherever the current path is
+        li    t1, '/'                   ; (names are unique)
+        sb    t1, 0(t0)                 ; ...
+        li    t2, 0                     ; ...
+ipg_c:
+        bgeu  t2, a1, ipg_o             ; ...
+        add   t3, a0, t2                ; ...
+        lbu   t3, 0(t3)                 ; ...
+        add   t4, t0, t2                ; ...
+        sb    t3, 1(t4)                 ; ...
+        addi  t2, t2, 1                 ; ...
+        j     ipg_c                     ; ...
+ipg_o:
+        mv    a0, t0                    ; open it
+        addi  a1, a1, 1                 ; ...
+        li    a2, 0                     ; ...
         call  sys_open                  ; ...
         bltz  a0, ipg_no                ; cannot
         mv    s0, a0                    ; s0 = handle
@@ -3813,6 +3881,8 @@ bi_jt:
         j     sys_halt                  ; 14 halt
         j     bi_true                   ; 15 true
         j     bi_false                  ; 16 false
+        j     bi_cd                     ; 17 cd
+        j     bi_pwd                    ; 18 pwd
 
 ; set_stat(a0 = value): $? = a0
 set_stat:
@@ -4127,6 +4197,75 @@ bso_use:
 bso_ret:
         ld    ra, 0(sp)                 ; restore ra
         addi  sp, sp, 24                ; release the frame
+        ret                             ; done
+
+; cd [PATH]: the current tag path (kept by the file server, per process: a
+; child starts in ours). TAG or a/b appends, /x/y replaces, .. drops the
+; last component, none or / is the root. A tag no file carries (or a view
+; with no file in it) is refused: "sh: cd: no such tag: PATH", status 1
+bi_cd:
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        call  bi_arg                    ; PATH (none: the root)
+        sd    a0, 8(sp)                 ; ...
+        sd    a1, 16(sp)                ; ...
+        la    a2, g_cwd                 ; the new path comes back
+        call  sys_chdir                 ; a0 = its length, or < 0
+        bltz  a0, bcd_err               ; ...
+        la    t0, g_cwdl                ; ...
+        sd    a0, 0(t0)                 ; ...
+        call  bi_true                   ; status 0
+        j     bcd_ret                   ; ...
+bcd_err:
+        li    t0, -4                    ; no such tag?
+        la    t1, m_cdno                ; ...
+        li    t2, m_cdno_e - m_cdno     ; ...
+        beq   a0, t0, bcd_say           ; ...
+        la    t1, m_cdbad               ; anything else (too long, no room)
+        li    t2, m_cdbad_e - m_cdbad   ; ...
+bcd_say:
+        mv    a0, t1                    ; the message
+        mv    a1, t2                    ; ...
+        call  err_str                   ; ...
+        ld    a0, 8(sp)                 ; PATH
+        ld    a1, 16(sp)                ; ...
+        call  err_str                   ; ...
+        la    a0, sys_nl                ; ...
+        li    a1, 1                     ; ...
+        li    a2, 1                     ; status 1
+        call  bi_err                    ; ...
+bcd_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 24                ; release the frame
+        ret                             ; done
+
+; pwd: the current tag path ("/" at the root)
+bi_pwd:
+        addi  sp, sp, -16               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        call  cwd_get                   ; (asked again: it is the file server's)
+        la    a0, g_cwd                 ; ...
+        la    t0, g_cwdl                ; ...
+        ld    a1, 0(t0)                 ; ...
+        call  out_str                   ; ...
+        call  out_nl                    ; ...
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 16                ; release the frame
+        j     bi_true                   ; status 0 (tail call)
+
+; cwd_get(): the current tag path -> g_cwd, g_cwdl (0 if the server has none)
+cwd_get:
+        addi  sp, sp, -16               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        la    a0, g_cwd                 ; ...
+        call  sys_cwd                   ; a0 = its length, or < 0
+        bgez  a0, cwg_set               ; ...
+        li    a0, 0                     ; ...
+cwg_set:
+        la    t0, g_cwdl                ; ...
+        sd    a0, 0(t0)                 ; ...
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 16                ; release the frame
         ret                             ; done
 
 ; jobs: list the background jobs still running: "[J] PID  CMD"

@@ -63,8 +63,8 @@ pl_wh:    .dword 0, 0                   ; a worker page's header: mirror arena o
 pl_hreg:  .dword 0, 0, 0                ; handles 0..2: the server's endpoint register (2 fs, 3 tty, 4 pipe; 0 closed)
 pl_hid:   .dword 0, 0, 0                ; handles 0..2: the server's id for the handle
 pl_inc:   .ascii "include "             ; put in front of a file name on the command line
-pl_ftools: .ascii "tools.fs"            ; the file of tools 1 below
-pl_fsee:  .ascii "see.fs"               ; the file of tools 2
+pl_ftools: .ascii "/tools.fs"           ; the file of tools 1 below (from the root:
+pl_fsee:  .ascii "/see.fs"              ; the file of tools 2      whatever the current tag path)
 pl_tools:                               ; words loaded on demand (plat_tool): u8 file, name, 0
           .byte 1                       ; tools.fs:
           .asciz "words"                ; ...

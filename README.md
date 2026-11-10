@@ -217,7 +217,11 @@ strata$ ws                          # the window server takes the screen
 - **The shell** (`sh`) has line editing, history, Tab completion of
   commands and file names, quoting and variables, `;` `&&` `||`, pipelines
   of up to four stages, redirection, background jobs (`jobs`, `fg`, `wait`,
-  `kill`), scripts and an `rc` file. Type `help`.
+  `kill`), scripts and an `rc` file, and a current tag path: `cd src/demo`,
+  `cd ..`, `pwd`; names without a leading `/` are read under it (`ls`,
+  `cat hello.s`, `echo hi > notes` tags the new file), programs started from
+  there inherit it, and the prompt shows it (`strata:/src/demo$ `). Type
+  `help`.
 - **Utilities**: `ls cat cp mv rm touch df tag untag retag tags ps free
   uptime devs hexdump cores sched seq grep wc upper spin`, `units` (a program
   that pages its own code), and `as`.

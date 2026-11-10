@@ -420,12 +420,12 @@ pt_skip:                                ; next entry: skip past the name's zero
         bnez  t4, pt_skip               ; ...
         j     pt_entry                  ; continue
 pt_hit:                                 ; t1 = 1: tools.fs, 2: see.fs
-        la    a0, pl_ftools             ; "tools.fs"
-        li    a1, 8                     ; ...
+        la    a0, pl_ftools             ; "/tools.fs"
+        li    a1, 9                     ; ...
         addi  t1, t1, -1                ; file 1?
         beqz  t1, pt_ret                ; yes
-        la    a0, pl_fsee               ; "see.fs"
-        li    a1, 6                     ; ...
+        la    a0, pl_fsee               ; "/see.fs"
+        li    a1, 7                     ; ...
 pt_ret:                                 ; a0, a1 = the file
         ret                             ; done
 pt_none:                                ; not in the table
