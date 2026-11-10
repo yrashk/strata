@@ -54,11 +54,11 @@ $(BUILD)/sasm: asm/sasm.c asm/isa.h
 # the JIT (emu/jit/): each backend compiles to nothing on other hosts
 JIT_SRC := emu/jit/jit.c emu/jit/jit_arm64.c emu/jit/jit_x86_64.c
 
-$(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h
+$(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/net.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
 
-$(BUILD)/strata-rtl: $(RTL) sim/main.cpp common/stx.h common/platform.h common/display.h asm/isa.h
+$(BUILD)/strata-rtl: $(RTL) sim/main.cpp common/stx.h common/platform.h common/display.h common/net.h asm/isa.h
 	@mkdir -p $(BUILD)
 	verilator --cc --exe --build -j 0 -O3 --x-assign fast --x-initial fast \
 	  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
@@ -82,6 +82,7 @@ test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/compare-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/demo.txt
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-break.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-sh.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-net.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) ./tools/test-ws.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-preempt.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-boot-jit.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/demo.txt
@@ -137,10 +138,13 @@ $(BUILD)/kernel.stx: os/kernel.s $(wildcard os/kunits/*.s) firmware/fw.s $(BUILD
 OS_EXCLUDE := clock gfx
 OS_EXAMPLES := $(filter-out $(OS_EXCLUDE),$(patsubst examples/%.s,%,$(EXAMPLES)))
 PROGS   := $(patsubst %,$(BUILD)/prog/%,$(OS_EXAMPLES))
-SERVERS := proc dev fs tty pipe
+SERVERS := proc dev fs tty pipe net
 UTILS   := sh ls cat rm df ps free uptime devs hexdump cores sched seq grep wc upper spin tag tags
 SPROGS  := $(patsubst %,$(BUILD)/prog/%,$(SERVERS))
 UPROGS  := $(patsubst %,$(BUILD)/prog/%,$(UTILS))
+# the network programs (os/servers/net.s is the server): no sources on the disk
+NETUTILS := ping nc tcpecho ifconfig netstat
+NPROGS  := $(patsubst %,$(BUILD)/prog/%,$(NETUTILS))
 USRCS   := $(patsubst %,$(BUILD)/src/%.s,$(UTILS))
 EXSRCS  := $(patsubst %,$(BUILD)/src/%.s,$(OS_EXAMPLES))
 SRCS    := $(EXSRCS) $(BUILD)/src/as.s $(BUILD)/src/units.s
@@ -153,7 +157,7 @@ $(SPROGS): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sa
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
 
-$(UPROGS): $(BUILD)/prog/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
+$(UPROGS) $(NPROGS): $(BUILD)/prog/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
 
@@ -199,14 +203,14 @@ $(BUILD)/src/as.s: os/progs/as.s
 FORTH_DISK := $(BUILD)/prog/forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
               $(wildcard lang/forth/demos/*.fs)
 
-DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(BUILD)/prog/untag $(WSPROGS) $(PROGS) $(BUILD)/prog/as \
+DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(NPROGS) $(BUILD)/prog/untag $(WSPROGS) $(PROGS) $(BUILD)/prog/as \
               $(BUILD)/prog/units $(SRCS) $(USRCS) $(FORTH_DISK)
 
 # The same files with their tags (mkdisk -t TAGS applies to the files after it).
 # The file system has no directories: `ls /bin` lists the files tagged bin,
 # `ls /src/demo` those tagged both src and demo.
 DISK_ARGS := -t doc $(filter-out %/rc,$(OS_FILES)) -t etc $(filter %/rc,$(OS_FILES)) \
-             -t sys $(SPROGS) -t bin $(UPROGS) $(BUILD)/prog/untag -t bin,ws $(WSPROGS) \
+             -t sys $(SPROGS) -t bin $(UPROGS) $(BUILD)/prog/untag -t bin,net $(NPROGS) -t bin,ws $(WSPROGS) \
              -t demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units \
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) \
              -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
@@ -224,7 +228,7 @@ $(BUILD)/disk-ws.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) os/files
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WS_ARGS)
 
 # the emulator boots StrataOS with 12 cores; the RTL with NCORES
-BOOT_EMU := $(BUILD)/strata-emu -c 12
+BOOT_EMU := $(BUILD)/strata-emu -c 12 -N peer
 
 boot: $(BUILD)/strata-emu os
 	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
@@ -369,7 +373,7 @@ test-wasm: $(WEB)/strata-emu.js $(BUILD)/strata-emu $(BUILD)/sasm examples $(BUI
 # one build for the page's worker and for node (tools/wasm-run.js, the tests)
 # (emu/jit/jit_wasm.c is the JIT: it generates WebAssembly at run time and
 # installs it in the module's function table, hence ALLOW_TABLE_GROWTH)
-$(WEB)/strata-emu.js: web/web.c emu/emu.c emu/jit/jit_wasm.c emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h
+$(WEB)/strata-emu.js: web/web.c emu/emu.c emu/jit/jit_wasm.c emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/net.h
 	@mkdir -p $(WEB)
 	$(EMCC) -std=gnu11 -O3 -Wall -DNO_SDL -o $@ web/web.c emu/jit/jit_wasm.c \
 	  -sMODULARIZE=1 -sEXPORT_NAME=createStrata -sENVIRONMENT=worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \

@@ -1678,3 +1678,438 @@ sl_loop:
 sl_done:
         mv    a0, t0                    ; length
         ret                             ; done
+
+; =============================================================================
+; net: TCP/IP through the network server (os/servers/net.s)
+; =============================================================================
+; The network server runs only after `net ADDRESS` was started (rc, or a
+; shell). Its endpoint lives in c6 (net_init: LOOKUP "net"); c6 is otherwise
+; where replies' capabilities arrive, which none of these calls bring, so a
+; program that uses the network must not make calls that return a capability
+; (sys_lookup into c6, sys_grantfb) afterwards, or call net_init again.
+; Sockets are handles (server register 6): sys_read, sys_write and sys_close
+; work on TCP connections as on files and pipes; READ blocks until data
+; arrives and returns 0 when the peer has closed. Addresses are IPv4 in a
+; register as a.b.c.d = a << 24 | b << 16 | c << 8 | d; ports are numbers.
+;   net_init() -> 0, or -4 (no network server; one is started if none runs)
+;   net_connect(ip, port) -> handle (TCP; -1 refused, -8 timed out)
+;   net_listen(port) -> handle;  net_accept(listen handle, nb) -> handle (-3: none yet, nb = 1)
+;   net_shutdown(handle): no more sending (FIN); reading goes on until the peer closes
+;   net_udp(port, 0 = any) -> handle;  net_sendto(h, ip, port, buf, len) -> n
+;   net_recvfrom(h, buf, max, nb) -> n, a1 = ip, a2 = port (-3: none, nb = 1)
+;   net_ping(ip, bytes, timeout) -> round trip in ticks, or -8
+;   net_stat(buf: 64 + 32 x 8 bytes) -> sockets; net_setip(ip)
+;   net_aton(text, len) -> ip or -1;  out_ip(ip) prints a.b.c.d
+; The server's protocol (ops 50..58 and READ/WRITE/CLOSE) is in the header
+; of os/servers/net.s.
+
+OP_NSTAT   = 50                         ; net: interface, counters and sockets
+OP_NSETIP  = 51                         ; net: the interface's address
+OP_NPING   = 52                         ; net: ICMP echo
+OP_NCONN   = 53                         ; net: TCP connect
+OP_NLISTEN = 54                         ; net: TCP listen
+OP_NACCEPT = 55                         ; net: TCP accept
+OP_NUBIND  = 56                         ; net: a UDP socket
+OP_NUSEND  = 57                         ; net: send a datagram
+OP_NURECV  = 58                         ; net: receive a datagram
+OP_GETNET  = 59                         ; dev: the network interface's ports (for net)
+NET_EP     = 6                          ; the register of the endpoint to net
+
+        .data                           ; net names
+        .align 8                        ; ...
+net_name:  .ascii "net"                 ; the network server's name
+net_cmd:   .ascii "net 10.0.0.1"        ; how net_init starts one
+net_cmd_e:                              ; ...
+        .align 8                        ; ...
+        .text                           ; back to code
+
+; net_init() -> a0 = 0 (the endpoint in c6), -4 if no network server. One
+; just started in the background may not be registered yet: it looks for
+; half a second; then, if none runs, it starts one (`net 10.0.0.1`, its
+; output on the console) and waits up to a second more for it.
+net_init:
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        li    t0, 30                    ; tries, 50 ms apart
+        sd    t0, 8(sp)                 ; ...
+        sd    zero, 16(sp)              ; not started one yet
+ni_try:
+        la    a0, net_name              ; LOOKUP "net" into c6
+        li    a1, 3                     ; ...
+        li    a2, NET_EP                ; ...
+        call  sys_lookup                ; a0 = 0 or -4
+        beqz  a0, ni_ret                ; found
+        ld    t0, 8(sp)                 ; (only after half a second)
+        li    t1, 20                    ; ...
+        bgt   t0, t1, ni_wait           ; ...
+        ld    t0, 16(sp)                ; none: start one, once
+        bnez  t0, ni_wait               ; ...
+        li    t0, 1                     ; ...
+        sd    t0, 16(sp)                ; ...
+        call  net_start                 ; ...
+ni_wait:
+        ld    t0, 8(sp)                 ; tries left?
+        addi  t0, t0, -1                ; ...
+        sd    t0, 8(sp)                 ; ...
+        blez  t0, ni_ret                ; no: -4
+        li    a0, 50000                 ; wait 50 ms
+        call  sys_sleep                 ; ...
+        j     ni_try                    ; again
+ni_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 24                ; release the frame
+        ret                             ; done
+
+; net_start(): spawn the network server with the default address, its standard
+; output and error on the console (not ours: that may be a pipe it would keep open)
+net_start:
+        addi  sp, sp, -16               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        li    a0, 3                     ; a handle on the console (tty id 0)
+        li    a1, 0                     ; ...
+        call  sys_hnew                  ; ...
+        sd    a0, 8(sp)                 ; ...
+        bltz  a0, nsr_ret               ; (no handle free)
+        li    a0, 0                     ; one thread, no pinning
+        li    a1, 0                     ; ...
+        la    a2, net_cmd               ; "net 10.0.0.1"
+        li    a3, net_cmd_e - net_cmd   ; ...
+        li    a4, -1                    ; no input
+        ld    a5, 8(sp)                 ; output, errors: the console
+        mv    a6, a5                    ; ...
+        call  sys_spawn                 ; (not waited for)
+        ld    a0, 8(sp)                 ; the handle is not needed any more
+        li    a1, -1                    ; (dropped from the table only: the console stays open)
+        call  sys_hset                  ; ...
+nsr_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 16                ; release the frame
+        ret                             ; done
+
+; net_id(a0 = handle) -> a0 = the server's socket id, or -1 if not a socket
+net_id:
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save ra
+        call  sys_hent                  ; the entry
+        beqz  a0, nid_no                ; not open
+        ld    t0, 0(a0)                 ; its server register
+        li    t1, NET_EP                ; the network server's?
+        bne   t0, t1, nid_no            ; no
+        ld    a0, 8(a0)                 ; the id
+        j     nid_ret                   ; ...
+nid_no:
+        li    a0, -1                    ; not a socket
+nid_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 8                 ; release the frame
+        ret                             ; done
+
+; net_sock(a0 = result of a call that makes a socket) -> a0 = a handle for it, or the error
+net_sock:
+        bltz  a0, nsk_ret               ; an error: as it is
+        mv    a1, a0                    ; the id
+        li    a0, NET_EP                ; served by net
+        j     sys_hnew                  ; (tail call) a handle, or -1
+nsk_ret:
+        ret                             ; done
+
+; net_connect(a0 = ip, a1 = port) -> a0 = handle, or -1 refused, -8 timed out, -6 no socket free
+net_connect:
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save ra
+        mv    a2, a0                    ; handle = ip
+        mv    a3, a1                    ; length = port
+        li    a0, NET_EP                ; net
+        li    a1, OP_NCONN              ; CONNECT
+        li    a4, 0                     ; ...
+        call  sys_msg                   ; a0 = socket id or error
+        call  net_sock                  ; -> handle
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 8                 ; release the frame
+        ret                             ; done
+
+; net_listen(a0 = port) -> a0 = handle, or -7 port in use, -6 no socket free
+net_listen:
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save ra
+        mv    a2, a0                    ; handle = port
+        li    a0, NET_EP                ; net
+        li    a1, OP_NLISTEN            ; LISTEN
+        li    a3, 0                     ; ...
+        li    a4, 0                     ; ...
+        call  sys_msg                   ; a0 = socket id or error
+        call  net_sock                  ; -> handle
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 8                 ; release the frame
+        ret                             ; done
+
+; net_accept(a0 = listening handle, a1 = 1 do not block) -> a0 = handle of the
+; next connection, or -3 (none yet) / -1
+net_accept:
+        addi  sp, sp, -16               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        sd    a1, 8(sp)                 ; mode
+        call  net_id                    ; the listener's id
+        bltz  a0, nac_ret               ; not a socket
+        mv    a2, a0                    ; handle = id
+        li    a0, NET_EP                ; net
+        li    a1, OP_NACCEPT            ; ACCEPT
+        li    a3, 0                     ; ...
+        ld    a4, 8(sp)                 ; mode
+        call  sys_msg                   ; a0 = new socket id or error
+        call  net_sock                  ; -> handle
+nac_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 16                ; release the frame
+        ret                             ; done
+
+; net_shutdown(a0 = handle) -> a0 = 0: nothing more will be sent (the peer sees
+; the end once the data before it has gone); reading goes on
+net_shutdown:
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save ra
+        call  net_id                    ; the id
+        bltz  a0, nsh_ret               ; not a socket
+        mv    a2, a0                    ; handle = id
+        li    a0, NET_EP                ; net
+        li    a1, OP_CLOSE              ; CLOSE with mode bit 0: sending only
+        li    a3, 0                     ; ...
+        li    a4, 1                     ; ...
+        call  sys_msg                   ; ...
+nsh_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 8                 ; release the frame
+        ret                             ; done
+
+; net_udp(a0 = port, 0 = any) -> a0 = handle of a UDP socket, or -7 / -6
+net_udp:
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save ra
+        mv    a2, a0                    ; handle = port
+        li    a0, NET_EP                ; net
+        li    a1, OP_NUBIND             ; UDP socket
+        li    a3, 0                     ; ...
+        li    a4, 0                     ; ...
+        call  sys_msg                   ; a0 = socket id or error
+        call  net_sock                  ; -> handle
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 8                 ; release the frame
+        ret                             ; done
+
+; net_sendto(a0 = handle, a1 = ip, a2 = port, a3 = buffer, a4 = length (1472
+; at most)) -> a0 = bytes sent, or -1
+net_sendto:
+        addi  sp, sp, -48               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        sd    a1, 8(sp)                 ; ip
+        sd    a2, 16(sp)                ; port
+        sd    a3, 24(sp)                ; buffer
+        sd    a4, 32(sp)                ; length
+        call  net_id                    ; the id
+        bltz  a0, nst_ret               ; not a socket
+        sd    a0, 40(sp)                ; ...
+        la    t0, sys_buf               ; data: u64 ip, u64 port, the payload
+        ld    t1, 8(sp)                 ; ...
+        sd    t1, 0(t0)                 ; ...
+        ld    t1, 16(sp)                ; ...
+        sd    t1, 8(t0)                 ; ...
+        ld    t1, 24(sp)                ; copy the payload after them
+        ld    t2, 32(sp)                ; ...
+        li    t3, 1472                  ; (one datagram at most)
+        bleu  t2, t3, nst_n             ; ...
+        mv    t2, t3                    ; ...
+        sd    t2, 32(sp)                ; ...
+nst_n:
+        li    t3, 0                     ; index
+nst_c:
+        beq   t3, t2, nst_s             ; copied
+        add   t4, t1, t3                ; source byte
+        lbu   t4, 0(t4)                 ; ...
+        add   t5, t0, t3                ; destination
+        sb    t4, 16(t5)                ; ...
+        addi  t3, t3, 1                 ; next
+        j     nst_c                     ; ...
+nst_s:
+        addi  t2, t2, 16 + 7            ; whole words of data
+        srli  t2, t2, 3                 ; ...
+        slli  t2, t2, 3                 ; ...
+        li    t1, 64                    ; -> the buffer after the header
+        tput  tg10, t0, c5, t1, t2      ; (sys_msg orders it before the send)
+        li    a0, NET_EP                ; net
+        li    a1, OP_NUSEND             ; SENDTO
+        ld    a2, 40(sp)                ; the socket
+        ld    a3, 32(sp)                ; length = 16 + payload
+        addi  a3, a3, 16                ; ...
+        li    a4, 0                     ; ...
+        call  sys_msg                   ; a0 = bytes sent
+nst_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 48                ; release the frame
+        ret                             ; done
+
+; net_recvfrom(a0 = handle, a1 = buffer, a2 = maximum, a3 = 1 do not block)
+; -> a0 = bytes (the datagram, cut to the maximum), a1 = sender's ip, a2 =
+; its port; -3 none (a3 = 1), -2 interrupted, -1
+net_recvfrom:
+        addi  sp, sp, -40               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        sd    a1, 8(sp)                 ; buffer
+        sd    a2, 16(sp)                ; maximum
+        sd    a3, 24(sp)                ; mode
+        call  net_id                    ; the id
+        bltz  a0, nrf_ret               ; not a socket
+        mv    a2, a0                    ; handle = id
+        li    a0, NET_EP                ; net
+        li    a1, OP_NURECV             ; RECVFROM
+        ld    a3, 16(sp)                ; maximum
+        li    t0, 1472                  ; ...
+        bleu  a3, t0, nrf_m             ; ...
+        mv    a3, t0                    ; ...
+        sd    a3, 16(sp)                ; ...
+nrf_m:
+        ld    a4, 24(sp)                ; mode
+        call  sys_msg                   ; a0 = bytes; data: u64 ip, u64 port, payload
+        bltz  a0, nrf_ret               ; nothing
+        sd    a0, 32(sp)                ; ...
+        la    t0, sys_buf               ; the data -> D-LS
+        addi  t1, a0, 16 + 7            ; whole words
+        srli  t1, t1, 3                 ; ...
+        slli  t1, t1, 3                 ; ...
+        li    t2, 64                    ; ...
+        tget  tg10, t0, c5, t2, t1      ; ...
+        twait 1 << 10                   ; ...
+        ld    t1, 8(sp)                 ; the payload -> the caller's buffer
+        ld    t2, 32(sp)                ; ...
+        li    t3, 0                     ; ...
+nrf_c:
+        beq   t3, t2, nrf_d             ; copied
+        add   t4, t0, t3                ; ...
+        lbu   t4, 16(t4)                ; ...
+        add   t5, t1, t3                ; ...
+        sb    t4, 0(t5)                 ; ...
+        addi  t3, t3, 1                 ; ...
+        j     nrf_c                     ; ...
+nrf_d:
+        ld    a1, 0(t0)                 ; the sender
+        ld    a2, 8(t0)                 ; ...
+        ld    a0, 32(sp)                ; the count
+nrf_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 40                ; release the frame
+        ret                             ; done
+
+; net_ping(a0 = ip, a1 = payload bytes (0..1400), a2 = timeout in ticks, 0 =
+; one second) -> a0 = the round trip in ticks, -8 no answer in time, -1
+net_ping:
+        mv    a4, a2                    ; mode = timeout
+        mv    a3, a1                    ; length = payload bytes
+        mv    a2, a0                    ; handle = ip
+        li    a0, NET_EP                ; net
+        li    a1, OP_NPING              ; PING
+        j     sys_msg                   ; (tail call)
+
+; net_setip(a0 = ip) -> a0 = 0: the interface's address from now on
+net_setip:
+        mv    a2, a0                    ; handle = ip
+        li    a0, NET_EP                ; net
+        li    a1, OP_NSETIP             ; SETIP
+        li    a3, 0                     ; ...
+        li    a4, 0                     ; ...
+        j     sys_msg                   ; (tail call)
+
+; net_stat(a0 = buffer of 64 + 32 x 8 bytes) -> a0 = sockets in use; the buffer:
+; u64 ip, u64 device STATUS, u64 packets in, u64 packets out, u64 packets
+; dropped (bad, or not for us), u64 socket slots, 2 reserved; then 32 bytes
+; per socket: u8 id, u8 state, u8 protocol (6 TCP, 17 UDP), u8 flags, u16
+; local port, u16 remote port, u32 remote ip, u32 owner pid, u32 bytes
+; received not yet read, u32 bytes sent not yet acknowledged, u32 peer window,
+; u32 retransmissions
+net_stat:
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        sd    a0, 8(sp)                 ; buffer
+        li    a0, NET_EP                ; net
+        li    a1, OP_NSTAT              ; STAT
+        li    a2, 0                     ; ...
+        li    a3, 0                     ; ...
+        li    a4, 0                     ; ...
+        call  sys_msg                   ; a0 = sockets
+        bltz  a0, nsa_ret               ; ...
+        sd    a0, 16(sp)                ; ...
+        slli  a1, a0, 5                 ; 64 + 32 per socket
+        addi  a1, a1, 64                ; ...
+        ld    a0, 8(sp)                 ; ...
+        call  sys_get                   ; ...
+        ld    a0, 16(sp)                ; the count
+nsa_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 24                ; release the frame
+        ret                             ; done
+
+; net_aton(a0 = text, a1 = length) -> a0 = the address "a.b.c.d", or -1
+net_aton:
+        add   t1, a0, a1                ; end
+        li    t0, 0                     ; the address so far
+        li    t2, 0                     ; parts done
+nat_part:
+        li    t3, 0                     ; this part's value
+        li    t4, 0                     ; its digits
+nat_dig:
+        bgeu  a0, t1, nat_add           ; the end of the text: the last part
+        lbu   t5, 0(a0)                 ; a digit?
+        addi  t6, t5, -48               ; ...
+        li    t5, 10                    ; ...
+        bgeu  t6, t5, nat_add           ; no: the part ends
+        mul   t3, t3, t5                ; ...
+        add   t3, t3, t6                ; ...
+        addi  t4, t4, 1                 ; ...
+        addi  a0, a0, 1                 ; ...
+        j     nat_dig                   ; ...
+nat_add:
+        beqz  t4, nat_bad               ; no digits
+        li    t6, 255                   ; a byte
+        bgtu  t3, t6, nat_bad           ; ...
+        slli  t0, t0, 8                 ; append it
+        or    t0, t0, t3                ; ...
+        addi  t2, t2, 1                 ; ...
+        bgeu  a0, t1, nat_end           ; the end of the text
+        lbu   t5, 0(a0)                 ; else a dot
+        li    t6, '.'                   ; ...
+        bne   t5, t6, nat_bad           ; ...
+        addi  a0, a0, 1                 ; ...
+        li    t5, 4                     ; (a fifth part?)
+        bge   t2, t5, nat_bad           ; ...
+        j     nat_part                  ; ...
+nat_end:
+        li    t5, 4                     ; four parts
+        bne   t2, t5, nat_bad           ; ...
+        mv    a0, t0                    ; the address
+        ret                             ; done
+nat_bad:
+        li    a0, -1                    ; not an address
+        ret                             ; done
+
+; out_ip(a0 = ip): print it as a.b.c.d
+out_ip:
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        sd    a0, 8(sp)                 ; the address
+        li    t0, 24                    ; first byte: bits 31..24
+        sd    t0, 16(sp)                ; ...
+oip_l:
+        ld    t0, 16(sp)                ; this byte
+        ld    a0, 8(sp)                 ; ...
+        srl   a0, a0, t0                ; ...
+        andi  a0, a0, 255               ; ...
+        call  out_dec                   ; ...
+        ld    t0, 16(sp)                ; next
+        beqz  t0, oip_ret               ; that was the last
+        addi  t0, t0, -8                ; ...
+        sd    t0, 16(sp)                ; ...
+        li    a0, '.'                   ; ...
+        call  out_chr                   ; ...
+        j     oip_l                     ; ...
+oip_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 24                ; release the frame
+        ret                             ; done

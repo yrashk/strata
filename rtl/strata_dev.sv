@@ -10,6 +10,8 @@
 //           controller
 //   0x4100  pointer         EVENT (a waiting read; a write completes the
 //                           waiting ones with 0), STATE
+//   0x4200  network         TX (write: one transfer = one IPv4 packet), RX
+//           interface       (read: waits for a packet), STATUS, CANCEL
 //
 // Device transfers move single bytes. A stream port ignores the byte index; a
 // ROM or register reads byte `addr + i`. A register is latched when its byte
@@ -28,6 +30,15 @@
 // master 2i). PRESENT asks the simulator harness to show the framebuffer; on
 // an FPGA it does nothing yet.
 //
+// Network interface: in simulation the harness keeps the packets
+// (common/net.h, reached through the sim_net_* DPI calls): the bytes of a
+// TX transfer go to it one by one, and the last one sends the packet. An RX
+// read is retried until the harness has a packet; the first try that finds
+// one makes it this core's current packet, and the read's bytes come from
+// it (zeros past its end). A CANCEL write marks every RX read waiting at
+// that moment (per core, like the break port's release): its next try
+// completes with zeros and takes no packet. On an FPGA there is no PHY yet:
+// TX bytes are dropped, RX waits until a CANCEL, STATUS reads 0 (link down).
 // Pointer: in simulation the events and the state come from the harness
 // (common/display.h: the window's mouse or a -P script); on an FPGA there is
 // no pointer yet: STATE reads 0 (not over the display) and EVENT waits until
@@ -286,6 +297,30 @@ module strata_dev
     else rom_hit = 0;
   end
 
+  // ================================================================ network
+  logic              is_net_rx, net_st_hit;
+  logic [NCORES-1:0] net_wait, net_rel;  // core c's RX read was tried and waits / a CANCEL came meanwhile
+  logic              net_rel_me;         // the current transfer's core has a CANCEL waiting
+  logic              net_open;           // a packet is current (taken from the harness) ...
+  logic [7:0]        net_core;           // ... for this core
+  logic              net_zero;           // the current RX transfer was cancelled: it reads zeros
+  logic [63:0]       net_st, lat_net;    // STATUS (refreshed every cycle), latched at byte 0
+  logic [7:0]        net_b;              // byte t_idx of the current packet
+  assign is_net_rx  = t_port == DEV_NET_RX;
+  assign net_st_hit = ra >= DEV_NET_STATUS && ra < DEV_NET_STATUS + 64'd8;
+  always_comb begin
+    net_rel_me = 0;
+    for (int c = 0; c < NCORES; c++)
+      if (int'(t_core) == c && net_rel[c]) net_rel_me = 1;
+  end
+`ifdef SIMULATION
+  always_comb net_b = sim_net_rx_byte(int'(t_idx));
+  always_ff @(posedge clk) net_st <= rst ? '0 : sim_net_status();
+`else
+  assign net_b  = 8'd0;
+  assign net_st = '0;
+`endif
+
   logic cq_pop_byte, sq_push_byte;
   logic [7:0] cq_b;
   assign cq_b = cq_cnt == 0 ? 8'd0 : cq[cq_head][8*cq_byte +: 8];
@@ -342,6 +377,22 @@ module strata_dev
             rvalid = 1;
             rdata  = t_idx < 8 ? {56'b0, lat_vs[8*t_idx[2:0] +: 8]} : 64'd0;
           end
+        end else if (is_net_rx) begin                // completes when a packet is there (or on a CANCEL)
+          if (t_idx == 0) begin
+            if (net_rel_me) begin
+              rvalid = 1;
+              rdata  = 64'd0;
+            end else if (net_open && net_core == t_core) begin
+              rvalid = 1;
+              rdata  = {56'b0, net_b};
+            end else retry = 1;
+          end else begin
+            rvalid = 1;
+            rdata  = net_zero ? 64'd0 : {56'b0, net_b};
+          end
+        end else if (net_st_hit) begin
+          rvalid = 1;
+          rdata  = {56'b0, ra[2:0] == 0 ? net_st[7:0] : lat_net[8*ra[2:0] +: 8]};
         end else if (is_ptr_ev) begin                // completes on an event, or 0 on a release
           if (t_idx == 0) begin
             if (ptr_rel_me) begin
@@ -419,6 +470,39 @@ module strata_dev
     end
   end
 
+  // network state: the current packet, CANCEL marks, the STATUS latch
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      net_open <= 0;
+      net_core <= '0;
+      net_zero <= 0;
+      net_wait <= '0;
+      net_rel  <= '0;
+    end else begin
+      if (ts == T_RUN && !t_we && net_st_hit && ra[2:0] == 0) lat_net <= net_st;
+      if (ts == T_RUN && is_net_rx && !t_we) begin
+        if (t_idx == 0 && rvalid) net_zero <= net_rel_me;
+        if (rvalid && t_idx + 1 == t_n && !(t_idx == 0 ? net_rel_me : net_zero)) net_open <= 0; // the packet is used up
+`ifdef SIMULATION
+        if (t_idx == 0 && !net_open && !net_rel_me) begin
+          int n;
+          n = sim_net_rx_take();                    // the harness's next packet, if any
+          if (n >= 0) begin
+            net_open <= 1;
+            net_core <= t_core;
+          end
+        end
+`endif
+      end
+      for (int c = 0; c < NCORES; c++) begin
+        if (ts == T_RUN && is_net_rx && !t_we && t_idx == 0 && int'(t_core) == c) begin
+          net_wait[c] <= retry;                     // tried: waits, or completes now
+          if (rvalid) net_rel[c] <= 0;
+        end
+        if (ts == T_RUN && t_we && t_port == DEV_NET_CANCEL && wvalid && net_wait[c]) net_rel[c] <= 1;
+      end
+    end
+  end
   // pointer state: the event held for a read, releases, the latches
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -526,6 +610,7 @@ module strata_dev
 `ifdef SIMULATION
             if (t_we && t_port == DEV_CONSOLE) sim_putc(wdata[7:0]);
             if (t_we && t_port == DEV_FB_PRESENT && t_idx + 1 == t_n) sim_fb_present();
+            if (t_we && t_port == DEV_NET_TX) sim_net_tx(int'(t_idx), wdata[7:0], int'(t_idx + 1 == t_n));
 `endif
           end
         end
