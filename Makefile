@@ -184,14 +184,11 @@ $(BUILD)/prog/as: os/progs/as.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
 
-# The library follows each program without its comments: every source on the
-# disk carries a copy, and with comments they would not fit the 4 MiB disk
-# (the RTL's). This needs sys.s to have no ";" inside a string or character.
+# Every source on the disk carries a copy of the library after the program.
 $(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s
 	@mkdir -p $(BUILD)/src
 	grep -v '^[[:space:]]*\.include' $< > $@
-	echo '; ---- os/lib/sys.s, the program library (comments left out on the disk)' >> $@
-	sed -e 's/[[:space:]]*;.*$$//' -e '/^[[:space:]]*$$/d' os/lib/sys.s >> $@
+	cat os/lib/sys.s >> $@
 
 $(BUILD)/src/units.s: os/progs/units.s examples/lib/print.s
 	@mkdir -p $(BUILD)/src
@@ -376,7 +373,10 @@ bench: $(BUILD)/strata-emu examples $(BUILD)/forth.stx
 #             browser (site/code/), by tools/web-code.py
 # web-docs    build/web-docs/: the manual on the web, isa/ (every instruction)
 #             and arch/ (the architecture outline), by doc/manual/gen/genweb.py
-#             from the manual's sources (the same data as make manual)
+#             from the manual's sources (the same data as make manual); and
+#             forth/ (every Forth word with its source, and a playground that
+#             runs the play page's worker), by doc/manual/gen/genforth.py
+#             from lang/forth/
 # web-site    build/web-site/: site/ with build/web/ under play/ and
 #             build/web-code/ under code/; preview it with
 #             python3 -m http.server --directory build/web-site
@@ -400,8 +400,8 @@ $(WEB)/strata-emu.js: web/web.c emu/emu.c emu/jit/jit_wasm.c emu/jit/jit.h emu/j
 	@mkdir -p $(WEB)
 	$(EMCC) -std=gnu11 -O3 -Wall -DNO_SDL -o $@ web/web.c emu/jit/jit_wasm.c \
 	  -sMODULARIZE=1 -sEXPORT_NAME=createStrata -sENVIRONMENT=worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
-	  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=192MB -sALLOW_TABLE_GROWTH=1 \
-	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_malloc,_free \
+	  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=128MB -sALLOW_TABLE_GROWTH=1 \
+	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_jit_wasm_set_budget,_malloc,_free \
 	  -sEXPORTED_RUNTIME_METHODS=callMain,FS,HEAPU8,wasmMemory,wasmTable
 
 wasm: $(WEB)/strata-emu.js web-assets

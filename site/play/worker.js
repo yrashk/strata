@@ -5,7 +5,8 @@
 // the COOP/COEP headers it needs).
 //
 //   page -> worker
-//     {t:"start", wasm: WebAssembly.Module, files: [{name, data}], args: [...]}
+//     {t:"start", wasm: WebAssembly.Module, files: [{name, data}], args: [...],
+//      jitBudget?, jitHot?}            (the JIT's limits: see JIT_LIMITS in play.js)
 //     {t:"input", data: Uint8Array}     console bytes (terminal, canvas keys, pasted demos)
 //     {t:"break"}                       Ctrl-C
 //     {t:"ptr", op, a, b}               the canvas's mouse (web/web.c web_pointer)
@@ -126,6 +127,9 @@ async function start(msg) {
   for (const f of msg.files) instance.FS.writeFile("/" + f.name, new Uint8Array(f.data));
   inBuf = instance._malloc(4096);
   M = instance;
+  // a phone's browser has little room for compiled code: fewer, hotter regions
+  if (msg.jitBudget && M._jit_wasm_set_budget) M._jit_wasm_set_budget(msg.jitBudget);
+  if (msg.jitHot && M._jit_wasm_set_hot) M._jit_wasm_set_hot(msg.jitHot);
   const rc = M.callMain([...msg.args]);
   flushOut();
   if (rc) { postMessage({ t: "exit", code: rc }); return; }

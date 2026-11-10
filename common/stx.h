@@ -69,10 +69,15 @@ static inline uint64_t stx_word(const uint8_t *p, uint32_t widx) {
   return v;
 }
 
-/* Loads a disk image (or makes an empty 4 MiB disk when path is NULL).
- * The size is rounded up to whole 512-byte blocks. */
+/* The block device's capacity: 16 MiB, as the RTL's (DISK_WORDS). */
+#define STX_DISK_BLOCKS 32768u
+
+/* Loads a disk image (or makes an empty disk when path is NULL). The disk
+ * has STX_DISK_BLOCKS blocks, or more if the image is larger (rounded up to
+ * whole 512-byte blocks); a shorter image is the start of the disk, the
+ * rest reads zero (mkdisk writes only the blocks it uses). */
 static inline uint8_t *stx_disk_load(const char *path, uint64_t *blocks) {
-  uint64_t n = 8192;
+  uint64_t n = STX_DISK_BLOCKS;
   FILE *f = NULL;
   if (path) {
     f = fopen(path, "rb");
@@ -80,8 +85,8 @@ static inline uint8_t *stx_disk_load(const char *path, uint64_t *blocks) {
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
-    n = ((uint64_t)sz + 511) / 512;
-    if (n == 0) n = 1;
+    uint64_t used = ((uint64_t)sz + 511) / 512;
+    if (used > n) n = used;
   }
   uint8_t *d = (uint8_t *)calloc(1, n * 512);
   if (f) {

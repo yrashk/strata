@@ -37,7 +37,7 @@
 #define NCORES 4
 #endif
 #ifndef DISK_WORDS
-#define DISK_WORDS 524288
+#define DISK_WORDS 2097152
 #endif
 
 static StxImage img;
