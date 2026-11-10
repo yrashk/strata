@@ -27,7 +27,8 @@ board. It prints the cell counts and checks the log for latches and for
 memories built from flip-flops; everything is in `fpga/build/<family>-<n>/`.
 
 These are for the RTL of commit 0e51b8f (2026-11-10: with the pointer
-device, the console input release and the network device):
+device, the console input release and the network device;
+the runs' summaries, cell counts and logs are kept in `fpga/results/`):
 
 | Yosys, after synthesis | Logic | Flip-flops | Block RAM | Multipliers |
 |---|---|---|---|---|
