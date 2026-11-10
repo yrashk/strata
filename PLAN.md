@@ -261,7 +261,7 @@ of the Makefile.
 - [x] Bare-metal backend; `make forth`, `forth-rtl`, `test-forth`
   (emulator and RTL outputs compared).
 - [ ] StrataOS backend:
-  - [ ] needs from step 4: `svc` 7 SET_MIRROR and `.far` placed in the arena (spec 2.2); the I-LS budget means `see`/disasm/`dump`/`words` move to an on-demand `tools.fs` (see lang/forth/PLAN-forth.md)
+  - [ ] needs from step 4: `svc` 7 SET_MIRROR and `.far` placed in the arena (spec 2.2); the I-LS budget means `see`/disasm/`dump`/`words` move to an on-demand `tools.fs` (done: see lang/forth/README.md, "StrataOS")
   - [ ] key/emit via sys.s;
   - [ ] `include FILE` via fs;
   - [ ] multicore with `-n N` (time-shared threads; ctake is emulated);
@@ -292,7 +292,7 @@ of the Makefile.
 
 Owns: web/ (wasm glue), site/play/, the `wasm` / `web-assets` Makefile
 rules, the web part of `.github/workflows/pages.yml`. Detailed plan:
-`web/PLAN-web.md`.
+`web/README.md`.
 
 - [x] `make wasm` (Emscripten, interpreter only, no JIT) builds `build/web/`.
 - [x] Never blocks the browser: `emscripten_set_main_loop`, ~10 ms of rounds
@@ -312,7 +312,7 @@ rules, the web part of `.github/workflows/pages.yml`. Detailed plan:
 Owns: web/web.c, site/play/{worker.js,play.js}, emu/jit/jit_wasm.c,
 tools/wasm-run.js, tools/test-wasm.sh, the fast loop and `machine_round()`
 in emu/emu.c, the wasm rules of the Makefile. Detailed plan and numbers:
-`web/PLAN-fast.md`.
+`web/README.md`.
 
 - [x] **Worker.** The emulator runs in a dedicated Web Worker
   (`site/play/worker.js`), continuously; the page only paints and sends
@@ -577,13 +577,10 @@ up before step 8.
 | step 4 (OS) | (scratch files removed, `build-fb/` deleted) | — | — |
 | step 4 (OS) | `os/PLAN-os.md` | the OS agent's detailed working plan | fold into docs, then delete |
 | step 4 (OS) | `build/` (kernel.stx, bootrom.stx, disk*.img, prog/, src/), `build-as/` (test-as) | build output (gitignored) | `make clean` |
-| WS design | `build/ws/`, `build/ws-shots/` (demo images, screenshots), `os/ws/PLAN-ws.md` | window-server rendering; kernel integration next | `make clean`; fold the plan into os/ws/README.md, then delete |
+| WS design | `build/ws/`, `build/ws-shots/` (demo images, screenshots) | window-server rendering (its plan is folded into os/ws/README.md) | `make clean` |
 | F (Forth) | `build/forth/`, `build/forth.stx`, `build/forth-test/` (later `build/prog/forth`) | generated core.fs embedding, image, test outputs (gitignored build/) | `make clean` |
 | F (Forth, OS backend) | `/private/tmp/claude-501/-Users-yrashk--claude-spares-spare-bGJEvr/e68fc47f-3893-447c-8c69-38177da41a1b/scratchpad/` (forth.s.orig, core.fs.orig, size probes, OS test inputs), `build/forth-os/` (generated embedding), `build/forth-test/` | StrataOS backend work | delete when integrated |
-| F (Forth) | `lang/forth/PLAN-forth.md` | detailed working plan of the Forth agent | fold into lang/forth/README.md, then delete |
-| JIT | `emu/jit/PLAN-jit.md` | the JIT agent's detailed working plan | fold into docs, then delete |
 | Shell (step 5) | `os/progs/PLAN-sh.md` (scratch dir deleted) | the shell agent's working plan | fold into docs, then delete |
-| X (fast browser emulator) | `web/PLAN-fast.md` (scratch `build-fast/` removed) | the detailed working plan of section X | fold into docs, then delete |
 
 ## Agent history (for takeovers)
 
@@ -607,7 +604,7 @@ Transcripts are in
 | Conformance | a99fbd829db2cf7aa |
 | ISA fixes F3–F6 | a26aa826ab9a27215 |
 | WebAssembly play page | a8e955078f3536719 |
-| Fast browser emulator (section X) | (see web/PLAN-fast.md) |
+| Fast browser emulator (section X) | (see web/README.md) |
 | Source browser | a0766fbc2be127933 |
 
 ## Resuming
