@@ -194,9 +194,13 @@ footer { margin-top: 80px; padding: 40px 32px 56px; text-align: center; color: v
 }
 @media (max-width: 820px) {
   .cards, .cards.three, .split { grid-template-columns: 1fr; }
-  nav.top { padding: 12px 16px; }
-  .links { gap: 12px; font-size: 14px; }
-  .links a:not(.pill) { display: none; }
+  /* narrow: the links take a second row of their own, scrolling sideways */
+  nav.top { padding: 10px 16px 0; flex-wrap: wrap; row-gap: 6px; }
+  .links { order: 3; width: 100%; flex-wrap: nowrap; gap: 18px; font-size: 14px;
+           overflow-x: auto; padding-bottom: 10px; scrollbar-width: none;
+           -webkit-overflow-scrolling: touch; }
+  .links::-webkit-scrollbar { display: none; }
+  .links a { flex: none; white-space: nowrap; }
   main, .hero { padding-left: 16px; padding-right: 16px; }
   .cmds div { grid-template-columns: 1fr; gap: 2px; }
   .tier { width: 100% !important; }
