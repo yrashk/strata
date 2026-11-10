@@ -901,12 +901,12 @@ the console returns to the shell.
 
 \subsection{Drawing through transfers}
 No store can reach the framebuffer, so nothing is drawn in place. The screen is described by a
-\term{display list} of items (rectangles, gradients, edges with cut corners, text, blits of client
-surfaces). To draw a rectangle of the screen the renderer walks it strip by strip: the items that meet
+\term{display list} of items (rectangles, gradients, edges with cut corners, text, blits of window
+surfaces, the pointer's cursor). To draw a rectangle of the screen the renderer walks it strip by strip: the items that meet
 the strip are collected, an item that covers the strip opaquely drops everything under it, each item
 draws its part of each row into a strip buffer in the D-LS, and the strip leaves with one \insn{tput}.
-A blit of a client surface is a \insn{tget} of the source row straight into the strip buffer: no pixel
-of a client's surface passes through a register.
+A blit of a window's surface is a \insn{tget} of the source row straight into the strip buffer: no
+pixel of a surface passes through a register.
 
 Damage decides which rectangles are drawn. Every frame is: update the model, rebuild the display list,
 draw the damaged rectangles, write PRESENT once. While the layout is in motion, frames are paced by
@@ -939,20 +939,30 @@ The screen reads as an instrument panel of the machine and makes its explicitnes
   context switches per second and the clock.
 \item \textbf{Keys} (Alt is sent as an ESC prefix). Alt+Enter opens a terminal; Alt+Space opens the
   command palette, a \texttt{launch} line with completion of program names; Alt+1--4 and Alt+arrows move
-  the focus; Alt+Q closes the focused window; Alt+Shift+Q quits the window server. Every other key is
-  an event for the focused window, and Ctrl-C interrupts its process.
+  the focus; Alt+Q closes the focused window; Alt+Shift+Q quits the window server; Alt+? shows a panel
+  of these bindings, which also appears when the splash ends (any key or click dismisses it). Every
+  other key is an event for the focused window, and Ctrl-C interrupts its process.
+\item \textbf{The pointer} (Section~\ref{sec:pointer}). The device's waiting read belongs to
+  \texttt{tty}, alone on its core, which hands the events over with the keys (a READ with mode bit 1).
+  \texttt{ws} draws a cursor; a click focuses the tile under it, runs a program from the palette or
+  closes it; the wheel moves the palette's selection. The window under the pointer gets presses,
+  releases, moves while a button is held, and the wheel.
 \item \textbf{Fonts.} An 8 $\times$ 16 body font and a 5 $\times$ 7 small-capitals font for labels,
   both original and in the public domain.
 \end{itemize}
 
 \subsection{The client protocol}
 A client finds the server with LOOKUP \texttt{"ws"} and sends it the operations of
-Table~\ref{tab:os-ws}. A window's \term{surface} is memory of the client's own arena, width $\times$
-height pixels of 4 bytes in the framebuffer's format. The client draws into it with transfers. To show
-what it drew, it lends the band of rows concerned to the server as the attachment of a DAMAGE request;
-the server composites from it and returns it with the reply. While the band is lent the client cannot
-write it, so the server never reads a half-drawn row: the ownership rule that prevents data races
-between cores is also what makes composition tear-free.
+Table~\ref{tab:os-ws}. A window's \term{surface}, width $\times$ height pixels of 4 bytes in the
+framebuffer's format, lives in the server: in the framebuffer window after the screen (2~MiB per
+window). Memory capabilities are linear, so one piece of memory cannot be the client's to write and
+the server's to read at the same time. The client therefore draws into a \term{band} of its own arena
+(its whole arena, as many full-width rows as fit) and lends the band to the server as the attachment
+of a DAMAGE request; the server copies the rows into the surface and returns the band with the reply.
+While the band is lent the client cannot write it, so the server never reads a half-drawn row: the
+ownership rule that prevents data races between cores is also what makes composition tear-free. And
+because the surfaces are the server's, it can redraw any window (a slide, the palette's dim) without
+asking its client.
 
 \begin{table}[htbp]
 \centering\small
@@ -971,9 +981,10 @@ between cores is also what makes composition tear-free.
   background), then a string (length = 32 + its bytes): drawn by the server with its 8 $\times$ 16 font\\
 43 & FILL & handle = window; data: x, y, width, height, colour\\
 44 & EVENT & handle = window; mode bit 0 = do not block; length = a timeout in ticks (0 = none). Reply
-  data: the kind (1 key, 2 resize, 3 close, 4 focus in, 5 focus out), a value (the key's bytes, the
-  first in the low byte), the width (for a key: the number of bytes) and the height; $-3$ if none,
-  $-8$ when the timeout passes\\
+  data: the kind (1 key, 2 resize, 3 close, 4 focus in, 5 focus out, 6 pointer, 7 wheel), a value
+  (the key's bytes, the first in the low byte; for the pointer and the wheel x and y in the surface in
+  bits 31:0 and the device's event bytes 4--7 above them), the width (for a key: the number of bytes)
+  and the height; $-3$ if none, $-8$ when the timeout passes\\
 45 & DESTROY & handle = window\\
 46 & TITLE & handle = window; data = the title (8 bytes)\\
 \bottomrule
@@ -982,9 +993,9 @@ between cores is also what makes composition tear-free.
 
 \begin{description}[leftmargin=1em,style=nextline]
 \item[\texttt{term}] a terminal emulator. It creates a window, runs \texttt{sh -i} connected by two
-  pipes, renders the shell's output into its surface, sends key events to the shell's standard input
-  and forwards Ctrl-C as SIGNAL.
-\item[\texttt{wmandel}] renders the Mandelbrot set into its surface, damaging rows as they finish, and
+  pipes, renders the shell's output into its band, sends key events to the shell's standard input,
+  forwards Ctrl-C as SIGNAL, and scrolls back through its history with the wheel.
+\item[\texttt{wmandel}] renders the Mandelbrot set into its band, damaging rows as they finish, and
   renders again on a resize.
 \item[\texttt{wclock}] a clock that redraws only the band that changes each second.
 \end{description}
