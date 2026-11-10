@@ -1,5 +1,8 @@
 /* The play page: the emulator in the browser, in the site's look. */
 .play { padding-top: 40px; }
+/* wider than the site's 1016-pixel column: room for a 1280-pixel screen at 1:1 */
+main.play { max-width: 1344px; }
+.play-head, .notes { max-width: 1016px; }
 .play-head h2 { font-size: clamp(30px, 4.4vw, 46px); }
 .play-head .intro { margin-bottom: 24px; }
 
@@ -58,12 +61,33 @@ button:disabled { opacity: 0.4; cursor: default; }
 .panel:focus-within .tag span { color: var(--amber); }
 .tag em { font-style: normal; color: var(--dim); }
 
-.screen canvas {
-  display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; background: #000;
-  max-height: 74vh; object-fit: contain;
-  image-rendering: pixelated; image-rendering: crisp-edges; outline: none;
+/* The screen's size is set by play.js (fitScreen): the framebuffer's 1-pixel
+   bitmap fonts stay legible only at a whole number of device pixels per
+   framebuffer pixel, drawn nearest-neighbour. The box scrolls when the
+   chosen scale (1x, 2x) is wider than the panel. */
+.screen { scroll-margin-top: 66px; }  /* below the sticky nav */
+.screen-box { overflow-x: auto; background: #000; }
+.screen-box canvas {
+  display: block; background: #000; outline: none;
+  image-rendering: crisp-edges; image-rendering: pixelated;
 }
-.screen.collapsed canvas { display: none; }
+.screen-box canvas.smooth { image-rendering: auto; }  /* below one device pixel: average, don't drop strokes */
+.screen.collapsed .screen-box, .screen.collapsed .view { display: none; }
+/* full screen: the box fills the display, the canvas centred in it */
+.screen-box:fullscreen { overflow: auto; width: 100%; height: 100%; }
+.screen-box:-webkit-full-screen { overflow: auto; width: 100%; height: 100%; background: #000; }
+.screen-box::backdrop { background: #000; }
+
+.screen .tag { flex-wrap: wrap; row-gap: 6px; }
+.tag .view { margin-left: auto; align-self: center; display: flex; gap: 4px; flex-shrink: 0; }
+.seg {
+  padding: 3px 9px; font: 600 12px/1.3 var(--mono); color: var(--dim); background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(31, 111, 139, 0.6); display: flex; align-items: center;
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+.seg:hover { color: var(--cyan); box-shadow: inset 0 0 0 1px var(--cyan); }
+.seg.on { color: var(--bg); background: var(--cyan); box-shadow: none; }
+.seg[hidden] { display: none; }
 
 /* the padding is on the wrapper: #term itself is exactly the box the fit
    addon fills with whole rows, so the last row is never clipped */
