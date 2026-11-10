@@ -90,6 +90,7 @@ make                # build/sasm, build/strata-emu, build/strata-rtl
 make test           # everything below, compared across the machines (several minutes)
 make show-gfx       # eight cores draw a Mandelbrot set into the framebuffer window
 make boot           # boot StrataOS on the emulator (12 cores) and type at its shell
+make boot-ws        # the same, with the window server started at boot
 make forth          # a Forth prompt on the bare machine
 make ws-demo        # the window server's renderers against a simulated system
 make conformance    # the conformance suite on the interpreter, the JIT and the RTL
@@ -134,6 +135,7 @@ take the same flags, except where noted.
 | `-c N` | cores, 1..15 (emulator only; default 4, the Makefile passes 8, and 12 for `make boot`) |
 | `-d FILE` | block device image |
 | `-i FILE` | console input from a file instead of the terminal |
+| `-P FILE` | scripted pointer (mouse) input: `WHEN move X Y`, `down B`, `up B`, `wheel DY [DX]`, `enter`, `leave`; WHEN is a step (RTL: cycle) count, or `kN` after N console bytes |
 | `-t FILE` | write an instruction trace |
 | `-m N` | stop after N steps (emulator) or cycles (RTL) |
 | `-b N` | press Ctrl-C after N steps / cycles (Ctrl-C at the terminal or in the window does the same) |
@@ -253,7 +255,16 @@ window's surface and gives the band back.
 
 Keys (Alt is sent as an ESC prefix): Alt+Enter a new terminal, Alt+P (or
 Alt+Space) the launch palette, Alt+1..4 and Alt+arrows focus, Alt+Q close,
-Alt+Shift+Q back to the shell.
+Alt+Shift+Q back to the shell, Alt+? the key help (also shown when the
+splash ends; any key or click dismisses it).
+
+The mouse is the machine's pointer device (0x4100: a queue of move,
+button and wheel events). `tty`, alone on its core, keeps its waiting read
+and hands the events to `ws` with the keys. `ws` draws a cursor; a click
+focuses the tile under it or runs a program from the palette; the window
+under the pointer gets clicks, drags and the wheel, and `term` scrolls back
+through its history with the wheel. `make boot-ws` boots straight into the
+window server.
 
 
 `make ws-demo` runs the same renderers on the bare machine against a

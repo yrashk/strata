@@ -45,11 +45,12 @@ register and window starts at a multiple of 8, so a capability can be cut to exa
 \textbf{Offset} & \textbf{Length} & \textbf{Device} & \textbf{Ports, registers and windows}\\\midrule
 \hex{0000} & \hex{100} & console & \hex{0000} output stream; \hex{0008} input stream; \hex{0010} break
                                      port; \hex{0018} break release\\
-\hex{1000} & 256 & platform table & read-only window (\texttt{STPD})\\
+\hex{1000} & 288 & platform table & read-only window (\texttt{STPD})\\
 \hex{2000} & \hex{300} & block device 0 & \hex{2000} identify window (64 B); \hex{2100} submission port;
                                           \hex{2200} completion port\\
 \hex{3000} & \hex{20} & timer & \hex{3000} NOW; \hex{3008} FREQ; \hex{3010} DEADLINE; \hex{3018} WAIT\\
 \hex{4000} & \hex{10} & framebuffer controller & \hex{4000} PRESENT; \hex{4008} VSYNC\\
+\hex{4100} & \hex{10} & pointer & \hex{4100} EVENT; \hex{4108} STATE\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -57,9 +58,9 @@ register and window starts at a multiple of 8, so a capability can be cut to exa
 Device transfers follow the rules of Section~\ref{sec:devxfer}: one byte per beat to consecutive
 offsets; registers are 8 bytes, little-endian, latched when byte 0 is read and committed when byte 7 is
 written; a transfer that starts at a stream port belongs to that stream. Reads from unassigned device
-offsets return zero; writes to them are ignored. Four ports are \term{event ports}, whose reads stay
+offsets return zero; writes to them are ignored. Five ports are \term{event ports}, whose reads stay
 pending until the device has something to deliver (Section~\ref{sec:pendread}): console input, console
-break, the timer's WAIT and the controller's VSYNC.
+break, the timer's WAIT, the controller's VSYNC and the pointer's EVENT.
 
 \section{Console}\label{sec:console}
 
@@ -145,11 +146,13 @@ little-endian.
 5 & framebuffer & bits 15:0 width in pixels; bits 31:16 height in pixels; bits 47:32 stride in bytes
   per row; bits 63:48 pixel format (1 = XRGB8888)\\
 6 & timer & ticks per second (1000000)\\
+7 & pointer & bits 7:0 buttons present (bit 0 left, 1 right, 2 middle); bits 15:8 wheels present
+  (bit 8 vertical, bit 9 horizontal): \hex{0307}\\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-The prototype publishes seven entries:
+The prototype publishes eight entries:
 
 \begin{center}\small
 \begin{tabular}{@{}l l l l l l l@{}}
@@ -158,10 +161,11 @@ The prototype publishes seven entries:
 0 & memory & 0 & 3 & --- & 0 & 64 MiB\\
 1 & memory & 1 & 2 & --- & 0 & 256 KiB\\
 2 & console & 0 & 4 & --- & \hex{0000} & \hex{100}\\
-3 & platform & 0 & 4 & --- & \hex{1000} & 256\\
+3 & platform & 0 & 4 & --- & \hex{1000} & 288\\
 4 & block & 0 & 4 & $N$ & \hex{2000} & \hex{300}\\
 5 & framebuffer & 0 & 3 & --- & \hex{3000000} & 16 MiB\\
 6 & timer & 0 & 4 & --- & \hex{3000} & \hex{20}\\
+7 & pointer & 0 & 4 & --- & \hex{4100} & \hex{10}\\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -300,6 +304,44 @@ animates draws a frame, writes PRESENT and reads VSYNC.
 In the simulators the framebuffer appears in a window, opened the first time software writes into the
 framebuffer or writes PRESENT (Section~\ref{sec:window}). The FPGA builds have no video output:
 PRESENT has no effect there, and VSYNC still paces at 60~Hz of timer time.
+
+\section{Pointer}\label{sec:pointer}
+
+The pointer is a mouse or touchpad over the display, with three buttons and a wheel: two 8-byte
+registers at device offset \hex{4100}.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Pointer registers}\label{tab:pointer}
+\begin{tabularx}{\linewidth}{@{}l l l X@{}}
+\toprule
+\textbf{Offset} & \textbf{Name} & \textbf{Access} & \textbf{Function}\\\midrule
+\hex{4100} & EVENT & read (event port) & the read completes with the next queued event\\
+            &       & write & completes every EVENT read pending at that moment, on every core, with 0
+  (the value written is ignored)\\
+\hex{4108} & STATE & read & the pointer now (below); reading it changes nothing\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+An event is 8 bytes: bits 15:0 x and bits 31:16 y in framebuffer pixels; bits 39:32 the buttons
+held (bit 0 left, 1 right, 2 middle); bits 47:40 the vertical wheel and bits 55:48 the horizontal
+wheel, signed notches (positive: away from the user, and right); bits 63:56 the kind: 1 move, 2
+button, 3 wheel, 4 enter, 5 leave. Every event carries the position and the buttons as they were. A
+read released by a write returns 0, which is no kind. STATE holds x and y in the same places, the
+buttons in bits 39:32, the number of events queued in bits 47:40, and in bit 56 whether the pointer is
+over the display.
+
+The device queues 16 events. Consecutive moves become one, carrying the last position; consecutive
+wheel turns at the same place and with the same buttons add up; and when the queue is full the oldest
+move makes room, so button and wheel events are never dropped for moves. The first move of a pointer
+that was not over the display is an enter. A release lets software that is stopping (an operating
+system halting the machine) complete the reads it left waiting, as the console's break release does.
+
+The simulators feed the pointer from their window's mouse and hide the host cursor once software has
+read the device, since software that uses it draws its own. For tests, \texttt{-P}~\textit{file} on both
+simulators scripts it (Section~\ref{sec:emu}). The FPGA builds have no pointer: STATE reads 0 and an
+EVENT read waits for a release.
 
 \section{Block device}\label{sec:blkdev}
 

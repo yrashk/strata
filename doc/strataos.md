@@ -27,6 +27,7 @@ them apart.
 | 0x2000 | block device 0 | unchanged |
 | 0x3000 | **timer** | 0x00 NOW, 0x08 FREQ, 0x10 DEADLINE, 0x18 WAIT |
 | 0x4000 | **framebuffer controller** | 0x00 PRESENT, 0x08 VSYNC |
+| 0x4100 | **pointer** | 0x00 EVENT, 0x08 STATE |
 
 `DEV_SPACE_LEN` becomes 0x5000.
 
@@ -45,7 +46,7 @@ window's keyboard); in the RTL it is the existing retry. At the end of a
 `-i` file the port returns 0x04 forever, as now.
 
 **Device reads that wait** (console input, the break port, timer WAIT,
-VSYNC) follow three rules, the same on the emulator and the RTL (conformance
+VSYNC, the pointer's EVENT) follow three rules, the same on the emulator and the RTL (conformance
 tests `brkrel`, `pendxfer`, `haltdrain`):
 - **One release completes every break read.** A write to the release port
   (0x18) completes, with 0, every break read waiting at that moment, on
@@ -107,16 +108,45 @@ Time base:
 - On FPGA there is no video output (yet): PRESENT does nothing, VSYNC still
   paces at 60 Hz of timer time.
 
+#### Pointer (0x4100)
+
+A mouse (or touchpad) with three buttons and a wheel, over the display.
+
+- **EVENT** (0x4100, read): completes with the next queued event (waiting,
+  like the other device reads, while none is queued), 8 bytes: u16 x, u16
+  y (framebuffer pixels), u8 buttons (bit 0 left, 1 right, 2 middle), s8
+  wheel y (> 0: away from the user), s8 wheel x (> 0: right), u8 kind (1
+  move, 2 button, 3 wheel, 4 enter, 5 leave). Every event carries the
+  position and buttons as they were. **A write** to EVENT (any value)
+  completes every EVENT read waiting at that moment, on every core, with 0
+  (kind 0: no event), the release rule of the break port.
+- **STATE** (0x4108, read): u16 x, u16 y, u8 buttons, u8 events queued,
+  u8 0, u8 bit 0 = the pointer is over the display. Reading it changes
+  nothing.
+- The device queues 16 events. Consecutive moves become one (the last
+  position), consecutive wheel turns at the same place add up, and when the
+  queue is full the oldest move makes room: button and wheel events are not
+  dropped for moves. The first move of a pointer that was not over the
+  display is an enter.
+- The simulators feed it from the window's mouse (the host cursor is
+  hidden once software has read the device), the play page from the
+  canvas, and tests from a script (`-P file`, both simulators: one event
+  per line, `WHEN move X Y | down B | up B | wheel DY [DX] | enter |
+  leave`, WHEN = a step count on the emulator, a cycle count on the RTL,
+  or `kN` = once N bytes of console input have been taken). On FPGA there
+  is no pointer yet: STATE reads 0 and EVENT waits for a release.
+
 ### 1.3 Platform table
 
-Two new entry types; `PLAT_ENTRIES` grows by two.
+Three new entry types; `PLAT_ENTRIES` grows by three (to 8, 288 bytes).
 
 | Type | Name | space | base | size | info |
 |---|---|---|---|---|---|
 | 5 | PT_FB | SP_T3 (3) | 0x3000000 | 0x1000000 | width \| height<<16 \| stride<<32 \| format<<48 (format 1 = XRGB8888) |
 | 6 | PT_TIMER | SP_DEV (4) | 0x3000 | 0x20 | ticks per second (1000000) |
+| 7 | PT_POINTER | SP_DEV (4) | 0x4100 | 0x10 | buttons (bits 0..7: left, right, middle) \| wheels << 8 (bit 8 y, bit 9 x): 0x0307 |
 
-Both entries have node = 0xffff (nothing to `cgive` to). The framebuffer
+All have node = 0xffff (nothing to `cgive` to). The framebuffer
 controller's ports are at the fixed device address 0x4000.
 
 ### 1.4 Graphics mode and the keyboard (emulator and RTL simulator)
@@ -486,6 +516,7 @@ CLEANUP to the servers and completes the parent's WAIT.
 | 26 | GRANT_FB | 0, the framebuffer memory (the whole 16 MiB window) in the caller's c6 and a device capability for the controller's ports 0x4000..0x400F in c7. -5 unless the caller is the process registered as "ws" (`dev` asks `proc`: WHOIS); -7 while a live process holds it; -1 if the machine has none. There is no operation to give it back: the kernel revokes it when the holder ends, however it ends, and the next `ws` gets a fresh one |
 | 30 | GETDISK | (for `fs`) a window on the block device's ports (c6) and a send-only endpoint to the device's node (c7) |
 | 31 | GETCON | (for `tty`) a window on the console's ports 0x0000..0x00FF (c6) |
+| 21 | GETPTR | (for `tty`) a window on the pointer's ports 0x4100..0x410F (c6); -1 if the machine has none |
 
 The framebuffer memory is the kernel's: at boot it puts the window in a
 revocation domain of its own and **lends** it through FBLEND; the
@@ -496,8 +527,9 @@ controller's capability is cut by `dev` from the device root.
 and wakes every worker; each dispatcher stops its threads and counts
 itself in before its own `halt`; the system core waits (bounded) for all
 of them, so that no process can start another read, then writes the
-console's release port (completing every break read) and DEADLINE 0
-(completing its own timer WAIT), and halts. `tty` arms its break read
+console's release port (completing every break read), the pointer's EVENT
+port (completing `tty`'s EVENT read) and DEADLINE 0 (completing its own
+timer WAIT), and halts. `tty` arms its break read
 again only after a real Ctrl-C, not after a release. Console *input*
 cannot be cancelled: if a reader was waiting for a key at that moment,
 that core halts at the next key or at the end of input (a known
@@ -569,7 +601,16 @@ the status becomes 0. `as < hello.s > hi` works this way.
 returns one line or what was typed before 0x04, 0 = end of input; raw: no
 echo, whatever bytes are there, at least one; CR → LF in both), 2 WRITE,
 4 CLOSE (0), 18 SETFG (handle = pid), 19 CONMODE (0 cooked, 1 raw); 36–38
-from `proc`. The tty never blocks on its device: the break read is always
+from `proc`. READ mode bit 1 (raw, for `ws`) asks for the pointer's events
+too: the READ is also answered when events wait, the answer's mode field
+says how many (up to 8), and they follow the data at offset 32, 8 bytes
+each as the device gives them; the result counts key bytes only, so 0 with
+events is not the end of input. `tty` owns the pointer because a device
+read that waits may only be kept by a process alone on its core (the
+dispatcher saves a switched-out program's D-LS, and that save would wait
+for the read); it reads the pointer only once a reader has asked for its
+events, and drains the device's queue (STATE) when an event arrives. The
+tty never blocks on its device: the break read is always
 in flight and one byte of console input is read only while a reader waits
 (so type-ahead is not echoed early), and its RECEIVE names both tags.
 Ctrl-C: "^C" is echoed, a partial line is dropped and `proc` is asked to
@@ -668,7 +709,20 @@ shell):
 - **The keyboard without polling.** `ws` lends a second message buffer to
   `tty` as a READ. The answer is not its own c5, so its core's dispatcher
   queues it as a request for the core's server, which is `ws` itself: a
-  key wakes its RECEIVE exactly as a client's request does.
+  key wakes its RECEIVE exactly as a client's request does. The same READ
+  brings the pointer's events (mode bit 1, above).
+- **The pointer.** `ws` draws a cursor over everything. A press focuses
+  the tile under it; in the palette a click on a program runs it, a click
+  outside closes it, and the wheel moves the selection. The window under
+  the pointer gets events: presses and releases, moves while a button is
+  held, the wheel (EVENT kinds 6 pointer and 7 wheel: value = u16 x, u16 y
+  in the surface, then the device's bytes 4..7). `term` scrolls back
+  through its history with the wheel (three rows a notch; output returns
+  it to the bottom).
+- **Key help.** When the splash ends a panel lists the key bindings over a
+  dimmed desktop; any key (a whole Alt+key or escape sequence) or click
+  dismisses it and is not passed on (Alt+Shift+W, the scripts' pause, still
+  works). Alt+? shows it again.
 - One loop: wait (RECEIVE with a timeout: a request, a key, or the next
   thing due), serve, tick (slides, fades, pulses; every 250 ms the cores,
   processes and slice from `proc`), deliver events to waiting clients
@@ -691,8 +745,8 @@ shell):
   Alt+P or Alt+Space opens the command palette; Alt+Shift+Q quits the window server
   (the console returns to the shell); Alt+Shift+H halts the machine;
   Alt+Shift+W makes the server ignore the keyboard for a second (for
-  scripted input in tests and demos). Every other key is an event for the
-  focused window. Ctrl-C closes the palette, or SIGNALs the focused
+  scripted input in tests and demos); Alt+? shows the key help. Every
+  other key is an event for the focused window. Ctrl-C closes the palette, or SIGNALs the focused
   window's process.
 - Redraws only damaged areas and writes PRESENT once per batch.
 - With no window it opens a `term`.
@@ -763,7 +817,7 @@ library `os/lib/wsclient.s`):
 | 41 | DAMAGE | handle = window; data: u64 x, y, w, h, stride; attachment: the band holding those w × h pixels from its offset 0 (rows `stride` bytes apart; 0 = w × 4). Without a band: just redraw the rectangle | 0; the band comes back with the reply |
 | 42 | TEXT | handle = window; data: u64 x, y (pixels), fg, bg (XRGB; -1 = no background), then the string (length = 32 + its bytes) | 0: drawn into the surface by the server, 8 × 16 font |
 | 43 | FILL | handle = window; data: u64 x, y, w, h, colour | 0 |
-| 44 | EVENT | handle = window; mode bit 0 = do not block; length = timeout in ticks (0 = none) | 0; data: u64 kind (1 key, 2 resize, 3 close, 4 focus in, 5 focus out), u64 value (key bytes, first in the low byte), u64 width (for keys: the number of bytes), u64 height. -3 none (mode bit 0), -8 the timeout passed |
+| 44 | EVENT | handle = window; mode bit 0 = do not block; length = timeout in ticks (0 = none) | 0; data: u64 kind (1 key, 2 resize, 3 close, 4 focus in, 5 focus out, 6 pointer, 7 wheel), u64 value (key bytes, first in the low byte; pointer and wheel: u16 x, u16 y in the surface, u8 buttons, s8 wheel y, s8 wheel x, u8 the device's kind), u64 width (for keys: the number of bytes), u64 height. -3 none (mode bit 0), -8 the timeout passed |
 | 45 | DESTROY | handle = window | 0 |
 | 46 | TITLE | handle = window; data = title (8 bytes) | 0 |
 
