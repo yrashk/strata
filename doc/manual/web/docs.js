@@ -1,5 +1,6 @@
-// The manual on the web (isa/, arch/): the instruction filter, the index
-// that follows the reading position, and the index drawer on phones.
+// The manual on the web (isa/, arch/, forth/): the filter of the entries
+// (instructions, Forth words), the index that follows the reading position,
+// and the index drawer on phones.
 // Everything works without it; it only adds the filter and the highlighting.
 "use strict";
 (function () {
@@ -23,9 +24,17 @@
     toc.addEventListener("click", (e) => { if (e.target.closest("a") && narrow()) ix.open = false; });
   }
 
-  // ------------------------------------------------------------ the filter (isa/)
+  // ------------------------------------------------------------ the filter (isa/, forth/)
+  // The input says what it filters (data-items, the entries' id prefix and a
+  // noun for the count); the instruction set's are the defaults. Entries
+  // carry their search text in data-k, and may carry their name in
+  // data-name; [data-unfiltered] blocks are hidden while a filter is on.
   const filter = $("filter");
-  const insns = [...document.querySelectorAll("article.insn")];
+  const items = (filter && filter.dataset.items) || "article.insn";
+  const prefix = (filter && filter.dataset.prefix) || "insn-";
+  const noun = (filter && filter.dataset.noun) || "instructions";
+  const insns = [...document.querySelectorAll(items)];
+  const unfiltered = [...document.querySelectorAll("[data-unfiltered]")];
   const linked = [...document.querySelectorAll("[data-for]")];
   const chaps = [...document.querySelectorAll("section.chap[data-ch]")];
   const opcodes = $("opcodes");
@@ -41,19 +50,21 @@
       if (ok) on.add(a.id);
     }
     for (const el of linked) el.hidden = !on.has(el.dataset.for);
-    for (const c of chaps) c.hidden = !c.querySelector("article.insn:not([hidden])");
+    for (const c of chaps) c.hidden = !c.querySelector(items + ":not([hidden])");
+    for (const el of unfiltered) el.hidden = words.length > 0;
     for (const g of document.querySelectorAll(".ix-group[data-ch]")) g.hidden = !g.querySelector(".ix:not([hidden])");
     if (opcodes) opcodes.hidden = words.length > 0;
     const og = $("ix-opcodes");
     if (og) og.hidden = words.length > 0;
     shown = insns.filter((a) => !a.hidden);
-    $("count").textContent = words.length ? `${shown.length} of ${insns.length} instructions` : "";
+    $("count").textContent = words.length ? `${shown.length} of ${insns.length} ${noun}` : "";
     if (words.length && narrow()) ix.open = true;
   }
 
   function best() {
     const q = filter.value.trim().toLowerCase();
-    return shown.find((a) => a.id === "insn-" + q) || shown.find((a) => a.id.startsWith("insn-" + q)) || shown[0];
+    const name = (a) => a.dataset.name || a.id.slice(prefix.length);
+    return shown.find((a) => name(a) === q) || shown.find((a) => name(a).startsWith(q)) || shown[0];
   }
 
   if (filter) {
