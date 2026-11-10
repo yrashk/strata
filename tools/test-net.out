@@ -1,7 +1,7 @@
 strata$ ifconfig
 net: 10.0.0.1, link up
 net0  inet 10.0.0.1  mtu 1500  link up
-      packets in 0  out 0  dropped 0
+      packets in N  out N  dropped 0
       device: queued 0  lost 0
       dns 8.8.8.8 1.1.1.1
 strata$ ping -c 3 127.0.0.1
@@ -24,10 +24,10 @@ strata$ tcpecho 7 2 &
 strata$ echo hello strata | nc 10.0.0.1 7
 hello strata
 strata$ cat sh.s | nc 127.0.0.1 7 | wc
-6752 39918 321774
+LINES WORDS BYTES
 [1] done  tcpecho 7 2
 strata$ cat sh.s | wc
-6752 39918 321774
+LINES WORDS BYTES
 strata$ netstat
 proto local                 remote                state        recv  send  rexmit  pid
 tcp   127.0.0.1:49153       127.0.0.1:7           TIME-WAIT       0     0       0   17
@@ -44,7 +44,7 @@ nc: failed: -1
 [exit 1]
 [1] strata$ ifconfig 10.0.0.5
 net0  inet 10.0.0.5  mtu 1500  link up
-      packets in 1970  out 1970  dropped 0
+      packets in N  out N  dropped 0
       device: queued 0  lost 0
       dns 8.8.8.8 1.1.1.1
 strata$ ping -c 1 10.0.0.5
@@ -71,7 +71,7 @@ ping: cannot resolve nosuch.test
 [exit 2]
 [2] strata$ ifconfig dns 192.0.2.1 10.0.0.53
 net0  inet 10.0.0.5  mtu 1500  link up
-      packets in 1979  out 1979  dropped 0
+      packets in N  out N  dropped 0
       device: queued 0  lost 0
       dns 192.0.2.1 10.0.0.53
 strata$ host www.peer.test
@@ -79,7 +79,7 @@ www.peer.test is an alias for peer.test
 peer.test has address 10.0.0.2
 strata$ ifconfig dns 192.0.2.1 192.0.2.2
 net0  inet 10.0.0.5  mtu 1500  link up
-      packets in 1980  out 1981  dropped 0
+      packets in N  out N  dropped 0
       device: queued 0  lost 0
       dns 192.0.2.1 192.0.2.2
 strata$ host gone.test

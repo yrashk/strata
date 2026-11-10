@@ -70,7 +70,12 @@ cp "$2" "$tmp/d1.img"
 "$b/strata-emu" -c "$n" -j -T virtual -g none -N peer,nodns -m 4000000000 -d "$tmp/d1.img" -i "$tmp/in1.txt" "$1" \
   >"$tmp/raw1.out" 2>/dev/null
 sed -n '/^strata\$ /,$p' "$tmp/raw1.out" |
-  sed -E 's/time=[0-9]+\.[0-9]+ ms/time=T ms/; s/^\[([0-9]+)\] [0-9]+$/[\1] PID/' >"$tmp/one.out"
+  sed -E 's/time=[0-9]+\.[0-9]+ ms/time=T ms/; s/^\[([0-9]+)\] [0-9]+$/[\1] PID/' |
+  sed -E 's/^[0-9]+ [0-9]+ [0-9]+$/LINES WORDS BYTES/; s/packets in [0-9]+  out [0-9]+/packets in N  out N/' >"$tmp/one.out"
+# (sh.s's size and the packet counts follow the sources: the file through TCP
+# must only match its own wc)
+wcs=$(grep -E '^[0-9]+ [0-9]+ [0-9]+$' "$tmp/raw1.out" | sort -u | wc -l | tr -d ' ')
+[ "$wcs" = 1 ] || { echo "  the file through TCP differs from the file ($wcs different wc lines)"; ok=1; }
 if [ $update -eq 1 ]; then
   cp "$tmp/one.out" "$here/tools/test-net.out"
   echo "test-net: tools/test-net.out updated"
