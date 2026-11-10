@@ -401,6 +401,7 @@ web-site: wasm web-code web-docs
 	cp -r $(WEB)/. $(BUILD)/web-site/play/
 	cp -r $(BUILD)/web-code/. $(BUILD)/web-site/code/
 	cp -r $(BUILD)/web-docs/. $(BUILD)/web-site/
+	tools/web-stamp.sh $(BUILD)/web-site $$(git rev-parse --short HEAD 2>/dev/null || date +%s)
 
 # ---- the window server's renderers (os/ws/, os/lib/gfx.s): bare-metal demo -
 # ws-demo   the demo in a window: splash, four tiles, palette (Alt+Space),

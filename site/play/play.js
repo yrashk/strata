@@ -7,6 +7,11 @@
 // flags. The page compiles the module once and hands it to every worker.
 "use strict";
 
+// The build id (tools/web-stamp.sh puts the commit here): every asset URL
+// carries it, so a browser never mixes files of two deploys.
+const BUILD = "__BUILD__";
+const V = "?v=" + BUILD;
+
 const PRESETS = {
   os: {
     files: ["bootrom.stx", "disk.img"],
@@ -109,11 +114,11 @@ jitBox.checked = params.get("jit") !== "0";
 let wasmModule = null;
 async function compileWasm() {
   if (wasmModule) return wasmModule;
-  const resp = fetch("strata-emu.wasm");
+  const resp = fetch("strata-emu.wasm" + V);
   try {
     wasmModule = await WebAssembly.compileStreaming(resp);
   } catch (e) { // a server without application/wasm
-    wasmModule = await WebAssembly.compile(await (await fetch("strata-emu.wasm")).arrayBuffer());
+    wasmModule = await WebAssembly.compile(await (await fetch("strata-emu.wasm" + V)).arrayBuffer());
   }
   return wasmModule;
 }
@@ -121,7 +126,7 @@ async function compileWasm() {
 const files = new Map();
 function fetchFile(name) {
   if (!files.has(name))
-    files.set(name, fetch("images/" + name).then((r) => {
+    files.set(name, fetch("images/" + name + V).then((r) => {
       if (!r.ok) throw new Error(`images/${name}: ${r.status}`);
       return r.arrayBuffer();
     }));
@@ -405,7 +410,7 @@ async function run(key) {
   try {
     const [wasm, ...bufs] = await Promise.all([compileWasm(), ...p.files.map(fetchFile)]);
     if (current !== key || W) return; // another preset was picked meanwhile
-    const w = new Worker("worker.js");
+    const w = new Worker("worker.js" + V);
     W = w;
     stopped = false;
     w.onmessage = (e) => onWorker(w, e.data);
@@ -424,7 +429,7 @@ $("reset").addEventListener("click", () => current && run(current));
 $("brk").addEventListener("click", () => { sendBreak(); term.focus(); });
 jitBox.addEventListener("change", () => current && run(current));
 
-fetch("demos/index.txt").then((r) => (r.ok ? r.text() : "")).then((txt) => {
+fetch("demos/index.txt" + V).then((r) => (r.ok ? r.text() : "")).then((txt) => {
   for (const name of txt.split(/\s+/).filter(Boolean)) {
     const o = document.createElement("option");
     o.value = name;
@@ -434,7 +439,7 @@ fetch("demos/index.txt").then((r) => (r.ok ? r.text() : "")).then((txt) => {
 });
 async function pasteDemo(name) {
   if (!name || current !== "forth" || !W) return;
-  const text = await (await fetch(`demos/${name}.fs`)).text();
+  const text = await (await fetch(`demos/${name}.fs` + V)).text();
   sendText(text.replace(/\r\n?/g, "\n"));
   term.focus();
 }

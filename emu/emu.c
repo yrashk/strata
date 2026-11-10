@@ -849,6 +849,11 @@ static bool step(Core *c) {
     uint64_t line = a >> lsh, set = line & ((1ull << lsets) - 1), span = ((uint64_t)ways + 1) * 8;
     uint64_t eb = c->ttag + set * span, key = line << 1 | 1;
     if (!ways || (eb & 7) || eb > DLS_BYTES - span) { trap(c, C_LSFAULT, eb); return true; }
+    for (int i = 0; i < NPEND; i++) /* the set's entry overlaps an in-flight device read: wait (or pend) */
+      if (c->pend[i].on && eb < c->pend[i].ls + c->pend[i].len && c->pend[i].ls < eb + span) {
+        if (c->ccr & 1) { trap(c, C_PEND, eb); return true; }
+        return false;
+      }
     uint64_t ctr = rd64(c->dls + eb + 8ull * ways), victim = ctr < ways ? ctr : 0;
     if (op == OP_LTAG) {
       uint64_t res = c->tdata + ((set * ways + victim) << lsh) | 0x8000000000000000ull;

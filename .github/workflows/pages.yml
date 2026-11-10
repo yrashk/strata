@@ -57,6 +57,7 @@ jobs:
           cp -r build/web/. public/play/
           cp -r build/web-code/. public/code/
           cp -r build/web-docs/. public/
+          tools/web-stamp.sh public "${GITHUB_SHA::8}"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: public

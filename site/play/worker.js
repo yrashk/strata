@@ -24,7 +24,7 @@
 // not clamped to 4 ms); > 0 = every core waits on a device, sleep that
 // many milliseconds (or until input arrives); < 0 = the machine stopped.
 "use strict";
-importScripts("strata-emu.js");
+importScripts("strata-emu.js" + self.location.search); // (the build id: see play.js)
 
 const SLICE = 12;        // ms of emulation between looks at the message queue
 const PAINT_MS = 15;     // at most one canvas update per display frame
