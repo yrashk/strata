@@ -102,6 +102,23 @@ CW=$(printf '\027'); CL=$(printf '\014'); CD=$(printf '\004')
   printf 'fg\n'
   printf 'time sleep 0.1\n'
   printf 'sleep x\n'
+  # tags: files in several "directories" at once, intersections, tag paths
+  printf 'tags motd rc ls\n'
+  printf 'echo alpha > n1; echo beta > /notes/n2; echo gamma > /notes/work/n3\n'
+  printf 'tag n1 notes\n'
+  printf 'ls -t /notes\n'
+  printf 'ls /notes/work; ls /work//notes/; ls /work/n3\n'
+  printf 'tags n1 n2 n3 | upper\n'
+  printf 'cat /work/n3 /notes/n2 n1\n'
+  printf 'cat /work/n2 || cat /nosuch/n1\n'
+  printf 'cat /work/n%s\n' "$TAB"
+  printf 'echo more >> /work/n1; tags n1\n'
+  printf 'cat /notes/n%s%s%s\n' "$TAB" "$TAB" "$CU"
+  printf 'untag n3 work; untag n1 work; ls /work\n'
+  printf 'tags | grep notes\n'
+  printf 'tag n1 a/b; tag nosuch x; untag; tags nosuch\n'
+  printf 'wc < /notes/n1 > /out/w1; ls -t /out; cat /out/w1\n'
+  printf 'rm /notes/n1 /notes/n2 n3 /out/w1; ls /notes; tags | grep notes\n'
   printf 'rm f1 f2 f3 s1 tfile\n'
   printf 'exit 3 &\n'
   printf 'wait\n'
@@ -116,6 +133,6 @@ awk 'f || /^strata\$ /{f=1; print}' "$tmp/raw.out" |
          -e 's/time: [0-9]+\.[0-9]+ s/time: T s/' -e 's/^(sourced) [0-9]+$/\1 PID/' | cat -v >"$tmp/out.txt"
 if [ $upd -eq 1 ]; then cp "$tmp/out.txt" "$here/tools/test-sh.out"; echo "tools/test-sh.out updated"; exit 0; fi
 if cmp -s "$tmp/out.txt" "$here/tools/test-sh.out"; then
-  printf '%-14s OK    line editing, history, completion, syntax, jobs\n' shell; exit 0
+  printf '%-14s OK    line editing, history, completion, syntax, jobs, tags\n' shell; exit 0
 fi
 printf '%-14s FAIL\n' shell; diff "$here/tools/test-sh.out" "$tmp/out.txt" | head -40; exit 1

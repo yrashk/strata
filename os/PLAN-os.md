@@ -60,6 +60,11 @@ tools/test-break.sh, tools/test-preempt.sh, tools/test-as.sh (StrataOS part), Ma
 
 ## Status
 - [x] mkdisk (128-entry dir, far image), boot ROM (c12 far, c13 heap, c14 FB), fw names
+- [x] fs: tags instead of directories. The 128-entry directory is unchanged (the kernel
+  reads it at boot); a tag table follows it (header offset 52: 64 names of 16 bytes,
+  then a u64 tag set per entry). Names in requests are paths (`/tag/tag/name`); DIR
+  takes a tag path (intersection); TAG 12, UNTAG 13, TAGS 14; `mkdisk -t`; `ls [-t]
+  [PATH]`, `tag`/`untag` (one image), `tags`. A rewrite keeps the file's entry and tags.
 - [x] kernel resident + units: boot, CREATE/DESTROY/MEMORY/STATS/NOTIFY/FREE/HALT,
       exits, ticks, self-paging (k_trap; never evicts the missing slot itself)
 - [x] dispatcher: run queue, switches (data extent + stack, code from image/mirror),

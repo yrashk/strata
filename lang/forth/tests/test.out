@@ -1,0 +1,91 @@
+Strata Forth 0.1 (native code, 8 cores, bare metal) N code bytes free, N data bytes free
+\ Strata Forth regression test. Fed on the console of both machines (bare  ok
+\ metal), and to `forth -n 6` under StrataOS (make test-forth; expected  ok
+\ output: tests/test.out). Lines that start with "23 kvar @" are for one  ok
+\ platform only and are left out of the StrataOS comparison.  ok
+\ Lines are echoed; each ends with " ok" or an error message.  ok
+\ ---- arithmetic and stack  ok
+1 2 + . 7 3 - . 6 7 * . 100 7 / . 100 7 mod . -7 2 / . 3 4 42 14 2 -3  ok
+1 2 3 rot .s drop drop drop <3> 2 3 1  ok
+5 dup . drop  1 2 swap . .  1 2 over . . .  1 2 nip .  1 2 tuck . . . 5 1 2 1 2 1 2 2 1 2  ok
+-5 abs . 3 9 min . 3 9 max . 5 negate . 0 invert . 1 10 lshift . -16 2 arshift . 5 3 9 -5 -1 1024 -4  ok
+3 4 = . 3 3 = . 2 3 < . -1 0 u< . 0 0= . 7 0<> . 0 -1 -1 0 -1 -1  ok
+$ff . %1010 . #99 . 'z' . -$10 . 255 10 99 122 -16  ok
+\ ---- definitions, control flow, recursion  ok
+: sq ( n -- n*n ) dup * ;  12 sq . 144  ok
+: fact ( n -- n! ) dup 1 > if dup 1- recurse * then ;  20 fact . 2432902008176640000  ok
+: fib ( n -- f ) dup 2 < if exit then dup 1- recurse swap 2 - recurse + ;  20 fib . 6765  ok
+: sum ( n -- s ) 0 swap 0 ?do i + loop ;  1000 sum .  0 sum . 499500 0  ok
+: evens 10 0 do i . 3 +loop ;  evens 0 3 6 9  ok
+: down 0 5 do i . -1 +loop ;  down 5 4 3 2 1 0  ok
+: grid 3 0 do 3 0 do j 3 * i + . loop loop ;  grid 0 1 2 3 4 5 6 7 8  ok
+: find5 100 0 do i 5 = if i unloop exit then loop -1 ;  find5 . 5  ok
+: lv 10 0 do i 4 > if leave then i . loop ." left" ;  lv 0 1 2 3 4 left ok
+: count-down ( n -- ) begin dup . 1- dup 0= until drop ;  5 count-down 5 4 3 2 1  ok
+: w ( n -- ) begin dup while dup . 2/ repeat drop ;  100 w 100 50 25 12 6 3 1  ok
+: kind ( n -- ) case 0 of ." zero" endof 1 of ." one" endof ." many" endcase space ;  ok
+0 kind 1 kind 7 kind zero one many  ok
+\ ---- data, defining words, strings  ok
+variable v  42 v !  v @ .  5 v +!  v ? 42 47  ok
+10 constant ten  ten ten * . 100  ok
+5 value five  five .  7 to five  five . 5 7  ok
+: counter create , does> dup @ 1+ dup rot ! ;  0 counter next-id  ok
+next-id . next-id . next-id . 1 2 3  ok
+create table 1 , 2 , 3 ,  table 2 cells + @ . 3  ok
+s" hello" type space  s" abc" s" abd" compare .  s" abc" s" abc" str= . hello 0 -1  ok
+: greet ." Hello, " type ." !" ;  s" Strata" greet Hello, Strata! ok
+42 <# #s #> type space  255 hex . decimal  -42 8 .r 42 8 u.r 42 ff      -42      42 ok
+defer action  ' sq is action  9 action . 81  ok
+\ ---- locals, quotations, catch / throw, errors  ok
+: diff { a b -- } a b - ;  10 3 diff . 7  ok
+: swap-sub { a b -- } b a - ;  10 3 swap-sub . -7  ok
+: twice ( xt -- ) dup execute execute ;  : bump [: 1+ ;] twice ;  40 bump . 41  ok
+: risky ( n -- ) 0= if 99 throw then ;  1 ' risky catch .  0 ' risky catch . 0 99  ok
+: safe-div ( a b -- q ) ['] / catch if 2drop 0 then ;  10 2 safe-div . 5  ok
+frobnicate 
+*** frobnicate: undefined word
+1 2 3 + + + + 
+*** +: stack underflow
+: broken 1 2 frob ; 
+*** frob: undefined word
+3 4 + . 7  ok
+\ ---- the compiler, made visible  ok
+$0508FFF8 dis addi s0, s0, -8  ok
+$A4010000 dis ret ok
+: fold-test ( n -- n ) 5 + 3 and ;  1 fold-test . 2  ok
+' sq xt>name name>string type space ' + xt>name name>flags . sq 2  ok
+\ ---- capabilities, transfers, the far cache  ok
+heap-cap cvalid . 15 cvalid .  1 cperms $ff and h. -1 0 $18  ok
+23 kvar @ 0= [if] 8 clen h. 9 cbase h. 0 cperms h. 1 cperms h. 12 cperms h. [then] $2e00000 $3000000 $307 $218 $207  ok
+23 kvar @ [if] 0 clen h. 5 clen h. 0 cperms h. 1 cperms h. 3 cperms h. [then]  ok
+create buf 64 allot  buf 64 erase  ok
+123 buf !  456 buf cell+ !  ok
+buf 0 16 heap-cap tput  heap-cap tag twait  buf 16 erase  buf 0 16 heap-cap tget  heap-cap tag twait  buf @ . buf cell+ @ . 123 456  ok
+0 far@ .  777 64 far!  64 far@ .  fflush  buf 64 8 heap-cap tget heap-cap tag twait buf @ . 123 777 777  ok
+: fill-far 512 0 do i 3 * i far! 8 +loop ;  fill-far  256 far@ . 768  ok
+finval fcache-reset  : sum-far 0 512 0 do i far@ + 8 +loop ;  sum-far .  .fcache 48384 56 hits, 8 misses, 0 write-backs
+ ok
+fcache-reset : stride ( n -- ) 0 do i i far! 64 +loop ;  65536 stride  65472 far@ .  .fcache 65472 9 hits, 1016 misses, 960 write-backs
+ ok
+far-size constant hsize  heap-cap 4096 tmp-cap csplit  tmp-cap clen hsize 4096 - = .  far-size . -1 4096  ok
+heap-cap tmp-cap cjoin  far-size hsize = .  tmp-cap cvalid . -1 0  ok
+\ ---- cores  ok
+cores 5 > . -1  ok
+: square-on ( n -- n*n ) dup * ;  7 1 ' square-on 1 spawn  1 await . 49  ok
+' core# 5 run-on . 5  ok
+: sumsq ( lo hi -- s ) 0 -rot swap ?do i dup * + loop ;  ok
+0 1000 2 ' sumsq 1 spawn  1000 2000 2 ' sumsq 2 spawn  1 await 2 await + . 2664667000  ok
+: oops 1 0 ?do frob loop ; 
+*** frob: undefined word
+: under drop drop ;  ' under 3 run-on core 3: *** stack underflow
+
+*** run-on: stack underflow
+3 await 
+*** await: core is not running a job
+' core# 9 run-on 
+*** run-on: no such worker core
+: far-job ( -- x ) heap-cap 0 take  128 far@  heap-cap 0 give ;  ok
+0 ' far-job 4 spawn  fflush finval  heap-cap 4 give  heap-cap 4 take  4 await . 128  ok
+16 1 atomic@ h. $9800  ok
+\ ---- the end  ok
+bye 

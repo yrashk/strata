@@ -1,0 +1,56 @@
+strata$ forth < ostest.fs
+Strata Forth 0.1 (native code, 1 thread, StrataOS 0.1) N code bytes free, N data bytes free
+\ Strata Forth under StrataOS: what the bare-metal Forth does not have.  ok
+\ Fed to `forth < ostest.fs` by tests/run-os.sh; expected output: tests/os.out.  ok
+\ ---- files  ok
+include inc1.fs inc2 inc1  ok
+from-inc1 from-inc2 inc1 inc2  ok
+include nofile.fs 
+*** nofile.fs: no such file
+include incerr.fs fine 
+incerr.fs:3: *** nosuchword: undefined word
+fine  [defined] never . fine 0  ok
+s" inc2.fs" included  from-inc2 inc2  ok
+\ ---- tools on demand: loaded for one command, then forgotten  ok
+[defined] dis .  [defined] .fcache .  [defined] see . 0 0 0  ok
+chere  $0508FFF8 dis  chere = . addi s0, s0, -8 -1  ok
+: t1 ( -- ) ." hi" ;  t1  ' t1 xt>name name>size . hi24  ok
+.fcache 0 hits, 0 misses, 0 write-backs
+ ok
+: uses-tool ( -- ) .fcache ; 
+*** .fcache: undefined word
+require tools  [defined] .fcache .  [defined] tools.fs . -1 -1  ok
+: uses-tool ( -- ) .fcache ;  uses-tool 0 hits, 0 misses, 0 write-backs
+ ok
+require tools  ok
+\ ---- one thread: the multicore words say so  ok
+cores . 1  ok
+' dup 1 run-on 
+*** run-on: one thread only: start Forth with -n N for N cores
+heap-cap 1 give 
+*** give: one thread only: start Forth with -n N for N cores
+tmp-cap 0 take 
+*** take: one thread only: start Forth with -n N for N cores
+\ ---- capabilities of a StrataOS process, time  ok
+0 cvalid . 5 cvalid . heap-cap . tmp-cap . 9 cvalid . -1 -1 6 7 0  ok
+ticks 20 ms ticks swap - 19000 > . -1  ok
+\ ---- the end  ok
+bye strata$ forth inc2.fs from-inc2 cr
+inc2 
+strata$ forth -e 6 7 * . cr .( done)
+42 
+done
+strata$ echo "2 3 + ." | forth | upper
+STRATA FORTH 0.1 (NATIVE CODE, 1 THREAD, STRATAOS 0.1) 6320 CODE BYTES FREE, 17016 DATA BYTES FREE
+2 3 + . 5  OK
+strata$ echo ": sq dup * ; 12 sq . see sq" | forth | grep mul | wc
+1 6 34
+strata$ forth nofile.fs
+*** nofile.fs: no such file
+[exit 1]
+[1] strata$ forth incerr.fs
+fine 
+incerr.fs:3: *** nosuchword: undefined word
+[exit 1]
+[1] strata$ halt
+StrataOS: all cores halted
