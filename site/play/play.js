@@ -533,6 +533,29 @@ function vmSaveGeom() {
   const r = vm.el.getBoundingClientRect();
   try { localStorage.setItem(VM_GEOM, JSON.stringify({ l: r.left, t: r.top, w: r.width, h: r.height })); } catch (e) { /* no storage */ }
 }
+// The guest's page keeps its scrolling: at its ends (or when it cannot
+// scroll at all) the wheel would otherwise go on to the play page under the
+// panel. Same origin (the Service Worker serves it), so the panel can say so.
+function vmContain(frame) {
+  let d;
+  try { d = frame.contentDocument; } catch (e) { return; }
+  if (!d || !d.documentElement) return;
+  d.documentElement.style.overscrollBehavior = "contain";
+  if (d.body) d.body.style.overscrollBehavior = "contain";
+  d.addEventListener("wheel", (e) => {
+    // the innermost element under the pointer that can still scroll that way takes it
+    for (let n = e.target; n && n.nodeType === 1; n = n.parentElement) {
+      const cs = d.defaultView.getComputedStyle(n);
+      const canY = /(auto|scroll)/.test(cs.overflowY) || n === d.scrollingElement;
+      const canX = /(auto|scroll)/.test(cs.overflowX) || n === d.scrollingElement;
+      if (canY && e.deltaY < 0 && n.scrollTop > 0) return;
+      if (canY && e.deltaY > 0 && n.scrollTop + n.clientHeight < n.scrollHeight - 1) return;
+      if (canX && e.deltaX < 0 && n.scrollLeft > 0) return;
+      if (canX && e.deltaX > 0 && n.scrollLeft + n.clientWidth < n.scrollWidth - 1) return;
+    }
+    e.preventDefault(); // nothing left to scroll here: and not the page below either
+  }, { passive: false });
+}
 function vmBuild() {
   const el = document.createElement("section");
   el.className = "vmpanel";
@@ -559,6 +582,7 @@ function vmBuild() {
     let path = null;
     try { path = vmPathOf(frame.contentWindow.location.href); } catch (e) { /* not ours */ }
     if (path === null) return;
+    vmContain(frame);
     if (vm.nav) vm.nav = false;
     else if (vm.hist[vm.at] !== path) { vm.hist.splice(vm.at + 1); vm.hist.push(path); vm.at = vm.hist.length - 1; }
     addr.value = path;
@@ -574,6 +598,7 @@ function vmBuild() {
     else if (e.key === "Escape") { addr.value = vm.hist[vm.at] || "/"; addr.blur(); }
   });
   for (const b of el.querySelectorAll("button")) b.addEventListener("mousedown", (e) => e.preventDefault()); // (no focus)
+  el.addEventListener("wheel", (e) => e.preventDefault(), { passive: false }); // the bar and the edges: no page scrolling
   // moving (by the bar) and resizing (by the grips): the pointer is captured,
   // and the iframe ignores it meanwhile so it cannot swallow the moves
   const track = (e, onMove) => {
