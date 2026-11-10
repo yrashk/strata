@@ -50,6 +50,14 @@
       <button id="reset" class="small" disabled>Reset</button>
       <button id="brk" class="small" disabled title="The break key (Ctrl-C)">Ctrl-C</button>
       <label class="jit" title="Translate hot Strata code to WebAssembly at run time (off: interpret only)"><input type="checkbox" id="jit" checked> JIT</label>
+      <label class="demos" title="What is on the other end of the machine's network interface">Network
+        <select id="net">
+          <option value="peer">test peer + DNS over HTTPS</option>
+          <option value="tab">link to my other tabs</option>
+          <option value="relay">relay (WebSocket)…</option>
+        </select>
+      </label>
+      <label id="relay-wrap" class="demos" hidden>URL <input id="relay" type="text" size="22" placeholder="ws://localhost:8765" spellcheck="false"></label>
       <label id="demos-wrap" class="demos" hidden>Forth demo
         <select id="demos"><option value="">paste a demo…</option></select>
       </label>
@@ -57,6 +65,7 @@
     <div id="status" class="status" aria-live="polite">idle · pick something to run</div>
   </div>
   <p id="about" class="about"></p>
+  <p id="netnote" class="about"></p>
 
   <section id="screen-panel" class="panel screen collapsed" aria-label="Framebuffer">
     <div class="tag"><span>▸ SCREEN</span><em id="geom">no framebuffer output yet</em>
@@ -92,6 +101,11 @@
       <li>With JIT off you get the reference interpreter with its exact one-instruction-per-core
         interleaving (a predecoded fast loop keeps it at hundreds of MIPS on plain code).</li>
       <li>The disk is a copy in memory: whatever StrataOS writes is gone after Reset.</li>
+      <li>Network (StrataOS: <code>ping</code>, <code>host</code>, <code>nc</code>): the built-in test
+        peer answers pings and <code>*.test</code> names, and other names are looked up over HTTPS
+        (Cloudflare's or Google's public DNS); or link two tabs of this page; or give a relay URL:
+        <code>tools/netrelay</code> on your machine puts this machine on the real network through
+        its user-mode NAT. The page connects only to the relay you type.</li>
       <li>On the desktop: <code>make boot</code>, <code>make show-gfx</code>, <code>make forth</code>.</li>
     </ul>
   </section>

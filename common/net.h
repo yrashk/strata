@@ -56,9 +56,6 @@
 
 #include "platform.h"
 
-#if defined(__EMSCRIPTEN__) && !defined(NET_NO_NAT)
-#define NET_NO_NAT                                     /* (no host sockets in the browser) */
-#endif
 #ifndef __EMSCRIPTEN__
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -72,11 +69,62 @@
 #include "netnat.h"
 #endif
 
-enum { NET_NONE, NET_LOOP, NET_UDP, NET_PEER, NET_NAT };
+enum { NET_NONE, NET_LOOP, NET_UDP, NET_PEER, NET_NAT, NET_WEB };
 static bool net_nodns;                          /* -N peer,nodns: the peer's names only */
 static unsigned net_hint;                       /* STATUS bits 31..26: a host number the link suggests (0: none) */
-static void net_rx_push(const uint8_t *p, unsigned n);
-static int net_room(void);
+static inline void net_rx_push(const uint8_t *p, unsigned n);
+static inline int net_room(void);
+
+#ifdef __EMSCRIPTEN__
+/* The browser (web/web.c, site/play/net.js): the page is the other end.
+ *   -N web      every packet goes to the page (Module.webNetTx), which passes
+ *               it to another tab (BroadcastChannel) or a relay (WebSocket);
+ *               what comes back arrives through web_net_rx
+ *   -N web,nat  the same, and STATUS says the far end is a user-mode NAT (a
+ *               relay: tools/netrelay.c)
+ *   -N peer     the built-in peer, its names for *.test, and every other DNS
+ *               query answered by the page over HTTPS (Module.webDns; the
+ *               answer comes back through web_net_dns) */
+#include <emscripten.h>
+static bool net_web_nat;
+typedef struct { bool on; uint16_t id, gport; uint32_t gip, srv; } NetWebQ;
+static NetWebQ net_webq[8];
+static int net_webq_next;
+static uint32_t net_ip4(const uint8_t *p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
+/* A DNS query (the UDP datagram u of a packet p) for the page to answer. */
+static void net_web_dns_ask(const uint8_t *p, const uint8_t *u, unsigned ul) {
+  NetWebQ *q = &net_webq[net_webq_next];
+  net_webq_next = (net_webq_next + 1) % 8;
+  *q = (NetWebQ){true, (uint16_t)(u[8] << 8 | u[9]), (uint16_t)(u[0] << 8 | u[1]), net_ip4(p + 12), net_ip4(p + 16)};
+  EM_ASM({ if (Module.webDns) Module.webDns($0, $1); }, u + 8, ul - 8);
+}
+/* The page's answer m (n bytes, a DNS message) to one of those: a UDP
+ * datagram from the resolver that was asked to the guest that asked. */
+static void net_web_dns_reply(const uint8_t *m, unsigned n) {
+  static uint8_t r[NET_MTU];
+  if (n < 12 || n > NET_MTU - 28) return;
+  uint16_t id = (uint16_t)(m[0] << 8 | m[1]);
+  for (int i = 0; i < 8; i++) {
+    NetWebQ *q = &net_webq[i];
+    if (!q->on || q->id != id) continue;
+    q->on = false;
+    uint8_t *u = r + 20;
+    u[0] = 0; u[1] = 53; u[2] = (uint8_t)(q->gport >> 8); u[3] = (uint8_t)q->gport;
+    u[4] = (uint8_t)((n + 8) >> 8); u[5] = (uint8_t)(n + 8); u[6] = u[7] = 0;
+    memcpy(u + 8, m, n);
+    unsigned t = 28 + n;
+    r[0] = 0x45; r[1] = 0; r[2] = (uint8_t)(t >> 8); r[3] = (uint8_t)t; r[4] = r[5] = 0; r[6] = 0x40; r[7] = 0;
+    r[8] = 64; r[9] = 17; r[10] = r[11] = 0;
+    for (int k = 0; k < 4; k++) { r[12 + k] = (uint8_t)(q->srv >> (24 - 8 * k)); r[16 + k] = (uint8_t)(q->gip >> (24 - 8 * k)); }
+    uint32_t sum = 0;
+    for (int k = 0; k < 20; k += 2) sum += (uint32_t)r[k] << 8 | r[k + 1];
+    while (sum >> 16) sum = (sum & 0xffff) + (sum >> 16);
+    r[10] = (uint8_t)(~sum >> 8); r[11] = (uint8_t)~sum;
+    net_rx_push(r, t);
+    return;
+  }
+}
+#endif
 static int net_mode = NET_NONE;
 static int net_fd = -1;                         /* the UDP socket (NET_UDP) */
 static uint8_t net_q[NET_QLEN][NET_MTU];        /* received packets */
@@ -90,6 +138,9 @@ static uint64_t net_txn;                        /* its bytes so far */
 static inline bool net_host_open(const char *mode) {
   if (!strcmp(mode, "none")) { net_mode = NET_NONE; return true; }
   if (!strcmp(mode, "loop")) { net_mode = NET_LOOP; return true; }
+#ifdef __EMSCRIPTEN__
+  if (!strcmp(mode, "web") || !strcmp(mode, "web,nat")) { net_mode = NET_WEB; net_web_nat = mode[3] != 0; return true; }
+#endif
   if (!strcmp(mode, "peer") || !strcmp(mode, "peer,nodns")) {
     net_mode = NET_PEER;
     net_nodns = mode[4] != 0;
@@ -151,8 +202,8 @@ static inline bool net_host_open(const char *mode) {
 }
 
 /* A packet arrived on the link: into the receive queue, or dropped. */
-static int net_room(void) { return NET_QLEN - net_qcnt; }
-static void net_rx_push(const uint8_t *p, unsigned n) {
+static inline int net_room(void) { return NET_QLEN - net_qcnt; }
+static inline void net_rx_push(const uint8_t *p, unsigned n) {
   if (net_qcnt == NET_QLEN) { net_drops++; return; }
   int i = (net_qhead + net_qcnt) % NET_QLEN;
   memcpy(net_q[i], p, n);
@@ -249,6 +300,8 @@ static inline void net_peer(const uint8_t *p, unsigned n) {
 #ifndef __EMSCRIPTEN__
       nat_udp_in((uint32_t)p[12] << 24 | (uint32_t)p[13] << 16 | (uint32_t)p[14] << 8 | p[15],
                  (uint32_t)p[16] << 24 | (uint32_t)p[17] << 16 | (uint32_t)p[18] << 8 | p[19], p + hl, ul);
+#else
+      net_web_dns_ask(p, p + hl, ul);                  /* the page asks a DNS-over-HTTPS service */
 #endif
       return;
     }
@@ -308,6 +361,8 @@ static inline void net_tx_done(uint64_t n) {
   else if (net_mode == NET_PEER) net_peer(net_txb, (unsigned)n);
 #ifndef __EMSCRIPTEN__
   else if (net_mode == NET_NAT) nat_input(net_txb, (unsigned)n);
+#else
+  else if (net_mode == NET_WEB) EM_ASM({ if (Module.webNetTx) Module.webNetTx($0, $1); }, net_txb, (unsigned)n);
 #endif
 #ifndef __EMSCRIPTEN__
   else if (net_mode == NET_UDP) (void)!send(net_fd, net_txb, (size_t)n, 0);
@@ -330,17 +385,27 @@ static inline void net_host_poll(void) {
 }
 
 /* Packets can still arrive from outside (an idle machine is not deadlocked). */
-static inline bool net_live(void) { return net_mode == NET_UDP || net_mode == NET_NAT || (net_mode == NET_PEER && !net_nodns); }
+static inline bool net_live(void) {
+#ifdef __EMSCRIPTEN__
+  if (net_mode == NET_WEB || (net_mode == NET_PEER && !net_nodns)) return true; /* the page may bring one */
+#endif
+  return net_mode == NET_UDP || net_mode == NET_NAT || (net_mode == NET_PEER && !net_nodns);
+}
 
 static inline int net_rx_count(void) { return net_qcnt; }
 static inline const uint8_t *net_rx_head(unsigned *n) { *n = net_qlen[net_qhead]; return net_q[net_qhead]; }
 static inline void net_rx_pop(void) { net_qhead = (net_qhead + 1) % NET_QLEN; net_qcnt--; }
 
+#ifdef __EMSCRIPTEN__
+static inline bool net_web_isnat(void) { return net_mode == NET_WEB && net_web_nat; }
+#else
+static inline bool net_web_isnat(void) { return false; }
+#endif
 /* The STATUS register: next length | queued << 16 | link << 24 | NAT link
  * (the guest is 10.0.2.15) << 25 | a suggested host number << 26 | drops << 32. */
 static inline uint64_t net_status(void) {
   uint64_t len = net_qcnt ? net_qlen[net_qhead] : 0;
-  return len | (uint64_t)net_qcnt << 16 | (uint64_t)(net_mode != NET_NONE) << 24 | (uint64_t)(net_mode == NET_NAT) << 25 |
+  return len | (uint64_t)net_qcnt << 16 | (uint64_t)(net_mode != NET_NONE) << 24 | (uint64_t)(net_mode == NET_NAT || net_web_isnat()) << 25 |
          (uint64_t)(net_hint & 63) << 26 | (uint64_t)net_drops << 32;
 }
 

@@ -45,7 +45,13 @@ EMU     := $(BUILD)/strata-emu -c $(NCORES)
 
 .PHONY: all examples test clean lint run run-emu boot boot-net boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
 
-all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl
+all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl $(BUILD)/netrelay
+
+# the browser's relay to the real network (the play page's "relay" mode): the
+# simulators' user-mode NAT behind a small WebSocket server
+$(BUILD)/netrelay: tools/netrelay.c common/netnat.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ tools/netrelay.c
 
 $(BUILD)/sasm: asm/sasm.c asm/isa.h
 	@mkdir -p $(BUILD)

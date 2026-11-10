@@ -150,6 +150,20 @@ EMSCRIPTEN_KEEPALIVE void web_pointer(int op, int a, int b) {
 /* True once the guest has read the pointer device: the page hides its cursor. */
 EMSCRIPTEN_KEEPALIVE int web_pointer_used(void) { return host_ptr_used; }
 
+/* The network (common/net.h, site/play/net.js): a packet for the guest
+ * (from another tab or a relay), the page's answer to a DNS query
+ * (Module.webDns), the host number this tab's guest should take
+ * (10.0.0.n, STATUS bits 31..26). */
+EMSCRIPTEN_KEEPALIVE void web_net_rx(const uint8_t *p, int n) {
+  if (n > 0 && n <= (int)NET_MTU) net_rx_push(p, (unsigned)n);
+  pend_service();
+}
+EMSCRIPTEN_KEEPALIVE void web_net_dns(const uint8_t *p, int n) {
+  if (n > 0) net_web_dns_reply(p, (unsigned)n);
+  pend_service();
+}
+EMSCRIPTEN_KEEPALIVE void web_net_hint(int n) { net_hint = (unsigned)n & 63; }
+
 /* Stops the machine for good (Reset loads a fresh instance). */
 EMSCRIPTEN_KEEPALIVE void web_stop(void) { web_state = WEB_STOPPED; }
 

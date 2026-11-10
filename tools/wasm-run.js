@@ -13,7 +13,13 @@
 // no terminal input: without -i the console reads nothing (as with
 // </dev/null). -J runs the WebAssembly JIT, -j the interpreter.
 // Environment: STRATA_JIT_HOT=n (see below), STRATA_JIT_STAT=1 (print the
-// number of translated regions at exit).
+// number of translated regions at exit). With -N peer the guest's DNS
+// queries go to site/play/net.js as on the play page: to the real DNS-over-
+// HTTPS services, or, with STRATA_DOH_STUB='{"Status":0,"Answer":[...]}', to
+// a fetch that answers every query with that JSON (the tests). With
+// -N web,nat and STRATA_RELAY=ws://... the guest's packets go to that relay
+// (tools/netrelay), with -N web and STRATA_TAB=1 to a BroadcastChannel (the
+// page's "relay" and "tab" modes).
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -23,7 +29,7 @@ if (!modPath || !argv.length) {
   console.error("usage: node tools/wasm-run.js strata-emu.js [flags] image.stx");
   process.exit(2);
 }
-const WITH_ARG = new Set(["-c", "-t", "-m", "-d", "-i", "-b", "-T", "-g", "-F", "-z", "-r"]);
+const WITH_ARG = new Set(["-c", "-t", "-m", "-d", "-i", "-b", "-T", "-g", "-F", "-z", "-r", "-N"]);
 const inputs = [], outputs = [], args = [];
 let haveInput = false;
 for (let i = 0; i < argv.length; i++) {
@@ -61,7 +67,21 @@ function write(fd, bytes) { if (bytes.length) fs.writeSync(fd, Buffer.from(bytes
   if (process.env.STRATA_JIT_STAT) process.on("exit", () => fs.writeSync(2, `jit: ${M._jit_wasm_stat(0)} regions, tail calls ${M._jit_wasm_stat(1) ? "on" : "off"}\n`));
   flush();
   if (rc) process.exit(rc);
-  while (M._web_run(1000) >= 0) flush(); // (an interactive wait cannot end here: there is no input)
+  const nmode = args[args.indexOf("-N") + 1] || "";
+  const net = require(path.join(__dirname, "../site/play/net.js"));
+  const peer = args.includes("-N") && /^peer/.test(nmode);
+  const web = args.includes("-N") && /^web/.test(nmode);
+  let link = null;
+  if (web) link = net.link(M, () => {}, (t) => fs.writeSync(2, t + "\n"),
+                           process.env.STRATA_RELAY ? { mode: "relay", url: process.env.STRATA_RELAY } : { mode: "tab" });
+  if (peer || web) {
+    const stub = process.env.STRATA_DOH_STUB;
+    const fetchFn = stub ? async () => ({ ok: true, json: async () => JSON.parse(stub) }) : globalThis.fetch;
+    if (peer) net.peer(M, () => {}, fetchFn);
+    // the answers come in promises: let them run between slices
+    while (M._web_run(50) >= 0) { flush(); await new Promise((r) => setImmediate(r)); }
+    if (link) link.stop();
+  } else while (M._web_run(1000) >= 0) flush(); // (an interactive wait cannot end here: there is no input)
   M._web_finish();
   flush();
   for (const [name, host] of outputs) {

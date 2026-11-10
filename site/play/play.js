@@ -381,6 +381,7 @@ function onWorker(w, m) {
     setStopped(`${what} after ${secs.toFixed(1)} s · ${statusLine()} · Reset to run again`);
     break;
   }
+  case "net": $("netnote").textContent = m.text; break;
   case "exit": setStopped(`exited (${m.code})`); break;
   case "error": setStopped("error: " + m.msg); break;
   }
@@ -403,7 +404,9 @@ async function run(key) {
   $("geom").textContent = "no framebuffer output yet";
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  const args = [jitBox.checked ? "-J" : "-j", ...(p.fitScreen ? ["-r", screenGeometry()] : []), ...p.args];
+  const net = netChoice();
+  const netArgs = ["-N", net.mode === "peer" ? "peer" : net.mode === "relay" ? "web,nat" : "web"];
+  const args = [jitBox.checked ? "-J" : "-j", ...(p.fitScreen ? ["-r", screenGeometry()] : []), ...netArgs, ...p.args];
   term.write("\x1bc"); // reset, in order with the writes still queued
   outText(`\x1b[2m$ strata-emu ${args.join(" ")}\x1b[0m\n`);
 
@@ -416,7 +419,7 @@ async function run(key) {
     w.onmessage = (e) => onWorker(w, e.data);
     w.onerror = (e) => { if (w === W) setStopped("error: " + (e.message || "the worker failed")); };
     // the module and the images are copied (structured clone), so Reset can reuse them
-    w.postMessage({ t: "start", wasm, files: p.files.map((name, i) => ({ name, data: bufs[i] })), args });
+    w.postMessage({ t: "start", wasm, files: p.files.map((name, i) => ({ name, data: bufs[i] })), args, net });
     if (p.screenKeys) canvas.focus(); else term.focus();
   } catch (e) {
     setStopped("error: " + (e && e.message ? e.message : e));
@@ -428,6 +431,27 @@ for (const b of document.querySelectorAll(".preset")) b.addEventListener("click"
 $("reset").addEventListener("click", () => current && run(current));
 $("brk").addEventListener("click", () => { sendBreak(); term.focus(); });
 jitBox.addEventListener("change", () => current && run(current));
+
+// ---------------------------------------------------------------- the network (net.js)
+// peer: the built-in test peer, and DNS answered over HTTPS by Cloudflare or
+// Google; tab: one link with this page's other tabs (BroadcastChannel); relay:
+// a WebSocket to a tools/netrelay the user runs (the real network, through it).
+function netChoice() {
+  const mode = $("net").value;
+  return mode === "relay" ? { mode, url: $("relay").value.trim() } : { mode };
+}
+function netNote() {
+  const c = netChoice();
+  $("relay-wrap").hidden = c.mode !== "relay";
+  $("netnote").textContent =
+    c.mode === "peer" ? "Network: the built-in test peer (ping 10.0.0.2, peer.test); other names are looked up with DNS over HTTPS (Cloudflare, else Google)." :
+    c.mode === "tab" ? "Network: a link between this page's tabs; open another tab, pick the same, and the two machines get 10.0.0.1 and 10.0.0.2." :
+    c.url ? `Network: every packet goes through the relay at ${c.url} (it is the NAT: 10.0.2.15, DNS 10.0.2.3).` :
+    "Network: enter the WebSocket URL of a relay you run (tools/netrelay, e.g. ws://localhost:8765), then Enter.";
+}
+$("net").addEventListener("change", () => { netNote(); if (current && $("net").value !== "relay") run(current); });
+$("relay").addEventListener("keydown", (e) => { if (e.key === "Enter" && current) { netNote(); run(current); } });
+netNote();
 
 fetch("demos/index.txt" + V).then((r) => (r.ok ? r.text() : "")).then((txt) => {
   for (const name of txt.split(/\s+/).filter(Boolean)) {

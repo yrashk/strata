@@ -5,7 +5,8 @@
 // the COOP/COEP headers it needs).
 //
 //   page -> worker
-//     {t:"start", wasm: WebAssembly.Module, files: [{name, data}], args: [...]}
+//     {t:"start", wasm: WebAssembly.Module, files: [{name, data}], args: [...],
+//      net: {mode: "peer" | "tab" | "relay", url}}   (net.js: the network's far end)
 //     {t:"input", data: Uint8Array}     console bytes (terminal, canvas keys, pasted demos)
 //     {t:"break"}                       Ctrl-C
 //     {t:"ptr", op, a, b}               the canvas's mouse (web/web.c web_pointer)
@@ -16,6 +17,7 @@
 //     {t:"status", steps, cores, live, now, jit, ptr}        twice a second while running
 //                                       (ptr: the guest reads the pointer: hide the page's cursor)
 //     {t:"stopped", state, faulted, steps, cores, live, now, jit}
+//     {t:"net", text}                   a note about the network (this tab's address, the relay)
 // Reset and picking another preset terminate the worker and start a new one.
 //
 // The loop: web_run(SLICE) runs machine rounds for a few milliseconds and
@@ -25,6 +27,7 @@
 // many milliseconds (or until input arrives); < 0 = the machine stopped.
 "use strict";
 importScripts("strata-emu.js" + self.location.search); // (the build id: see play.js)
+importScripts("net.js" + self.location.search);         // the network's far end (StrataNet)
 
 const SLICE = 12;        // ms of emulation between looks at the message queue
 const PAINT_MS = 15;     // at most one canvas update per display frame
@@ -129,6 +132,10 @@ async function start(msg) {
   const rc = M.callMain([...msg.args]);
   flushOut();
   if (rc) { postMessage({ t: "exit", code: rc }); return; }
+  const net = msg.net || { mode: "peer" };
+  const note = (text) => postMessage({ t: "net", text });
+  if (net.mode === "peer") StrataNet.peer(M, hop, self.fetch.bind(self));
+  else StrataNet.link(M, hop, note, net);
   running = true;
   lastStatus = performance.now();
   postMessage({ t: "started" });
