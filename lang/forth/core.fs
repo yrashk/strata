@@ -281,6 +281,7 @@ variable hld                                    \ the next free place
 
 \ ---- the JIT, made visible ----------------------------------------------------------------
 : jit-trace ( flag -- ) 24 kvar ! ;              \ report every code install
+36 kvar constant inline-limit                    \ primitives of up to this many code bytes are copied inline (16)
 
 \ ---- cores ------------------------------------------------------------------------------
 \ spawn ( x1..xn n xt core -- )  run xt on a worker core with n arguments

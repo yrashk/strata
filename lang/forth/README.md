@@ -152,6 +152,14 @@ stub of a `CREATE`d word, `CONSTANT` or `VALUE` is 8 bytes (`ori t1, zero,
 addr; j k_var`) instead of 24. That is 12 bytes less per colon definition
 for two more jumps per call; `see` shows it.
 
+**The inlining limit** (`inline-limit`, a variable: 16 bytes, 4 instructions,
+by default). Under StrataOS the start-up source (core.fs, os.fs) is compiled
+with 4 (`PLAT_INLINE`): only one-instruction primitives are copied, `dup`,
+`swap`, `+` and the like are called. That saves about 2.5 KiB of the 32;
+os.fs sets 16 again for what is typed or included later. Files that must
+fit next to others (net.fs, httpd.fs) lower it for themselves:
+`inline-limit @ 4 inline-limit ! ... inline-limit !`.
+
 Control structures, `DO` loops, locals and quotations are written in
 core.fs with a few code-generation words from the kernel (`insn,` `mark`
 `if,` `ahead,` `resolve` `prologue,` `epilogue,`) and a small assembler
@@ -304,8 +312,9 @@ Close to Forth 2012 for the core words. Deviations:
 - `bye` (or the end of input) halts every core (StrataOS: ends the process).
 - `2>r`, `2r>`, `2r@` are compiled as calls (their bodies are longer than
   the 4 instructions that are inlined), never as tail calls.
-- A word that is a tool under StrataOS (`see`, `words`, ...) cannot be used
-  inside a definition there unless `require tools` / `require see` came first.
+- A word that is a tool under StrataOS (`see`, `words`, the network words,
+  ...) cannot be used inside a definition there unless `require tools` /
+  `require see` / `require net` / `require udp` came first.
 
 ## Word list highlights
 
@@ -328,6 +337,12 @@ constant value to defer is s" ." abort" catch throw evaluate`...):
 | `heap-cap` `tmp-cap` | the heap's capability register (8; 6 under StrataOS) and a spare one (11; 7 under StrataOS) |
 | `cores core# workers` `spawn ( x1..xn n xt core -- )` `await ( core -- y1..ym )` `run-on ( xt core -- ... )` `par ( xt -- )` `publish` | cores (StrataOS: the threads of `-n N forth`) |
 | `include FILE` `included ( a u -- )` `require NAME` | StrataOS: interpret a file; `require tools` loads tools.fs for good, once |
+| `(msg) ( handle len mode op reg -- result )` | StrataOS: one request to a server (register 1 proc / the server a LOOKUP found, 2 fs, 3 tty, 4 pipe); data moves with `5 tput` / `5 tget` at offset 64. Bare metal: "not available on this platform" |
+| `tcp-listen ( port -- sock\|err )` `tcp-accept ( lsock -- sock\|err )` `tcp-connect ( ip port -- sock\|err )` | StrataOS, net.fs: TCP through the network server (started if none runs) |
+| `sock-read sock-write ( addr u sock -- n )` `sock-close sock-shutdown ( sock -- )` `sock-peer ( sock -- ip port )` | net.fs: a socket is read and written like a file; `sock-write` writes all of it |
+| `ip>str ( ip -- addr u )` `.ip ( ip -- )` `str>ip ( addr u -- ip\|-1 )` `net-init` `split ( a u c -- rest u2 first u1 )` | net.fs: IPv4 addresses (a.b.c.d in a cell), finding the server, a string helper |
+| `udp-open ( port -- sock\|err )` `udp-send ( addr u ip port sock -- n )` `udp-recv ( addr u sock -- n ip port )` `ping ( ip -- us\|err )` | udp.fs: datagrams and ICMP echo |
+| `inline-limit` | a variable: primitives with bodies of up to this many bytes are copied inline (16; 4 for the start-up source under StrataOS) |
 | `(mark)` `(release)` | remember the dictionary / forget everything defined since (one level) |
 | `ticks ( -- us )` `ms ( n -- )` `cycles` `instret` `timeit ( xt -- )` `csr@ ( csr# -- x )` | time and cost |
 | `words` `dump` `.cap` `.caps` `.jit` `.fcache` | tools (tools.fs) |
@@ -341,12 +356,15 @@ constant value to defer is s" ." abort" catch throw evaluate`...):
 | `core.fs` | the rest of the language, in Forth (embedded in the image) |
 | `tools.fs`, `see.fs` | `words dump .cap .caps .jit .fcache`, and the disassembler with `see`: embedded on bare metal, disk files loaded on demand under StrataOS |
 | `bare/` | the bare-metal platform: `config.s` (constants), `boot.s` (the image's `.text`: boot stub, worker loop), `platform.s` (console, timer, capability set-up, far-cache backing, `bye`), `source.s` and `start.fs` (the embedded source, the banner) |
-| `os/` | the StrataOS 0.1 platform: `config.s` (constants, arena layout, data), `boot.s` (the stub, twice: `.text` and its copy in the mirror; the embedded source), `platform.s` (messages to tty/fs/pipe, files, the clock, threads and the parcel, exit), `os.fs` (`include`, `require`, the banner) |
+| `os/` | the StrataOS 0.1 platform: `config.s` (constants, arena layout, data), `boot.s` (the stub, twice: `.text` and its copy in the mirror; the embedded source), `platform.s` (messages to tty/fs/pipe, `(msg)`, files, the clock, threads and the parcel, exit), `os.fs` (`include`, `require`, the banner) |
+| `net.fs`, `udp.fs` | StrataOS: TCP, addresses; UDP and ping. Disk files (tagged forth, net), loaded on demand like tools.fs |
+| `httpd.fs` | StrataOS: an HTTP/1.0 server for the tag file system (`forth httpd.fs`; tagged forth, net, demo) |
 | `demos/tiers.fs` | capabilities, transfers and tags, the far cache, code installation, ownership moving between cores |
 | `demos/multicore.fs` | a parallel sum: the heap is cut into slices, given to the workers, summed through each worker's own far cache, and joined back |
 | `demos/gfx.fs` | a parallel Mandelbrot: the framebuffer is cut into bands, one per worker, then joined and presented (bare metal only) |
 | `tests/test.fs`, `tests/test.out`, `tests/run.sh` | the regression test, bare metal on the emulator and the RTL |
 | `tests/run-os.sh`, `tests/ostest.fs`, `tests/os.out`, `tests/inc*.fs`, `tests/preempt.fs` | the same test under StrataOS, files and tools, command lines and pipes, preemption |
+| `tests/nettest.fs`, `tests/www/`, `tests/net.out` | under StrataOS: the network words and httpd.fs over loopback (the files of `tests/www/` are tagged www on the test disk) |
 
 The images are built by
 `build/sasm -I lang/forth/bare -I build/forth -o build/forth.stx lang/forth/forth.s`
@@ -360,16 +378,16 @@ layer: `config.s`, `boot.s`, `platform.s`, `source.s`.
 
 | | bare metal | StrataOS 0.1 |
 |---|---|---|
-| kernel + platform code | 12.9 KiB | 14.2 KiB (12.6 + 1.9 platform; stub and trampolines 0.3) |
-| Forth source compiled at start-up | core.fs, tools.fs, see.fs: 19.4 KiB | core.fs, os.fs: 11.6 KiB (compact code) |
-| code space free after start-up | about 32 KiB of 64 | about 6.3 KiB of 32 |
-| data space free after start-up | about 17.4 KiB | about 17.0 KiB |
-| image | 133 KiB | 89 KiB (limit: 128) |
+| kernel + platform code | 12.9 KiB | 14.7 KiB (the kernel, the platform layer, the stub and trampolines) |
+| Forth source compiled at start-up | core.fs, tools.fs, see.fs: 19.4 KiB | core.fs, os.fs: 8.9 KiB (compact code, inline limit 4) |
+| code space free after start-up | about 32 KiB of 64 | about 8.4 KiB of 32 (net.fs takes 2.4, httpd.fs 5.3 more) |
+| data space free after start-up | about 17.4 KiB | about 16.4 KiB |
+| image | 133 KiB | 87 KiB (limit: 128) |
 | start-up | about 1.0 M instructions | about 0.8 M, plus messages |
 
-forth.s is 4576 lines of assembly, the platform layers 250 (bare) and 810
-(StrataOS) more; core.fs 298 lines, tools.fs 40, see.fs 68. `make
-test-forth` takes about 20 s.
+forth.s is 4581 lines of assembly, the platform layers 250 (bare) and 920
+(StrataOS) more; core.fs 299 lines, tools.fs 40, see.fs 68, net.fs 98,
+udp.fs 22, httpd.fs 188. `make test-forth` takes about 20 s.
 
 ## StrataOS
 
@@ -377,8 +395,9 @@ Strata Forth also runs as a StrataOS program: `forth` at the shell (a
 REPL on the console), `forth FILE.fs` (run a file, then the REPL),
 `forth -n N` (N threads on N cores, for the multicore words), and in
 pipes (`seq 5 | forth sum.fs`). `make test-forth` runs tests/test.fs
-under the OS and checks files, tools, command lines, pipes and
-preemption (tests/ostest.fs, tests/os.out, tests/preempt.fs).
+under the OS and checks files, tools, command lines, pipes, preemption
+and the network (tests/ostest.fs, tests/os.out, tests/preempt.fs,
+tests/nettest.fs, tests/net.out).
 
 The platform layer is the seam: console I/O, the timer, the far cache's
 backing transfers, capability set-up and `bye` are all the kernel asks of
@@ -395,10 +414,84 @@ Under the OS:
   and WRITE (cooked mode echoes, so the REPL does not); `include FILE`
   reads source through `fs`, tag paths included (`include /forth/core.fs`).
 - **The I-LS budget.** Programs get 0x8000..0xFFFF (32 KiB). The kernel,
-  the platform layer and core.fs compiled in compact form leave about
-  6.3 KiB of code space, so the tools (`see`, the disassembler, `dump`,
-  `words`, `.cap`) are not compiled at start-up: `tools.fs` and `see.fs`
-  are loaded on demand the first time one of their words is used.
+  the platform layer and core.fs compiled in compact form (and with the
+  inlining limit at 4) leave about 8.4 KiB of code space, so the tools
+  (`see`, the disassembler, `dump`, `words`, `.cap`, the network words)
+  are not compiled at start-up: `tools.fs`, `see.fs`, `net.fs` and
+  `udp.fs` are loaded on demand the first time one of their words is used.
 - **No framebuffer.** Only the window server gets the framebuffer
   (GRANT_FB), so `demos/gfx.fs` is a bare-metal demo
   (`make forth-demo-gfx`).
+
+### Networking
+
+The network words talk to the network server (`os/servers/net.s`,
+doc/strataos.md 2.10) through one kernel word, the platform's message call
+`(msg) ( handle len mode op reg -- result )`: it writes a request header
+into the process's message buffer, lends the buffer to the server behind
+endpoint register `reg` and sleeps until it is back. The data of a request
+or a reply are the buffer's bytes from 64 on, and Forth moves them itself
+with `5 tput` and `5 tget`, so everything else is written in Forth:
+
+```forth
+: tcp-listen ( port -- sock|err ) 0 0 54 net ;   \ LISTEN: handle = port
+: sock-read ( addr u sock -- n ) net-init 1 msg-read ;
+```
+
+- **net.fs**: `tcp-listen ( port -- sock|err )`, `tcp-accept ( lsock --
+  sock|err )` (waits), `tcp-connect ( ip port -- sock|err )`, `sock-read`
+  and `sock-write ( addr u sock -- n )` (a read returns what has arrived,
+  at most 1 KiB, 0 once the peer has closed; a write sends all of it),
+  `sock-close`, `sock-shutdown ( sock -- )`, `sock-peer ( sock -- ip port )`,
+  `ip>str ( ip -- addr u )`, `.ip`, `str>ip ( addr u -- ip|-1 )`. **udp.fs**:
+  `udp-open ( port -- sock|err )` (0: any port), `udp-send ( addr u ip port
+  sock -- n )`, `udp-recv ( addr u sock -- n ip port )`, `ping ( ip --
+  us|err )`. A socket is the server's id for it; results below zero are
+  the server's errors (-1 refused or reset, -4 no network server, -6 no
+  free socket, -7 port in use, -8 no answer). Addresses are a.b.c.d =
+  a<<24 | b<<16 | c<<8 | d in a cell: `$7f000001` is 127.0.0.1.
+- **Loading.** At the prompt each word loads its file for one command, like
+  `see`; `require net` (or `require udp`) loads it for good, as a program
+  must that uses the words in its definitions.
+- **The server's endpoint.** The first call looks the server up (LOOKUP
+  "net" through `proc`, whose endpoint is c1) and starts one (`net
+  10.0.0.1`) if none runs. The endpoint arrives where the heap lives (c6),
+  so the heap waits in c7 meanwhile; then it replaces `proc`'s in c1 for
+  good (Forth needs `proc` for nothing else). A Forth of several threads
+  (`-n N`) keeps the job board in c1 and has no network.
+- **Limits.** The server has 4 sockets (TCP and UDP together, a closed
+  connection waits 0.5 s in TIME-WAIT); up to 1 KiB moves per message.
+  Loopback (127.0.0.1, or the machine's own address) works with no link,
+  so a Forth can talk to itself (tests/nettest.fs connects to its own
+  listener). Bare metal has none of this: `(msg)` reports "not available
+  on this platform" and the words do not exist.
+
+### httpd.fs: a web server
+
+```
+strata$ forth httpd.fs &              # port 8000; forth httpd.fs PORT [COUNT]
+httpd: serving the tag file system on port 8000
+strata$ echo "GET /doc/motd HTTP/1.0" | nc 127.0.0.1 8000
+HTTP/1.0 200 OK
+Server: Strata Forth httpd
+Content-Length: 1402
+Content-Type: text/plain
+
+Welcome to StrataOS 0.1 ...
+```
+
+An HTTP/1.0 server written in Forth on net.fs (and on `(msg)` to the file
+server), one connection at a time, until Ctrl-C or COUNT requests. URL
+paths are tag paths: `/doc/motd` is motd, which carries the tag `doc`; a
+path of tags is an HTML listing of the files carrying them (`/forth/net`);
+a path ending in `/` serves its `index.html`, or else the listing (`/`
+lists every file). GET and HEAD; Content-Type by extension (html, txt,
+css, js, json, svg, png, jpg, gif, pdf, and the source files as text),
+else text or binary by the first bytes; Content-Length; 200, 400, 404 and
+405 (with `Allow`). Each request is logged on a line (`127.0.0.1 GET
+/doc/motd 200 1402`: client, method, path, status, body bytes). The
+listing is generated twice, once to count its bytes for Content-Length and
+once to send them, through a deferred `out`. Limits: requests of up to
+1 KiB (headers are read and ignored), listings of 126 files, no
+%-escapes, no keep-alive. With net.fs it takes about 7.7 of the 8.4 KiB of
+code space.

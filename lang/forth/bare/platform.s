@@ -136,6 +136,12 @@ plat_load:                              ; leaf
         li    a0, -306                  ; not available on this platform
         ret                             ; done
 
+; (MSG) ( handle len mode op reg -- result ): a request to a server
+; (lang/forth/os/platform.s). Bare metal has no servers.
+p_msg:                                  ; Forth word
+        li    a0, -306                  ; not available on this platform
+        j     throw_a0                  ; error
+
 ; ---- lending the image to a worker (see "Lending the image" in forth.s) -------
 ; plat_lend(t0 = core): give the worker the image: all of c0. Keeps t0.
 plat_lend:                              ; leaf

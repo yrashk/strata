@@ -1031,6 +1031,16 @@ closes; a refused connection is tried again for 10 s), `nc -l PORT`
 `tcpecho [PORT [COUNT]]` (a TCP echo server, port 7), `ifconfig [ADDRESS]`
 and `netstat`.
 
+**In Forth** (`lang/forth/README.md`, "Networking"): `net.fs` and `udp.fs`
+give Strata Forth the same calls as words (`tcp-listen`, `tcp-accept`,
+`tcp-connect`, `sock-read`, `sock-write`, `sock-close`, `udp-open`,
+`udp-send`, `udp-recv`, `ping`, `ip>str`, `str>ip`), written in Forth on
+one kernel word that sends a message, `(msg)`; Forth keeps the endpoint
+in c1 (where `proc`'s was: LOOKUP's arrives in c6, its far heap, which
+waits in c7 meanwhile). `forth httpd.fs [PORT [COUNT]]` is an HTTP/1.0
+server written with them (port 8000): GET and HEAD of the tag file system,
+URL paths as tag paths, listings of tag paths, `index.html`.
+
 ## 3. Tests
 
 - `make test` compares every example on the emulator and the RTL
