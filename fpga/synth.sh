@@ -20,7 +20,8 @@ sv2v rtl/strata_pkg.sv rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv 
      rtl/strata_ram.sv rtl/strata_uart.sv rtl/strata_tu.sv rtl/strata_bus.sv \
      rtl/strata_mem.sv rtl/strata_dev.sv rtl/strata_core.sv rtl/strata_top.sv > "$out/strata.v"
 case $fam in
-  xc7)  synth="synth_xilinx -family xc7 -flatten" ;;
+  xc7)  synth="synth_xilinx -family xc7 -flatten
+write_json $out/strata.json" ;;
   ecp5) synth="synth_ecp5 -json $out/strata.json" ;;
   *) echo "unknown family $fam"; exit 2 ;;
 esac

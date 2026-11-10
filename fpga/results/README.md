@@ -10,9 +10,11 @@ cores), so the results of the last runs are kept here rather than only in
 | `stat.txt` | Yosys's cell counts |
 | `synth.ys` | the Yosys script that ran |
 | `yosys.log.gz` | the whole Yosys log, compressed |
+| `strata.json.gz` | the netlist (Yosys JSON), compressed: `ecp5-1` now; `fpga/synth.sh` writes one for 7-series too from the next run on |
 
-The netlists are not kept: they are large (the ECP5 JSON is 158 MB) and
-come back with `fpga/synth.sh`.
+The `.gz` files are in Git LFS (`.gitattributes`): `git lfs pull` fetches
+them after a clone. The ECP5 netlist is 158 MB uncompressed (3.7 MB as
+kept); `gunzip -k` gives back what nextpnr reads.
 
 All four runs are of commit 0e51b8f (2026-11-10: with the pointer device,
 the console input release and the network device), with Yosys 0.70 and
