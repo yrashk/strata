@@ -13,7 +13,9 @@
 // no terminal input: without -i the console reads nothing (as with
 // </dev/null). -J runs the WebAssembly JIT, -j the interpreter.
 // Environment: STRATA_JIT_HOT=n (see below), STRATA_JIT_STAT=1 (print the
-// number of translated regions at exit).
+// number of translated regions at exit), STRATA_MEM=1 (print the size of
+// the module's memory at exit), STRATA_JIT_BUDGET=n (at most n translated
+// regions alive, as on iOS).
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -58,6 +60,8 @@ function write(fd, bytes) { if (bytes.length) fs.writeSync(fd, Buffer.from(bytes
   let rc = M.callMain(args);
   // STRATA_JIT_HOT=n: translate a pc after n visits (default 24; 1 = everything; 0 = also no tail calls)
   if (process.env.STRATA_JIT_HOT !== undefined) M._jit_wasm_set_hot(+process.env.STRATA_JIT_HOT);
+  if (process.env.STRATA_JIT_BUDGET) M._jit_wasm_set_budget(+process.env.STRATA_JIT_BUDGET);
+  if (process.env.STRATA_MEM) process.on("exit", () => fs.writeSync(2, `memory: ${(M.HEAPU8.length / 1048576).toFixed(1)} MiB\n`));
   if (process.env.STRATA_JIT_STAT) process.on("exit", () => fs.writeSync(2, `jit: ${M._jit_wasm_stat(0)} regions, tail calls ${M._jit_wasm_stat(1) ? "on" : "off"}\n`));
   flush();
   if (rc) process.exit(rc);
