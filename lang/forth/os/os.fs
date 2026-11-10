@@ -22,6 +22,12 @@
   parse-name here swap 2dup 2>r move  s" .fs" 2r@ + swap move  2r> 3 + \ the file's name, at HERE
   2dup find-name if 2drop exit then  included ; \ a file ends by defining a word with its name
 
+\ core.fs and this file were compiled with INLINE-LIMIT at 4 (the platform's
+\ start-up value): only one-instruction primitives were copied, the rest are
+\ called, which saves about 2.5 KiB of the 32 KiB of code space. What is
+\ compiled from now on gets the usual inlining (net.fs and httpd.fs lower it).
+16 inline-limit !
+
 \ ---- greeting (the console only; not for `forth FILE` or `forth -e ...`) --------------
 \ Defined, run and forgotten: (mark) remembers the dictionary, (release)
 \ forgets everything defined since (this is how the tools come and go).

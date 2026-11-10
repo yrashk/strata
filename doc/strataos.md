@@ -1100,6 +1100,17 @@ types, nothing by default; `tools/netrelay` is that relay: the same NAT
 behind a small WebSocket server on 127.0.0.1:8765, `-f HOSTPORT:GUESTPORT`
 for inbound).
 
+**In Forth** (`lang/forth/README.md`, "Networking"): `net.fs` and `udp.fs`
+give Strata Forth the same calls as words (`tcp-listen`, `tcp-accept`,
+`tcp-connect`, `sock-read`, `sock-write`, `sock-close`, `udp-open`,
+`udp-send`, `udp-recv`, `ping`, `ip>str`, `str>ip`), written in Forth on
+one kernel word that sends a message, `(msg)`; Forth keeps the endpoint
+in c1 (where `proc`'s was: LOOKUP's arrives in c6, its far heap, which
+waits in c7 meanwhile). `forth httpd.fs [PORT [COUNT]]` is an HTTP/1.0
+server written with them (port 8000, next to `httpd`'s 80; 2.11): GET and
+HEAD of the tag file system, URL paths as tag paths, listings of tag paths,
+`index.html`.
+
 ### 2.11 The HTTP server (`httpd`)
 
 `httpd [-p PORT] [-c CONNS]` (`os/progs/httpd.s`, tagged `bin,net`) serves

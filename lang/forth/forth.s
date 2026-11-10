@@ -222,6 +222,7 @@ v_moff:   .dword 0                      ; I-LS address minus this = c0 offset of
 v_ftop:   .dword A_FILES                ; INCLUDED: c0 offset where the next file's text goes (a stack)
 v_fdepth: .dword 0                      ; INCLUDED: nesting depth
 v_tooling: .dword 0                     ; 1 while a tool file is loaded for one command
+v_inlmax: .dword PLAT_INLINE            ; primitives whose bodies have at most this many bytes are copied inline
 msave:    .space 24 + NBUCKETS * 2      ; the dictionary before a tool file: here, chere, latest, bucket heads
 fnames:   .space 4 * 32                 ; names of the files being included, by depth (zero-terminated)
 v_epoch:  .dword 1                      ; bumped for every word the interpreter runs
@@ -381,6 +382,7 @@ kvars:                                  ; KVAR n -> address (for core.fs)
           .half v_ename                 ; 33 the word an error message names (addr, len)
           .half v_tooling               ; 34 nonzero while a tool file is loaded for one command
           .half msave                   ; 35 the dictionary before that file: here, chere, latest
+          .half v_inlmax                ; 36 inline bodies of up to this many bytes (INLINE-LIMIT)
         .align 8                        ; the dictionary starts here
 dict0:                                  ; first header
 
@@ -1355,8 +1357,8 @@ cn_plain:                               ; inline or call
         andi  t1, t0, F_INL             ; inline?
         beqz  t1, cn_call               ; no: a call
         lhu   a1, H_SIZE(a0)            ; body size
-        li    t1, 16                    ; bodies of up to 4 instructions are copied;
-        bgtu  a1, t1, cn_long           ; longer ones are called (the I-LS is small)
+        ld    t1, v_inlmax(zero)        ; bodies of up to 4 instructions (16 bytes, INLINE-LIMIT) are
+        bgtu  a1, t1, cn_long           ; copied; longer ones are called (the I-LS is small)
         lhu   a0, H_XT(a0)              ; body address
         call  cg_inline                 ; copy it
         j     cn_ret                    ; done
@@ -2080,6 +2082,13 @@ tr_copy:                                ; copy them back
         addi  t2, t2, -1                ; one fewer
         bnez  t2, tr_copy               ; continue
         ret                             ; done
+
+; (MSG) ( handle len mode op reg -- result ): one request to a server through
+; endpoint register reg (StrataOS: 1 proc, or the server a LOOKUP through it
+; found; 2 fs, 3 tty, 4 pipe), waiting for the answer; data moves with
+; `5 tput` / `5 tget` at offset 64 of the message buffer. Bare metal: -306.
+p_msg:                                  ; Forth word
+        j     plat_msg                  ; tail call: the platform sends it
 
 ; (TOOL) ( i*x fa fu na nu -- j*x ): include the file fa fu, run the word
 ; na nu it defines, and forget the file again: a tool that costs no code
@@ -4554,6 +4563,9 @@ ktable:                                 ; the table
         .half p_included, 0             ; included: xt (called, not inlined)
         .byte 0, 0                      ; ordinary
         .asciz "included"               ; name
+        .half p_msg, 0                  ; (msg): xt (called, not inlined)
+        .byte 0, 0                      ; ordinary
+        .asciz "(msg)"                  ; name
         .half p_tool, 0                 ; (tool): xt (called, not inlined)
         .byte 0, 0                      ; ordinary
         .asciz "(tool)"                 ; name

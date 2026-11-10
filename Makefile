@@ -214,6 +214,8 @@ $(BUILD)/src/as.s: os/progs/as.s
 # `forth`, the files it loads on demand (tools.fs, see.fs), core.fs to read, the demos
 FORTH_DISK := $(BUILD)/prog/forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
               $(wildcard lang/forth/demos/*.fs)
+# the network words (loaded on demand, like tools.fs) and the web server built on them
+FORTH_DISK += lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd.fs
 
 DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as \
               $(BUILD)/prog/units $(SRCS) $(USRCS) $(FORTH_DISK)
@@ -226,7 +228,8 @@ DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc
              -t demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units \
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) \
              -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
-             -t forth,demo $(wildcard lang/forth/demos/*.fs)
+             -t forth,demo $(wildcard lang/forth/demos/*.fs) \
+             -t forth,net lang/forth/net.fs lang/forth/udp.fs -t forth,net,demo lang/forth/httpd.fs
 # the web site httpd serves (index.html at /, the stylesheet of every page)
 WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)
@@ -326,9 +329,11 @@ $(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 test: $(BUILD)/http-test/disk.img
 
 # the disk of `make test-forth`: the standard one plus the test files
-$(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs)
+$(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs) \
+                              $(wildcard lang/forth/tests/http/*)
 	@mkdir -p $(BUILD)/forth-test
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t forth,test $(wildcard lang/forth/tests/*.fs)
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t forth,test $(wildcard lang/forth/tests/*.fs) \
+	  -t httptest $(wildcard lang/forth/tests/http/*)
 
 forth: $(BUILD)/strata-emu $(BUILD)/forth.stx
 	@$(EMU) $(BUILD)/forth.stx
