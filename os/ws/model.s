@@ -43,7 +43,7 @@
 ; m_ptr_btn (buttons held). Help: m_help (the key help is shown).
 
 MAXCORE   = 16                          ; cores the lattice can show
-MAXPROC   = 32                          ; processes
+MAXPROC   = 64                          ; processes (proc's NPROC)
 MAXWIN    = 4                           ; tiles
 PULSE_MAX = 10                          ; frames a pulse lasts
 

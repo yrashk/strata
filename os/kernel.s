@@ -11,7 +11,7 @@
 ;
 ; ---- What the kernel does, and what it leaves to servers ---------------------
 ; The kernel creates and destroys processes and places them on cores, hands
-; out memory (1 MiB arenas, each in its own revocation domain), runs the
+; out memory (arenas: 1 MiB by default, revocable by address), runs the
 ; timer (a preemption tick every time slice, 2 ms by default; timeouts of timed waits) and moves
 ; messages between processes. Everything else is a user-mode server process:
 ;   proc  (pid 1) processes, names, exit statuses, signals; holds the kernel endpoint
@@ -29,16 +29,26 @@
 ; and its D-LS 0x0000..0x9FFF holds the kernel's tables (K0_* below).
 ;
 ; System memory (T3): [0, 32 KiB) the kernel shared table (KST, below);
-; [32 KiB, 64 KiB) core 0's own message buffers; the arenas: 1 MiB each, from
-; [16 MiB, 48 MiB) (c13 from the boot ROM; on a 16 MiB machine from
-; [1 MiB, 15 MiB)); [48 MiB, 64 MiB) the framebuffer window (c14).
+; [32 KiB, 64 KiB) core 0's own message buffers; the ARENA POOL [16 MiB,
+; 48 MiB) (c13 from the boot ROM; on a 16 MiB machine [1 MiB, 15 MiB));
+; [48 MiB, 64 MiB) the framebuffer window (c14).
+; The pool is one revocable region (cdom at boot); core 0 keeps its revoker
+; (K_POOL) and a bitmap of its 256 KiB granules. An arena is any run of
+; whole granules, 1 MiB unless proc asks MEMORY for more: core 0 cuts the
+; revoker at the arena's bounds, `crevoke`s that piece (every older
+; capability based there dies, and a fresh one comes out) and joins the
+; revoker again. When the process ends its arena is revoked the same way
+; (whatever it lent out dies) and its granules are free for the next one.
+; The number of processes is limited by memory, and by the fixed tables
+; (NARENA arenas, NKPROC process records, NSLOT threads per worker).
 ;
 ; Core 0's own resident code (event loop, paging trap) sits at I-LS 0x7000
 ; and up: workers never run it, so programs may overwrite that range of a
 ; worker's I-LS (the `overlay` example does) without harming its kernel.
 ;
-; An arena (1 MiB, one revocation domain), for a process with N threads:
-;   [0, P)        the program's memory (thread 0's c0), P = 0xD0000 - (N-1) * 48 KiB
+; An arena (1 MiB + E: E bytes more than the default), for a process with N threads,
+; at offsets from its LAYOUT BASE L = arena base + E (a 1 MiB arena: L = base):
+;   [-E, P)       the program's memory (thread 0's c0), P = 0xD0000 - (N-1) * 48 KiB
 ;                 (0x7F000: the start-up block proc writes; 0x80000 / 0xC0000:
 ;                 the input / output of old bare-metal programs like `as`)
 ;   [P, 0xD0000)  the save areas of threads N-1 .. 1
@@ -145,11 +155,14 @@ G_KIB    = 0x10                         ; KiB moved by switches, all cores
 G_UNITS  = 0x18                         ; kernel code units paged in
 G_HALT   = 0x20                         ; 1: the machine is stopping
 G_HALTED = 0x28                         ; workers that reached w_halt (core 0 waits for them)
-G_ABASE  = 0x100                        ; 32 words: base of arena slot k
-G_APID   = 0x200                        ; 32 words: process owning arena slot k
-NARENA   = 24                           ; arena slots
-NDOM_AR  = 15                           ; revocation domains for arenas (16, minus domain 0 = none)
-CAREA    = 0x400                        ; per-core areas: CAREA + core * CA_SIZE
+G_PBASE  = 0x30                         ; the arena pool's base
+G_PGRAN  = 0x38                         ; its granules
+G_GPID   = 0x100                        ; 256 words: the process owning pool granule g (0: none)
+NGPID    = 256                          ; (64 MiB of pool at most)
+NARENA   = 64                           ; arena slots (K0_AR); every process has one
+GRAN     = 0x40000                      ; a revocation granule: 256 KiB
+GSHIFT   = 18                           ; ...
+CAREA    = 0x900                        ; per-core areas: CAREA + core * CA_SIZE (15 cores)
 CA_SIZE  = 0x400                        ; ...
 CA_RUN   = 0x00                         ; runnable processes on the core (dispatcher writes)
 CA_DEADL = 0x08                         ; earliest timed wait on the core, 0 = none
@@ -162,14 +175,14 @@ CA_SLOT  = 0x48                         ; 3 words: pid | state << 8 of slot s (p
 CA_TAIL  = 0x60                         ; exit events written (worker)
 CA_HEAD  = 0x68                         ; exit events read (core 0)
 CA_RING  = 0x70                         ; 8 events of 16 bytes: pid, status
-CA_FREE  = 0xF0                         ; bits: zombie slots whose domain is dissolved (core 0 sets)
+CA_FREE  = 0xF0                         ; bits: zombie slots whose arena is revoked (core 0 sets)
 CA_GIFTW = 0xF8                         ; 1: a thread here waits for a gift or a tag (core 0 polls it)
 CA_JOB   = 0x100                        ; 3 job records of J_SIZE (core 0 -> worker)
 J_SIZE   = 0x80                         ; ...
 J_STATE  = 0                            ; 1 = posted
 J_PID    = 8                            ; process id
 J_FLAGS  = 16                           ; F_* below
-J_ARENA  = 24                           ; arena base
+J_ARENA  = 24                           ; arena layout base (base + E)
 J_WIN    = 32                           ; window base | count << 8 | vcore << 16
 J_CODE   = 40                           ; code I-LS address | length << 16 | image offset << 32
 J_DATA   = 48                           ; data D-LS address | length << 16 | image offset << 32
@@ -178,7 +191,8 @@ J_A0     = 64                           ; the program's a0, a1, a2
 J_A1     = 72                           ; ...
 J_A2     = 80                           ; ...
 J_SAVE   = 88                           ; arena offset of this thread's save area
-PSTATS   = 0x4400                       ; per pid: u64 switches, u64 bytes moved
+J_MEM    = 96                           ; the arena's base (J_ARENA is its layout base)
+PSTATS   = 0x4800                       ; per pid (mod 256): u64 switches, u64 bytes moved
 
 MSGB     = 0x8000                       ; core 0's 8 message buffers
 NMSGB    = 8                            ; ...
@@ -218,11 +232,10 @@ T_DEVR   = 62                           ; the device root (for dev)
 T_CON    = 63                           ; console output (bare-metal programs' c2)
 
 ; ---- core 0 capability save table --------------------------------------------------
-K_ARENA  = 0                            ; 0..23: free arenas
-K_REV    = 24                           ; 24..47: revoker of arena slot k
+K_POOL   = 0                            ; the arena pool's revoker
 K_MSG    = 48                           ; 48..55: core 0's message buffers (when home)
 K_STASH  = 56                           ; 56..59: attachments from proc / others
-K_FB     = 60                           ; the framebuffer's revoker (its own domain, made at boot)
+K_FB     = 60                           ; the framebuffer's revoker (a revocable region of its own, made at boot)
 K_SPARE  = 61                           ; (spare)
 
 ; ---- process record (worker), PR_SIZE bytes each ---------------------------------------
@@ -230,7 +243,7 @@ PR_STATE = 0                            ; S_* below
 PR_PID   = 8                            ; process id
 PR_FLAGS = 16                           ; F_*
 PR_AWAIT = 24                           ; WAIT_REPLY: awaited base (-1 nothing)
-PR_ARENA = 32                           ; arena base
+PR_ARENA = 32                           ; arena layout base (base + E)
 PR_BUF   = 40                           ; message buffer base
 PR_SOFF  = 48                           ; arena offset of its save area
 PR_CODE  = 56                           ; code: address | length << 16 | image offset << 32
@@ -269,14 +282,15 @@ PR_TMASK = 312                          ; emulated tany: what it waits for
 PR_SCRB  = 320                          ; SET_SCRATCH: D-LS range not preserved: start
 PR_SCRE  = 328                          ;   ... and end (word-aligned inside the range)
 PR_REGS  = 336                          ; x0..x31 (x0 unused)
-PR_SIZE  = 592                          ; ...
+PR_MEM   = 592                          ; the arena's base (the program's memory, c0)
+PR_SIZE  = 600                          ; ...
 S_FREE   = 0                            ; slot states
 S_LOAD   = 1                            ; job posted, capabilities arriving
 S_READY  = 2                            ; runnable
 S_WAIT   = 3                            ; in WAIT_REPLY
 S_RECV   = 4                            ; in RECEIVE
 S_NOTE   = 5                            ; in NOTIFY_WAIT
-S_ZOMBIE = 6                            ; ended; waits for the kernel to dissolve its domain
+S_ZOMBIE = 6                            ; ended; waits for the kernel to revoke its arena
 S_GIFT   = 7                            ; in an emulated ctake: waits for a gift
 S_TANY   = 8                            ; in an emulated tany
 NEED_P   = 1                            ; job capabilities: the program's memory
@@ -294,7 +308,7 @@ FB_BASE0 = 0x3000000                    ; the framebuffer window (from c14)
 CON_OUT  = 0x0000                       ; console output port (device space)
 
 ; ---- core 0's tables in its D-LS (it runs no programs) ----------------------------------
-K0_PROC  = 0x0040                       ; 32 process records of 64 bytes (address 0 means "none")
+K0_PROC  = 0x5800                       ; 64 process records of 64 bytes (address 0 means "none")
 KP_SIZE  = 64                           ; ...
 KP_PID   = 0                            ; 0 = free record
 KP_FLAGS = 8                            ; F_*
@@ -304,13 +318,20 @@ KP_LEFT  = 32                           ; cores still running it
 KP_SLOT  = 40                           ; local slot on its cores
 KP_ASLOT = 48                           ; arena slot
 KP_STAT  = 56                           ; exit status (from its first core)
-NKPROC   = 32                           ; ...
+NKPROC   = 64                           ; ...
 K0_CORE  = 0x0900                       ; 16 core records of 16 bytes: used slots bits, flags
 K0_SCR   = 0x1000                       ; 4 KiB scratch (image headers, start-up blocks)
 K0_DIR   = 0x2000                       ; 4 KiB: the disk directory (boot only)
 K0_BOUNCE = 0x3000                      ; 4 KiB bounce buffer
 K0_OUTQ  = 0x4000                       ; EXITED messages waiting for a buffer: 32 words
 K0_STASHT = 0x4100                      ; 4 words: sender + 1 of stash slot i (0 = empty)
+K0_AR    = 0x5000                       ; NARENA arena slots of 32 bytes:
+AR_BASE  = 0                            ;   base
+AR_SIZE  = 8                            ;   size (bytes, whole granules)
+AR_STATE = 16                           ;   0 free, 1 issued (MEMORY), 2 a process's, 3 kept, 4 with proc
+AR_SZ    = 32                           ; ...
+K0_GMAP  = 0x6800                       ; 32 bytes: bit g: pool granule g is in an arena
+K0_END   = 0x6820                       ; (cleared at boot up to here)
 
         .text                           ; kernel code
         .org  KTEXT                     ; the boot ROM loads it at I-LS 0x4000
@@ -2602,13 +2623,17 @@ wnj_z:
         li    a1, J_FLAGS               ; ...
         call  jfield                    ; ...
         sd    a0, PR_FLAGS(s2)          ; ...
-        mv    a0, s1                    ; arena
+        mv    a0, s1                    ; arena layout base
         li    a1, J_ARENA               ; ...
         call  jfield                    ; ...
         sd    a0, PR_ARENA(s2)          ; ...
         li    t0, A_BUF                 ; its buffer
         add   t0, a0, t0                ; ...
         sd    t0, PR_BUF(s2)            ; ...
+        mv    a0, s1                    ; the arena's base: the program's memory
+        li    a1, J_MEM                 ; ...
+        call  jfield                    ; ...
+        sd    a0, PR_MEM(s2)            ; ...
         mv    a0, s1                    ; window
         li    a1, J_WIN                 ; ...
         call  jfield                    ; ...
@@ -2689,10 +2714,11 @@ wjc_l:
         ld    t0, PR_STATE(s2)          ; loading?
         li    t1, S_LOAD                ; ...
         bne   t0, t1, wjc_n             ; ...
-        ld    t0, PR_ARENA(s2)          ; which piece?
+        ld    t0, PR_MEM(s2)            ; which piece?
         li    a1, 0                     ; P: at the arena's base -> c0
         li    t2, NEED_P                ; ...
         beq   t5, t0, wjc_have          ; ...
+        ld    t0, PR_ARENA(s2)          ; the rest: at offsets from the layout base
         ld    t1, PR_SOFF(s2)           ; S: the save area (the kernel keeps it)
         add   t1, t0, t1                ; ...
         li    a1, -1                    ; ...
@@ -2991,36 +3017,29 @@ wcm_ready:
         addi  sp, sp, 16                ; ...
         ret                             ; ...
 
-; pid_of(a0 = a buffer's base) -> a0 = the pid owning that arena (0: the kernel)
+; pid_of(a0 = a buffer's base) -> a0 = the pid owning the arena granule it lies in (0: the kernel)
 pid_of:
-        addi  sp, sp, -24               ; frame
+        addi  sp, sp, -16               ; frame
         sd    ra, 0(sp)                 ; ...
         sd    s1, 8(sp)                 ; ...
-        sd    s2, 16(sp)                ; ...
-        srli  s1, a0, 20                ; its arena: base rounded to 1 MiB
-        slli  s1, s1, 20                ; ...
-        li    s2, 0                     ; arena slot
-pof_l:
-        li    t0, NARENA                ; ...
-        bge   s2, t0, pof_none          ; ...
-        slli  a0, s2, 3                 ; this slot's base
-        addi  a0, a0, G_ABASE           ; ...
+        mv    s1, a0                    ; s1 = the address
+        li    a0, G_PBASE               ; minus the pool's base
         call  kst_rd                    ; ...
-        beq   a0, s1, pof_yes           ; ...
-        addi  s2, s2, 1                 ; ...
-        j     pof_l                     ; ...
-pof_yes:
-        slli  a0, s2, 3                 ; its owner
-        addi  a0, a0, G_APID            ; ...
+        sub   s1, s1, a0                ; ...
+        srli  s1, s1, GSHIFT            ; s1 = its pool granule
+        li    a0, G_PGRAN               ; inside the pool? (below it: a huge number)
+        call  kst_rd                    ; ...
+        bgeu  s1, a0, pof_none          ; no: the kernel's own memory
+        slli  a0, s1, 3                 ; the granule's owner
+        addi  a0, a0, G_GPID            ; ...
         call  kst_rd                    ; ...
         j     pof_ret                   ; ...
 pof_none:
         li    a0, 0                     ; the kernel
 pof_ret:
-        ld    s2, 16(sp)                ; ...
         ld    s1, 8(sp)                 ; ...
         ld    ra, 0(sp)                 ; ...
-        addi  sp, sp, 24                ; ...
+        addi  sp, sp, 16                ; ...
         ret                             ; ...
 
 ; ---- exit -------------------------------------------------------------------------------------
@@ -3599,7 +3618,7 @@ wi_csr:
         slli  t1, t0, 32                ; arena offset
         srli  t1, t1, 32                ; ...
         srli  t2, t0, 32                ; length
-        ld    t3, PR_ARENA(s2)          ; offset within c0
+        ld    t3, PR_MEM(s2)            ; offset within c0
         add   t1, t1, t3                ; ...
         cbase t3, c0                    ; ...
         sub   t1, t1, t3                ; ...
@@ -4128,9 +4147,9 @@ k_outn:    .dword 0                     ; core 0: EXITED messages waiting
 k_hashigh: .dword 0                     ; core 0: the boot ROM gave a second heap piece
 k_hasfb:   .dword 0                     ; core 0: there is a framebuffer window
 k_fbpid:   .dword 0                     ; core 0: the process the framebuffer is lent to (0 none)
-k_afree:   .dword 0                     ; core 0: bit k: arena slot k is free
-k_narena:  .dword 0                     ; core 0: arena slots
-k_astate:  .space NARENA * 8            ; core 0: arena slot state: 0 free, 1 issued, 2 a process's, 3 kept, 4 with proc
+k_pbase:   .dword 0                     ; core 0: the arena pool's base
+k_pgran:   .dword 0                     ; core 0: its granules
+k_pfree:   .dword 0                     ; core 0: of which free
 k_hdr:     .space 64                    ; core 0: the request being served
 k_cdata:   .space 64                    ; core 0: its first data words
 k_tbuf:    .space 24                    ; core 0: timer NOW, DEADLINE, WAIT result
@@ -4144,6 +4163,7 @@ cr_a0:     .dword 0                     ; the program's a0..a2
 cr_a1:     .dword 0                     ; ...
 cr_a2:     .dword 0                     ; ...
 cr_aslot:  .dword 0                     ; its arena slot
+cr_aext:   .dword 0                     ; its arena's size - 1 MiB (E: the layout base's offset)
 cr_nlen:   .dword 0                     ; boot: file name length
 cr_noff:   .dword 0                     ; boot: name offset in cr_name
 cr_name:   .space 24                    ; boot: file name

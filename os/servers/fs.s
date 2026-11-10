@@ -118,7 +118,7 @@ TAGSZ   = NTAGS * TAGLEN + DIRENTS * 8  ; the tag table: names, then a tag set p
 TAGBLKS = TAGSZ / 512                   ; its blocks
 PATHMAX = 120                           ; longest path in a request
 CWDMAX  = 64                            ; longest current tag path ("/a/b")
-NCWD    = 32                            ; current paths kept (as proc's NPROC)
+NCWD    = 64                            ; current paths kept (as proc's NPROC)
 C_PID   = 0                             ; current-path entry: pid (0 = free)
 C_LEN   = 8                             ; length of its text
 C_TEXT  = 16                            ; the text ("/a/-b": normalized, not "/")

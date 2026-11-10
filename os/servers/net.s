@@ -181,7 +181,7 @@ P_SIZE   = 64                           ; ...
         .data                           ; data Local Store
         .align 8                        ; ...
 rxpkt:  .space 1504                     ; the RX read's destination (in flight while armed)
-txpkt:  .space 1600                     ; packets being built; staging for request data
+txpkt:  .space 2048                     ; packets being built; staging for request data (PS: 64 records)
 lopkt:  .space 1504                     ; a packet to ourselves being handled
 lq_len: .space NLQ * 8                  ; the local queue: lengths
 lq_head: .dword 0                       ; ... its oldest
