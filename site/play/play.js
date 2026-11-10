@@ -114,10 +114,13 @@ let stopped = true;    // the machine has stopped (halted, deadlock, exit) or no
 let stat = null;       // the worker's latest status message
 let last = { t: 0, steps: 0 }, mips = 0, runStart = 0;
 
-// ?jit=0 starts with the JIT off; the checkbox restarts the current preset
+// ?jit=0 starts with the JIT off, ?jit=1 on; the checkbox restarts the
+// current preset. On iPhone and iPad the JIT starts off: Safari there kills
+// the page once compiled WebAssembly fills its pool, even with the JIT's
+// budget (JIT_LIMITS, used if it is turned on).
 const params = new URLSearchParams(location.search);
 const jitBox = $("jit");
-jitBox.checked = params.get("jit") !== "0";
+jitBox.checked = params.get("jit") === "1" || (params.get("jit") !== "0" && !IOS);
 
 let wasmModule = null;
 async function compileWasm() {

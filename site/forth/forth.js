@@ -14,12 +14,14 @@
   const V = "?v=" + BUILD;
   const PLAY = "../play/";
   const params = new URLSearchParams(location.search);
-  const ARGS = [params.get("jit") === "0" ? "-j" : "-J", "-c", "8", "-r", "640x400", "forth.stx"];
-  // Safari on iOS crashes the page when the WebAssembly JIT compiles too many
-  // modules: there the worker gets a budget (as play.js does; worker.js reads it)
+  // Safari on iOS kills the page when compiled WebAssembly fills its pool,
+  // so there the JIT is off unless ?jit=1 (and then has a budget, as in
+  // play.js; worker.js reads it)
   const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
               (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const JIT_LIMITS = IOS ? { jitBudget: 256, jitHot: 200 } : {};
+  const JIT_ON = params.get("jit") === "1" || (params.get("jit") !== "0" && !IOS);
+  const ARGS = [JIT_ON ? "-J" : "-j", "-c", "8", "-r", "640x400", "forth.stx"];
 
   const $ = (id) => document.getElementById(id);
   const pg = $("pg"), toggle = $("pg-toggle"), statusEl = $("pg-status");
