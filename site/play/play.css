@@ -153,7 +153,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 .vmbar { touch-action: none; }
 .vmbtns { display: flex; gap: 6px; }
 .vmbtns .small { padding: 3px 9px; font-size: 13px; }
-.vmframe { flex: 1; width: 100%; border: 0; background: #fff; }
+.vmframe { flex: 1; width: 100%; border: 0; background: #fff; overscroll-behavior: contain; }
+.vmpanel { overscroll-behavior: contain; }
 .vmchips { position: fixed; right: 24px; bottom: 24px; z-index: 49; display: flex; gap: 8px; }
 .vmchip { background: rgba(12, 22, 38, 0.95); color: var(--cyan); }
 @media (max-width: 700px) {
