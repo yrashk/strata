@@ -1060,6 +1060,9 @@ program that uses the network starts it with address 10.0.0.1 if it is not runni
 56 & UDP & handle = port (0: any). Reply: the socket\\
 57 & SENDTO & data: address, port, payload. Reply: the bytes sent\\
 58 & RECVFROM & waits for a datagram. Reply: its bytes; data: sender's address and port, payload\\
+60 & RESOLVE & data = a host name. Reply: its first IPv4 address; data: up to four addresses and the
+  canonical name; $-4$ no such name, $-8$ no resolver answered\\
+61 & SETDNS & handle, length = the two resolvers\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1070,9 +1073,16 @@ sockets are open and closes those whose owners have ended. The library's \texttt
 endpoint in \reg{c6} (no network call returns a capability, so nothing else lands there), and TCP
 sockets are ordinary handles (server register 6): \texttt{sys\_read}, \texttt{sys\_write} and
 \texttt{sys\_close} work on them. The programs are \texttt{ping} (until Ctrl-C or \texttt{-c}~$n$),
-\texttt{nc} (TCP and UDP, client and listener), \texttt{tcpecho} (an echo server), \texttt{ifconfig}
-and \texttt{netstat}. Two simulators joined with \texttt{-N udp:\ldots} are two machines on one link
-(\texttt{tools/test-net.sh} runs both).
+\texttt{host} (a name's addresses), \texttt{nc} (TCP and UDP, client and listener), \texttt{tcpecho}
+(an echo server), \texttt{ifconfig} and \texttt{netstat}; they take host names. Two simulators joined
+with \texttt{-N udp:\ldots} are two machines on one link (\texttt{tools/test-net.sh} runs both); with
+\texttt{-N nat} the machine is on the real network.
+
+\textbf{DNS.} RESOLVE sends an A query over UDP to port 53 of the first resolver (8.8.8.8 unless the
+file \texttt{resolv} names others), with a random ID from a fresh port; the answer must carry the ID
+and echo the question; CNAME chains are followed. With no answer in a second the second resolver
+(1.1.1.1) is asked, then each once more. Answers are cached for their TTL in the server's arena; dotted
+quads and \texttt{localhost} need no query. \texttt{net\_resolve} in the library does it for programs.
 
 \section{Boot}\label{sec:os-boot}
 

@@ -363,7 +363,8 @@ hardware addresses below IP. It is four 8-byte ports at device offset \hex{4200}
   are sent as one packet when the transfer ends\\
 \hex{4208} & RX & read (event port) & completes when a packet is queued, with that packet\\
 \hex{4210} & STATUS & read & bits 15:0 the length of the next queued packet (0: none); bits 23:16
-  packets queued; bit 24 link up; bits 63:32 packets dropped\\
+  packets queued; bit 24 link up; bit 25 the far end is a user-mode NAT; bits 31:26 a host number the
+  link suggests (0: none); bits 63:32 packets dropped\\
 \hex{4218} & CANCEL & write & completes every RX read pending at that moment, on every core, with
   zeros (the value written is ignored)\\
 \bottomrule

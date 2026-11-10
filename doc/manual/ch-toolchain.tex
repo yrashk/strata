@@ -148,11 +148,21 @@ console input or Ctrl-C from an interactive terminal or the window.
   \texttt{k}$n$: once the program has taken $n$ bytes of console input. Lines happen in order.
 \item[\texttt{-N mode}] the network interface's link (Section~\ref{sec:netif}; \texttt{common/net.h}):
   \texttt{none} (default), \texttt{loop} (packets come straight back; deterministic),
-  \texttt{peer} (a built-in host at every address but the sender's own: it answers ICMP echo and
-  echoes UDP datagrams sent to port~7), or \texttt{udp:}\textit{lport}\texttt{:}\textit{host}\texttt{:}%
+  \texttt{peer} (a built-in host at every address but the sender's own and 192.0.2.0/24: it
+  answers ICMP echo, echoes UDP datagrams sent to port~7 and answers DNS for its names
+  \texttt{peer.test}, \texttt{two.test}, \texttt{www.peer.test}; other names are looked up for real,
+  or with \texttt{peer,nodns} do not exist), \texttt{nat}[\texttt{,fwd=}\textit{hostport}\texttt{:}%
+  \textit{guestport}]\ldots{} (the real network through a user-mode NAT, \texttt{common/netnat.h}:
+  the guest is 10.0.2.15, the host 10.0.2.2, DNS 10.0.2.3; UDP and TCP through host sockets, TCP
+  terminated on the host and relayed with retransmission toward the guest, ICMP echo through an
+  unprivileged ICMP socket where the host has one; each \texttt{fwd} listens on
+  127.0.0.1:\textit{hostport} for the guest's \textit{guestport}, and a busy port is reported and
+  skipped), or \texttt{udp:}\textit{lport}\texttt{:}\textit{host}\texttt{:}%
   \textit{rport}: one packet per host UDP datagram, sent from \textit{lport} to
   \textit{host}:\textit{rport} and received only from there. Two simulators with mirrored ports are
-  two machines on one link; no privileges are needed.
+  two machines on one link. None needs privileges. \texttt{make boot} passes
+  \texttt{-N nat,fwd=8080:80,fwd=8000:8000}. \texttt{tools/netrelay} is the same NAT behind a
+  WebSocket server, for the browser's play page (one IPv4 packet per binary message).
 \item[\texttt{-b n}] press Ctrl-C once, after $n$ instructions: it completes the oldest pending break
   read, or is remembered for the next one. Used by \texttt{tools/test-break.sh}.
 \item[\texttt{-T real|virtual}] the timer's time base (Section~\ref{sec:timer}). \texttt{real}

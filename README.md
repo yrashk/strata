@@ -89,7 +89,7 @@ a conformance suite that holds them all to the same behaviour.
 make                # build/sasm, build/strata-emu, build/strata-rtl
 make test           # everything below, compared across the machines (several minutes)
 make show-gfx       # eight cores draw a Mandelbrot set into the framebuffer window
-make boot           # boot StrataOS on the emulator (12 cores) and type at its shell
+make boot           # boot StrataOS on the emulator (12 cores), on the real network (NAT)
 make boot-ws        # the same, with the window server started at boot
 make forth          # a Forth prompt on the bare machine
 make ws-demo        # the window server's renderers against a simulated system
@@ -109,6 +109,13 @@ make web-site       # build/web-site/: the site with the in-browser emulator
 - `make run` / `make run-emu` show every example's output; `make run-NAME`
   runs one example on the RTL; `make show-NAME` (`show-rtl-NAME`) runs one
   and keeps its window open.
+- `make boot` puts the machine on the network through the emulator's
+  user-mode NAT and forwards host ports to it (`BOOT_NET`, default
+  `-N nat,fwd=8080:80,fwd=8000:8000`; `make boot-net` is the same): type
+  `httpd &` in the guest and open http://localhost:8080/ (the Forth
+  `httpd.fs` on :8000). `ping example.com`, `host github.com`, `nc -H
+  example.com 80 < request` reach the Internet. A busy host port is
+  reported and skipped; `make boot BOOT_NET="-N peer"` stays offline.
 - `make boot-demo` runs the scripted session (`os/demo.txt`);
   `make boot-rtl` and `make boot-rtl-demo` boot the Verilog simulator
   (slower).
@@ -146,6 +153,7 @@ take the same flags, except where noted.
 | `-z N` | window scale |
 | `-H` | keep the window open after every core has halted |
 | `-J` / `-j` | force the JIT / the interpreter (emulator only) |
+| `-N MODE` | the network interface's far end: `none` (default), `loop`, `peer[,nodns]` (an offline test host with DNS names `*.test`), `nat[,fwd=HOSTPORT:GUESTPORT]...` (the real network: guest 10.0.2.15, gateway/host 10.0.2.2, DNS 10.0.2.3), `udp:LPORT:HOST:RPORT` (a link to another simulator) |
 
 A window opens the first time a program writes into the framebuffer. While
 it has focus, keys go to the console input as a terminal would send them
@@ -220,6 +228,10 @@ strata$ ws                          # the window server takes the screen
   `kill`), scripts and an `rc` file. Type `help`.
 - **Utilities**: `ls cat rm df ps free uptime devs hexdump cores sched seq
   grep wc upper spin`, `units` (a program that pages its own code), and `as`.
+- **Networking**: `net` (the TCP/IP server: IPv4, ICMP, UDP, TCP, a DNS
+  resolver), `ping`, `host`, `nc`, `tcpecho`, `ifconfig`, `netstat`. With
+  `-N nat` the machine is on the real network; `tools/netrelay` does the
+  same for the browser's play page.
   The sources of the programs and examples are on the disk, so they can be
   rebuilt on the machine.
 - **Cores.** `make boot` boots 12 cores: the system core, five servers and

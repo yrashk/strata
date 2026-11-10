@@ -156,8 +156,11 @@ console, with one waiting read:
   the queue (a part of it past the transfer's length is lost). Software
   reads the IPv4 header's total length. Oldest read first.
 - **STATUS** (0x4210, read, latched at byte 0): u16 length of the next
-  queued packet (0: none), u8 packets queued, u8 bit 0 = link up, u32
-  packets dropped (queue full, or too long to send).
+  queued packet (0: none), u8 packets queued, u8 flags: bit 0 = link up,
+  bit 1 = the far end is a user-mode NAT (the guest should be 10.0.2.15),
+  bits 2..7 = a host number the link suggests (n: 10.0.0.n; 0 = none: the
+  browser's tab link sets it), u32 packets dropped (queue full, or too long
+  to send).
 - **CANCEL** (0x4218, write, any value): completes every RX read waiting at
   that moment, on every core, with zeros, and takes no packet (the release
   rule of the break port). The kernel writes it when halting.
@@ -167,13 +170,44 @@ console, with one waiting read:
   host side in `common/net.h`): `none` (the default: no link, packets sent
   are dropped, nothing arrives), `loop` (every packet sent is received back
   at once: deterministic, used by the conformance test `net`), `peer` (a
-  built-in test host at every address but the sender's own: it answers
-  ICMP echo requests and echoes UDP datagrams sent to port 7, at once), or
-  `udp:LPORT:HOST:RPORT` (a cable to another simulator: one packet per host
-  UDP datagram, sent from LPORT to HOST:RPORT, received only from that
-  peer; two instances with mirrored ports are two machines on one link;
-  needs no privileges). On FPGA there is no PHY yet: TX is dropped, RX
-  waits for a CANCEL, STATUS reads 0. The browser build has no link.
+  built-in test host at every address but the sender's own and
+  192.0.2.0/24, where nothing answers: it answers ICMP echo requests,
+  echoes UDP datagrams sent to port 7, and answers DNS queries for its
+  names: `peer.test` = 10.0.0.2, `two.test` = 10.0.0.2 and 10.0.0.3,
+  `www.peer.test` = a CNAME for `peer.test`, any other `*.test`: no such
+  name; other names are looked up for real through the NAT's UDP, or with
+  `peer,nodns` do not exist either: fully deterministic, the tests use
+  it), `nat[,fwd=HOSTPORT:GUESTPORT]...` (the real network through a
+  user-mode NAT, below), or `udp:LPORT:HOST:RPORT` (a cable to another
+  simulator: one packet per host UDP datagram, sent from LPORT to
+  HOST:RPORT, received only from that peer; two instances with mirrored
+  ports are two machines on one link). None needs privileges. On FPGA
+  there is no PHY yet: TX is dropped, RX waits for a CANCEL, STATUS reads
+  0. The browser's modes are in 2.10.
+- **The user-mode NAT** (`-N nat`, `common/netnat.h`, written from scratch:
+  no libslirp; nothing blocks, its sockets are polled with the rest of the
+  host's input). The guest is 10.0.2.15; 10.0.2.2 is the gateway and the
+  host itself (a connection to 10.0.2.2:P reaches 127.0.0.1:P; it answers
+  pings itself); 10.0.2.3 is DNS (UDP to port 53 there goes to 8.8.8.8, or
+  1.1.1.1 when 8.8.8.8 left the previous query unanswered); every other
+  address is the real one. UDP: one host socket per guest flow (32 flows,
+  idle ones closed after 60 s, DNS after 10 s), replies wrapped back as
+  datagrams. TCP is terminated on the host (16 connections): a guest SYN
+  starts a non-blocking `connect()`, answered with SYN-ACK when it
+  succeeds and RST when it fails; bytes are relayed both ways with the
+  NAT's own sequence numbers, the host's data kept (64 KiB per connection)
+  until the guest acknowledges it and sent again on a timer (300 ms,
+  doubling to 4 s, 10 times, then RST), within the guest's window and
+  MSS, and only while the device's queue has room; the guest's data goes
+  to the socket in order (what it does not take is not acknowledged); FIN
+  both ways is `shutdown()`, RST both ways. ICMP echo goes through an
+  unprivileged ICMP datagram socket (macOS; Linux when
+  `net.ipv4.ping_group_range` allows it); where there is none, pings to
+  the Internet are dropped (a message says so). `fwd=HOSTPORT:GUESTPORT`
+  (repeatable) listens on 127.0.0.1:HOSTPORT; each connection there becomes
+  a guest connection from 10.0.2.2:<ephemeral> to GUESTPORT; a busy port is
+  reported and skipped. `make boot` uses `-N nat,fwd=8080:80,fwd=8000:8000`
+  (`BOOT_NET`), so a web server in the guest is http://localhost:8080/.
 
 ### 1.3 Platform table
 
@@ -927,14 +961,18 @@ in `os/ws/`).
 
 TCP/IP is a server, `os/servers/net.s`, like `fs`, `tty` and `pipe`:
 
-- **Starting it.** `net ADDRESS` (e.g. `net 10.0.0.1 &`) runs it: `proc`
+- **Starting it.** `net [ADDRESS]` (e.g. `net 10.0.0.1 &`) runs it; without
+  an address it takes 10.0.2.15 on a NAT link, 10.0.0.n when the link
+  suggests a host number n, else 10.0.0.1 (STATUS). `proc`
   creates a program named exactly `net` as the server of the lowest empty
   core, **alone on it** (it keeps the RX read in flight, like `tty`'s break
   read; flag "alone on its core" of CREATE). It registers "net", gets the
   interface's ports from `dev` (GETNET: only for the process registered as
-  "net") and prints `net: 10.0.0.1, link up` (or `no link`). The first
-  program that needs the network starts one with the address 10.0.0.1 if
-  none runs (`net_init`, below), so `ping 127.0.0.1` works on a fresh boot.
+  "net"), reads its resolvers from the file `resolv` (tagged `etc`: the
+  first two addresses in it; `#` comments) and prints `net: 10.0.0.1, link
+  up` (or `no link`). The first program that needs the network starts one
+  (`net`, no address) if none runs (`net_init`, below), so `ping 127.0.0.1`
+  works on a fresh boot.
   It needs a free core: with 8 cores it takes core 6 (multi-threaded
   programs then have one server-free core fewer).
 - **The loop.** RECEIVE with a tag mask (the RX read) and a timeout (the
@@ -950,8 +988,18 @@ TCP/IP is a server, `os/servers/net.s`, like `fs`, `tty` and `pipe`:
 - **ICMP**: echo requests are answered; echo replies complete PINGs.
 - **UDP**: sockets bound to a port; datagrams up to 1472 bytes, queued in
   the socket's 2 KiB ring with their sender.
-- **TCP**: 4 sockets in all (TCP or UDP); each has a 2 KiB receive ring
-  (the window it advertises) and a 2 KiB send buffer; segments of at most
+- **DNS** (op 60 RESOLVE): A records over UDP port 53, a random ID from a
+  fresh port, the question echoed back and checked; CNAME chains in the
+  answer are followed (up to 8); no answer in a second: the second
+  resolver, then each once more (-8 after four tries); NXDOMAIN: -4.
+  Defaults 8.8.8.8 and 1.1.1.1 (`resolv`, `ifconfig dns A B`). Answers are
+  cached for their TTL (an hour at most) in 16 entries in the server's
+  arena; dotted quads and `localhost` need no query (the library already
+  answers those itself).
+- **TCP**: 8 sockets in all (TCP or UDP); each has a 1 KiB receive ring
+  (the window it advertises) and a 1 KiB send buffer; when none is free a
+  socket in TIME-WAIT is taken over (so a listener keeps accepting a
+  browser's quick connections); segments of at most
   1024 bytes (MSS option); in-order receive (out-of-order segments are
   dropped and acknowledged); the oldest unacknowledged segment is sent
   again after 250 ms, doubling up to 8 s, at most 8 times, then the
@@ -962,8 +1010,9 @@ TCP/IP is a server, `os/servers/net.s`, like `fs`, `tty` and `pipe`:
   one that accepted it); others get -1. `proc` does not send CLEANUP to
   `net`, so every 2 s while sockets are open `net` asks `proc` for the
   process list (PS) and closes the sockets of processes that have ended.
-- D-LS: 37,216 bytes of data with the library, measured (rings, send buffers and
-  packet buffers), under the 40 KiB data extent.
+- D-LS: 39,096 bytes of data with the library, measured (0x98B8: rings,
+  send buffers, packet buffers, the resolver's names), under the 40 KiB
+  data extent; the loopback queue and the DNS cache are in the arena.
 
 **Requests** (endpoint from LOOKUP "net"; handle = socket id unless said
 otherwise):
@@ -982,6 +1031,8 @@ otherwise):
 | 56 | UDP | handle = port (0: any) | socket id; -7 |
 | 57 | SENDTO | data: u64 address, u64 port, payload (length = 16 + payload, <= 1488) | payload bytes |
 | 58 | RECVFROM | length = most bytes, mode bit 0 = do not block | bytes; data: u64 address, u64 port, payload; waits while none |
+| 60 | RESOLVE | data = a host name, length = its bytes (<= 127) | its first IPv4 address; data: u64 count (<= 4), four u64 addresses, the canonical name (zero-terminated); -4 no such name, -8 no resolver answered |
+| 61 | SETDNS | handle = the first resolver, length = the second (0: none) | 0 |
 
 Addresses are u32 (a.b.c.d = a << 24 | ... | d). 36–38 from `proc` as for
 the other servers (CLEANUP closes the pid's sockets, CANCEL answers its
@@ -990,17 +1041,35 @@ waiting requests with -2). Op 59 is `dev`'s GETNET.
 **The library** (`os/lib/sys.s`): `net_init` (LOOKUP "net" into **c6**,
 starting the server if none runs), `net_connect`, `net_listen`,
 `net_accept`, `net_shutdown`, `net_udp`, `net_sendto`, `net_recvfrom`,
-`net_ping`, `net_stat`, `net_setip`, `net_aton`, `out_ip`. TCP sockets are
+`net_ping`, `net_stat`, `net_setip`, `net_aton`, `out_ip`, `net_resolve`
+(name -> address; a buffer gets the count, the addresses and the canonical
+name), `net_setdns`. TCP sockets are
 **handles** (server register 6), so `sys_read`, `sys_write` and `sys_close`
 work on them as on files and pipes; they are not passed to children.
 
-**Programs**: `ping [-c N] [-s BYTES] ADDRESS` (a line per reply with its
-round trip in ms, a summary; until Ctrl-C or N requests), `nc ADDRESS
+**Programs** (hosts by name or a.b.c.d): `ping [-c N] [-s BYTES] HOST`
+(`PING name (a.b.c.d)`, a line per reply with its round trip in ms, a
+summary; until Ctrl-C or N requests; under `-N nat` the echo is real where
+the host allows unprivileged ICMP, under `-N peer` the peer answers),
+`host NAME` (its addresses, and the CNAME it is an alias for), `nc HOST
 PORT` (send standard input, then print what comes back until the peer
-closes; a refused connection is tried again for 10 s), `nc -l PORT`
-(receive one connection), `nc -u ADDRESS PORT` / `nc -u -l PORT` (UDP),
-`tcpecho [PORT [COUNT]]` (a TCP echo server, port 7), `ifconfig [ADDRESS]`
-and `netstat`.
+closes; `-H`: without the half-close, for web servers that drop
+half-closed connections; a refused connection is tried again for 10 s),
+`nc -l PORT` (receive one connection), `nc -u HOST PORT` / `nc -u -l
+PORT` (UDP), `tcpecho [PORT [COUNT]]` (a TCP echo server, port 7),
+`ifconfig [ADDRESS | dns A [B]]` (also shows the resolvers) and
+`netstat`.
+
+**In the browser** (`site/play/net.js`, `web/web.c`; the page's Network
+menu): *test peer* (`-N peer`: the built-in peer and its names; every other
+DNS query is answered by the page over HTTPS from Cloudflare's JSON API,
+else Google's, as a real DNS answer); *link to my other tabs* (`-N web`:
+the tabs of the page on one machine share a BroadcastChannel; they agree on
+host numbers, 10.0.0.1, 10.0.0.2, ..., through STATUS's hint); *relay*
+(`-N web,nat`: each packet is a binary WebSocket message to a URL the user
+types, nothing by default; `tools/netrelay` is that relay: the same NAT
+behind a small WebSocket server on 127.0.0.1:8765, `-f HOSTPORT:GUESTPORT`
+for inbound).
 
 ## 3. Tests
 
@@ -1023,11 +1092,17 @@ and `netstat`.
   interpreter. `conformance/run.sh`: the conformance suite on the
   interpreter, the JIT and the RTL (`net`: the network interface on the
   loopback link).
-- `tools/test-net.sh`: TCP/IP. One machine with the test peer (`-N peer`,
-  `-j -T virtual`): ping over loopback and to the peer, TCP through
-  `tcpecho` (a 300 KB file compared with itself), UDP, a refused connection,
-  `netstat`, compared with `tools/test-net.out`; then two emulators linked
-  over host UDP: ping, TCP both ways, UDP.
+- `tools/test-net.sh`: TCP/IP. One machine with the test peer (`-N
+  peer,nodns`, `-j -T virtual`): ping over loopback and to the peer, TCP
+  through `tcpecho` (a 300 KB file compared with itself), UDP, a refused
+  connection, `netstat`, DNS (names, a CNAME, two addresses, no such name,
+  the second resolver when the first does not answer, none answering),
+  compared with `tools/test-net.out`; two emulators linked over host UDP:
+  ping, TCP both ways, UDP; and the NAT offline, against TCP and UDP echo
+  servers on 127.0.0.1 (`tools/net-echo.py`): TCP both ways with a 300 KB
+  file, UDP, RST, three inbound connections through `fwd=`.
+  `tools/test-wasm.sh` also runs StrataOS in the WebAssembly build with
+  the page's DNS over HTTPS (a stubbed fetch) and through `tools/netrelay`.
 - `tools/test-as.sh` (run on its own, not by `make test`): the self-hosted
   assembler against `sasm`, including a StrataOS boot that assembles and
   runs a program.

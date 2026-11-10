@@ -40,6 +40,36 @@ make test-wasm      # the wasm build under node against the native interpreter, 
 - **`tools/wasm-run.js`** runs the same module under node with the desktop
   flags (the tests).
 
+## Networking
+
+The page's Network menu sets the network interface's far end
+(`common/net.h` under `__EMSCRIPTEN__`, `site/play/net.js`, shared by the
+worker and the node tests):
+
+- **test peer + DNS over HTTPS** (`-N peer`, the default): the built-in
+  peer answers pings and its `*.test` names; every other DNS query the
+  guest sends goes to the page (`Module.webDns`), which asks Cloudflare's
+  JSON API (`https://cloudflare-dns.com/dns-query`, else Google's
+  `https://dns.google/resolve`) and builds a real DNS answer (A and CNAME
+  records) for `web_net_dns`. So `host example.com` works in the page;
+  pings and TCP go to the peer.
+- **link to my other tabs** (`-N web`): every packet the guest sends goes
+  to `Module.webNetTx`, which posts it on a `BroadcastChannel`; the page's
+  other tabs that chose the same receive it (`web_net_rx`). The tabs agree
+  on host numbers first (a hello and a 300 ms wait: the lowest number
+  nobody has) and pass it to the guest (`web_net_hint`, STATUS bits
+  31..26), so the machines are 10.0.0.1, 10.0.0.2, ...
+- **relay** (`-N web,nat`): a WebSocket to the URL the user types (none by
+  default; the page says that every packet goes through it), one binary
+  message per IPv4 packet both ways. `tools/netrelay` (built by `make`) is
+  such a relay: the simulators' user-mode NAT (`common/netnat.h`) behind a
+  small WebSocket server on 127.0.0.1:8765 (`-p`, `-a`, `-f
+  HOSTPORT:GUESTPORT`), so the browser's machine is 10.0.2.15 on the real
+  network, DNS at 10.0.2.3.
+
+`make test-wasm` checks the first with a stubbed fetch and the third
+against a local `netrelay`; the tab link was checked by hand in a browser.
+
 ## Speed
 
 The emulator has three gears, all exact (the reference interleaving is kept
