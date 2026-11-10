@@ -60,6 +60,7 @@ EMSCRIPTEN_KEEPALIVE double web_run(double ms) {
       press_break();
     }
     host_ptr_script_run(mach_steps); /* -P (the tests under node) */
+    if ((k & 63) == 0) nat_poll();    /* the page's connections to the guest: their timers */
     int r = machine_round();
     if (r == RND_HALTED) { web_state = WEB_HALTED; break; }
     if (r == RND_DEADLOCK) {
@@ -118,6 +119,7 @@ EMSCRIPTEN_KEEPALIVE int web_paint(void) {
 
 /* Called by emu.c's main() in front of its run loop. */
 static int web_start(void) {
+  nat_init(net_rx_push, net_room);  /* (its virtual connections, in every network mode) */
   setvbuf(stdout, web_outbuf, _IOFBF, sizeof web_outbuf);
   web_state = WEB_RUNNING;
   return 0;
@@ -163,6 +165,36 @@ EMSCRIPTEN_KEEPALIVE void web_net_dns(const uint8_t *p, int n) {
   pend_service();
 }
 EMSCRIPTEN_KEEPALIVE void web_net_hint(int n) { net_hint = (unsigned)n & 63; }
+
+/* The page's connections to the guest's servers (its web server in a panel:
+ * site/play/sw.js): common/netnat.h's virtual connections, from 10.0.2.2 to
+ * the guest's address. open -> an id or -1; send (len 0: no more to send);
+ * recv -> bytes, 0 once the guest has closed and all was taken, -1 not yet;
+ * close: done (a reset if it is still open). listening -> 1 / 0 / -1 (not
+ * known yet): a SYN probe now and then, which the guest's listener never
+ * sees as a connection. */
+EMSCRIPTEN_KEEPALIVE int web_http_open(int port) {
+  int id = nat_vopen(net_web_guest(), (uint16_t)port);
+  nat_poll();
+  pend_service();
+  return id;
+}
+EMSCRIPTEN_KEEPALIVE void web_http_send(int id, const uint8_t *p, int n) {
+  nat_vsend(id, p, n > 0 ? (size_t)n : 0);
+  nat_poll();
+  pend_service();
+}
+EMSCRIPTEN_KEEPALIVE int web_http_recv(int id, uint8_t *p, int max) {
+  nat_poll();
+  pend_service();
+  return (int)nat_vrecv(id, p, (size_t)max);
+}
+EMSCRIPTEN_KEEPALIVE void web_http_close(int id) { nat_vclose(id); pend_service(); }
+EMSCRIPTEN_KEEPALIVE int web_port_listening(int port) {
+  int r = nat_vprobe(net_web_guest(), (uint16_t)port);
+  pend_service();
+  return r;
+}
 
 /* Stops the machine for good (Reset loads a fresh instance). */
 EMSCRIPTEN_KEEPALIVE void web_stop(void) { web_state = WEB_STOPPED; }

@@ -33,6 +33,15 @@
  *   one, echo requests to the Internet are dropped (pings to 10.0.2.2/.3 are
  *   answered by the NAT itself).
  *
+ * Virtual connections: the embedder itself can be the host end of an inbound
+ * connection (the browser's page showing the guest's web server: no host
+ * socket at all). nat_vopen(guest, port) starts one (a SYN from
+ * 10.0.2.2:<ephemeral>), nat_vsend / nat_vrecv / nat_vclose move its bytes,
+ * nat_vtake(packet) takes the guest's packets that belong to one (call it
+ * first for everything the guest sends), and nat_vprobe(guest, port) says
+ * whether something listens there: a SYN whose SYN-ACK is answered with a
+ * RST, so the guest's listener never sees a connection.
+ *
  * Interface: nat_init(out, room) (out: deliver a packet to the guest; room:
  * how many it can take now), nat_input(packet, length) for every packet the
  * guest sends, nat_poll() now and then (it never blocks), nat_live() = it may
@@ -232,12 +241,53 @@ typedef struct {
   uint64_t rto_at, rto;
   int tries;
   bool inbound;
+  int vs;               /* a virtual connection: its slot + 1 (0: a host socket) */
+  bool probe;           /* a listening probe: SYN-ACK -> RST */
 } NatTcp;
+#define NAT_VS 8
+typedef struct {
+  bool used, closed, eof_in;
+  uint8_t *in;          /* bytes for the guest, not yet sent */
+  size_t inlen, inoff;
+  uint8_t *out;         /* bytes from the guest, not yet taken */
+  size_t outlen, outcap;
+} NatVs;
+static NatVs nat_vs[NAT_VS];
+typedef struct { uint16_t port; int state; uint64_t at; bool busy; } NatProbe; /* state: 1 listening, 0 not, -1 unknown */
+static NatProbe nat_probes[4];
 static NatTcp nat_tcp[NAT_TCP];
 typedef struct { int fd; uint16_t hport, gport; } NatFwd;
 static NatFwd nat_fwd[NAT_FWD];
 static int nat_nfwd;
 static uint16_t nat_eport = 40000;
+
+/* The host end of a connection: a socket, or a virtual one's buffers. */
+static inline ssize_t nat_s_send(NatTcp *c, const uint8_t *d, size_t n) {
+  if (!c->vs) return send(c->fd, d, n, NAT_NOSIG);
+  NatVs *v = &nat_vs[c->vs - 1];
+  if (v->outlen + n > v->outcap) {
+    size_t cap = v->outcap ? v->outcap * 2 : 65536;
+    while (cap < v->outlen + n) cap *= 2;
+    uint8_t *b = (uint8_t *)realloc(v->out, cap);
+    if (!b) { errno = EAGAIN; return -1; }
+    v->out = b;
+    v->outcap = cap;
+  }
+  memcpy(v->out + v->outlen, d, n);
+  v->outlen += n;
+  return (ssize_t)n;
+}
+static inline ssize_t nat_s_recv(NatTcp *c, uint8_t *b, size_t n) {
+  if (!c->vs) return recv(c->fd, b, n, 0);
+  NatVs *v = &nat_vs[c->vs - 1];
+  size_t k = v->inlen - v->inoff;
+  if (!k) { if (v->eof_in) return 0; errno = EAGAIN; return -1; }
+  if (k > n) k = n;
+  memcpy(b, v->in + v->inoff, k);
+  v->inoff += k;
+  return (ssize_t)k;
+}
+static inline void nat_s_shut(NatTcp *c) { if (!c->vs) shutdown(c->fd, SHUT_WR); }
 
 /* A TCP segment to the guest. */
 static inline void nat_tcp_seg(NatTcp *c, uint8_t flags, uint32_t seq, const uint8_t *d, unsigned n) {
@@ -267,7 +317,13 @@ static inline void nat_tcp_rst(uint32_t src, uint32_t dst, const uint8_t *t, uns
   if (fl & 16) nat_tcp_seg(&c, 4, nat_be32(t + 8), NULL, 0);
   else { c.rcv = seq + dl + ((fl & 2) ? 1 : 0) + (fl & 1); nat_tcp_seg(&c, 4 | 16, 0, NULL, 0); }
 }
+static inline void nat_probe_set(NatTcp *c, int st) {
+  for (int i = 0; i < 4; i++)
+    if (nat_probes[i].busy && nat_probes[i].port == c->gport) { nat_probes[i].busy = false; nat_probes[i].state = st; }
+}
 static inline void nat_tcp_free(NatTcp *c) {
+  if (c->vs) nat_vs[c->vs - 1].closed = true;
+  if (c->probe) nat_probe_set(c, 0);              /* (no SYN-ACK came: nothing listens) */
   if (c->fd >= 0) close(c->fd);
   free(c->buf);
   memset(c, 0, sizeof *c);
@@ -361,6 +417,13 @@ static inline void nat_tcp_in(uint32_t src, uint32_t dst, const uint8_t *t, unsi
   if (c->st == NT_CONNECTING) return;      /* (a SYN again: the connect is still going) */
   if (c->st == NT_SYNACK && (fl & 2)) { nat_tcp_seg(c, 2 | 16, c->iss, NULL, 0); return; }
   if (c->st == NT_SYNSENT) {               /* inbound: the guest answers our SYN */
+    if ((fl & 18) == 18 && ack == c->iss + 1 && c->probe) { /* a probe: it listens; the guest drops its half */
+      nat_tcp_seg(c, 4, ack, NULL, 0);
+      nat_probe_set(c, 1);
+      c->probe = false;
+      nat_tcp_free(c);
+      return;
+    }
     if ((fl & 18) == 18 && ack == c->iss + 1) {
       c->rcv = seq + 1; c->una = ack; c->gwnd = wnd; c->gmss = mss;
       c->st = NT_EST; c->rto_at = 0; c->tries = 0;
@@ -397,14 +460,14 @@ static inline void nat_tcp_in(uint32_t src, uint32_t dst, const uint8_t *t, unsi
     bool fin = fl & 1;
     unsigned rest = dl - (unsigned)off;
     if (rest && !c->gfin) {
-      ssize_t w = send(c->fd, d + off, rest, NAT_NOSIG);
+      ssize_t w = nat_s_send(c, d + off, rest);
       unsigned took = w > 0 ? (unsigned)w : 0;
       c->rcv += took;
       if (took < rest) fin = false;          /* the rest (and a FIN after it) comes again */
     }
     if (dl) want_ack = true;
     if (fin) {
-      if (!c->gfin) { c->rcv++; c->gfin = true; shutdown(c->fd, SHUT_WR); }
+      if (!c->gfin) { c->rcv++; c->gfin = true; nat_s_shut(c); }
       want_ack = true;
     }
   }
@@ -454,7 +517,7 @@ static inline void nat_tcp_poll(void) {
       continue;
     }
     if (c->st == NT_EST && !c->heof && c->len < NAT_TXCAP) { /* the host's bytes */
-      ssize_t r = recv(c->fd, c->buf + c->len, NAT_TXCAP - c->len, 0);
+      ssize_t r = nat_s_recv(c, c->buf + c->len, NAT_TXCAP - c->len);
       if (r > 0) c->len += (unsigned)r;
       else if (r == 0) c->heof = true;
       else if (errno != EAGAIN && errno != EWOULDBLOCK) { nat_tcp_reset(c); continue; }
@@ -463,7 +526,7 @@ static inline void nat_tcp_poll(void) {
     if (c->st == NT_FREE) continue;
     if (c->rto_at && now >= c->rto_at) {   /* nothing came back in time: the oldest again */
       c->rto_at = 0;
-      if (++c->tries > 10) { nat_tcp_reset(c); continue; }
+      if (++c->tries > (c->probe ? 1 : 10)) { nat_tcp_reset(c); continue; }
       c->rto = c->rto * 2 > 4000 ? 4000 : c->rto * 2;
       if (c->st == NT_SYNACK) nat_tcp_seg(c, 2 | 16, c->iss, NULL, 0);
       else if (c->st == NT_SYNSENT) nat_tcp_seg(c, 2, c->iss, NULL, 0);
@@ -531,6 +594,110 @@ static inline void nat_icmp_poll(void) {
       }
     }
   }
+}
+
+/* ------------------------------------------------------------ virtual connections */
+static uint16_t nat_vport = 61000;
+static inline NatTcp *nat_vstart(uint32_t guest, uint16_t port) {
+  NatTcp *c = nat_tcp_new();
+  if (!c) return NULL;
+  c->inbound = true;
+  c->gip = guest; c->gport = port;
+  c->dip = NAT_GW; c->dport = nat_vport;
+  nat_vport = nat_vport == 65000 ? 61000 : nat_vport + 1;
+  c->st = NT_SYNSENT;
+  nat_tcp_seg(c, 2, c->iss, NULL, 0);
+  nat_tcp_arm(c);
+  return c;
+}
+/* A connection from the embedder to the guest's port -> its id, or -1. */
+static inline int nat_vopen(uint32_t guest, uint16_t port) {
+  for (int i = 0; i < NAT_VS; i++) {
+    NatVs *v = &nat_vs[i];
+    if (v->used) continue;
+    NatTcp *c = nat_vstart(guest, port);
+    if (!c) return -1;
+    free(v->in);
+    free(v->out);
+    memset(v, 0, sizeof *v);
+    v->used = true;
+    c->vs = i + 1;
+    return i;
+  }
+  return -1;
+}
+static inline NatTcp *nat_vconn(int id) {
+  for (int i = 0; i < NAT_TCP; i++) if (nat_tcp[i].st != NT_FREE && nat_tcp[i].vs == id + 1) return &nat_tcp[i];
+  return NULL;
+}
+/* Bytes for the guest (n = 0: the end: FIN once they are sent). */
+static inline void nat_vsend(int id, const uint8_t *d, size_t n) {
+  if (id < 0 || id >= NAT_VS || !nat_vs[id].used) return;
+  NatVs *v = &nat_vs[id];
+  if (!n) { v->eof_in = true; return; }
+  uint8_t *b = (uint8_t *)realloc(v->in, v->inlen + n);
+  if (!b) return;
+  v->in = b;
+  memcpy(v->in + v->inlen, d, n);
+  v->inlen += n;
+}
+/* Bytes from the guest -> how many (0: it closed and all were taken; -1: none yet). */
+static inline long nat_vrecv(int id, uint8_t *b, size_t max) {
+  if (id < 0 || id >= NAT_VS || !nat_vs[id].used) return 0;
+  NatVs *v = &nat_vs[id];
+  if (!v->outlen) {
+    if (v->closed) return 0;
+    NatTcp *c = nat_vconn(id);
+    return c && c->gfin ? 0 : -1;
+  }
+  size_t k = v->outlen < max ? v->outlen : max;
+  memcpy(b, v->out, k);
+  memmove(v->out, v->out + k, v->outlen - k);
+  v->outlen -= k;
+  return (long)k;
+}
+static inline void nat_vclose(int id) {
+  if (id < 0 || id >= NAT_VS || !nat_vs[id].used) return;
+  NatTcp *c = nat_vconn(id);
+  if (c) nat_tcp_reset(c);
+  NatVs *v = &nat_vs[id];
+  free(v->in);
+  free(v->out);
+  memset(v, 0, sizeof *v);
+}
+/* A packet the guest sent: true if it belongs to a virtual connection (or a probe), and was used. */
+static inline bool nat_vtake(const uint8_t *p, unsigned n) {
+  if (n < 40 || (p[0] >> 4) != 4 || p[9] != 6) return false;
+  unsigned hl = (unsigned)(p[0] & 15) * 4;
+  if (n < hl + 20) return false;
+  uint32_t src = nat_be32(p + 12), dst = nat_be32(p + 16);
+  uint16_t sport = nat_be16(p + hl), dport = nat_be16(p + hl + 2);
+  for (int i = 0; i < NAT_TCP; i++) {
+    NatTcp *c = &nat_tcp[i];
+    if (c->st != NT_FREE && (c->vs || c->probe) && c->gip == src && c->gport == sport && c->dip == dst && c->dport == dport) {
+      unsigned tl = nat_be16(p + 2);
+      nat_tcp_in(src, dst, p + hl, (tl < n ? tl : n) - hl);
+      return true;
+    }
+  }
+  return false;
+}
+/* Something listens on the guest's port? 1 yes, 0 no, -1 not known yet. A
+ * probe goes now and then (every 2 s at most per port). */
+static inline int nat_vprobe(uint32_t guest, uint16_t port) {
+  NatProbe *e = NULL;
+  for (int i = 0; i < 4; i++) if (nat_probes[i].port == port) e = &nat_probes[i];
+  if (!e) {
+    e = &nat_probes[0];
+    for (int i = 0; i < 4; i++) if (!nat_probes[i].port || nat_probes[i].at < e->at) e = &nat_probes[i];
+    *e = (NatProbe){port, -1, 0, false};
+  }
+  uint64_t now = nat_ms();
+  if (!e->busy && now - e->at >= 2000) {
+    NatTcp *c = nat_vstart(guest, port);
+    if (c) { c->probe = true; c->rto = 500; e->busy = true; e->at = now; }
+  }
+  return e->state;
 }
 
 /* ------------------------------------------------------------ the interface */

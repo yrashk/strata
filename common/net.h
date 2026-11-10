@@ -65,11 +65,10 @@
 #include <unistd.h>
 #endif
 
-#ifndef __EMSCRIPTEN__
-#include "netnat.h"
-#endif
+#include "netnat.h"                             /* (the browser uses its virtual connections) */
 
 enum { NET_NONE, NET_LOOP, NET_UDP, NET_PEER, NET_NAT, NET_WEB };
+static int net_mode = NET_NONE;
 static bool net_nodns;                          /* -N peer,nodns: the peer's names only */
 static unsigned net_hint;                       /* STATUS bits 31..26: a host number the link suggests (0: none) */
 static inline void net_rx_push(const uint8_t *p, unsigned n);
@@ -100,6 +99,14 @@ static void net_web_dns_ask(const uint8_t *p, const uint8_t *u, unsigned ul) {
 }
 /* The page's answer m (n bytes, a DNS message) to one of those: a UDP
  * datagram from the resolver that was asked to the guest that asked. */
+/* The guest's address as the browser's page should reach it (its web server):
+ * the last source address it used, or what the link has it take. */
+static uint32_t net_web_seen;
+static uint32_t net_web_guest(void) {
+  if (net_web_seen) return net_web_seen;
+  if (net_mode == NET_WEB && net_web_nat) return NAT_GUEST;
+  return 0x0a000000u | (net_hint ? net_hint : 1);
+}
 static void net_web_dns_reply(const uint8_t *m, unsigned n) {
   static uint8_t r[NET_MTU];
   if (n < 12 || n > NET_MTU - 28) return;
@@ -125,7 +132,6 @@ static void net_web_dns_reply(const uint8_t *m, unsigned n) {
   }
 }
 #endif
-static int net_mode = NET_NONE;
 static int net_fd = -1;                         /* the UDP socket (NET_UDP) */
 static uint8_t net_q[NET_QLEN][NET_MTU];        /* received packets */
 static unsigned net_qlen[NET_QLEN];
@@ -357,6 +363,10 @@ static inline void net_tx_put(uint64_t i, uint8_t b) {
 static inline void net_tx_done(uint64_t n) {
   net_txn = 0;
   if (n == 0 || n > NET_MTU) { net_drops++; return; }
+#ifdef __EMSCRIPTEN__
+  if (n >= 20 && (net_txb[0] >> 4) == 4) net_web_seen = net_ip4(net_txb + 12);
+  if (nat_vtake(net_txb, (unsigned)n)) return;           /* the page's own connections to the guest */
+#endif
   if (net_mode == NET_LOOP) net_rx_push(net_txb, (unsigned)n);
   else if (net_mode == NET_PEER) net_peer(net_txb, (unsigned)n);
 #ifndef __EMSCRIPTEN__
