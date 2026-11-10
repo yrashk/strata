@@ -54,7 +54,7 @@
   <div class="sys-far">
     <span>T2 cluster store<em>256 KiB</em></span>
     <span>T3 system memory<em>64 MiB</em></span>
-    <span>T4 device space<em>console, disk, timer, display</em></span>
+    <span>T4 device space<em>console, disk, timer, display, pointer</em></span>
   </div>
   {{figcap:fig:system}}
 </figure>
@@ -141,7 +141,7 @@
 <p>Device registers are 8 bytes, little-endian, latched when byte 0 is read and committed when byte 7
   is written; windows are read-only and byte-addressed; a transfer that starts at a stream port
   belongs to that stream. A read that starts at an <b class="term">event port</b> (console input,
-  the console break port, the timer’s WAIT, the display’s VSYNC) is a
+  the console break port, the timer’s WAIT, the display’s VSYNC, the pointer’s EVENT) is a
   <b class="term">pending device read</b> ({{ref:sec:pendread}}): it completes only when the device
   has something to deliver, and meanwhile nothing else is held up.</p>
 
@@ -390,6 +390,13 @@
 <p>The framebuffer is the top 16&nbsp;MiB of system memory, scanned out live; ownership is by
   capability, like all memory. The controller has two registers:</p>
 {{table:tab:fbctl}}
+
+{{section:sec:pointer}}
+<p>A mouse or touchpad over the display: a read of EVENT waits for the next event (a move, a button,
+  the wheel, entering or leaving the display), each 8 bytes carrying the position and the buttons;
+  STATE reads where the pointer is now. Moves coalesce, so a slow reader sees where the pointer went,
+  never a backlog of where it was.</p>
+{{table:tab:pointer}}
 
 {{section:sec:blkdev}}
 <p>The block device can touch far memory only through a capability that a core <em>gives</em> it:
