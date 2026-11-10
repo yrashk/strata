@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="hl.css">
 </head>
 <body>
 
@@ -20,6 +21,8 @@
     <a href="#os">StrataOS</a>
     <a href="#forth">Forth</a>
     <a href="#build">Build</a>
+    <a href="arch/">Architecture</a>
+    <a href="isa/">Instructions</a>
     <a href="play/">Play</a>
     <a href="code/">Source</a>
     <a class="pill" href="Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
@@ -47,6 +50,7 @@
       <li><b>StrataOS</b> microkernel</li>
       <li><b>Forth</b> with native code</li>
       <li><b>Source</b> <a href="code/">browsable, syntax-coloured</a></li>
+      <li><b>Manual</b> <a href="arch/">architecture</a> and <a href="isa/">instructions</a> on the web</li>
     </ul>
   </div>
 </header>
@@ -97,18 +101,18 @@
       <div class="tier t4"><span>Devices</span><em>console · disk · timer · framebuffer</em></div>
     </div>
     <div class="code">
-<pre><span class="c">; divide the work by dividing ownership</span>
-        csplit c5, c0, s6     <span class="c">; c0 = my piece, c5 = the rest</span>
-        csplit c8, c5, s6     <span class="c">; c5 = core k's piece</span>
-        cgive  c5, s3         <span class="c">; hand it over (c5 is now empty)</span>
+<pre><code class="language-strata-asm">; divide the work by dividing ownership
+        csplit c5, c0, s6     ; c0 = my piece, c5 = the rest
+        csplit c8, c5, s6     ; c5 = core k's piece
+        cgive  c5, s3         ; hand it over (c5 is now empty)
         ...
-        ctake  c5, s3         <span class="c">; take it back from core k only</span>
-        cjoin  c0, c5         <span class="c">; and glue the array together</span>
+        ctake  c5, s3         ; take it back from core k only
+        cjoin  c0, c5         ; and glue the array together
 
-<span class="c">; stream far data while computing</span>
-        tget   tg1, a0, c0, t0, t1   <span class="c">; ask for the next block</span>
-        ...                          <span class="c">; work on the current one</span>
-        twait  tg1                   <span class="c">; (loads would wait anyway)</span></pre>
+; stream far data while computing
+        tget   tg1, a0, c0, t0, t1   ; ask for the next block
+        ...                          ; work on the current one
+        twait  tg1                   ; (loads would wait anyway)</code></pre>
     </div>
   </div>
 </section>
@@ -116,7 +120,7 @@
 <section class="section gallery">
   <figure class="shot wide">
     <img src="img/gfx-mandelbrot.png" alt="A Mandelbrot set rendered by eight Strata cores into the framebuffer" loading="lazy">
-    <figcaption><b>examples/gfx.s</b> — eight cores each own one band of the framebuffer through a
+    <figcaption><a class="srcpath" href="code/#examples/gfx.s">examples/gfx.s</a> — eight cores each own one band of the framebuffer through a
       capability and render into it. The same frame, byte for byte, on the emulator and the Verilog RTL.</figcaption>
   </figure>
 </section>
@@ -197,8 +201,8 @@
       </ul>
     </div>
     <div class="terminal">
-<pre>: sq ( n -- n*n ) dup * ;  <span class="ok">ok</span>
-7 sq . 49  <span class="ok">ok</span>
+<pre><code class="language-forth" data-session>: sq ( n -- n*n ) dup * ;  ok
+7 sq . 49  ok
 see sq
 : sq  ( xt $8100 , 40 bytes)
   8100:  addi sp, sp, -8
@@ -211,14 +215,14 @@ see sq
   811c:  ld   ra, 0(sp)
   8120:  addi sp, sp, 8
   8124:  ret
- <span class="ok">ok</span>
-: sum-sq ( n -- ) 0 swap 0 do i sq + loop ;  <span class="ok">ok</span>
-100 sum-sq . 328350  <span class="ok">ok</span></pre>
+ ok
+: sum-sq ( n -- ) 0 swap 0 do i sq + loop ;  ok
+100 sum-sq . 328350  ok</code></pre>
     </div>
   </div>
   <figure class="shot">
     <img src="img/forth-mandelbrot.png" alt="A Mandelbrot set rendered in parallel by Strata Forth" loading="lazy">
-    <figcaption><b>lang/forth/demos/gfx.fs</b> — the framebuffer cut into bands with
+    <figcaption><a class="srcpath" href="code/#lang/forth/demos/gfx.fs">lang/forth/demos/gfx.fs</a> — the framebuffer cut into bands with
       <code>csplit</code>, rendered by workers spawned from the Forth prompt.</figcaption>
   </figure>
 </section>
@@ -252,8 +256,12 @@ see sq
   <div class="bands small" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
   <p>Strata — a prototype architecture, its RTL, emulator, firmware, OS and languages.
     <a href="Strata-Architecture-Reference-Manual.pdf">Architecture Reference Manual</a> ·
+    <a href="arch/">architecture outline</a> ·
+    <a href="isa/">instruction set</a> ·
     <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
 </footer>
 
+<script src="code/syntax.js"></script>
+<script src="hl.js"></script>
 </body>
 </html>

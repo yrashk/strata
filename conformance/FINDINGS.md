@@ -16,7 +16,8 @@ Repro: pend.s.
 Spec: ch-memory.tex, gen-insns-ls.tex: cause 9, tval = the address.
 RTL: traps pend. interp/jit: waited until another core released the read.
 Fixed in emu/emu.c, in the load/store pending check.
-Still open, not tested: the emulator's ltag/linst never check pending ranges.
+ltag/linst: the emulator now checks the set's entry against pending ranges
+(wait, or pend with PTRAP), as the RTL does; pend.s covers both.
 
 ## F3. The emulator's halt does not wait for in-flight device reads - FIXED
 Repro: haltdrain.s.

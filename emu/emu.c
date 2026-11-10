@@ -308,10 +308,11 @@ static void pend_service(void) {
 static void dev_write(uint64_t port, uint64_t i, uint8_t b) {
   uint64_t a = port + i;
   if (port == DEV_CONSOLE) { fputc(b, stdout); return; }
-  if (port == DEV_CONSOLE + CON_RELEASE) {   /* complete every pending break read with 0 */
+  if (port == DEV_CONSOLE + CON_RELEASE) {   /* complete every pending break and input read with 0 */
     Core *c;
     Pending *p;
     while ((p = pend_oldest(DEV_CONSOLE + CON_BREAK, &c))) pend_fill(c, p, 0);
+    while ((p = pend_oldest(DEV_CONSOLE + CON_IN, &c))) pend_fill(c, p, 0);
     return;
   }
   if (port == DEV_POINTER + PTR_EVENT) { /* complete every waiting EVENT read with 0 */
@@ -883,6 +884,11 @@ static bool step(Core *c) {
     uint64_t line = a >> lsh, set = line & ((1ull << lsets) - 1), span = ((uint64_t)ways + 1) * 8;
     uint64_t eb = c->ttag + set * span, key = line << 1 | 1;
     if (!ways || (eb & 7) || eb > DLS_BYTES - span) { trap(c, C_LSFAULT, eb); return true; }
+    for (int i = 0; i < NPEND; i++) /* the set's entry overlaps an in-flight device read: wait (or pend) */
+      if (c->pend[i].on && eb < c->pend[i].ls + c->pend[i].len && c->pend[i].ls < eb + span) {
+        if (c->ccr & 1) { trap(c, C_PEND, eb); return true; }
+        return false;
+      }
     uint64_t ctr = rd64(c->dls + eb + 8ull * ways), victim = ctr < ways ? ctr : 0;
     if (op == OP_LTAG) {
       uint64_t res = c->tdata + ((set * ways + victim) << lsh) | 0x8000000000000000ull;

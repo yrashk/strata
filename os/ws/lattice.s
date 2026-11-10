@@ -9,6 +9,8 @@
 ;   cell pulse (brighter, with a halo) for PULSE_MAX frames
 ;   | the windows, 1..4, the focused one in amber
 ;   | SLICE 2.0MS  UP 0:12:44  PROC 14  SW/S 1204   21:47:03
+;   (on a narrow screen the figures that would reach the window list are
+;   left out, from the left: SLICE first; the clock always stays)
 ; lat_emit() adds the strip's items; lat_cell_damage(i) and
 ; lat_stats_damage() damage just a cell or the figures.
 
@@ -401,9 +403,19 @@ le_done:
         ret                             ; done
 
 ; le_pair(a1 = value, a2 = its length, a3 = label, a4 = its length): a label
-; and a value ending at x = s4 (mini font), and s4 moves left past them.
+; and a value ending at x = s4 (mini font), and s4 moves left past them; if
+; they would reach the window list (which ends at s1), nothing is drawn and
+; s4 drops to 0, so no pair after them is drawn either.
 le_pair:
-        addi  sp, sp, -40               ; frame
+        add   t0, a2, a4                ; their width: 6 * (both lengths) + 5
+        li    t1, 6                     ; ...
+        mul   t0, t0, t1                ; ...
+        addi  t0, t0, 5 + 8             ; (and a margin)
+        sub   t0, s4, t0                ; where they would start
+        bge   t0, s1, lp_go             ; clear of the window list
+        li    s4, 0                     ; no room: none from here on
+        ret                             ; ...
+lp_go:  addi  sp, sp, -40               ; frame
         sd    ra, 0(sp)                 ; save the return address
         sd    a1, 8(sp)                 ; value
         sd    a2, 16(sp)                ; ...

@@ -1,0 +1,51 @@
+/* Strata syntax colours (hl.js), shared by every page: the site's neon set.
+   Everything is scoped to .hl, the class hl.js puts on what it colours. */
+:root {
+  --s-com: #5b7088;
+  --s-alu: #4de1ff;     /* ALU */
+  --s-mem: #59b4ff;     /* loads and stores */
+  --s-br: #c38bff;      /* branches, jumps; Forth control words */
+  --s-xfer: #ffb347;    /* transfers; Strata Forth words */
+  --s-cap: #ffcc66;     /* capability operations */
+  --s-page: #ff9a6b;    /* code paging */
+  --s-sys: #ff6b8b;     /* system, CSR access; Forth : ; */
+  --s-pseudo: #9bf0ff;  /* pseudo-instructions */
+  --s-dir: #8a9bff;     /* directives; Forth defining words */
+  --s-reg: #b4cde3;     /* x registers */
+  --s-creg: #f5d7a6;    /* c registers, transfer tags, Forth locals */
+  --s-csr: #ffa3c4;
+  --s-num: #5be3a1;
+  --s-str: #f29bd4;
+  --s-const: #8ff0d2;   /* NAME = value, CONSTANTS */
+}
+.hl .c { color: var(--s-com); font-style: italic; }
+.hl .c.h { color: #7d93ab; }
+.hl .lb { color: #fff; font-weight: 600; }
+.hl .k-alu { color: var(--s-alu); }
+.hl .k-mem { color: var(--s-mem); }
+.hl .k-branch { color: var(--s-br); }
+.hl .k-xfer { color: var(--s-xfer); font-weight: 600; }
+.hl .k-cap { color: var(--s-cap); font-weight: 600; }
+.hl .k-page { color: var(--s-page); font-weight: 600; }
+.hl .k-sys { color: var(--s-sys); font-weight: 600; }
+.hl .k-pseudo { color: var(--s-pseudo); }
+.hl .d { color: var(--s-dir); }
+.hl .r { color: var(--s-reg); }
+.hl .cr { color: var(--s-creg); }
+.hl .csr { color: var(--s-csr); }
+.hl .n { color: var(--s-num); }
+.hl .s { color: var(--s-str); }
+.hl .kc { color: var(--s-const); }
+.hl .kd { color: var(--s-const); font-weight: 600; }
+/* Forth */
+.hl .f-def { color: var(--s-sys); font-weight: 600; }
+.hl .f-name { color: #fff; font-weight: 600; }
+.hl .f-ctl { color: var(--s-br); }
+.hl .f-dw { color: var(--s-dir); }
+.hl .f-st { color: var(--s-xfer); }
+.hl .f-loc { color: var(--s-creg); }
+/* transcripts */
+.hl .ok { color: var(--cyan); font-style: normal; }
+.hl .addr { color: var(--s-com); }
+/* a coloured block takes the font and colour of the box it sits in */
+pre > code.language-strata-asm, pre > code.language-forth { font: inherit; color: inherit; }

@@ -23,6 +23,8 @@
 ;                                A resize has already been applied to wc_surf.
 ;   wc_text(x, y, string, length, fg, bg)   wc_fill(x, y, w, h, colour)
 ;   wc_title(title)              wc_close()
+; wc_keep (set before wc_open): bytes at the top of the arena the band leaves
+; alone, for the client's own far data (term keeps its scrollback there).
 ; The server's endpoint goes into c2 (the client gives up its endpoint to
 ; fs; standard handles on the console or a pipe keep working). c6 must stay
 ; empty: the band comes back through it.
@@ -44,6 +46,7 @@ WE_WHEEL  = 7                           ; the wheel: value = u16 x, u16 y, u8 bu
 wc_id:    .dword 0                      ; our window
 wc_surf:  .space S_SIZE                 ; the window as a surface (through the band)
 wc_rows:  .dword 0                      ; rows the band holds at this width
+wc_keep:  .dword 0                      ; bytes at the top of c0 that are not the band's
 wc_y0:    .dword 0                      ; the window row at the band's start
 wc_ev:    .space 32                     ; the last event
 wc_d:     .space 48                     ; request data
@@ -61,6 +64,9 @@ wc_size:                                ; routine entry
         slli  t1, a0, 2                 ; rows are width * 4 bytes apart
         sd    t1, S_STRIDE(t0)          ; ...
         clen  t2, c0                    ; rows that fit in the band
+        la    t3, wc_keep               ; (less what the client keeps)
+        ld    t3, 0(t3)                 ; ...
+        sub   t2, t2, t3                ; ...
         divu  t2, t2, t1                ; ...
         la    t0, wc_rows               ; ...
         sd    t2, 0(t0)                 ; ...

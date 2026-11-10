@@ -8,8 +8,9 @@
  *                           stream (blocks until a byte arrives; 0x04 at
  *                           end of input), port 0x0010: break stream (a
  *                           read completes when Ctrl-C is pressed), port
- *                           0x0018: writing completes a pending break read
- *                           with 0
+ *                           0x0018: writing completes every pending break
+ *                           read and every console input read waiting for
+ *                           its first byte, with 0
  *   0x1000  platform table  read-only, random access, PLAT_LEN bytes
  *   0x2000  block device 0  0x2000 identify ROM (64 B), 0x2100 submission
  *                           stream (32-byte commands), 0x2200 completion
@@ -74,7 +75,7 @@
 #define DEV_CONSOLE 0x0000u
 #define CON_IN 0x0008u
 #define CON_BREAK 0x0010u   /* read: completes when the user presses Ctrl-C (returns 3) */
-#define CON_RELEASE 0x0018u /* write: completes every pending break read (all cores) with 0 */
+#define CON_RELEASE 0x0018u /* write: completes every pending break and input read (all cores) with 0 */
 #define DEV_PLAT 0x1000u
 #define DEV_BLK0 0x2000u
 #define BLK_IDENT 0x000u

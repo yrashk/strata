@@ -9,6 +9,8 @@
 ;     waiting. A console break read that no Ctrl-C completes stays in flight
 ;     for as long as we like, so the trap is deterministic on every machine.
 ;   * Bytes outside the in-flight range are not affected.
+;   * ltag and linst whose set entry (in the tag table, D-LS) overlaps the
+;     in-flight bytes trap the same way, tval = the entry's address.
 ;   * With CCR bit 0 clear the access waits as usual (after a release
 ;     completes the read with 0).
 ; Core 1 holds a copy of the device capability and, after a long delay,
@@ -54,6 +56,20 @@ pd2:    sw    zero, 4(s1)               ; store into the in-flight bytes
         li    a0, C_PEND                ; expected cause
         la    a1, pd2                   ; expected epc
         addi  a2, s1, 4                 ; expected tval
+        call  chkt                      ; check
+        li    t0, 6 | 1 << 12           ; a tag table of one set of one way ...
+        csrw  tgeom, t0                 ; ...
+        csrw  ttag, s1                  ; ... whose entry is the in-flight bytes
+        csrw  tdata, zero               ; ...
+pd3:    ltag  a3, zero                  ; look up
+        li    a0, C_PEND                ; expected cause
+        la    a1, pd3                   ; expected epc
+        mv    a2, s1                    ; expected tval: the entry
+        call  chkt                      ; check
+pd4:    linst zero                      ; install
+        li    a0, C_PEND                ; expected cause
+        la    a1, pd4                   ; expected epc
+        mv    a2, s1                    ; expected tval: the entry
         call  chkt                      ; check
         ld    a0, 8(s1)                 ; the word after the range: no hazard
         li    a1, 0x1234                ; expected
