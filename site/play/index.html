@@ -107,9 +107,29 @@
     <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
 </footer>
 
+<script>
+// Errors show in the status line, so a phone without a console still says
+// why (this runs first: a script that fails to load or parse is reported too).
+(function () {
+  function show(m) {
+    var s = document.getElementById("status");
+    if (!s) return;
+    s.classList.add("stopped");
+    s.textContent = "page error: " + m + " · " + navigator.userAgent;
+  }
+  addEventListener("error", function (e) {
+    var t = e.target;
+    if (t && t !== window && (t.src || t.href)) show("could not load " + (t.src || t.href));
+    else show((e.message || "script error") + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : ""));
+  }, true);
+  addEventListener("unhandledrejection", function (e) {
+    show(String(e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
-<script src="strata-emu.js"></script>
+<script src="strata-emu.js?v=__BUILD__"></script>
 <script src="play.js?v=__BUILD__"></script>
 </body>
 </html>
