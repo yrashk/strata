@@ -8,7 +8,8 @@
 \ A URL path is a tag path (doc/strataos.md 2.4): /doc/motd is the file motd,
 \ which carries the tag doc. A path of tags (/forth/demo) is a listing of
 \ the files that carry them; a path ending in / is its index.html if there
-\ is one, else that listing (so / lists every file).
+\ is one, else that listing. / is this server's own page, /www/forth.html
+\ (the assembly httpd's is index.html), else the listing of every file.
 \
 \ GET and HEAD; the answers carry Content-Type (by the extension, else text
 \ or binary by the first bytes), Content-Length, and the status 200, 400 (not
@@ -151,8 +152,11 @@ create pbuf 256 allot                           \ room for PATH followed by inde
 : index-path ( -- a u )                         \ PATH followed by index.html
   path 2@ 240 min dup >r  pbuf swap move  s" index.html" pbuf r@ + swap move  pbuf r> 10 + ;
 : serve-path ( -- )                             \ a file, an index, a listing, or 404
-  path 2@ + 1- c@ [char] / = if index-path else path 2@ then \ the file it may name
+  path 2@ + 1- c@ [char] / = if                  \ the file it may name: "/" is this
+    path 2@ nip 1 = if s" /www/forth.html" else index-path then \ server's own home page
+  else path 2@ then
   2dup fs-size dup 0< if drop 2drop else serve-file exit then
+  path 2@ s" /~/" str= if s" /" path 2! then     \ /~/: every file, as on the assembly httpd
   path 2@ fs-dir dup 0< if drop s" 404 Not Found" error-page exit then  serve-listing ;
 : answer ( -- )                                 \ the request on conn
   0 #obuf !  0 #body !  read-request parse-request
