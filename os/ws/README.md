@@ -151,3 +151,14 @@ How it differs from spec 2.8 (the implementation wins):
 - SET_SCRATCH covers the strips and the scene (24 KiB) only while ws waits
   in RECEIVE: a preemption in the middle of a frame must keep them.
 - TEXT, FILL and TITLE are used by `wmandel` (its zoom label and title).
+
+## Notes
+
+- The strips are 2.5 KiB each (`GFX_STRIPB` 2560: a full-width row is drawn
+  in two slices) because `ws` and `term` need the D-LS; frames are
+  identical to those with 5 KiB strips.
+- `make ws-check` must stay green: damage-driven frames equal full redraws
+  at every shot frame.
+- Run only under the emulator (scripted with `-i`/`-P` in the tests, and by
+  hand in the SDL window and the browser); `ws` has not been run on the RTL
+  (a StrataOS boot there is slow; `make boot-rtl` then `ws` would do it).
