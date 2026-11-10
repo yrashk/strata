@@ -109,15 +109,22 @@ programs get 32 KiB from 0x8000).
 | File | What |
 |---|---|
 | `ws.s` | the server: main loop (RECEIVE with a timeout), protocol 40–46, keys, events, windows, the data source (proc CORES / PS / SCHED) |
-| `hw_os.s` | machine layer on StrataOS: REGISTER, GRANT_FB, the keyboard buffer, and ws's own small kernel interface (it does not include sys.s: no room) |
+| `hw_os.s` | machine layer on StrataOS: REGISTER, GRANT_FB, the keyboard buffer (which brings the pointer's events too), and ws's own small kernel interface (it does not include sys.s: no room) |
+| `pointer.s` | the cursor and the key help (drawing; also in the demo) |
 | `os/lib/wsclient.s` | the protocol for clients: wc_open, wc_band, wc_damage, wc_event, wc_text, wc_fill, wc_title, wc_close |
 | `os/progs/{ws,term,wmandel,wclock}.s` | the programs on the disk |
 
 Keys (Alt = ESC prefix): Alt+Enter a terminal; Alt+P or Alt+Space the
 palette; Alt+1..4 and Alt+arrows focus; Alt+Q close; Ctrl-C interrupts
 the focused window's program; Alt+Shift+Q quit to the shell; Alt+Shift+H
-halt; Alt+Shift+W pauses the keyboard for a second (scripted input:
-tools/test-ws.sh).
+halt; Alt+? the key help (shown when the splash ends; any key or click
+dismisses it and goes no further); Alt+Shift+W pauses the keyboard for a
+second (scripted input: tools/test-ws.sh).
+
+The pointer: a cursor; a click focuses the tile under it; in the palette a
+click runs a program (outside it: closes it) and the wheel moves the
+selection; the window under the pointer gets presses, releases, drags and
+the wheel (EVENT kinds 6, 7); `term` scrolls back with the wheel.
 
 How it differs from spec 2.8 (the implementation wins):
 

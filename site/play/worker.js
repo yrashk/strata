@@ -8,11 +8,13 @@
 //     {t:"start", wasm: WebAssembly.Module, files: [{name, data}], args: [...]}
 //     {t:"input", data: Uint8Array}     console bytes (terminal, canvas keys, pasted demos)
 //     {t:"break"}                       Ctrl-C
+//     {t:"ptr", op, a, b}               the canvas's mouse (web/web.c web_pointer)
 //   worker -> page
 //     {t:"started"} | {t:"exit", code} | {t:"error", msg}
 //     {t:"out", data: Uint8Array}       console output (stderr lines wrapped in amber), transferred
 //     {t:"paint", y0, rows, w, h, data: Uint8ClampedArray}   changed framebuffer rows as RGBA, transferred
-//     {t:"status", steps, cores, live, now, jit}             twice a second while running
+//     {t:"status", steps, cores, live, now, jit, ptr}        twice a second while running
+//                                       (ptr: the guest reads the pointer: hide the page's cursor)
 //     {t:"stopped", state, faulted, steps, cores, live, now, jit}
 // Reset and picking another preset terminate the worker and start a new one.
 //
@@ -53,7 +55,7 @@ function text(s) { for (const b of enc.encode(s)) out.push(b); }
 
 function stats() {
   return { steps: M._web_stat(0), cores: M._web_stat(2), live: M._web_stat(3), now: M._web_stat(4),
-           jit: !!M._web_stat(8) };
+           jit: !!M._web_stat(8), ptr: !!M._web_pointer_used() };
 }
 
 // Moves pending input into the guest's queue as far as it has room.
@@ -144,6 +146,10 @@ onmessage = (e) => {
     if (!running) return;
     feed();          // what was typed before it goes first, as far as it fits
     M._web_break();
+    hop();
+  } else if (msg.t === "ptr") {
+    if (!running) return;
+    M._web_pointer(msg.op, msg.a, msg.b);
     hop();
   }
 };

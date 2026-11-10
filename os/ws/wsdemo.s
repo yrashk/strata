@@ -42,6 +42,7 @@ _start: j     main                      ; skip the library code
         .include "lattice.s"            ; the status strip
         .include "palette.s"            ; the command palette
         .include "splash.s"             ; the boot splash
+        .include "pointer.s"            ; the cursor and the key help
         .include "scene.s"              ; the display list of the screen
         .include "term.s"               ; terminal surfaces
         .include "wmandel.s"            ; the Mandelbrot client's renderer

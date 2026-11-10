@@ -19,7 +19,8 @@
 ; fetches the clock again when no request is in hand.
 ;
 ; The keyboard: a second 4 KiB message buffer (the last 4 KiB of our
-; arena) goes to tty as a READ. tty answers it when a key arrives; the
+; arena) goes to tty as a READ (raw, with the pointer's events too: tty
+; keeps the pointer's waiting device read, on a core of its own). tty answers it when a key arrives; the
 ; answer is not our own buffer, so our core's kernel queues it as a
 ; *request for this core's server*, which is us: a key wakes RECEIVE
 ; exactly like a client's request does (os_recv tells them apart by the
@@ -31,7 +32,8 @@
 ;   hw_present()             PRESENT: "this frame is complete"
 ;   hw_clock(), hw_now()     the clock back into c7; NOW in microseconds
 ;   hw_key_arm()             send the keyboard buffer (c2) to tty as a READ
-;   hw_key_take() -> a0      the answer in c6 -> hw_kb, c2; a0 = bytes or < 0
+;   hw_key_take() -> a0      the answer in c6 -> hw_kb, c2; a0 = bytes or < 0,
+;                            a1 = pointer events (at hw_kb + 96)
 ;   os_msg(a0 = endpoint register, a1 = op, a2 = handle, a3 = length, a4 =
 ;       mode) -> a0 = result     os_put(a0 = bytes) / os_get(a0 = bytes):
 ;       os_buf <-> our buffer's data   os_call(a0, a1, a2): no data
@@ -72,7 +74,7 @@ hw_fb:    .space S_SIZE                 ; the screen as a surface
 os_hdr:   .space 64                     ; the header of a call we make
 rq_hdr:   .space 64                     ; the header of the request being served
 os_buf:   .space OS_BUFSZ               ; staging for message data
-hw_kb:    .space 96                     ; the keyboard's answer: header, 32 bytes
+hw_kb:    .space 160                    ; the keyboard's answer: header, 32 key bytes, 8 pointer events
 hw_reg:   .dword 0                      ; a device register (PRESENT / NOW)
 os_pid:   .dword 0                      ; our pid
 os_hd:    .space 24                     ; our handles 0..2 (descriptors, for children)
@@ -447,7 +449,8 @@ hw_key_arm:                             ; routine entry
         sd    zero, 8(t0)               ; handle
         li    t1, 32                    ; ...
         sd    t1, 16(t0)                ; length
-        sd    zero, 24(t0)              ; mode: wait
+        li    t1, 2                     ; mode: wait; the pointer's events too
+        sd    t1, 24(t0)                ; ...
         sd    zero, 32(t0)              ; result
         li    t1, 64                    ; the header -> the buffer
         tput  tg10, t0, c2, zero, t1    ; ...
@@ -462,12 +465,20 @@ hka_ret:
         ret                             ; done
 
 ; hw_key_take() -> a0 = bytes (in hw_kb + 64), or < 0 (-2: interrupted, the
-; break key). The answered buffer (in c6) goes home to c2.
+; break key); a1 = pointer events (8 bytes each, at hw_kb + 96). The answered
+; buffer (in c6) goes home to c2.
 hw_key_take:                            ; routine entry
         la    t0, hw_kb                 ; header and data -> D-LS
-        li    t1, 96                    ; ...
+        li    t1, 160                   ; ...
         tget  tg10, t0, c6, zero, t1    ; ...
         ld    a0, 32(t0)                ; the result (waits for the read)
+        ld    a1, 24(t0)                ; pointer events
+        li    t1, 8                     ; (at most 8)
+        bleu  a1, t1, hkt_1             ; ...
+        li    a1, 0                     ; (a reply without them)
+hkt_1:  bgez  a0, hkt_2                 ; (none with an error)
+        li    a1, 0                     ; ...
+hkt_2:
         cmov  c2, c6                    ; home
         la    t0, hw_khome              ; ...
         li    t1, 1                     ; ...

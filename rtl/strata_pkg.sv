@@ -194,6 +194,8 @@ package strata_pkg;
   localparam logic [63:0] DEV_TMR_WAIT= 64'h3018;
   localparam logic [63:0] DEV_FB_PRESENT = 64'h4000;  // framebuffer controller: PRESENT, VSYNC
   localparam logic [63:0] DEV_FB_VSYNC   = 64'h4008;
+  localparam logic [63:0] DEV_PTR_EVENT  = 64'h4100;  // pointer: EVENT (waiting read; a write releases), STATE
+  localparam logic [63:0] DEV_PTR_STATE  = 64'h4108;
   localparam logic [63:0] DEV_NET_TX     = 64'h4200;  // network: TX (one transfer = one packet)
   localparam logic [63:0] DEV_NET_RX     = 64'h4208;  // RX (waits for a packet)
   localparam logic [63:0] DEV_NET_STATUS = 64'h4210;  // STATUS (latched at byte 0)
@@ -210,6 +212,8 @@ package strata_pkg;
   import "DPI-C" function void sim_putc(input byte c);
   import "DPI-C" function int sim_getc();
   import "DPI-C" function int sim_break();
+  import "DPI-C" function longint sim_ptr_pop();    // the next pointer event, or -1: none yet
+  import "DPI-C" function longint sim_ptr_state(input int touch); // STATE now (touch: the guest read it)
   import "DPI-C" function byte plat_byte(input int idx);
   import "DPI-C" function byte ident_byte(input int idx);
   import "DPI-C" function longint disk_word(input int widx);

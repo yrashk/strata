@@ -38,6 +38,9 @@
 ;   WN_EVT    events for its client (WE_RESIZE when a slide has ended)
 ;
 ; Command palette: m_pal_open, the input m_pal_buf / m_pal_len, m_pal_sel.
+;
+; Pointer: m_ptr_on (over the screen: the cursor is drawn), m_ptr_x, m_ptr_y,
+; m_ptr_btn (buttons held). Help: m_help (the key help is shown).
 
 MAXCORE   = 16                          ; cores the lattice can show
 MAXPROC   = 32                          ; processes
@@ -98,6 +101,11 @@ m_pal_open: .dword 0                    ; palette shown?
 m_pal_len: .dword 0                     ; characters typed
 m_pal_sel: .dword 0                     ; selected completion
 m_splash: .dword 0                      ; splash frame (0: no splash)
+m_help:   .dword 0                      ; the key help is shown
+m_ptr_on: .dword 0                      ; the pointer is over the screen
+m_ptr_x:  .dword 0                      ; where (pixels)
+m_ptr_y:  .dword 0                      ; ...
+m_ptr_btn: .dword 0                     ; buttons held
 m_pal_buf: .space 32                    ; what was typed
 m_cores:  .space MAXCORE * CO_SIZE      ; core records
 m_procs:  .space MAXPROC * PR_SIZE      ; process records

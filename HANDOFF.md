@@ -18,8 +18,7 @@ Strata: a prototype 64-bit ISA where memory is explicit I/O, with
 - the website (`site/`: landing page, in-browser emulator `play/`, source
   browser `code/`), deployed by `.github/workflows/pages.yml`.
 
-The design spec is `doc/strataos-0.2.md` (the file name is historical: the
-OS is **StrataOS 0.1**).
+The design spec is `doc/strataos.md` (the OS is **StrataOS 0.1**).
 
 ## State at the push
 
@@ -44,17 +43,13 @@ Not verified:
 ## To finish the release
 
 1. `make test` green (see above).
-2. GitHub Pages: enable it for the repository (Settings → Pages → Source:
-   GitHub Actions), run the `pages` workflow, check
-   https://yrashk.github.io/strata/ , `/play/`, `/code/` and the manual PDF
-   link.
-3. **License**: none chosen. `README.md` says "License: TBD". Ask the owner,
-   add `LICENSE`.
-4. Rename `doc/strataos-0.2.md` → `doc/strataos.md` and update references
-   (README, ROADMAP, PLAN, manual, agent plans, `tools/web-code.py` if it
-   lists it).
-5. Fold the per-area plan files into their READMEs and delete them, if the
-   repo should not carry working notes (see "Plans" below).
+2. GitHub Pages: done. The `pages` workflow is green and the site, `/play/`,
+   `/code/` and the manual PDF are live at https://yrashk.com/strata/
+   (yrashk.github.io/strata redirects there).
+3. License: done. MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`).
+4. Spec renamed: `doc/strataos.md`.
+5. Fold the per-area plan files into their READMEs and delete them (see
+   "Plans" below).
 
 ## Unfinished work (in order of how close it is)
 

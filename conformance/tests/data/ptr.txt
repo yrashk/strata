@@ -1,0 +1,6 @@
+# pointer events for conformance/tests/ptr.s, all queued before the program runs
+0 move 100 50
+0 move 120 60
+0 down left
+0 up left
+0 wheel 2 -1

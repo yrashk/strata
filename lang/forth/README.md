@@ -374,24 +374,32 @@ test-forth` takes about 20 s.
 
 ## StrataOS
 
+Strata Forth also runs as a StrataOS program: `forth` at the shell (a
+REPL on the console), `forth FILE.fs` (run a file, then the REPL),
+`forth -n N` (N threads on N cores, for the multicore words), and in
+pipes (`seq 5 | forth sum.fs`). `make test-forth` runs tests/test.fs
+under the OS and checks files, tools, command lines, pipes and
+preemption (tests/ostest.fs, tests/os.out, tests/preempt.fs).
+
 The platform layer is the seam: console I/O, the timer, the far cache's
-backing transfers, capability set-up and `bye` are the only things the
-kernel asks of the machine (`plat_*` routines). The StrataOS backend (`lang/forth/os/`, not written yet: it waits for
-the StrataOS 0.2 kernel) will put `key`/`emit` on `sys_read`/`sys_write`
-(handles 0 and 1), load core.fs and other source with `include FILE`
-through `fs` (`plat_source`), and refuse the multicore words unless the
-process is exclusive (`-n N`).
+backing transfers, capability set-up and `bye` are all the kernel asks of
+the machine (`plat_*` routines; `lang/forth/bare/` and `lang/forth/os/`).
+Under the OS:
 
-Open points with StrataOS 0.2 (see `PLAN-forth.md` while it exists):
-
-- **Code installed at run time.** A time-shared process's I-LS is reloaded
-  from its image on every context switch, so code a JIT installed beyond
-  the image is lost. Forth therefore runs as an *exclusive* process under
-  the OS (never switched), or needs the dispatcher to reload the code range
-  from a program-provided far mirror.
-- **The far image.** The kernel and core.fs live in the image's far section,
-  which a time-shared process cannot read; an exclusive process gets a
-  read-only share of its image.
-- **I-LS budget.** Programs get `0x8000..0xFFFF` (32 KiB); the kernel plus
-  the compiled core.fs take about 32 KiB, so under the OS the tools (`see`,
-  the disassembler, `dump`, `words`) would be loaded on demand.
+- **Time-shared, like any program.** Code the compiler installs beyond
+  the image survives a context switch because the program keeps a far
+  copy of its I-LS (the *code mirror*, in its arena) and declares it with
+  svc SET_MIRROR: the dispatcher reloads the code range from it on every
+  switch-in. Each worker thread of `forth -n N` gets a page of its own
+  for the same purpose.
+- **Console and files through the servers.** `key`/`emit` are tty READ
+  and WRITE (cooked mode echoes, so the REPL does not); `include FILE`
+  reads source through `fs`, tag paths included (`include /forth/core.fs`).
+- **The I-LS budget.** Programs get 0x8000..0xFFFF (32 KiB). The kernel,
+  the platform layer and core.fs compiled in compact form leave about
+  6.3 KiB of code space, so the tools (`see`, the disassembler, `dump`,
+  `words`, `.cap`) are not compiled at start-up: `tools.fs` and `see.fs`
+  are loaded on demand the first time one of their words is used.
+- **No framebuffer.** Only the window server gets the framebuffer
+  (GRANT_FB), so `demos/gfx.fs` is a bare-metal demo
+  (`make forth-demo-gfx`).

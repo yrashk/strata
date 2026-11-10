@@ -3,7 +3,7 @@
 ; =============================================================================
 ; args: -i conformance/tests/data/console-in.txt
 ;
-; What it checks (common/platform.h; doc/strataos-0.2.md section 1.2)
+; What it checks (common/platform.h; doc/strataos.md section 1.2)
 ;   * Output (port 0x0000): bytes appear in order (this test's own output).
 ;   * Input (port 0x0008): a read of n bytes completes once n bytes have
 ;     arrived; bytes come in order; after the end of the input every byte

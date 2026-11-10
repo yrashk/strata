@@ -9,6 +9,7 @@
 #   make show-NAME  run one example on the emulator and keep its window open
 #                   after it halts, e.g. make show-gfx (show-rtl-NAME: the RTL)
 #   make boot       boot StrataOS on the emulator and type at its shell
+#   make boot-ws    the same, with the window server started at boot (os/files-ws/rc)
 #   make boot-demo  boot StrataOS on the emulator with a scripted session
 #   make boot-rtl   boot StrataOS on the Verilog simulator (interactive)
 #   make boot-rtl-demo  the scripted session on the Verilog simulator
@@ -41,7 +42,7 @@ IMAGES  := $(patsubst examples/%.s,$(BUILD)/examples/%.stx,$(EXAMPLES))
 PROGS   := $(patsubst examples/%.s,$(BUILD)/prog/%,$(EXAMPLES))
 EMU     := $(BUILD)/strata-emu -c $(NCORES)
 
-.PHONY: all examples test clean lint run run-emu boot boot-demo boot-rtl boot-rtl-demo os fpga-images manual
+.PHONY: all examples test clean lint run run-emu boot boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
 
 all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl
 
@@ -136,11 +137,12 @@ OS_EXCLUDE := clock gfx
 OS_EXAMPLES := $(filter-out $(OS_EXCLUDE),$(patsubst examples/%.s,%,$(EXAMPLES)))
 PROGS   := $(patsubst %,$(BUILD)/prog/%,$(OS_EXAMPLES))
 SERVERS := proc dev fs tty pipe
-UTILS   := sh ls cat rm df ps free uptime devs hexdump cores sched seq grep wc upper spin
+UTILS   := sh ls cat rm df ps free uptime devs hexdump cores sched seq grep wc upper spin tag tags
 SPROGS  := $(patsubst %,$(BUILD)/prog/%,$(SERVERS))
 UPROGS  := $(patsubst %,$(BUILD)/prog/%,$(UTILS))
 USRCS   := $(patsubst %,$(BUILD)/src/%.s,$(UTILS))
-SRCS    := $(patsubst %,$(BUILD)/src/%.s,$(OS_EXAMPLES)) $(BUILD)/src/as.s $(BUILD)/src/units.s
+EXSRCS  := $(patsubst %,$(BUILD)/src/%.s,$(OS_EXAMPLES))
+SRCS    := $(EXSRCS) $(BUILD)/src/as.s $(BUILD)/src/units.s
 
 $(BUILD)/prog/%: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/prog
@@ -153,6 +155,10 @@ $(SPROGS): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sa
 $(UPROGS): $(BUILD)/prog/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
+
+# untag is tag under another name (it looks at the name it was started by)
+$(BUILD)/prog/untag: $(BUILD)/prog/tag
+	cp $< $@
 
 # the window server and its clients (os/ws/, os/lib/gfx.s, os/lib/wsclient.s)
 WSPROGS := $(patsubst %,$(BUILD)/prog/%,ws term wmandel wclock)
@@ -192,18 +198,39 @@ $(BUILD)/src/as.s: os/progs/as.s
 FORTH_DISK := $(BUILD)/prog/forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
               $(wildcard lang/forth/demos/*.fs)
 
-DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(WSPROGS) $(PROGS) $(BUILD)/prog/as $(BUILD)/prog/units $(SRCS) $(USRCS) $(FORTH_DISK)
+DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(BUILD)/prog/untag $(WSPROGS) $(PROGS) $(BUILD)/prog/as \
+              $(BUILD)/prog/units $(SRCS) $(USRCS) $(FORTH_DISK)
+
+# The same files with their tags (mkdisk -t TAGS applies to the files after it).
+# The file system has no directories: `ls /bin` lists the files tagged bin,
+# `ls /src/demo` those tagged both src and demo.
+DISK_ARGS := -t doc $(filter-out %/rc,$(OS_FILES)) -t etc $(filter %/rc,$(OS_FILES)) \
+             -t sys $(SPROGS) -t bin $(UPROGS) $(BUILD)/prog/untag -t bin,ws $(WSPROGS) \
+             -t demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units \
+             -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) \
+             -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
+             -t forth,demo $(wildcard lang/forth/demos/*.fs)
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_FILES)
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS)
 
 os: $(BUILD)/bootrom.stx $(BUILD)/disk.img
+
+# the same disk with an rc that starts the window server (make boot-ws)
+DISK_WS_FILES := $(filter-out os/files/rc,$(DISK_FILES)) os/files-ws/rc
+
+$(BUILD)/disk-ws.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_WS_FILES)
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WS_FILES)
 
 # the emulator boots StrataOS with 12 cores; the RTL with NCORES
 BOOT_EMU := $(BUILD)/strata-emu -c 12
 
 boot: $(BUILD)/strata-emu os
 	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
+	@$(BOOT_EMU) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
+
+boot-ws: $(BUILD)/strata-emu $(BUILD)/bootrom.stx $(BUILD)/disk-ws.img
+	@cp $(BUILD)/disk-ws.img $(BUILD)/disk-run.img
 	@$(BOOT_EMU) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
 
 boot-demo: $(BUILD)/strata-emu os
@@ -262,7 +289,7 @@ $(BUILD)/prog/forth: $(FORTH_OS_SRC) $(BUILD)/forth-os/corefs.s $(BUILD)/sasm
 # the disk of `make test-forth`: the standard one plus the test files
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs)
 	@mkdir -p $(BUILD)/forth-test
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_FILES) $(wildcard lang/forth/tests/*.fs)
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t forth,test $(wildcard lang/forth/tests/*.fs)
 
 forth: $(BUILD)/strata-emu $(BUILD)/forth.stx
 	@$(EMU) $(BUILD)/forth.stx
@@ -326,7 +353,7 @@ bench: $(BUILD)/strata-emu examples $(BUILD)/forth.stx
 #             interpreted and with the WebAssembly JIT (tools/test-wasm.sh)
 EMCC ?= emcc
 WEB := $(BUILD)/web
-WEB_IMAGES := $(BUILD)/bootrom.stx $(BUILD)/disk.img $(BUILD)/forth.stx \
+WEB_IMAGES := $(BUILD)/bootrom.stx $(BUILD)/disk.img $(BUILD)/disk-ws.img $(BUILD)/forth.stx \
               $(BUILD)/examples/gfx.stx $(BUILD)/examples/hello.stx $(BUILD)/examples/mandel.stx \
               $(BUILD)/ws/wsdemo.stx
 .PHONY: web-assets wasm web-code web-site test-wasm
@@ -343,7 +370,7 @@ $(WEB)/strata-emu.js: web/web.c emu/emu.c emu/jit/jit_wasm.c emu/jit/jit.h emu/j
 	$(EMCC) -std=gnu11 -O3 -Wall -DNO_SDL -o $@ web/web.c emu/jit/jit_wasm.c \
 	  -sMODULARIZE=1 -sEXPORT_NAME=createStrata -sENVIRONMENT=worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
 	  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=192MB -sALLOW_TABLE_GROWTH=1 \
-	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_malloc,_free \
+	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_malloc,_free \
 	  -sEXPORTED_RUNTIME_METHODS=callMain,FS,HEAPU8,wasmMemory,wasmTable
 
 wasm: $(WEB)/strata-emu.js web-assets

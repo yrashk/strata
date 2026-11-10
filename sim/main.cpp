@@ -101,6 +101,11 @@ extern "C" int sim_net_rx_take() {
 }
 extern "C" char sim_net_rx_byte(int idx) { return idx >= 0 && (unsigned)idx < net_curlen ? (char)net_cur[idx] : 0; }
 extern "C" long long sim_net_status() { return (long long)net_status(); }
+// the pointer: the next queued event (-1: none), the state now
+extern "C" long long sim_ptr_pop() { return host_ptr_ready() ? (long long)host_ptr_pop() : -1; }
+extern "C" long long sim_ptr_state(int touch) {
+  return (long long)(touch ? host_ptr_state() : host_ptr_peek()); // (only a guest read hides the cursor)
+}
 
 extern "C" long long sim_time_us() { return virtual_time ? -1 : (long long)host_us(); }
 
@@ -147,12 +152,14 @@ extern "C" void sim_trace(int core, long long pc, int ir) {
 static void usage() {
   fprintf(stderr,
           "usage: strata-rtl [-t trace.txt] [-m max_cycles] [-d disk.img] [-i input.txt] [-b cycles]\n"
+          "                  [-P pointer.txt]\n"
           "                  [-T real|virtual] [-g none] [-F frame.ppm] [-z scale] [-r WxH] [-H]\n"
           "                  [-N mode] image.stx\n"
           "  -t FILE     write an instruction trace\n"
           "  -m N        stop after N cycles (timeout)\n"
           "  -d FILE     block device image\n"
           "  -i FILE     console input from FILE (default: the terminal / stdin)\n"
+          "  -P FILE     scripted pointer input (common/display.h; N = clock cycles)\n"
           "  -b N        press Ctrl-C after N cycles\n"
           "  -T MODE     timer: real (host microseconds, default) or virtual (cycles / 100)\n"
           "  -g none     never open a window (PRESENT still records the frame)\n"
@@ -185,6 +192,8 @@ int main(int argc, char **argv) {
       disk_path = argv[++i];
     } else if (!strcmp(argv[i], "-i") && more) {
       in_path = argv[++i];
+    } else if (!strcmp(argv[i], "-P") && more) {
+      if (!host_ptr_script_open(argv[++i])) { perror(argv[i]); return 2; }
     } else if (!strcmp(argv[i], "-T") && more) {
       const char *m = argv[++i];
       if (!strcmp(m, "virtual")) virtual_time = true;
@@ -255,6 +264,7 @@ int main(int argc, char **argv) {
     top->eval();
     cycles++;
     if (break_at && cycles == break_at) host_breaks++;
+    host_ptr_script_run(cycles);   // -P (N = clock cycles)
     if ((cycles & 8191) == 0) {   // now and then: terminal input, window events
       host_poll();
       net_host_poll();

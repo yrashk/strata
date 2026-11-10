@@ -11,11 +11,20 @@ const PRESETS = {
   os: {
     files: ["bootrom.stx", "disk.img"],
     args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
-    about: "The boot ROM finds the disk, loads the kernel into every core's Local Stores, and StrataOS starts its servers and the shell on 12 cores. Try help, ls, ps, -n 3 mandel, or ws for the window server (click the screen; Alt+P launches programs, Alt+Enter opens a terminal).",
+    fitScreen: true,
+    about: "The boot ROM finds the disk, loads the kernel into every core's Local Stores, and StrataOS starts its servers and the shell on 12 cores. Try help, ls, ps, -n 3 mandel, or ws for the window server (click the screen; Alt+P launches programs, Alt+Enter opens a terminal, Alt+? lists the keys).",
+  },
+  osws: {
+    files: ["bootrom.stx", "disk-ws.img"],
+    args: ["-c", "12", "-d", "disk-ws.img", "bootrom.stx"],
+    fitScreen: true,
+    screenKeys: true,
+    about: "StrataOS on 12 cores with the window server started at boot (its rc runs ws): the real ws, its terminals running the real shell. A key help comes up after the splash; any key or click dismisses it. Alt+Enter opens a terminal, Alt+P the launch palette, a click focuses a tile, the wheel scrolls a terminal back, Alt+? shows the help again.",
   },
   ws: {
     files: ["wsdemo.stx"],
     args: ["-c", "1", "wsdemo.stx"],
+    fitScreen: true,
     screenKeys: true,
     about: "The StrataOS window server's drawing code, running bare metal with a simulated OS behind it: the splash, tiled windows, the core lattice pulsing on context switches, the launch palette. Click the screen, then try Alt+P or Alt+Space (palette), Alt+1..4 or Alt+arrows (focus), Alt+Enter (new terminal), Alt+Q (close).",
   },
@@ -156,16 +165,160 @@ canvas.addEventListener("keydown", (e) => {
 });
 canvas.addEventListener("click", () => canvas.focus());
 
+// The canvas's mouse: the pointer device (web/web.c web_pointer; op = the
+// PTR_* kinds of common/platform.h). Positions are framebuffer pixels.
+function sendPtr(op, a, b) { if (W && !stopped) W.postMessage({ t: "ptr", op, a, b }); }
+function ptrAt(e) {
+  const r = canvas.getBoundingClientRect();
+  return [Math.floor((e.clientX - r.left) * canvas.width / r.width), Math.floor((e.clientY - r.top) * canvas.height / r.height)];
+}
+const BUTTON = [0, 2, 1]; // DOM left, middle, right -> device bit 0 left, 1 right, 2 middle
+canvas.addEventListener("pointermove", (e) => sendPtr(1, ...ptrAt(e)));
+canvas.addEventListener("pointerdown", (e) => {
+  if (e.button > 2) return;
+  canvas.setPointerCapture(e.pointerId);
+  sendPtr(1, ...ptrAt(e));
+  sendPtr(2, BUTTON[e.button], 1);
+});
+canvas.addEventListener("pointerup", (e) => { if (e.button <= 2) sendPtr(2, BUTTON[e.button], 0); });
+canvas.addEventListener("pointerenter", (e) => { sendPtr(4, 0, 0); sendPtr(1, ...ptrAt(e)); });
+canvas.addEventListener("pointerleave", () => sendPtr(5, 0, 0));
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+let wheelY = 0, wheelX = 0; // pixel deltas, one notch per 100 px (one line = one notch)
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const k = e.deltaMode === 0 ? 1 : 100;
+  wheelY += e.deltaY * k; wheelX += e.deltaX * k;
+  const ny = Math.trunc(wheelY / 100), nx = Math.trunc(wheelX / 100);
+  if (!ny && !nx) return;
+  wheelY -= ny * 100; wheelX -= nx * 100;
+  sendPtr(3, -ny, nx); // > 0: away from the user (DOM deltaY < 0)
+}, { passive: false });
+
 // ---------------------------------------------------------------- screen
 // Changed rows from the worker, already RGBA.
 function paint(m) {
-  if (canvas.width !== m.w || canvas.height !== m.h) { canvas.width = m.w; canvas.height = m.h; }
+  let resized = false;
+  if (canvas.width !== m.w || canvas.height !== m.h) { canvas.width = m.w; canvas.height = m.h; resized = true; }
   if (screenPanel.classList.contains("collapsed")) {
     screenPanel.classList.remove("collapsed");
-    $("geom").textContent = `${m.w}x${m.h} XRGB8888 · live scanout · click to type here`;
+    resized = true;
   }
+  if (resized) fitScreen();
   ctx.putImageData(new ImageData(m.data, m.w, m.rows), 0, m.y0);
 }
+
+// ---------------------------------------------------------------- screen size
+// The framebuffer is drawn with 1-pixel bitmap fonts: they stay legible only
+// when every framebuffer pixel becomes a whole number of device pixels, drawn
+// nearest-neighbour (play.css). The canvas's width/height attributes stay the
+// framebuffer size (paint()); only its CSS size is set here.
+//   auto  the largest whole number of device pixels per framebuffer pixel
+//         that fits the panel (and the window's height), as long as that is
+//         at least 3/4 of a CSS pixel; else a fractional fit
+//   fill  fit the panel at any scale (uneven pixels; averaged below 1)
+//   1, 2  U or 2U device pixels per framebuffer pixel, where U is
+//         devicePixelRatio rounded (one CSS pixel, kept whole); the box scrolls
+// ws and StrataOS (presets with fitScreen) get a framebuffer size chosen at
+// start to show whole at 1x: see screenGeometry().
+const screenBox = $("screen-box"), fullBtn = $("full");
+const SCALES = ["auto", "fill", "1", "2"], SCALE_KEY = "strata-play-scale";
+let scaleMode = "auto";
+try { const v = localStorage.getItem(SCALE_KEY); if (SCALES.includes(v)) scaleMode = v; } catch (e) { /* no storage */ }
+
+const dpr = () => window.devicePixelRatio || 1;
+const unitPx = () => Math.max(1, Math.round(dpr())); // device pixels per framebuffer pixel at 1x
+const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+const READABLE = 0.75; // CSS pixels per framebuffer pixel below which the fonts are too small
+
+// The room for the screen, in CSS pixels: the whole display in full screen;
+// else the panel's width and the window's height under the site's sticky
+// nav and the panel's tag.
+function screenRoom() {
+  if (fsElement() === screenBox) return { w: screenBox.clientWidth, h: screenBox.clientHeight, full: true };
+  const nav = document.querySelector("nav.top"), tag = screenPanel.querySelector(".tag");
+  const above = (nav ? nav.offsetHeight : 0) + tag.offsetHeight + 8;
+  return { w: screenPanel.clientWidth, h: Math.max(240, innerHeight - above), full: false };
+}
+
+// CSS pixels per framebuffer pixel for the current mode and room.
+function screenScale(fw, fh, room) {
+  const d = dpr();
+  if (scaleMode === "1" || scaleMode === "2") return unitPx() * Number(scaleMode) / d;
+  const fitCss = Math.min(room.w / fw, room.h / fh);
+  if (scaleMode === "fill") return fitCss;
+  const both = Math.floor(fitCss * d + 1e-6);              // whole device pixels, fits both ways
+  if (both >= 1 && both / d >= READABLE) return both / d;
+  const wide = Math.floor(room.w / fw * d + 1e-6);         // fits the width only: the page scrolls
+  if (!room.full && wide >= 1 && wide / d >= READABLE) return wide / d;
+  return fitCss;
+}
+
+function fitScreen() {
+  if (screenPanel.classList.contains("collapsed")) return;
+  const fw = canvas.width, fh = canvas.height, d = dpr(), room = screenRoom();
+  const css = screenScale(fw, fh, room), w = fw * css, h = fh * css;
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
+  canvas.classList.toggle("smooth", css * d < 1 - 1e-6);
+  // centred, with its corner on a whole device pixel (else even a whole
+  // scale samples between pixels)
+  const box = screenBox.getBoundingClientRect();
+  const snap = (start, free) => Math.max(0, Math.round((start + Math.max(0, free) / 2) * d) / d - start);
+  canvas.style.marginLeft = snap(box.left, box.width - w) + "px";
+  canvas.style.marginTop = snap(box.top, room.full ? box.height - h : 0) + "px";
+  const n = css * d, whole = Math.abs(n - Math.round(n)) < 1e-6;
+  $("geom").textContent = `${fw}x${fh} XRGB8888 · live scanout · ${Math.round(css * 100)}%` +
+    (whole ? "" : n < 1 ? " (averaged)" : " (uneven)") + " · click to type here";
+}
+
+// A framebuffer size (the emulator's -r WxH) for programs that adapt to it:
+// the largest that shows whole at 1x (U device pixels per pixel; a smaller
+// U only while that stays readable), at most the 1280x800 ws is designed
+// at, at least the 1152 columns ws's status strip needs (narrower, its
+// labels overlap) and 560 rows. When even that does not fit, Auto scales
+// the display down instead.
+function screenGeometry(minW = 1152, minH = 560, maxW = 1280, maxH = 800) {
+  const d = dpr(), room = screenRoom();
+  for (let k = unitPx(); k >= 1 && k / d >= READABLE; k--) {
+    const w = Math.min(maxW, Math.floor(room.w * d / k / 8) * 8);
+    if (w < minW) continue;
+    const h = Math.min(maxH, Math.floor(room.h * d / k / 2) * 2, Math.floor(w * 10 / 16 / 2) * 2);
+    return `${w}x${Math.max(minH, h)}`;
+  }
+  return `${minW}x${Math.max(minH, Math.min(720, Math.floor(minW * room.h / room.w / 2) * 2))}`;
+}
+
+function setScale(mode) {
+  scaleMode = mode;
+  try { localStorage.setItem(SCALE_KEY, mode); } catch (e) { /* no storage */ }
+  for (const b of document.querySelectorAll(".seg[data-scale]")) b.classList.toggle("on", b.dataset.scale === mode);
+  fitScreen();
+}
+for (const b of document.querySelectorAll(".seg[data-scale]"))
+  b.addEventListener("click", () => { setScale(b.dataset.scale); canvas.focus({ preventScroll: true }); });
+setScale(scaleMode);
+new ResizeObserver(() => fitScreen()).observe(screenPanel);
+addEventListener("resize", () => fitScreen()); // also a zoom (devicePixelRatio) change
+screenBox.addEventListener("click", () => canvas.focus({ preventScroll: true }));
+
+// Full screen: the box (the canvas centred on black) at the same scaling;
+// keys keep going to the canvas; Esc leaves (the browser does that). The
+// button is hidden where the API is missing or refused (iPhone Safari).
+const fsAvailable = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled) &&
+  !!(screenBox.requestFullscreen || screenBox.webkitRequestFullscreen);
+fullBtn.hidden = !fsAvailable;
+fullBtn.addEventListener("click", () => {
+  canvas.focus({ preventScroll: true });
+  if (fsElement()) return;
+  try {
+    const p = screenBox.requestFullscreen ? screenBox.requestFullscreen({ navigationUI: "hide" })
+                                          : screenBox.webkitRequestFullscreen();
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) { /* refused */ }
+});
+for (const ev of ["fullscreenchange", "webkitfullscreenchange"])
+  document.addEventListener(ev, () => { fitScreen(); canvas.focus({ preventScroll: true }); });
 
 // ---------------------------------------------------------------- running
 function outText(s) { term.write(s, () => term.scrollToBottom()); }
@@ -208,6 +361,7 @@ function onWorker(w, m) {
   case "status": {
     const t = performance.now();
     stat = m;
+    canvas.style.cursor = m.ptr ? "none" : ""; // the guest draws its own
     mips = (m.steps - last.steps) / ((t - last.t) * 1000);
     last = { t, steps: m.steps };
     statusEl.textContent = "running · " + statusLine();
@@ -244,7 +398,7 @@ async function run(key) {
   $("geom").textContent = "no framebuffer output yet";
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  const args = [jitBox.checked ? "-J" : "-j", ...p.args];
+  const args = [jitBox.checked ? "-J" : "-j", ...(p.fitScreen ? ["-r", screenGeometry()] : []), ...p.args];
   term.write("\x1bc"); // reset, in order with the writes still queued
   outText(`\x1b[2m$ strata-emu ${args.join(" ")}\x1b[0m\n`);
 

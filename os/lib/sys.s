@@ -68,7 +68,11 @@
 ;                sys_register(name, len)
 ;   console      sys_conmode(0 cooked / 1 raw), sys_setfg(pid)
 ;   files        sys_dir(buf) -> n (32-byte records: name[24], u64 size), sys_unlink,
-;                sys_stat(name, len) -> size, sys_statfs(buf), sys_readblk(n, buf)
+;                sys_stat(name, len) -> size, sys_statfs(buf), sys_readblk(n, buf);
+;                names are paths ("/tag/tag/name": the file must carry the tags)
+;   tags         sys_query(buf, path, len) -> n (DIR of a tag path), sys_tags(buf,
+;                path or 0, len) -> n (32-byte records: name[16], u64 files, u64
+;                number), sys_tag(name, len, tag, len), sys_untag(name, len, tag, len)
 ;   devices      sys_devs(buf) -> n, sys_halt, sys_grantfb() (ws only: c6 memory, c7 ports)
 ;   time         sys_now -> ticks (1 us), sys_sleep(ticks) -> -8 / -2,
 ;                sys_notify_wait(timeout) -> bits / -8, sys_yield, sys_clock,
@@ -96,6 +100,9 @@ OP_PIPE    = 8                          ; pipe: make a pipe
 OP_PS      = 9                          ; proc: list processes
 OP_DIR     = 10                         ; fs: list files
 OP_UNLINK  = 11                         ; fs: delete a file
+OP_TAG     = 12                         ; fs: give a file a tag
+OP_UNTAG   = 13                         ; fs: take a tag from a file
+OP_TAGS    = 14                         ; fs: list tags (all, or a file's)
 OP_INFO    = 16                         ; proc: system summary
 OP_SIGNAL  = 17                         ; proc: interrupt a process
 OP_SETFG   = 18                         ; tty: the foreground process
@@ -990,6 +997,110 @@ sys_dir:
         li    a2, 32                    ; record size
         li    a3, 0                     ; ...
         j     sys_fsdata                ; (tail call)
+
+; sys_query(a0 = buffer, 128 * 32 bytes, a1 = tag path, a2 = its length) ->
+; a0 = files carrying every tag of the path (records as sys_dir), or -4
+sys_query:
+        mv    a3, a2                    ; length
+        mv    a2, a1                    ; the path
+        mv    a1, a0                    ; destination
+        li    a0, OP_DIR                ; the request
+        j     sys_fsq                   ; (tail call)
+
+; sys_tags(a0 = buffer, 64 * 32 bytes, a1 = a file's path, a2 = its length (0:
+; every tag)) -> a0 = tags; records: 16 bytes name, u64 files, u64 tag number
+sys_tags:
+        mv    a3, a2                    ; length
+        mv    a2, a1                    ; the path
+        mv    a1, a0                    ; destination
+        li    a0, OP_TAGS               ; the request
+; sys_fsq(a0 = op, a1 = destination, a2 = path, a3 = length) -> a0 = count;
+; copies count 32-byte records of reply data out
+sys_fsq:
+        addi  sp, sp, -32               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        sd    a0, 8(sp)                 ; op
+        sd    a1, 16(sp)                ; destination
+        sd    a3, 24(sp)                ; length
+        mv    a0, a2                    ; the path -> the buffer
+        mv    a1, a3                    ; ...
+        call  sys_put                   ; ...
+        li    a0, 2                     ; fs
+        ld    a1, 8(sp)                 ; op
+        li    a2, 0                     ; ...
+        ld    a3, 24(sp)                ; length
+        li    a4, 0                     ; ...
+        call  sys_msg                   ; a0 = count
+        blez  a0, sfq_ret               ; nothing
+        sd    a0, 8(sp)                 ; keep it
+        slli  a1, a0, 5                 ; bytes
+        li    t0, SYS_MAX               ; at most one message
+        bleu  a1, t0, sfq_cp            ; ...
+        mv    a1, t0                    ; ...
+sfq_cp:
+        ld    a0, 16(sp)                ; destination
+        call  sys_get                   ; copy
+        ld    a0, 8(sp)                 ; the count
+sfq_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 32                ; release the frame
+        ret                             ; done
+
+; sys_tag(a0 = name, a1 = length, a2 = tag, a3 = its length) -> a0 = 0, -4 no
+; such file, -6 no room for another tag, -1 bad tag name
+; sys_untag: the same, taking the tag away (0 also if the file did not carry it)
+sys_tag:
+        li    a4, OP_TAG                ; the request
+        j     sys_tagop                 ; shared path
+sys_untag:
+        li    a4, OP_UNTAG              ; the request
+sys_tagop:
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        sd    a4, 8(sp)                 ; op
+        la    t0, sys_buf               ; data: the name, a zero byte, the tag
+        li    t1, 0                     ; index
+stg_a:
+        beq   t1, a1, stg_z             ; the name is copied
+        add   t2, a0, t1                ; ...
+        lbu   t2, 0(t2)                 ; ...
+        add   t3, t0, t1                ; ...
+        sb    t2, 0(t3)                 ; ...
+        addi  t1, t1, 1                 ; ...
+        j     stg_a                     ; ...
+stg_z:
+        add   t3, t0, t1                ; the zero byte
+        sb    zero, 0(t3)               ; ...
+        addi  t1, t1, 1                 ; ...
+        add   t4, t0, t1                ; t4 = where the tag goes
+        li    t2, 0                     ; ...
+stg_b:
+        beq   t2, a3, stg_d             ; the tag is copied
+        add   t3, a2, t2                ; ...
+        lbu   t3, 0(t3)                 ; ...
+        add   t5, t4, t2                ; ...
+        sb    t3, 0(t5)                 ; ...
+        addi  t2, t2, 1                 ; ...
+        j     stg_b                     ; ...
+stg_d:
+        add   t1, t1, a3                ; t1 = the length
+        sd    t1, 16(sp)                ; ...
+        add   t3, t0, t1                ; and a terminating zero
+        sb    zero, 0(t3)               ; ...
+        addi  t2, t1, 8                 ; whole words, with it
+        srli  t2, t2, 3                 ; ...
+        slli  t2, t2, 3                 ; ...
+        li    t3, 64                    ; after the header
+        tput  tg10, t0, c5, t3, t2      ; D-LS -> the buffer
+        li    a0, 2                     ; fs
+        ld    a1, 8(sp)                 ; op
+        li    a2, 0                     ; ...
+        ld    a3, 16(sp)                ; length
+        li    a4, 0                     ; ...
+        call  sys_msg                   ; a0 = result
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 24                ; release the frame
+        ret                             ; done
 
 ; sys_statfs(a0 = buffer of 24 bytes) -> a0 = 3; u64 total blocks, used blocks, files
 sys_statfs:

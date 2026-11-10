@@ -81,7 +81,7 @@ typedef struct {
 } Gift;
 
 /* A device read that cannot complete yet (console input, the break port,
- * timer WAIT, VSYNC) stays in flight: its tag is busy and loads/stores over
+ * timer WAIT, VSYNC, the pointer's EVENT) stays in flight: its tag is busy and loads/stores over
  * its bytes wait, exactly as the hardware behaves. `port` is the port it
  * reads, `target` the tick at which a VSYNC completes, `seq` its issue order
  * (the oldest waiting read is served first). */
@@ -137,6 +137,7 @@ static uint64_t rounds;         /* machine rounds: every live core gets one step
 static uint64_t tmr_deadline;   /* DEADLINE */
 static uint64_t tmr_wbuf;       /* DEADLINE bytes written so far (takes effect at byte 7) */
 static uint64_t tmr_lnow, tmr_ldl; /* NOW and DEADLINE, latched when their byte 0 is read */
+static uint64_t ptr_lstate;        /* the pointer's STATE, latched when its byte 0 is read */
 static int npending;            /* pending device reads, machine wide */
 static uint64_t slow_events = 1; /* counts what can unblock a core: completed device reads, steps of step() */
 static uint64_t pend_seq;
@@ -278,6 +279,7 @@ static void pend_service(void) {
   Core *c;
   Pending *p;
   while (host_breaks && (p = pend_oldest(DEV_CONSOLE + CON_BREAK, &c))) { host_breaks--; pend_fill(c, p, 0x0303030303030303ull); }
+  while (host_ptr_ready() && (p = pend_oldest(DEV_POINTER + PTR_EVENT, &c))) pend_fill(c, p, host_ptr_pop());
   while ((p = pend_oldest(DEV_CONSOLE + CON_IN, &c)) && con_in_ready(p->len)) {
     con_in_fill(c, p->ls, p->len);
     p->on = false;
@@ -310,6 +312,12 @@ static void dev_write(uint64_t port, uint64_t i, uint8_t b) {
     Core *c;
     Pending *p;
     while ((p = pend_oldest(DEV_CONSOLE + CON_BREAK, &c))) pend_fill(c, p, 0);
+    return;
+  }
+  if (port == DEV_POINTER + PTR_EVENT) { /* complete every waiting EVENT read with 0 */
+    Core *c;
+    Pending *p;
+    while ((p = pend_oldest(DEV_POINTER + PTR_EVENT, &c))) pend_fill(c, p, 0);
     return;
   }
   if (a >= DEV_TIMER + TMR_DEADLINE && a < DEV_TIMER + TMR_DEADLINE + 8) {
@@ -355,6 +363,11 @@ static uint8_t dev_read(uint64_t port, uint64_t i) {
     unsigned j = (unsigned)(a & 7);
     if (j == 0) net_lstat = net_status();
     return (uint8_t)(net_lstat >> (8 * j));
+  }
+  if (a >= DEV_POINTER + PTR_STATE && a < DEV_POINTER + PTR_STATE + 8) {
+    unsigned j = (unsigned)(a & 7);
+    if (j == 0) ptr_lstate = host_ptr_state();
+    return (uint8_t)(ptr_lstate >> (8 * j));
   }
   if (a >= DEV_PLAT && a < DEV_PLAT + PLAT_LEN) return plat_rom[a - DEV_PLAT];
   if (a >= DEV_BLK0 + BLK_IDENT && a < DEV_BLK0 + BLK_IDENT + BLK_IDENT_LEN) return blk_rom[a - DEV_BLK0];
@@ -576,7 +589,8 @@ static bool step(Core *c) {
       }
     } else if (k->space == SP_DEV && sub == XF_GET && len &&
                (far == DEV_CONSOLE + CON_IN || far == DEV_CONSOLE + CON_BREAK ||
-                far == DEV_TIMER + TMR_WAIT || far == DEV_FBCTL + FBC_VSYNC || far == DEV_NET + NET_RX)) {
+                far == DEV_TIMER + TMR_WAIT || far == DEV_FBCTL + FBC_VSYNC || far == DEV_POINTER + PTR_EVENT ||
+                far == DEV_NET + NET_RX)) {
       /* a read that may have to wait: it completes now if it can, else stays in flight */
       Pending p = {true, (int)tg, ls, len, far, 0, pend_seq++};
       uint64_t now = 0;
@@ -586,6 +600,7 @@ static bool step(Core *c) {
       bool ready = far == DEV_CONSOLE + CON_IN ? con_in_ready(len)
                  : far == DEV_NET + NET_RX ? net_rx_count() > 0
                  : far == DEV_CONSOLE + CON_BREAK ? host_breaks > 0
+                 : far == DEV_POINTER + PTR_EVENT ? host_ptr_ready()
                  : far == DEV_TIMER + TMR_WAIT ? now >= tmr_deadline : false;
       int slot = -1;
       for (int i = 0; i < NPEND && slot < 0; i++)
@@ -596,7 +611,8 @@ static bool step(Core *c) {
         else if (far == DEV_NET + NET_RX) net_rx_fill(c, ls, len);
         else {
           if (far == DEV_CONSOLE + CON_BREAK) host_breaks--;
-          uint64_t v = far == DEV_CONSOLE + CON_BREAK ? 0x0303030303030303ull : now;
+          uint64_t v = far == DEV_CONSOLE + CON_BREAK ? 0x0303030303030303ull
+                     : far == DEV_POINTER + PTR_EVENT ? host_ptr_pop() : now;
           for (uint64_t i = 0; i < len; i++) c->dls[ls + i] = i < 8 ? (uint8_t)(v >> (8 * i)) : 0;
         }
       } else {
@@ -1475,6 +1491,7 @@ static int machine_round(void) {
       else if (p->port == DEV_CONSOLE + CON_IN) idle.input |= host_input_live();
       else if (p->port == DEV_CONSOLE + CON_BREAK) idle.input |= host_break_live();
       else if (p->port == DEV_NET + NET_RX) idle.input |= net_live(); /* a packet may come from the peer */
+      else if (p->port == DEV_POINTER + PTR_EVENT) idle.input |= host_ptr_live();
     }
   uint64_t now = now_ticks();
   if (idle.timed && idle.next > now && idle.next - now > (1ull << 40)) idle.timed = false; /* a deadline nobody will see */
@@ -1485,13 +1502,15 @@ static int machine_round(void) {
 
 #define USAGE                                                                                         \
   "usage: strata-emu [-c ncores] [-t trace.txt] [-m max_steps] [-d disk.img] [-i input.txt]\n"       \
-  "                  [-b steps] [-T real|virtual] [-g none] [-F frame.ppm] [-z scale] [-r WxH]\n"         \
+  "                  [-P pointer.txt] [-b steps] [-T real|virtual] [-g none] [-F frame.ppm]\n"             \
+  "                  [-z scale] [-r WxH]\n"                                                         \
   "                  [-H] [-N mode] [-J|-j] image.stx\n"                                                                     \
   "  -c N        cores (1..15, default 4)\n"                                                          \
   "  -t FILE     write an instruction trace\n"                                                        \
   "  -m N        stop after N steps (timeout)\n"                                                      \
   "  -d FILE     block device image\n"                                                                \
   "  -i FILE     console input from FILE (default: the terminal / stdin)\n"                          \
+  "  -P FILE     scripted pointer input (see common/display.h)\n"                                   \
   "  -b N        press Ctrl-C after N steps\n"                                                        \
   "  -T MODE     timer: real (host microseconds, default) or virtual (rounds / 100)\n"               \
   "  -g none     never open a window (PRESENT still records the frame)\n"                            \
@@ -1521,6 +1540,9 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[i], "-d") && more) disk_path = argv[++i];
     else if (!strcmp(argv[i], "-b") && more) opt_break_at = strtoull(argv[++i], NULL, 0);
     else if (!strcmp(argv[i], "-i") && more) in_path = argv[++i];
+    else if (!strcmp(argv[i], "-P") && more) {
+      if (!host_ptr_script_open(argv[++i])) { perror(argv[i]); return 2; }
+    }
     else if (!strcmp(argv[i], "-t") && more) {
       trace = fopen(argv[++i], "w");
       if (!trace) { perror("trace"); return 2; }
@@ -1609,6 +1631,7 @@ int main(int argc, char **argv) {
       opt_break_at = 0;
       press_break();
     }
+    host_ptr_script_run(mach_steps); /* -P */
     if (rounds >= poll_at || use_jit) { /* now and then: terminal input, window events */
       poll_at = rounds + 4096;
       host_poll();
@@ -1621,6 +1644,10 @@ int main(int argc, char **argv) {
       break;
     }
     if (r == RND_DEADLOCK) { fprintf(stderr, "deadlock: every live core is blocked\n"); return 1; }
+    if (r == RND_IDLE && host_ptr_script_stepped()) { /* no step can come first: its time has come */
+      host_ptr_script_do();
+      continue;
+    }
     if (r == RND_IDLE) {
       uint64_t now = now_ticks(), next = idle.next;
       fflush(stdout);

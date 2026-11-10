@@ -2,7 +2,7 @@
 ; devspan.s: device transfers move one byte per beat to consecutive ports
 ; =============================================================================
 ;
-; What it checks (doc/strataos-0.2.md 1.2; common/platform.h)
+; What it checks (doc/strataos.md 1.2; common/platform.h)
 ;   * A 16-byte read starting at FREQ (0x3008) returns FREQ then DEADLINE.
 ;   * A 16-byte write starting at FREQ (read-only: ignored) writes DEADLINE
 ;     with its second 8 bytes (it takes effect at DEADLINE's byte 7).

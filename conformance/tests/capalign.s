@@ -2,7 +2,7 @@
 ; capalign.s: capabilities are 8-byte aligned
 ; =============================================================================
 ;
-; What it checks (FINDINGS F6, doc/strataos-0.2.md 1.5: a capability's base
+; What it checks (FINDINGS F6, doc/strataos.md 1.5: a capability's base
 ; is always a multiple of 8, so a transfer at offset o reaches exactly the
 ; bytes at base + o)
 ;   * csplit at an offset that is not a multiple of 8 (4, then 0x1001 - 1)

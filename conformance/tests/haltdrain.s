@@ -2,7 +2,7 @@
 ; haltdrain.s: halt waits for the core's own transfers, device reads included
 ; =============================================================================
 ;
-; What it checks (FINDINGS F3, doc/strataos-0.2.md 1.2; manual: gen-insns-sys.tex
+; What it checks (FINDINGS F3, doc/strataos.md 1.2; manual: gen-insns-sys.tex
 ; HALT, ch-traps.tex, ch-intercore.tex: "halt waits for all of the core's
 ; transfers first", device reads included)
 ;   * Core 0 sets DEADLINE 20000 ticks ahead, issues a timer WAIT read (in

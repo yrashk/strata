@@ -69,7 +69,7 @@ a conformance suite that holds them all to the same behaviour.
 | `fpga/` | Synthesis script, LiteDRAM adapter, a board top, pin constraints |
 | `web/` | The WebAssembly build of the emulator for the site's play page |
 | `site/` | The project site: the landing page, `play/` (the in-browser emulator) and `code/` (the source browser) |
-| `doc/` | The manual's LaTeX sources (`doc/manual/`), the StrataOS design specification (`doc/strataos-0.2.md`), schematics |
+| `doc/` | The manual's LaTeX sources (`doc/manual/`), the StrataOS design specification (`doc/strataos.md`), schematics |
 | `.github/workflows/` | CI: builds the manual, the WebAssembly emulator and the site, and publishes them |
 
 ## Building
@@ -90,6 +90,7 @@ make                # build/sasm, build/strata-emu, build/strata-rtl
 make test           # everything below, compared across the machines (several minutes)
 make show-gfx       # eight cores draw a Mandelbrot set into the framebuffer window
 make boot           # boot StrataOS on the emulator (12 cores) and type at its shell
+make boot-ws        # the same, with the window server started at boot
 make forth          # a Forth prompt on the bare machine
 make ws-demo        # the window server's renderers against a simulated system
 make conformance    # the conformance suite on the interpreter, the JIT and the RTL
@@ -134,6 +135,7 @@ take the same flags, except where noted.
 | `-c N` | cores, 1..15 (emulator only; default 4, the Makefile passes 8, and 12 for `make boot`) |
 | `-d FILE` | block device image |
 | `-i FILE` | console input from a file instead of the terminal |
+| `-P FILE` | scripted pointer (mouse) input: `WHEN move X Y`, `down B`, `up B`, `wheel DY [DX]`, `enter`, `leave`; WHEN is a step (RTL: cycle) count, or `kN` after N console bytes |
 | `-t FILE` | write an instruction trace |
 | `-m N` | stop after N steps (emulator) or cycles (RTL) |
 | `-b N` | press Ctrl-C after N steps / cycles (Ctrl-C at the terminal or in the window does the same) |
@@ -197,8 +199,9 @@ strata$ ws                          # the window server takes the screen
   code units it loads into its own instruction store on demand, with the
   same `xcall` / miss mechanism programs use.
 - **Servers are processes.** `proc` (processes, names, signals), `dev`
-  (devices), `fs` (files; it drives the block device from user mode), `tty`
-  (the console, Ctrl-C) and `pipe` run in user mode, one per core. A message
+  (devices), `fs` (files, with tags instead of directories; it drives the
+  block device from user mode), `tty` (the console, Ctrl-C) and `pipe` run
+  in user mode, one per core. A message
   is a lent buffer capability: a program gives its 4 KiB buffer to a server
   through an endpoint and gets it back with the answer. Nothing is copied
   between address spaces, because there are none.
@@ -229,8 +232,7 @@ header → the kernel into every core's Local Stores. The kernel loads
 and the login shell.
 
 The design, the message protocol and every operation number are in
-[`doc/strataos-0.2.md`](doc/strataos-0.2.md) (the file name is historical:
-it describes release 0.1) and in the manual's StrataOS chapter.
+[`doc/strataos.md`](doc/strataos.md) and in the manual's StrataOS chapter.
 
 ### The window server
 
@@ -253,7 +255,16 @@ window's surface and gives the band back.
 
 Keys (Alt is sent as an ESC prefix): Alt+Enter a new terminal, Alt+P (or
 Alt+Space) the launch palette, Alt+1..4 and Alt+arrows focus, Alt+Q close,
-Alt+Shift+Q back to the shell.
+Alt+Shift+Q back to the shell, Alt+? the key help (also shown when the
+splash ends; any key or click dismisses it).
+
+The mouse is the machine's pointer device (0x4100: a queue of move,
+button and wheel events). `tty`, alone on its core, keeps its waiting read
+and hands the events to `ws` with the keys. `ws` draws a cursor; a click
+focuses the tile under it or runs a program from the palette; the window
+under the pointer gets clicks, drags and the wheel, and `term` scrolls back
+through its history with the wheel. `make boot-ws` boots straight into the
+window server.
 
 
 `make ws-demo` runs the same renderers on the bare machine against a
@@ -356,7 +367,7 @@ the console is a UART.
   from `doc/manual/` and publishes it on
   [the project site](https://yrashk.github.io/strata/). To build it
   locally: `make manual` (needs tectonic).
-- [`doc/strataos-0.2.md`](doc/strataos-0.2.md): the devices and StrataOS,
+- [`doc/strataos.md`](doc/strataos.md): the devices and StrataOS,
   as a specification.
 - [`ROADMAP.md`](ROADMAP.md): what exists, what is missing, what is next.
 - The sources: every line of assembly is commented, and each file starts
@@ -373,7 +384,10 @@ the main points:
   budget), and StrataOS needs at least 6 cores.
 - A console read cannot be cancelled, so `halt` may wait for one more key
   when a program was waiting for input.
-- The file system is flat, with contiguous files and 128 directory entries.
+- The file system has tags instead of directories (`ls /src/demo` lists
+  the files tagged both `src` and `demo`), but files are contiguous runs of
+  blocks, a deleted file's space comes back only if it was the last one, and
+  a disk holds at most 128 files and 64 tags.
 - The shell has no globbing and no `2>`.
 - Strata Forth runs on the bare machine only, not yet as a StrataOS program.
 - With timer-driven preemption, the emulator and the RTL cannot be compared
@@ -383,5 +397,12 @@ the main points:
 
 ## License
 
+Licensed under either of
 
-License: TBD.
+- Apache License, Version 2.0 ([`LICENSE-APACHE`](LICENSE-APACHE))
+- MIT license ([`LICENSE-MIT`](LICENSE-MIT))
+
+at your option. Unless you explicitly state otherwise, any contribution
+intentionally submitted for inclusion in this work, as defined in the
+Apache-2.0 license, shall be dual licensed as above, without any additional
+terms or conditions.

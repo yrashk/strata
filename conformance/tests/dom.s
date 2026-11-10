@@ -286,7 +286,7 @@ ep2:    csend c2, c13                   ; send through it
         li    t0, P_W | P_D             ; send-only
         crestrict c13, c8, t0           ; c13 = endpoint without R
 ep3:    crecv c14, c13                  ; receive through it
-        li    a0, C_CAPINV              ; expected cause (emu.c; doc/strataos-0.2.md says perm)
+        li    a0, C_CAPINV              ; expected cause (emu.c; doc/strataos.md says perm)
         la    a1, ep3                   ; expected epc
         li    a2, 13                    ; expected tval: the endpoint register
         call  chkt                      ; check

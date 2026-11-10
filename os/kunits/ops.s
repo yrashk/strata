@@ -25,8 +25,9 @@
 ;   9 NOTIFY   handle = pid, length = bits -> 0 (wakes NOTIFY_WAIT / a sleep)
 ;   6 FREE     attachment: an arena (unused from MEMORY, or from EXITED) -> 0
 ;   8 HALT     stops every core (waits until the workers' dispatchers have stopped
-;              their processes, then writes the console's release port and
-;              DEADLINE 0, so that no core halts with a device read pending)
+;              their processes, then writes the console's release port, the
+;              pointer's EVENT port and DEADLINE 0, so that no core halts with
+;              a device read pending)
 ;  10 FBLEND   (dev only) handle = pid -> 0 and the framebuffer memory
 ;              (attachment): every older capability of its domain is revoked
 ;              and that process is its holder until it ends (then the kernel
@@ -1104,6 +1105,10 @@ uha_rel:
         sd    zero, 0(t0)               ; One write to the console's release port (0x18)
         li    t1, 0x18                  ; completes every waiting break read (tty's) on
         li    t2, 1                     ; every core
+        tput  tg0, t0, c3, t1, t2       ; ...
+        twait 1                         ; ...
+        li    t1, 0x4100                ; one write to the pointer's EVENT port completes
+        li    t2, 1                     ; every waiting EVENT read (tty's) with 0
         tput  tg0, t0, c3, t1, t2       ; ...
         twait 1                         ; ...
         li    t1, 0x4218                ; the network interface's CANCEL completes every

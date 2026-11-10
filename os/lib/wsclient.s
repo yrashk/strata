@@ -36,6 +36,8 @@ WE_SIZE   = 2                           ; the surface has a new size
 WE_CLOSE  = 3                           ; the window is closing: go away
 WE_FOCUS  = 4                           ; keys come here now
 WE_BLUR   = 5                           ; ... and no more
+WE_PTR    = 6                           ; the pointer: value = u16 x, u16 y, u8 buttons, 0, 0, u8 kind
+WE_WHEEL  = 7                           ; the wheel: value = u16 x, u16 y, u8 buttons, s8 y, s8 x, 3
 
         .data                           ; D-LS
         .align 8                        ; dwords

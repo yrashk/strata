@@ -1,6 +1,6 @@
 # Step 5: the advanced shell (os/progs/sh.s) — working plan
 
-Spec: doc/strataos-0.2.md 2.4-2.7. Owner of os/progs/sh.s, tools/test-sh.sh, tools/test-sh.out.
+Spec: doc/strataos.md 2.4-2.7. Owner of os/progs/sh.s, tools/test-sh.sh, tools/test-sh.out.
 
 ## Design
 - Raw console only inside read_line (CONMODE 1 when stdin is the tty and the shell is
@@ -34,7 +34,8 @@ Spec: doc/strataos-0.2.md 2.4-2.7. Owner of os/progs/sh.s, tools/test-sh.sh, too
 ## Known limitations
 - Redraws use relative cursor moves: a line longer than the terminal width redraws wrongly.
 - Completion assumes an 80-column terminal; no completion inside quotes or of $NAME.
-- No `cd` (flat file system), no globbing, no 2> redirection.
+- No `cd` (directories are tags, see os/servers/fs.s: there is no current one), no
+  globbing, no 2> redirection. Tab completes a file name behind a tag path (`cat /doc/mo`).
 
 ## Wrap-up (takeover agent)
 - Checked against spec 2.7 in scripted interactive runs: editing keys, history, Tab,

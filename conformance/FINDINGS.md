@@ -67,7 +67,7 @@ Fixed in emu/emu.c and rtl/strata_core.sv (CF_SPLIT). xfer.s made its
 "shorter than a word" atomic capability by splitting at 4; it now uses an
 empty one (split at 0).
 
-## F7. doc/strataos-0.2.md: crecv without R traps perm; manual, emulator and RTL trap capinv (tval = ce)
+## F7. doc/strataos.md: crecv without R traps perm; manual, emulator and RTL trap capinv (tval = ce)
 The suite expects capinv. Fix the design document.
 
 ## F8. The manual is stale
@@ -84,7 +84,7 @@ The suite expects capinv. Fix the design document.
   they are "checked" (illegal). Both implementations ignore them.
 - The block-device error order is not stated; both implementations check
   op > lba > range > perm.
-- F3-F6 (doc/strataos-0.2.md 1.2 and 1.5 state them; the manual must too):
+- F3-F6 (doc/strataos.md 1.2 and 1.5 state them; the manual must too):
   - csplit (gen-insns-cap.tex): capop unless the offset is a multiple of 8;
     a note in the capability chapter that bases are always 8-byte aligned.
   - The console release port (platform.h comment and the device chapter):

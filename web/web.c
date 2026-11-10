@@ -21,6 +21,7 @@
  *     worker's FS.init hook gets it byte by byte and posts it in batches;
  *   - console input comes from the page: web_input() queues bytes (the
  *     terminal and the canvas keyboard), web_break() is Ctrl-C;
+ *   - the pointer comes from the canvas's mouse: web_pointer();
  *   - the framebuffer: web_paint() converts the rows written since the
  *     last call from XRGB8888 to RGBA and hands them to
  *     Module.webPaint(ptr, y0, rows, width, height); the worker copies
@@ -58,6 +59,7 @@ EMSCRIPTEN_KEEPALIVE double web_run(double ms) {
       opt_break_at = 0;
       press_break();
     }
+    host_ptr_script_run(mach_steps); /* -P (the tests under node) */
     int r = machine_round();
     if (r == RND_HALTED) { web_state = WEB_HALTED; break; }
     if (r == RND_DEADLOCK) {
@@ -70,6 +72,7 @@ EMSCRIPTEN_KEEPALIVE double web_run(double ms) {
       web_state = WEB_TIMEOUT;
       break;
     }
+    if (r == RND_IDLE && host_ptr_script_stepped()) { host_ptr_script_do(); continue; }
     if (r == RND_IDLE) {
       if (virtual_time && idle.timed && !idle.input) { rounds = idle.next * 100; continue; }
       if (!idle.timed) { ret = WEB_FOREVER; break; }
@@ -129,6 +132,23 @@ EMSCRIPTEN_KEEPALIVE void web_input(const uint8_t *p, int n) {
 
 /* Ctrl-C: completes the oldest pending break read, or is remembered. */
 EMSCRIPTEN_KEEPALIVE void web_break(void) { press_break(); }
+
+/* The canvas's mouse: op 1 move to (a, b) in framebuffer pixels, 2 button a
+ * down (b = 1) or up (b = 0), 3 wheel (a = y, b = x), 4 enter, 5 leave (the
+ * PTR_* kinds). Completes waiting EVENT reads at once. */
+EMSCRIPTEN_KEEPALIVE void web_pointer(int op, int a, int b) {
+  switch (op) {
+  case PTR_MOVE: host_ptr_move(a, b); break;
+  case PTR_BUTTON: host_ptr_button(a, b != 0); break;
+  case PTR_WHEEL: host_ptr_wheel(a, b); break;
+  case PTR_ENTER: host_ptr_enter(true); break;
+  case PTR_LEAVE: host_ptr_enter(false); break;
+  }
+  pend_service();
+}
+
+/* True once the guest has read the pointer device: the page hides its cursor. */
+EMSCRIPTEN_KEEPALIVE int web_pointer_used(void) { return host_ptr_used; }
 
 /* Stops the machine for good (Reset loads a fresh instance). */
 EMSCRIPTEN_KEEPALIVE void web_stop(void) { web_state = WEB_STOPPED; }

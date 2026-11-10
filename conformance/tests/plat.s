@@ -14,8 +14,9 @@
 ;     block device 0 (node = ncores, info = 8192 blocks), the framebuffer
 ;     (1280 x 800, stride 5120, format 1 = XRGB8888, at 0x3000000 in T3,
 ;     16 MiB), the timer (info = 1000000 ticks per second), the pointer
-;     (info 0x0307: three buttons, two wheels; ports 0x4100, 0x10) and the
-;     network interface (info = MTU 1500; ports 0x4200, 0x20). "node" is
+;     (window 0x4100, 16 bytes; info 0x0307 = buttons left | right | middle,
+;     wheel y | wheel x << 8) and the network interface (window 0x4200,
+;     0x20 bytes; info = MTU 1500). "node" is
 ;     0xffff when nothing can be given to the device.
 ;   * Bytes past the table (still inside the window) read as zero.
 
@@ -97,7 +98,7 @@ ck_loop:
         ld    t1, 128(s3)               ; entry 4, first word
         or    t1, t1, t0                ; patch the node in
         sd    t1, 128(s3)               ; store
-        li    s4, 0                     ; s4 = word index 0..27
+        li    s4, 0                     ; s4 = word index 0..31
 en_loop:
         slli  t0, s4, 3                 ; byte offset
         add   t1, s1, t0                ; table word

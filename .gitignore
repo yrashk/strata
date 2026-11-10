@@ -11,6 +11,9 @@
 *.log
 *.toc
 *.out
+# (but not the tests' expected outputs)
+!/tools/*.out
+!/lang/forth/tests/*.out
 *.lof
 *.lot
 *.idx

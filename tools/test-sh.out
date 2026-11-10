@@ -1,0 +1,222 @@
+strata$ echo hellX^[[1D^[[Ko world
+hello world
+strata$ echo wrld^[[1D^[[1D^[[1Dorld^[[K^[[3Drld
+world
+strata$ cho hi^[[6Decho hi^[[K^[[6Dcho hi!
+hi!
+strata$ cho there^[[9Decho there^[[K^[[9Dcho there.
+there.
+strata$ echo abXc^[[1D^[[1Dc^[[K^[[1Dc
+abc
+strata$ echo keep junk^[[1D^[[1D^[[1D^[[1D^[[1D^[[K
+keep
+strata$ garbage^[[7D^[[Kecho after-u
+after-u
+strata$ echo one two^[[3D^[[Kthree
+one three
+strata$ echo xyz^[[1D^[[K^[[1D^[[K!
+x!
+strata$ ^[[2J^[[Hstrata$ echo cleared
+cleared
+strata$ echo cleared^[[K
+cleared
+strata$ echo cleared^[[K^[[12Decho x!^[[K^[[7Decho one three^[[K^[[14Decho x!^[[K
+x!
+strata$ echo new^[[8Decho x!^[[K^[[7Decho new^[[K^[[1D^[[K
+ne
+strata$ history
+    1  echo hello world
+    2  echo world
+    3  echo hi!
+    4  echo there.
+    5  echo abc
+    6  echo keep
+    7  echo after-u
+    8  echo one three
+    9  echo x!
+   10  echo cleared
+   11  echo x!
+   12  echo ne
+   13  history
+strata$ echo alpha beta > tfile
+strata$ echo hi
+hi
+strata$ echo hi | upper 
+HI
+strata$ cat tfile 
+alpha beta
+strata$ hello 
+Hello from Strata core 0 of 1
+strata$ hel
+hello  help
+strata$ hel^[[3D^[[K
+strata$ un
+units  unset  untag
+strata$ un^[[2D^[[Kecho listed
+listed
+strata$ echo stream_sum
+stream_sum    stream_sum.s
+strata$ echo stream_sum x^[[17D^[[K
+strata$ wc < tfile 
+1 2 11
+strata$ -n 2 hello 
+Hello from Strata core 0 of 2
+Hello from Strata core 1 of 2
+strata$ run -n 2 hello 
+Hello from Strata core 0 of 2
+Hello from Strata core 1 of 2
+strata$ echo 'a  b' "c  d" e"f g"h
+a  b c  d ef gh
+strata$ set X world
+strata$ echo "hello $X" '$X' $X!
+hello world $X world!
+strata$ set GREETING hi there
+strata$ set
+X=world
+GREETING=hi there
+strata$ unset X; echo [$X] [$GREETING]
+[] [hi there]
+strata$ false
+[1] strata$ echo $?; echo $?
+1
+0
+strata$ echo "unterminated
+sh: unterminated quote
+[2] strata$ echo a # a comment
+a
+strata$ # only a comment
+strata$ true && echo yes || echo no
+yes
+strata$ false && echo yes || echo no
+no
+strata$ cat nosuch || echo failed: $?
+cat: no such file: nosuch
+[exit 1]
+failed: 1
+strata$ echo a; echo b ;echo c
+a
+b
+c
+strata$ false || false && echo not-run; echo after
+after
+strata$ && echo bad
+sh: syntax error
+[2] strata$ seq 12 | grep 1 | wc
+4 4 11
+strata$ echo piped builtin | upper
+PIPED BUILTIN
+strata$ echo it\'s "a  b" \$X \; c | upper
+IT'S A  B $X ; C
+strata$ echo "jobs; echo piped" | sh
+piped
+strata$ sh -c "set A 1; echo \$A"
+1
+strata$ echo a\ \ b "q\"q" \# x
+a  b q"q # x
+strata$ echo to a file > f1; echo more >> f1; cat < f1
+to a file
+more
+strata$ echo echo sourced $$ > s1; echo set Y from-script >> s1
+strata$ source s1; echo Y=$Y
+sourced PID
+Y=from-script
+strata$ sh s1
+sourced PID
+strata$ sh -c "echo from -c; false"
+from -c
+[exit 1]
+[1] strata$ source nosuch
+sh: cannot open nosuch
+[1] strata$ sleep 0.05 & echo started
+[1] PID
+started
+strata$ jobs
+[1] PID  sleep 0.05
+strata$ wait %1
+[1] done  sleep 0.05
+strata$ seq 3 > f2 &
+[1] PID
+strata$ wait
+[1] done  seq 3 > f2
+strata$ cat f2
+1
+2
+3
+strata$ spin > f3 &
+[1] PID
+strata$ kill %1
+[1] killed  spin > f3
+strata$ wait
+strata$ sleep 0.05 &
+[1] PID
+strata$ fg
+sleep 0.05
+strata$ fg
+sh: fg: no such job
+[1] strata$ time sleep 0.1
+time: T s
+strata$ sleep x
+usage: sleep SECONDS (for example 0.5)
+[2] strata$ tags motd rc ls
+motd: doc
+rc: etc
+ls: bin
+strata$ echo alpha > n1; echo beta > /notes/n2; echo gamma > /notes/work/n3
+strata$ tag n1 notes
+strata$ ls -t /notes
+n1                              6  notes
+n2                              5  notes
+n3                              6  notes work
+strata$ ls /notes/work; ls /work//notes/; ls /work/n3
+n3                        6
+n3                        6
+n3                        6
+strata$ tags n1 n2 n3 | upper
+N1: NOTES
+N2: NOTES
+N3: NOTES WORK
+strata$ cat /work/n3 /notes/n2 n1
+gamma
+beta
+alpha
+strata$ cat /work/n2 || cat /nosuch/n1
+cat: no such file: /work/n2
+[exit 1]
+cat: no such file: /nosuch/n1
+[exit 1]
+[1] strata$ cat /work/n3 
+gamma
+strata$ echo more >> /work/n1; tags n1
+n1: notes work
+strata$ cat /notes/n
+n1  n2  n3
+strata$ cat /notes/n^[[12D^[[K
+strata$ untag n3 work; untag n1 work; ls /work
+ls: no such tag or file: /work
+[exit 1]
+[1] strata$ tags | grep notes
+notes             3
+strata$ tag n1 a/b; tag nosuch x; untag; tags nosuch
+tag: cannot tag n1 with a/b
+[exit 1]
+tag: no such file: nosuch
+[exit 1]
+usage: tag FILE TAG... / untag FILE TAG...
+[exit 2]
+tags: no such file: nosuch
+[exit 1]
+[1] strata$ wc < /notes/n1 > /out/w1; ls -t /out; cat /out/w1
+w1                              7  out
+2 2 11
+strata$ rm /notes/n1 /notes/n2 n3 /out/w1; ls /notes; tags | grep notes
+ls: no such tag or file: /notes
+[exit 1]
+strata$ rm f1 f2 f3 s1 tfile
+strata$ exit 3 &
+[1] PID
+strata$ wait
+[1] exit 3  exit 3
+strata$ echo bye
+bye
+strata$ 
+StrataOS: all cores halted

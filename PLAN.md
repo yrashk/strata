@@ -6,7 +6,7 @@ The state of the project and everything left to do, as checklists, so work
 can resume from any point. Tick a box as soon as its item is done and
 verified, and add an item whenever new work appears.
 
-**Normative spec:** `doc/strataos-0.2.md`. It covers the devices, graphics,
+**Normative spec:** `doc/strataos.md`. It covers the devices, graphics,
 memory, the microkernel, the servers, the shell, the window server and its
 look-and-feel, boot, and the tests. When code and spec disagree, fix one of
 them.
@@ -402,7 +402,7 @@ conformance` (called by `make test`).
   (`make fuzz SEEDS=N`). Presented frames stay with `tools/test-fb.sh`.
   Findings (F1 RTL cgive tval and F2 emu PTRAP fixed; F7/F8 docs open):
   `conformance/FINDINGS.md`.
-- [x] ISA decisions F3–F6 applied (emu, RTL, tests, doc/strataos-0.2.md 1.2
+- [x] ISA decisions F3–F6 applied (emu, RTL, tests, doc/strataos.md 1.2
   and 1.5; `xfail.txt` empty): halt drains device reads (emu); one release
   completes every break read (RTL); a transfer overlapping an in-flight
   device read waits at issue / traps pend with PTRAP (both); capabilities
@@ -440,7 +440,7 @@ conformance` (called by `make test`).
   - [x] numbers for both families, 1 and 2 cores (xc7: 47.4k / 94.7k LUTs; ecp5: 73.8k / 142.5k LUT4 sites), per-module breakdown and the top consumers; `fpga/synth.sh` now prints a summary and the latch / FF-memory checks;
   - [x] boards: 1 core fits the Arty A7-100T (and, on paper, an ECP5-85F); 2 cores need the XC7A200T; StrataOS needs 6 cores, which no board named here holds;
   - [x] note that there is no video output on FPGA yet.
-- [ ] Update `doc/strataos-0.2.md` wherever the implementation deviated.
+- [ ] Update `doc/strataos.md` wherever the implementation deviated.
 - [x] Manual updated for the release (179 pages, builds clean): svc, inbox rule, capability alignment, device-read rules, timer, framebuffer, 64 MiB map, a rewritten StrataOS chapter (op tables 18.x), a Forth chapter.
 - [ ] Reconcile after the OS and ws agents finish (found by the manual pass):
   - [ ] the manual's op tables 18.x vs the final kernel/servers (kernel op 10 FBLEND, dev 30/31, proc 39 WHOIS, fs 32–35, ws 46 TITLE);
@@ -452,7 +452,7 @@ conformance` (called by `make test`).
   - [ ] emulator: enforce one break read per core, and check `ltag`/`linst` against pending device reads (FINDINGS F2 remainder), or document it.
 - [x] README rewritten for the release; `ROADMAP.md` written; the spec's section 2 and 3 now describe what was built; manual op tables updated (docs pass).
 - [ ] Coordinator TODOs left by the docs pass: README ~line 258 (confirm `make boot` + `ws`, delete the comment), README "License: TBD" (ask the user), spec end of 2.8 (ws keys and limits vs final sources), spec section 3 (the ws test), manual ch-os.tex prose "The client protocol" (surface model: clients lend bands), `lang/forth/README.md` StrataOS section, `os/ws/README.md` (still "renderers"), Makefile help header (ws-demo, forth, web-site, web-code), fpga/README `@ECP5@`.
-- [ ] Versioning: the first release is **StrataOS 0.1** (nothing has been released yet). Rename `doc/strataos-0.2.md` → `doc/strataos.md`, update every reference (PLAN.md, agent plans, Makefile, scripts, manual, site, README), and sweep user-visible "0.2" (banners, help, ws status bar, `uname`/INFO, site) to 0.1.
+- [x] Versioning: the first release is **StrataOS 0.1** (nothing has been released yet). Renamed `doc/strataos-0.2.md` → `doc/strataos.md`, update every reference (PLAN.md, agent plans, Makefile, scripts, manual, site, README), and sweep user-visible "0.2" (banners, help, ws status bar, `uname`/INFO, site) to 0.1.
 
 ## 8. Publish — TODO
 
