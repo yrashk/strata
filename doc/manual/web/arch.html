@@ -1,0 +1,408 @@
+<!--
+  The architecture outline of the website (arch/), the prose of which is
+  written here; gen/genweb.py fills in the placeholders from the manual's
+  LaTeX sources, so every table, rule box, listing, number and figure caption
+  is the manual's own:
+
+    {{chapter:LABEL}}            chapter heading (closes the previous chapter)
+    {{section:LABEL}}            section heading, or {{section:FILE.tex:Title}}
+    {{table:LABEL}}              a captioned table
+    {{tabular:FILE.tex:Header}}  an uncaptioned table, by its first header cell
+                                 (Header#2 for the second such table)
+    {{rule:FILE.tex:Title}}      a rule box
+    {{desc:FILE.tex:text}}       a description list whose first item label contains text
+    {{asm:FILE.tex:text}}        the first assembly listing containing text
+    {{pseudo:FILE.tex:text}}     the first pseudocode listing containing text
+    {{figcap:LABEL}}             a figure's number and caption
+    {{capfmt}} {{encodings}} {{opmap}}   generated figures
+    {{ref:LABEL}}                "Section 3.4", linked here or to the PDF
+    {{pdf:LABEL}}                the same, always to the PDF
+-->
+<header class="doc-head">
+  <p class="kicker">Architecture Reference Manual · outline</p>
+  <h1>The Strata architecture</h1>
+  <p class="doc-meta"><span>Part I, the encoding and the platform</span><span>tables generated from the manual's source</span></p>
+  <p class="doc-desc">Strata is a 64-bit load/store architecture with fixed 32-bit instructions,
+    built on one idea: <em>memory beyond the core is explicit I/O, and every storage tier is visible
+    to software.</em> This page is an outline of the
+    <a href="../Strata-Architecture-Reference-Manual.pdf">Architecture Reference Manual</a>: the key
+    ideas, the rules and the tables of facts, with each heading linked to the full text in the PDF.
+    Every instruction is described on the <a href="../isa/">instruction-set page</a>.</p>
+</header>
+
+{{chapter:ch:intro}}
+<p>Each core has two private 64&nbsp;KiB Local Stores, one for data and one for instructions.
+  Loads, stores and instruction fetch reach nothing else. Everything beyond them, the shared cluster
+  store, system memory and the devices, is reached by explicit, capability-checked block transfers.
+  The design principles, as the manual states them:</p>
+{{section:ch-intro.tex:Design principles}}
+{{desc:ch-intro.tex:Loads and stores reach only the Local Store.}}
+
+{{section:ch-intro.tex:System organisation}}
+<p>Each core contains its integer and capability registers, its two Local Stores and its Transfer
+  Unit. All cores share the far tiers through an arbiter. The block device is itself a node that can
+  receive and return capabilities.</p>
+<figure class="sysfig" id="fig-system">
+  <div class="sys-cores">
+    <div class="sys-core"><b>Core 0</b><div class="sys-rf">x0–x31 · c0–c15</div><div class="sys-ls"><span>I-LS 64&nbsp;KiB<em>fetch</em></span><span>D-LS 64&nbsp;KiB<em>ld / st</em></span></div><div class="sys-tu">Transfer Unit, tg0–tg15</div></div>
+    <div class="sys-core"><b>Core 1</b><div class="sys-rf">x0–x31 · c0–c15</div><div class="sys-ls"><span>I-LS 64&nbsp;KiB<em>fetch</em></span><span>D-LS 64&nbsp;KiB<em>ld / st</em></span></div><div class="sys-tu">Transfer Unit, tg0–tg15</div></div>
+    <div class="sys-dots">⋯</div>
+    <div class="sys-core"><b>Core <i>N</i>−1</b><div class="sys-rf">x0–x31 · c0–c15</div><div class="sys-ls"><span>I-LS 64&nbsp;KiB<em>fetch</em></span><span>D-LS 64&nbsp;KiB<em>ld / st</em></span></div><div class="sys-tu">Transfer Unit, tg0–tg15</div></div>
+  </div>
+  <div class="sys-gift">⇢ capabilities pass between cores’ inboxes: <code>cgive</code> / <code>ctake</code></div>
+  <div class="sys-arb">Far arbiter (TU transfers and far atomics)</div>
+  <div class="sys-far">
+    <span>T2 cluster store<em>256 KiB</em></span>
+    <span>T3 system memory<em>64 MiB</em></span>
+    <span>T4 device space<em>console, disk, timer, display</em></span>
+  </div>
+  {{figcap:fig:system}}
+</figure>
+
+{{section:ch-intro.tex:Storage tiers}}
+{{table:tab:tiers}}
+<p>Two further spaces hold no storage: core-control space (space 5), through which a core stops
+  other cores, and endpoint space (space 6), whose capabilities name nodes. The Local Store sizes are
+  architectural; the far tier sizes belong to the platform and are reported by its platform table.</p>
+
+{{section:ch-intro.tex:A first program}}
+<p>The smallest complete program prints a greeting from every core in turn: code and data are in the
+  Local Stores, output is a transfer through a capability, and cores are sequenced by passing a
+  capability.</p>
+{{asm:ch-intro.tex:Hello from Strata core}}
+
+{{chapter:ch:state}}
+<p>All state visible to software on one core, and the little that cores share.</p>
+{{section:ch-state.tex:Per-core state}}
+{{table:tab:state}}
+{{table:tab:abi}}
+<p>The 64-entry capability save table is not addressable memory: capabilities can never be read or
+  written as data, and user-mode code cannot reach it. Each transfer names one of sixteen tags; a tag
+  is busy from issue to completion, and because transfers are as-if-synchronous, tags affect only
+  <em>when</em> a core waits, never what it computes.</p>
+
+{{section:sec:csrs}}
+<p>CSRs are read with <a href="../isa/#insn-csrr"><code class="insn">csrr</code></a> and written with
+  <a href="../isa/#insn-csrw"><code class="insn">csrw</code></a>. The trap registers <code class="csr">cause</code>,
+  <code class="csr">epc</code>, <code class="csr">tval</code> and <code class="csr">tvec</code> are banked by
+  privilege mode. The full list, from the manual's {{pdf:app:csrs}}:</p>
+{{table:tab:csrs}}
+
+{{section:ch-state.tex:Shared state}}
+<p>All cores share T2, T3, the devices and the 15-entry revocation-domain table. Nothing else is
+  shared: no core can read another core’s registers, Local Stores, save table or inbox. The only ways
+  to affect another core are far memory (through capabilities), gifts, revoking a domain whose
+  capabilities it holds, and a stop request through core control.</p>
+
+{{section:sec:reset}}
+<p>Every core starts in supervisor mode at <code>pc</code> = 0, with all registers, tags, the overlay map,
+  the inbox and the save table empty, and its Local Stores loaded from the boot image. The reset
+  capabilities:</p>
+{{table:tab:resetcaps}}
+<p>Since <code class="reg">c0</code> and <code class="reg">c1</code> are linear and exist only on core 0,
+  every byte of T2 and T3 starts out owned by exactly one core.</p>
+
+{{chapter:ch:memory}}
+{{section:ch-memory.tex:The Local Stores}}
+<p>The D-LS is a 64&nbsp;KiB byte-addressed memory, the only memory loads and stores reach. Accesses
+  must be naturally aligned and inside <span class="m">[0, 65536)</span>, or they trap with
+  <span class="cause">lsfault</span>. The I-LS is the only memory instructions are fetched from; it is
+  filled at reset from the boot image and at run time only by
+  <a href="../isa/#insn-tgetx"><code class="insn">tgetx</code></a>. There is no address translation.</p>
+
+{{section:ch-memory.tex:Far spaces}}
+<p>Everything beyond the Local Stores is organised into spaces. A far location is never named by a
+  bare address: every far access gives a capability register and an offset.</p>
+{{tabular:ch-memory.tex:Space}}
+
+{{section:sec:transfers}}
+{{tabular:ch-memory.tex:Instruction}}
+<p>A transfer is checked in full when it issues, in this order: the capability is live
+  (<span class="cause">capinv</span>); it has the permission and names a space the transfer may use
+  (<span class="cause">perm</span>); outside device space, addresses and length are multiples of 8
+  (<span class="cause">xalign</span>); the far range is inside the segment (<span class="cause">bounds</span>);
+  the Local Store range is inside the Local Store (<span class="cause">lsfault</span>). A failing
+  transfer traps precisely, before any byte has moved. Once issued, a memory transfer always
+  completes: there are no asynchronous transfer errors.</p>
+
+{{section:sec:asif}}
+{{rule:ch-memory.tex:The as-if-synchronous rule}}
+<p>An implementation may perform the copy later, in the background, provided no instruction can tell
+  the difference. It stalls every access that could observe an incomplete transfer:</p>
+{{table:tab:hazards}}
+<p>So a program may load from a buffer right after the <code class="insn">tget</code> that fills it,
+  refill a buffer right after the <code class="insn">tput</code> that empties it, and jump to code
+  right after the <code class="insn">tgetx</code> that loads it. Overlapping transfers with
+  computation is purely a performance choice. Setting CCR.PTRAP turns the stalls into
+  <span class="cause">pend</span> traps, to show where a program relies on them.</p>
+
+{{section:sec:devxfer}}
+{{rule:ch-memory.tex:One byte per beat, to consecutive offsets}}
+<p>Device registers are 8 bytes, little-endian, latched when byte 0 is read and committed when byte 7
+  is written; windows are read-only and byte-addressed; a transfer that starts at a stream port
+  belongs to that stream. A read that starts at an <b class="term">event port</b> (console input,
+  the console break port, the timer’s WAIT, the display’s VSYNC) is a
+  <b class="term">pending device read</b> ({{ref:sec:pendread}}): it completes only when the device
+  has something to deliver, and meanwhile nothing else is held up.</p>
+
+{{section:sec:atomics}}
+<p><code class="insn">tamo.add</code>, <code class="insn">.swap</code>, <code class="insn">.cas</code>,
+  <code class="insn">.and</code> and <code class="insn">.or</code> perform an indivisible
+  read-modify-write of one aligned doubleword at the memory that holds it. They need the
+  <span class="perm">A</span> permission, which only <code class="insn">catomic</code> grants, and an
+  atomic capability has no <span class="perm">R</span> or <span class="perm">W</span>: an atomic
+  segment is reachable <em>only</em> through atomics. All atomics on one doubleword are linearizable.</p>
+
+{{section:sec:timing-visible}}
+<p>Apart from the <code class="csr">cycle</code> and <code class="csr">stalls</code> CSRs, the results
+  of <code class="insn">tpoll</code> and <code class="insn">tany</code>, and <span class="cause">pend</span>
+  traps, nothing a single core can observe depends on transfer latency or on the timing of other
+  cores.</p>
+
+{{chapter:ch:caps}}
+<p>A <b class="term">capability</b> is an unforgeable description of a segment of a far space and of
+  what its holder may do with it. Capabilities live only in capability registers, in the save table,
+  in inboxes and in the hands of devices; they never appear in memory.</p>
+{{section:ch-caps.tex:Format}}
+{{capfmt}}
+{{table:tab:perms}}
+<p><code class="insn">cbase</code>, <code class="insn">clen</code> and <code class="insn">cperms</code> read
+  the fields into integer registers; the domain and generation cannot be read. No instruction converts
+  an integer into a capability that grants access to memory.</p>
+
+{{section:sec:live}}
+{{pseudo:ch-caps.tex:func Live}}
+<p>Every instruction that uses a capability checks <code>Live</code> when it executes and traps with
+  <span class="cause">capinv</span> if it fails. A capability with a stale generation is
+  <b class="term">dead</b>: it behaves exactly like an empty register. Revoking a domain therefore
+  needs no search for copies.</p>
+
+{{section:sec:linear}}
+<p>A capability without <span class="perm">D</span> is <b class="term">linear</b>: every instruction that
+  moves it empties its source, splitting yields disjoint pieces, joining consumes an operand, and no
+  instruction copies one.</p>
+{{rule:ch-caps.tex:Writable capabilities are linear}}
+<p>Device, core-control and endpoint capabilities are exempt and copyable: several cores may hold the
+  console. Ordering their accesses to one device is the program’s responsibility.</p>
+
+{{section:sec:nooverwrite}}
+{{rule:ch-caps.tex:Live linear capabilities are never overwritten}}
+
+{{section:ch-caps.tex:Deriving capabilities}}
+{{table:tab:capops}}
+<p>Every derived capability keeps the domain and generation of its source, so everything cut from a
+  domain’s working capability dies with it. <code class="insn">cshare</code> publishes data that will
+  never change again; <code class="insn">catomic</code> creates shared mutable state such as a counter or
+  a lock word; <code class="insn">csplit</code>, <code class="insn">cgive</code>, <code class="insn">ctake</code>
+  and <code class="insn">cjoin</code> express data-parallel work division.</p>
+{{rule:ch-caps.tex:Capabilities are 8-byte aligned}}
+
+{{section:sec:domains}}
+<p>A <b class="term">revocation domain</b> lets the holder of a region of memory lend it out, in any
+  number of pieces, shares and atomic segments, to any number of cores, and take all of it back with
+  one instruction. The machine has one domain table shared by all cores, with entries 1–15.</p>
+{{table:tab:domtab}}
+{{desc:ch-caps.tex:cdom}}
+<p>A supervisor that runs a program in a domain lends it the working capability and keeps the
+  revoker in its save table; <code class="insn">cundom</code> recovers all of the memory when the
+  program ends, wherever the program passed it.</p>
+
+{{section:sec:endpoints}}
+<p>An <b class="term">endpoint</b> is a capability in space 6 that names a node. It grants no access to
+  memory. <a href="../isa/#insn-csend"><code class="insn">csend</code></a> (needs <span class="perm">W</span>)
+  gives through it and <a href="../isa/#insn-crecv"><code class="insn">crecv</code></a> (needs
+  <span class="perm">R</span>) takes from it, both in user mode. Only the supervisor makes endpoints
+  (<a href="../isa/#insn-cmkep"><code class="insn">cmkep</code></a>): they are how it lets a user program,
+  confined to its core window, talk to exactly the nodes it chooses.</p>
+
+{{section:ch-caps.tex:Where capabilities live}}
+{{tabular:ch-caps.tex:Location}}
+
+{{chapter:ch:intercore}}
+<p>Cores share no writable memory. They cooperate by passing capabilities: a core that wants another
+  core to see data hands over the capability for it. The hand-over is both the communication and the
+  synchronisation.</p>
+{{section:sec:inbox}}
+<p>Nodes 0…<i>N</i>−1 are the cores and node <i>N</i> is block device 0. Every core’s inbox keeps a
+  separate two-entry FIFO queue for each node that may give to it.</p>
+{{desc:ch-intercore.tex:cgive cs, rx}}
+
+{{section:sec:publication}}
+{{rule:ch-intercore.tex:The publication rule}}
+<p>So a producer can fill a buffer with <code class="insn">tput</code>s and immediately
+  <code class="insn">cgive</code> it; the consumer may <code class="insn">tget</code> from it as soon as it
+  has taken it. No fences, flags or locks, and since there are no caches, no coherence traffic.</p>
+
+{{section:ch-intercore.tex:Deterministic fan-in}}
+<p>An any-sender <code class="insn">ctake</code> returns the gift of the lowest-numbered sender that has
+  already delivered, which depends on timing. To collect results deterministically, take from each
+  sender explicitly:</p>
+{{asm:ch-intercore.tex:collect:}}
+
+{{section:sec:supervised}}
+<p>An operating system runs a program written for the bare machine, which assumes it is core 0 of
+  <i>N</i> and that <code class="insn">halt</code> ends it, on a subset of the cores in user mode. CSRs
+  <code class="csr">corebase</code> and <code class="csr">corecount</code> define a window of physical
+  cores; inside it, <code class="csr">coreid</code>, <code class="csr">ncores</code>,
+  <code class="insn">cgive</code> and <code class="insn">ctake</code> see window-relative numbers. The
+  program’s <code class="insn">halt</code> traps to the supervisor.</p>
+{{rule:ch-intercore.tex:The inbox belongs to the supervisor}}
+<p>The <span class="cause">priv</span> trap is also what lets a supervisor run bare-machine programs
+  unchanged: it emulates the trapping inbox instruction on a queue of gifts it keeps for the program.</p>
+
+{{chapter:ch:swmanaged}}
+<p>Strata has no hardware caches. When a program’s access pattern is regular it streams data with
+  transfers; when it is irregular, it builds a cache in its D-LS. Two hardware assists make the common
+  operations cheap without taking policy away from software.</p>
+{{section:sec:swcache}}
+{{tabular:ch-swmanaged.tex:CSR}}
+<p><a href="../isa/#insn-ltag"><code class="insn">ltag</code></a> looks a far offset up in the tag table:
+  on a hit it returns the D-LS address of the cached byte, on a miss the victim line’s address with bit
+  63 set. <a href="../isa/#insn-linst"><code class="insn">linst</code></a> installs the tag. A miss is
+  handled by ordinary code, and because of the as-if-synchronous rule the load after the fill is always
+  correct:</p>
+{{asm:ch-swmanaged.tex:load_cached:}}
+
+{{section:sec:overlays}}
+<p>Code that does not fit in the I-LS lives in far memory and is copied in with
+  <code class="insn">tgetx</code>. The sixteen-entry <b class="term">overlay map</b> lets a program call
+  such code by its far address, with the hardware taking the fast path when it is resident:</p>
+{{desc:ch-swmanaged.tex:xcall}}
+<p>A miss handler loads the code with <code class="insn">tgetx</code>, maps it with
+  <code class="insn">xmap</code> and returns with <code class="insn">eret</code>, which re-executes the
+  <code class="insn">xcall</code>. With <code class="csr">xslot</code> set ({{ref:sec:xslot}}) the map pages
+  fixed-size code units into I-LS slots, and calls made from paged code leave far links that
+  <code class="insn">xret</code> resolves, so the overlay map becomes demand paging for code with the
+  policy entirely in software. StrataOS pages most of its own kernel this way.</p>
+
+{{chapter:ch:traps}}
+<p>Two privilege modes, a small set of banked trap registers, and no interrupts. A
+  <b class="term">trap</b> is the synchronous transfer of control that occurs when an instruction cannot
+  complete. The only asynchronous event that changes a core’s control flow is a stop request sent
+  through core control, delivered as a trap at an instruction boundary.</p>
+{{section:sec:modes}}
+{{tabular:ch-traps.tex:Bit}}
+<p>Authority over memory and devices is never a matter of mode: it comes from the capabilities a core
+  holds. User mode differs from supervisor mode in exactly these operations:</p>
+{{table:tab:userlimits}}
+
+{{section:sec:trapentry}}
+{{pseudo:ch-traps.tex:func Trap(c, value)}}
+<p><span class="cause">halt</span>, <span class="cause">stop</span>, <span class="cause">priv</span> and
+  <span class="cause">svc</span> always reach the supervisor. A trap is precise: the trapping instruction
+  has had no architectural effect and does not retire.</p>
+
+{{section:ch-traps.tex:Causes}}
+<p>The trap causes and what <code class="csr">tval</code> holds for each, from {{pdf:app:causes}}:</p>
+{{table:tab:causes}}
+<p>At most one trap is taken per instruction: a pending stop request first (in user mode), then
+  <span class="cause">ifault</span>, then <span class="cause">illegal</span>, then the instruction’s own
+  checks in the order of its Exceptions table on the <a href="../isa/">instruction-set page</a>.</p>
+
+{{section:sec:svc}}
+<p><a href="../isa/#insn-svc"><code class="insn">svc</code></a> is the one instruction whose purpose is to
+  trap: from user mode it enters the supervisor with cause <span class="cause">svc</span>. Supervisor
+  calls are few, because authority comes from capabilities: a program reads a file by sending a message
+  to a server through an endpoint, a user-mode instruction.</p>
+
+{{section:sec:corectl}}
+<p>Core-control space has one doubleword per core. A <code class="insn">tput</code> of a doubleword with
+  bit 0 set to offset 8<i>n</i> sends a <b class="term">stop request</b> to core <i>n</i>: a user-mode
+  core traps to its supervisor with cause <span class="cause">stop</span>, even while it waits. This is
+  the only forced preemption; there is no timer interrupt.</p>
+
+{{section:sec:events}}
+<p>A device “interrupts” by <em>completing a transfer</em>: the core asks for the event by issuing a
+  transfer the device completes only when the event happens.</p>
+{{tabular:ch-traps.tex:Event}}
+<p><a href="../isa/#insn-tany"><code class="insn">tany</code></a> waits for the first of several such
+  events: bits 15:0 of its operand select tags, bit 16 the inbox. The StrataOS system core sleeps on a
+  pending timer read and its inbox at once:</p>
+{{asm:ch-traps.tex:ev_wait:}}
+{{rule:ch-traps.tex:One release completes every pending break read}}
+
+{{chapter:ch:model}}
+<p>What a program can rely on when transfers have latency and cores run concurrently, and why the
+  architecture guarantees it. The <b class="term">sequential semantics</b> 𝒮 is the one the reference
+  emulator implements: an interleaving of the cores’ instructions, each memory transfer performed
+  completely at the instant it executes. An implementation such as the RTL performs transfers in the
+  background and runs cores truly concurrently.</p>
+{{section:ch-model.tex:Implementation invariants}}
+{{desc:ch-model.tex:I1.}}
+
+{{section:ch-model.tex:As-if-synchronous execution}}
+{{rule:ch-model.tex:Theorem 1 (as-if-synchronous)}}
+{{rule:ch-model.tex:Corollary 2 (data-race freedom on T2 and T3)}}
+<p>Corollary 2 is a property of the instruction set, not a discipline: a racy program cannot be
+  written. The proof sketches are in the PDF.</p>
+
+{{section:sec:determinism}}
+{{rule:ch-model.tex:Theorem 2 (multicore timing independence)}}
+<p>The project’s cross-checking tool relies on Theorem 2: it runs each example on the emulator and the
+  RTL, whose timing is completely different, and requires identical output, halt states and per-core
+  instruction traces.</p>
+
+{{chapter:ch:encoding}}
+{{section:sec:formats}}
+<p>Every instruction is one 32-bit little-endian word on a 4-byte boundary. Bits 31:26 hold the primary
+  opcode; the rest follows one of six formats. In the diagrams, coloured fields are fixed opcode or
+  function values and are checked; shaded fields are reserved, ignored by implementations and written
+  as zero by software.</p>
+<div class="fmts">
+{{encodings}}
+</div>
+{{table:tab:fieldrules}}
+
+{{section:ch-encoding.tex:Opcode map}}
+{{opmap}}
+<p>Within an opcode, the function assignments are:</p>
+{{tabular:ch-encoding.tex:Opcode#2}}
+
+{{section:sec:pseudo}}
+<p>The <em>Operation</em> of each instruction is written in a small pseudocode language:</p>
+{{tabular:ch-encoding.tex:Notation}}
+
+{{section:ch-encoding.tex:Pseudo-instructions}}
+{{table:tab:pseudo}}
+
+{{chapter:ch:platform}}
+<p>The memory and devices of the prototype platform, implemented identically by the emulator and the
+  RTL. Unlike the instruction set, the platform is discovered at run time from the platform table, so
+  software should not hard-code it.</p>
+{{section:sec:memmap}}
+{{table:tab:memmap}}
+<p>The framebuffer window is ordinary memory in every architectural respect: reached by transfers
+  through capabilities cut from the memory root, split, given, shared like any other.</p>
+
+{{section:ch-platform.tex:Device space}}
+{{table:tab:devmap}}
+<p>Every port, register and window starts at a multiple of 8, so a capability can be cut to exactly
+  one of them. The console’s output port is the one every core holds from reset, in
+  <code class="reg">c2</code>.</p>
+
+{{section:sec:timer}}
+{{table:tab:timer}}
+<p>Waiting for a point in time is a transfer like any other event: write DEADLINE, start a read of
+  WAIT on some tag, and wait for the tag with <code class="insn">tany</code>.</p>
+{{asm:ch-platform.tex:dlbuf}}
+
+{{section:sec:fbctl}}
+<p>The framebuffer is the top 16&nbsp;MiB of system memory, scanned out live; ownership is by
+  capability, like all memory. The controller has two registers:</p>
+{{table:tab:fbctl}}
+
+{{section:sec:blkdev}}
+<p>The block device can touch far memory only through a capability that a core <em>gives</em> it:
+  handing over the buffer capability is the DMA permission, and the device hands it back when the
+  command completes. While the device holds the buffer no core can touch it, so DMA protection holds by
+  construction.</p>
+
+{{chapter:ch:impl}}
+<p>The synthesizable SystemVerilog implementation, drawn from its netlist (open a schematic to zoom):</p>
+<div class="schems">
+  <figure><a href="figures/schematic-divider.svg"><img src="figures/schematic-divider.svg" alt="Netlist schematic of the iterative divider" loading="lazy"></a>{{figcap:fig:sch-div}}</figure>
+  <figure><a href="figures/schematic-uart.svg"><img src="figures/schematic-uart.svg" alt="Netlist schematic of the UART" loading="lazy"></a>{{figcap:fig:sch-uart}}</figure>
+  <figure><a href="figures/schematic-system.svg"><img src="figures/schematic-system.svg" alt="Netlist schematic of the system top level" loading="lazy"></a>{{figcap:fig:sch-sys}}</figure>
+</div>
+<p>The rest of the manual (the firmware, StrataOS, the toolchain, the examples and Strata Forth) is
+  in the <a href="../Strata-Architecture-Reference-Manual.pdf">PDF</a>.</p>

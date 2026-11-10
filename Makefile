@@ -20,6 +20,7 @@
 #   make fuzz       3-way differential fuzzer (SEEDS=N, FIRST=seed)
 #   make wasm       the emulator as WebAssembly for the site's play page (emcc)
 #   make test-wasm  that build under node against the native interpreter (node, emcc)
+#   make web-docs   the manual's instruction set and architecture outline as web pages
 
 CC      ?= cc
 CFLAGS  ?= -std=gnu11 -O2 -Wall -Wextra
@@ -330,6 +331,9 @@ bench: $(BUILD)/strata-emu examples $(BUILD)/forth.stx
 #             emu/jit/jit_wasm.c), images/ and the Forth demos/
 # web-code    build/web-code/: the sources and manifest.json of the source
 #             browser (site/code/), by tools/web-code.py
+# web-docs    build/web-docs/: the manual on the web, isa/ (every instruction)
+#             and arch/ (the architecture outline), by doc/manual/gen/genweb.py
+#             from the manual's sources (the same data as make manual)
 # web-site    build/web-site/: site/ with build/web/ under play/ and
 #             build/web-code/ under code/; preview it with
 #             python3 -m http.server --directory build/web-site
@@ -368,12 +372,19 @@ web-code:
 	mkdir -p $(BUILD)/web-code
 	python3 tools/web-code.py $(BUILD)/web-code
 
-web-site: wasm web-code
+.PHONY: web-docs
+web-docs:
+	rm -rf $(BUILD)/web-docs
+	mkdir -p $(BUILD)/web-docs
+	python3 doc/manual/gen/genweb.py $(BUILD)/web-docs
+
+web-site: wasm web-code web-docs
 	rm -rf $(BUILD)/web-site
 	mkdir -p $(BUILD)/web-site
 	cp -r site/. $(BUILD)/web-site/
 	cp -r $(WEB)/. $(BUILD)/web-site/play/
 	cp -r $(BUILD)/web-code/. $(BUILD)/web-site/code/
+	cp -r $(BUILD)/web-docs/. $(BUILD)/web-site/
 
 # ---- the window server's renderers (os/ws/, os/lib/gfx.s): bare-metal demo -
 # ws-demo   the demo in a window: splash, four tiles, palette (Alt+Space),
