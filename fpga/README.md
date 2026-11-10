@@ -26,15 +26,22 @@ a 32 KiB block-RAM stand-in for system memory, which is external DRAM on a
 board. It prints the cell counts and checks the log for latches and for
 memories built from flip-flops; everything is in `fpga/build/<family>-<n>/`.
 
-These are for the RTL of 2026-11-10, before the pointer device was added:
+These are for the RTL of commit 0e51b8f (2026-11-10: with the pointer
+device, the console input release and the network device):
 
 | Yosys, after synthesis | Logic | Flip-flops | Block RAM | Multipliers |
 |---|---|---|---|---|
-| Xilinx 7-series, 1 core | 47,449 LUTs | 12,675 | 88 RAMB36 | 30 DSP48E1 |
-| Xilinx 7-series, 2 cores | 94,658 LUTs | 23,624 | 120 RAMB36 | 60 DSP48E1 |
-| Xilinx 7-series, 6 cores | 292,670 LUTs | 73,737 | 248 RAMB36 | 180 DSP48E1 |
-| Lattice ECP5, 1 core | 54,947 LUT4 + 9,405 carry cells = 73,757 LUT4 sites | 12,866 | 181 DP16KD | 30 MULT18X18D |
-| Lattice ECP5, 2 cores | 106,472 LUT4 + 18,025 carry cells = 142,522 LUT4 sites | 24,028 | 250 DP16KD | 60 MULT18X18D |
+| Xilinx 7-series, 1 core | 48,240 LUTs | 12,681 | 88 RAMB36 | 30 DSP48E1 |
+| Xilinx 7-series, 2 cores | 94,130 LUTs | 23,636 | 120 RAMB36 | 60 DSP48E1 |
+| Xilinx 7-series, 6 cores | 290,431 LUTs | 73,775 | 248 RAMB36 | 180 DSP48E1 |
+| Lattice ECP5, 1 core | 61,949 LUT4 + 9,525 carry cells = 80,999 LUT4 sites | 12,866 | 181 DP16KD | 30 MULT18X18D |
+| Lattice ECP5, 2 cores (before the pointer and network devices) | 106,472 LUT4 + 18,025 carry cells = 142,522 LUT4 sites | 24,028 | 250 DP16KD | 60 MULT18X18D |
+
+The three devices cost little on 7-series (one core: 47,449 LUTs before
+them, 48,240 after, +1.7%) and more on the ECP5 (73,757 LUT4 sites before,
+80,999 after); the 7-series 2- and 6-core runs moved by under 1% either way.
+On an FPGA the pointer and the network device have no host behind them:
+STATE reads 0, the waiting reads wait for a release, and TX is dropped.
 
 Notes on reading the table:
 
