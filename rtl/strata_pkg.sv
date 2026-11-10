@@ -20,7 +20,12 @@ package strata_pkg;
   localparam int NCAPS     = 16;
   localparam int CTAB      = 64;       // capability save table entries
   localparam int NXMAP     = 16;       // overlay map entries
-  localparam int NDOMS     = 16;       // revocation domains (0 = none)
+  localparam int GRAN_SHIFT = 18;      // revocation granules of T2 and T3: 256 KiB
+  localparam int NG3       = T3_BYTES >> GRAN_SHIFT;   // T3 granules
+  localparam int NG2       = T2_BYTES >> GRAN_SHIFT;   // T2 granules
+  localparam int GW        = $clog2(NG3 + 1);          // a granule index, up to NG3 (one past the end)
+  localparam int G3W       = $clog2(NG3);              // an index into T3's granules
+  localparam int G2W       = NG2 > 1 ? $clog2(NG2) : 1; // ... into T2's
 
   // ---------------------------------------------------------------- spaces
   localparam logic [2:0] SP_NONE = 3'd0;
@@ -36,7 +41,7 @@ package strata_pkg;
   localparam int P_X = 2;   // transfer far -> I-LS, overlay map
   localparam int P_A = 3;   // far atomics only
   localparam int P_D = 4;   // duplicable (never together with W)
-  localparam int P_V = 5;   // revoker of a revocation domain
+  localparam int P_V = 5;   // revoker: crevoke / cundom over its range
 
   typedef struct packed {
     logic        valid;
@@ -44,8 +49,9 @@ package strata_pkg;
     logic [5:0]  perms;
     logic [63:0] base;
     logic [63:0] len;
-    logic [3:0]  dom;            // revocation domain, 0 = none
-    logic [15:0] gen;            // the domain's generation when the capability was made
+    logic        rv;             // revocable: live while its granule's generation is gen
+    logic [15:0] gen;            // revocable: the generation of its base's granule when made;
+                                 // a revoker (V): the permissions crevoke / cundom give
   } cap_t;
 
   localparam cap_t CAP_NULL = '0;

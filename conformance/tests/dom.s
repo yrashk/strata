@@ -1,23 +1,34 @@
 ; =============================================================================
-; dom.s: revocation domains (cdom / crevoke / cundom), endpoints (cmkep /
-; csend / crecv) and the inbox seen from one core (cgive to itself)
+; dom.s: revocation by address (cdom / crevoke / cundom over 256 KiB
+; granules), endpoints (cmkep / csend / crecv) and the inbox seen from one
+; core (cgive to itself)
 ; =============================================================================
 ;
 ; What it checks
-;   * cdom cd, cs: cs (a linear writable T2/T3 capability outside any domain)
-;     becomes the domain's REVOKER (perms V only), cd a working capability of
-;     the same region inside the new domain. Not allowed (capop, tval = cs):
-;     cd = cs, a copyable or read-only source, a source already in a domain,
-;     device space, a live linear cd. Domains are machine-wide; there are 15.
+;   * cdom cd, cs: cs (a linear writable T2/T3 capability, not revocable,
+;     for whole granules: base and length multiples of 256 KiB, length > 0)
+;     becomes the region's REVOKER (perms V only, not revocable), cd a
+;     revocable working capability for the same region. Not allowed (capop,
+;     tval = cs): cd = cs, a copyable or read-only source, a revocable
+;     source, device space, an unaligned base or length, an empty region, a
+;     live linear cd. An empty source: capinv.
 ;   * Everything derived from a working capability (csplit, cshare, cmov,
-;     csave) stays in its domain. crevoke cd, cs(revoker) kills every
-;     capability of the domain at once (they read as not valid: cvalid 0,
-;     use = capinv, even from the save table) and puts a fresh working
-;     capability for the whole region in cd. The revoker survives it.
-;   * cundom cd, cs: kills the domain's capabilities, ends the domain, and
-;     gives back a plain capability (no domain) for the region; the revoker
-;     is consumed. A non-revoker as cs: capinv.
-;   * cjoin never joins across domains.
+;     csave, a gift) is revocable with the same generation. crevoke cd,
+;     cs(revoker) kills every revocable capability whose base lies in the
+;     revoker's range (cvalid 0, use = capinv, even from the save table or
+;     an inbox) and puts a fresh working capability for the range in cd. The
+;     revoker survives it. Other regions are not touched.
+;   * A zero-length piece at the very end of a region has its base in the
+;     next granule, and lives and dies with that granule.
+;   * cjoin never joins across units: two revocable pieces with the same
+;     generation are refused where the second begins a unit (adjacent
+;     regions; the two halves after a revocation by halves).
+;   * A revoker is cut and joined only at granule boundaries; crevoke with a
+;     piece revokes that range: the units it touches die whole, and it
+;     becomes a unit of its own.
+;   * cundom cd, cs: kills the range's capabilities and gives back a plain
+;     capability; the revoker is consumed. A non-revoker as cs: capinv.
+;   * T2 is one granule. Regions are limited only by memory (40 here).
 ;   * cmkep cd, rx: an endpoint for node x (0..ncores, ncores = the block
 ;     device): space 6, perms R W D, base x, length 1; x > ncores: capop.
 ;   * csend cs, ce gives cs to the node ce names (linear: moved; D: copied);
@@ -29,6 +40,8 @@
 
         .include "lib/conf.s"           ; harness: _start, sig/chk/chkt/done, trap recorder
 
+GRAN    = 0x40000                       ; a revocation granule: 256 KiB
+
         .data                           ; data Local Store
         .align 8                        ; transfer buffer
 buf:    .space 16                       ; scratch
@@ -38,12 +51,12 @@ main:
         csrr  t0, coreid                ; which core?
         bnez  t0, park                  ; only core 0 runs the test
         li    t0, 0x100000              ; 1 MiB
-        csplit c5, c0, t0               ; c0 = [0, 1M), c5 = the rest of T3 (kept aside)
-        li    t0, 0x10000               ; 64 KiB
-        csplit c6, c0, t0               ; c0 = [0, 64K), c6 = [64K, 1M)
+        csplit c5, c0, t0               ; c0 = A = [0, 1M), c5 = [1M, 64M)
+        li    t0, 0x80000               ; 512 KiB
+        csplit c6, c5, t0               ; c5 = B = [1M, 1.5M), c6 = [1.5M, 64M), plain
 
 ; ---- cdom ----------------------------------------------------------------------------
-        cdom  c7, c0                    ; c0 -> revoker, c7 = working capability in a new domain
+        cdom  c7, c0                    ; c0 -> revoker of A, c7 = working capability
         cperms a0, c0                   ; the revoker
         li    a1, SP_T3 << 8 | P_V      ; T3, V only
         call  chk                       ; check
@@ -51,15 +64,15 @@ main:
         li    a1, 0                     ; base 0
         call  chk                       ; check
         clen  a0, c0                    ; length
-        li    a1, 0x10000               ; 64 KiB
+        li    a1, 0x100000              ; 1 MiB
         call  chk                       ; check
         cperms a0, c7                   ; the working capability
         li    a1, SP_T3 << 8 | 7        ; same perms as the source had (R W X)
         call  chk                       ; check
         clen  a0, c7                    ; its length
-        li    a1, 0x10000               ; 64 KiB
+        li    a1, 0x100000              ; 1 MiB
         call  chk                       ; check
-dm1:    cdom  c8, c7                    ; c7 is already in a domain
+dm1:    cdom  c8, c7                    ; c7 is revocable already
         li    a0, C_CAPOP               ; expected cause
         la    a1, dm1                   ; expected epc
         li    a2, 7                     ; expected tval: cs
@@ -84,30 +97,68 @@ dm5:    cdom  c8, c9                    ; empty source
         la    a1, dm5                   ; expected epc
         li    a2, 9                     ; expected tval
         call  chkt                      ; check
-
-; ---- derived capabilities stay in the domain; crevoke kills them all ------------------
-        li    t0, 0x8000                ; 32 KiB
-        csplit c8, c7, t0               ; c7 = [0, 32K), c8 = [32K, 64K): both in the domain
-        cshare c9, c8                   ; c9 = shared view of c8 (c8 consumed), in the domain
-        cmov  c10, c9                   ; a copy, in the domain
-        csave c10, 7                    ; and one in the save table
-dj1:    cjoin c6, c5                    ; (c6 and c5 are plain and adjacent: fine)
-        clen  a0, c6                    ; joined
-        li    a1, 0x4000000 - 0x10000   ; [64K, 64M)
-        call  chk                       ; check
-        li    t0, 0x10000               ; 64 KiB
-        csplit c5, c6, t0               ; c6 = [64K, 128K), c5 = the rest again
-        li    t0, 0x8000                ; 32 KiB
-        csplit c11, c7, t0              ; c7 = [0, 32K), c11 = [32K, 32K): empty range, in the domain
-        cclear c11                      ; drop it
-        cmov  c11, c7                   ; c11 = [0, 32K) in the domain
-dj2:    cjoin c11, c6                   ; [0,32K) in the domain + [64K,...) plain: not adjacent anyway
+        li    t0, 0x1000                ; 4 KiB
+        csplit c8, c6, t0               ; c6 = [1.5M, +4K), c8 = [1.5M + 4K, 64M)
+dm6:    cdom  c9, c8                    ; base not on a granule boundary
         li    a0, C_CAPOP               ; expected cause
-        la    a1, dj2                   ; expected epc
-        li    a2, 6                     ; expected tval
+        la    a1, dm6                   ; expected epc
+        li    a2, 8                     ; expected tval: cs
         call  chkt                      ; check
-        crevoke c12, c0                 ; revoke: every capability of the domain dies
-        cvalid a0, c11                  ; working piece
+dm7:    cdom  c9, c6                    ; 4 KiB: not whole granules
+        li    a0, C_CAPOP               ; expected cause
+        la    a1, dm7                   ; expected epc
+        li    a2, 6                     ; expected tval: cs
+        call  chkt                      ; check
+        cjoin c6, c8                    ; c6 = [1.5M, 64M) again
+        li    t0, 0                     ; at 0
+        csplit c8, c6, t0               ; c6 = [1.5M, 1.5M), c8 = [1.5M, 64M)
+dm8:    cdom  c9, c6                    ; an empty region
+        li    a0, C_CAPOP               ; expected cause
+        la    a1, dm8                   ; expected epc
+        li    a2, 6                     ; expected tval: cs
+        call  chkt                      ; check
+        cjoin c6, c8                    ; whole again
+        li    t0, GRAN                  ; one granule
+        csplit c8, c6, t0               ; c6 = [1.5M, 1.75M), c8 = [1.75M, 64M)
+        li    t0, P_R                   ; read only (still linear)
+        crestrict c6, c6, t0            ; ...
+dm9:    cdom  c9, c6                    ; not writable
+        li    a0, C_CAPOP               ; expected cause
+        la    a1, dm9                   ; expected epc
+        li    a2, 6                     ; expected tval: cs
+        call  chkt                      ; check
+        cclear c6                       ; (that granule is not needed)
+        cmov  c6, c8                    ; c6 = [1.75M, 64M), plain
+
+; ---- a second region right after the first; no join across them -------------------
+        cdom  c13, c5                   ; c5 = revoker of B = [1M, 1.5M), c13 its working capability
+dj1:    cjoin c7, c13                   ; A's [0, 1M) + B's [1M, 1.5M): same generation, but B begins a unit
+        li    a0, C_CAPOP               ; expected cause
+        la    a1, dj1                   ; expected epc
+        li    a2, 13                    ; expected tval: cs
+        call  chkt                      ; check
+
+; ---- derived capabilities stay revocable; crevoke kills them all ---------------------
+        li    t0, 0x60000               ; 384 KiB: inside granule 1
+        csplit c8, c7, t0               ; c7 = [0, 384K), c8 = [384K, 1M): both revocable
+        cshare c9, c8                   ; c9 = shared view of c8 (c8 consumed)
+        cmov  c10, c9                   ; a copy
+        csave c10, 7                    ; and one in the save table
+        csplit c11, c7, t0              ; c7 = [0, 384K), c11 = [384K, 384K): empty, inside A
+        cvalid a0, c11                  ; live: its base is in A
+        li    a1, 1                     ; ...
+        call  chk                       ; check
+        cjoin c7, c11                   ; empty pieces join too
+        clen  a0, c7                    ; unchanged
+        li    a1, 0x60000               ; 384 KiB
+        call  chk                       ; check
+        li    t0, 0xA0000               ; 640 KiB: the share's end
+        csplit c12, c9, t0              ; c12 = [1M, 1M): empty, its base in B's first granule
+        cvalid a0, c12                  ; live (B has the generation A has)
+        li    a1, 1                     ; ...
+        call  chk                       ; check
+        crevoke c14, c0                 ; revoke A
+        cvalid a0, c7                   ; working piece
         li    a1, 0                     ; dead
         call  chk                       ; check
         cvalid a0, c9                   ; shared view
@@ -116,14 +167,20 @@ dj2:    cjoin c11, c6                   ; [0,32K) in the domain + [64K,...) plai
         cvalid a0, c10                  ; copy
         li    a1, 0                     ; dead
         call  chk                       ; check
+        cvalid a0, c12                  ; the empty piece at A's end follows B: alive
+        li    a1, 1                     ; ...
+        call  chk                       ; check
+        cvalid a0, c13                  ; B's working capability: untouched
+        li    a1, 1                     ; alive
+        call  chk                       ; check
         cvalid a0, c0                   ; the revoker survives
         li    a1, 1                     ; alive
         call  chk                       ; check
-        cperms a0, c12                  ; the fresh working capability
+        cperms a0, c14                  ; the fresh working capability
         li    a1, SP_T3 << 8 | 7        ; the region's original perms
         call  chk                       ; check
-        clen  a0, c12                   ; the whole region
-        li    a1, 0x10000               ; 64 KiB
+        clen  a0, c14                   ; the whole region
+        li    a1, 0x100000              ; 1 MiB
         call  chk                       ; check
         la    s1, buf                   ; s1 = D-LS buffer
         li    s2, 8                     ; one word
@@ -137,86 +194,175 @@ rv2:    cbase a0, c10                   ; inspecting a revoked capability
         la    a1, rv2                   ; expected epc
         li    a2, 10                    ; expected tval
         call  chkt                      ; check
-rv3:    crestore c13, 7                 ; the saved copy died too
+rv3:    crestore c11, 7                 ; the saved copy died too
         li    a0, C_CAPINV              ; expected cause
         la    a1, rv3                   ; expected epc
         li    a2, 7                     ; expected tval: the slot
         call  chkt                      ; check
-        cmov  c11, c12                  ; dead capabilities may be overwritten (c11 was dead)
-        cvalid a0, c11                  ; moved in
+        cmov  c7, c14                   ; dead capabilities may be overwritten (c7 was dead)
+        cvalid a0, c7                   ; moved in
         li    a1, 1                     ; valid
         call  chk                       ; check
-        tget  tg0, s1, c11, zero, s2    ; the new working capability works
+        tget  tg0, s1, c7, zero, s2     ; the new working capability works
         twait tg0                       ; wait
         li    a0, 0                     ; no trap
         li    a1, 0                     ; (epc)
         li    a2, 0                     ; (tval)
         call  chkt                      ; check
-rv4:    crevoke c11, c0                 ; cd holds a live linear capability
+rv4:    crevoke c7, c0                  ; cd holds a live linear capability
         li    a0, C_CAPOP               ; expected cause
         la    a1, rv4                   ; expected epc
-        li    a2, 11                    ; expected tval: cd
+        li    a2, 7                     ; expected tval: cd
         call  chkt                      ; check
-rv5:    crevoke c13, c11                ; c11 is a working capability, not a revoker
+rv5:    crevoke c14, c7                 ; c7 is a working capability, not a revoker
         li    a0, C_CAPINV              ; expected cause
         la    a1, rv5                   ; expected epc
-        li    a2, 11                    ; expected tval: cs
+        li    a2, 7                     ; expected tval: cs
         call  chkt                      ; check
 rv6:    crevoke c0, c0                  ; cd = cs
         li    a0, C_CAPOP               ; expected cause
         la    a1, rv6                   ; expected epc
         li    a2, 0                     ; expected tval: cd
         call  chkt                      ; check
-        crevoke c13, c0                 ; revoke again (kills c11)
-        cvalid a0, c11                  ; old working capability
+
+; ---- a gift in an inbox dies too ------------------------------------------------------
+        li    t0, GRAN                  ; one granule
+        csplit c8, c7, t0               ; c7 = [0, 256K), c8 = [256K, 1M)
+        li    t0, 0                     ; ourselves
+        cgive c8, t0                    ; c8 waits in our inbox
+        crevoke c14, c0                 ; revoke A again
+        ctake c8                        ; the gift
+        cvalid a0, c8                   ; arrived dead
+        li    a1, 0                     ; ...
+        call  chk                       ; check
+        cvalid a0, c7                   ; and the piece kept here
         li    a1, 0                     ; dead
         call  chk                       ; check
 
+; ---- revocation by address: a revoker cut at a granule boundary ----------------------
+        li    t0, 0x1000                ; 4 KiB
+rs1:    csplit c15, c0, t0              ; a revoker is cut only at granule boundaries
+        li    a0, C_CAPOP               ; expected cause
+        la    a1, rs1                   ; expected epc
+        li    a2, 0x1000                ; expected tval: the offset
+        call  chkt                      ; check
+        li    t0, 0x80000               ; 512 KiB
+        csplit c15, c0, t0              ; c0 = revoker of [0, 512K), c15 = of [512K, 1M)
+        cperms a0, c15                  ; a revoker still
+        li    a1, SP_T3 << 8 | P_V      ; ...
+        call  chk                       ; check
+        crevoke c8, c15                 ; the upper half: inside the unit of c14 ([0, 1M)) ...
+        cvalid a0, c14                  ; ... which dies whole
+        li    a1, 0                     ; ...
+        call  chk                       ; check
+        cbase a0, c8                    ; a fresh capability for the upper half
+        li    a1, 0x80000               ; ...
+        call  chk                       ; check
+        clen  a0, c8                    ; ...
+        li    a1, 0x80000               ; ...
+        call  chk                       ; check
+        cperms a0, c8                   ; with the region's perms
+        li    a1, SP_T3 << 8 | 7        ; ...
+        call  chk                       ; check
+        crevoke c9, c0                  ; the lower half, a unit of its own now
+        cvalid a0, c8                   ; the upper half's capability survives it
+        li    a1, 1                     ; ...
+        call  chk                       ; check
+        cvalid a0, c9                   ; ...
+        li    a1, 1                     ; ...
+        call  chk                       ; check
+dj3:    cjoin c9, c8                    ; two units: no join
+        li    a0, C_CAPOP               ; expected cause
+        la    a1, dj3                   ; expected epc
+        li    a2, 8                     ; expected tval: cs
+        call  chkt                      ; check
+        cjoin c0, c15                   ; the revoker pieces join again
+        clen  a0, c0                    ; [0, 1M)
+        li    a1, 0x100000              ; ...
+        call  chk                       ; check
+        crevoke c10, c0                 ; all of A: both halves die
+        cvalid a0, c8                   ; ...
+        li    a1, 0                     ; ...
+        call  chk                       ; check
+        cvalid a0, c9                   ; ...
+        li    a1, 0                     ; ...
+        call  chk                       ; check
+
 ; ---- cundom ---------------------------------------------------------------------------
-        cundom c14, c0                  ; end the domain: c14 = plain capability, revoker consumed
+        cundom c14, c0                  ; dissolve A: c14 = plain capability, revoker consumed
         cvalid a0, c0                   ; the revoker
         li    a1, 0                     ; consumed
         call  chk                       ; check
-        cvalid a0, c13                  ; the last working capability
+        cvalid a0, c10                  ; the last working capability
         li    a1, 0                     ; dead
         call  chk                       ; check
         cperms a0, c14                  ; the plain capability
         li    a1, SP_T3 << 8 | 7        ; T3 R W X
         call  chk                       ; check
-        cjoin c14, c6                   ; plain again: joins with the adjacent plain piece
-        clen  a0, c14                   ; [0, 128K)
-        li    a1, 0x20000               ; 128 KiB
-        call  chk                       ; check
-        cdom  c7, c14                   ; a domain can be made again from it
+        cdom  c7, c14                   ; a region can be made again from it
         cvalid a0, c7                   ; working capability
         li    a1, 1                     ; valid
         call  chk                       ; check
-        cundom c0, c14                  ; and ended at once
-        clen  a0, c0                    ; c0 = [0, 128K) plain
-        li    a1, 0x20000               ; 128 KiB
+        cundom c0, c14                  ; and dissolved at once
+        clen  a0, c0                    ; c0 = [0, 1M) plain
+        li    a1, 0x100000              ; 1 MiB
+        call  chk                       ; check
+        cvalid a0, c7                   ; dead
+        li    a1, 0                     ; ...
+        call  chk                       ; check
+        crevoke c8, c5                  ; revoke B
+        cvalid a0, c12                  ; the empty piece at A's end dies with it
+        li    a1, 0                     ; ...
+        call  chk                       ; check
+        cvalid a0, c13                  ; B's working capability
+        li    a1, 0                     ; dead
+        call  chk                       ; check
+        cclear c8                       ; (B's fresh one)
+        cundom c13, c5                  ; dissolve B: c13 = plain [1M, 1.5M)
+        cjoin c0, c13                   ; plain pieces join: [0, 1.5M)
+        clen  a0, c0                    ; ...
+        li    a1, 0x180000              ; 1.5 MiB
         call  chk                       ; check
 
-; ---- there are 15 domains (all ended above, so all free) -----------------------------
-        li    s3, 0                     ; s3 = domains made
-        li    s4, 20                    ; give up after 20
+; ---- T2: one granule ------------------------------------------------------------------
+        cdom  c8, c1                    ; all of T2
+        cperms a0, c8                   ; working capability
+        li    a1, SP_T2 << 8 | 7        ; T2 R W X
+        call  chk                       ; check
+        crevoke c9, c1                  ; revoke it
+        cvalid a0, c8                   ; dead
+        li    a1, 0                     ; ...
+        call  chk                       ; check
+        cundom c8, c1                   ; dissolve: c8 = plain T2
+        cvalid a0, c9                   ; dead
+        li    a1, 0                     ; ...
+        call  chk                       ; check
+        cmov  c1, c8                    ; T2 back in c1
+        clen  a0, c1                    ; all 256 KiB
+        li    a1, 0x40000               ; ...
+        call  chk                       ; check
+
+; ---- regions are limited by memory only: 40 of them -----------------------------------
+        li    s3, 0                     ; s3 = regions made
+        li    s4, 40                    ; 40 (more than the 15 domains of old)
 dm_loop:
-        li    t0, 0x1000                ; 4 KiB pieces
-        csplit c6, c0, t0               ; c0 = 4 KiB, c6 = the rest
-dm_cd:  cdom  c7, c0                    ; a new domain (a trap leaves c0 and c7 alone)
+        li    t0, GRAN                  ; one granule each
+        csplit c8, c6, t0               ; c6 = one granule, c8 = the rest
+dm_cd:  cdom  c7, c6                    ; a new region
         ld    t1, tcause(zero)          ; did it trap?
-        bnez  t1, dm_end                ; yes: out of domains
-        addi  s3, s3, 1                 ; one more domain
+        bnez  t1, dm_end                ; yes: stop
+        addi  s3, s3, 1                 ; one more region
         cclear c7                       ; drop the working capability
-        cclear c0                       ; and the revoker: the domain stays allocated (only cundom ends it)
-        cmov  c0, c6                    ; continue with the rest
+        cclear c6                       ; and the revoker (the granule stays revocable)
+        cmov  c6, c8                    ; continue with the rest
         blt   s3, s4, dm_loop           ; next
 dm_end:
-        li    a0, C_CAPOP               ; the 16th cdom: out of domains
-        la    a1, dm_cd                 ; expected epc
-        li    a2, 0                     ; expected tval: cs = c0
+        li    a0, 0                     ; no trap
+        li    a1, 0                     ; (epc)
+        li    a2, 0                     ; (tval)
         call  chkt                      ; check
-        mv    a0, s3                    ; domains made
-        li    a1, 15                    ; all 15
+        mv    a0, s3                    ; regions made
+        li    a1, 40                    ; all 40
         call  chk                       ; check
 
 ; ---- endpoints ---------------------------------------------------------------------------

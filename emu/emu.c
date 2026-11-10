@@ -37,7 +37,9 @@
 #define NCAPS 16
 #define CTAB 64
 #define NXMAP 16
-#define NDOMS 16  /* revocation domains (0 = none) */
+#define NGRAN3 (T3_BYTES >> GRAN_SHIFT) /* revocation granules of T3 */
+#define NGRAN2 (T2_BYTES >> GRAN_SHIFT) /* ... and of T2 (after T3's in the table) */
+#define GMASK ((uint64_t)GRAN_BYTES - 1)
 #define IQ 4      /* block device inbox depth */
 #define SQ 2      /* inbox depth per sender */
 #define MAXNODES (MAXCORES + 1)
@@ -54,26 +56,54 @@ typedef struct {
   bool valid;
   uint8_t space, perms;
   uint64_t base, len;
-  uint8_t dom;  /* revocation domain, 0 = none */
-  uint16_t gen; /* the domain's generation when the capability was made */
+  bool rv;      /* revocable: live only while its granule's generation is gen */
+  uint16_t gen; /* revocable: the generation of the granule holding base when it was
+                 * made; a revoker (P_V): the permissions crevoke / cundom give */
 } Cap;
 
-/* the revocation domains, shared by all cores */
-static struct {
-  bool alive;
-  uint16_t gen;
-  uint8_t space, perms;
-  uint64_t base, len;
-} doms[NDOMS];
+/* The revocation granules of system memory (T3) and the cluster store (T2),
+ * shared by all cores: a generation each, and a HEAD bit marking the first
+ * granule of a unit (a range made revocable or revoked as one, see cdom). */
+static uint16_t ggen[NGRAN3 + NGRAN2];
+static bool ghead[NGRAN3 + NGRAN2];
 
-/* A capability can be used only while valid and, if it belongs to a
- * revocation domain, while that domain has not been revoked since. */
-static bool live(Cap k) {
-  if (!k.valid || k.dom == 0) return k.valid;
-  if (k.perms & P_V) return doms[k.dom].alive; /* a revoker outlives its own revocations */
-  return doms[k.dom].alive && doms[k.dom].gen == k.gen;
+/* the table index of the granule holding byte `a` of a memory space, -1 if none */
+static int gidx(uint8_t space, uint64_t a) {
+  if (space == SP_T3) return a < T3_BYTES ? (int)(a >> GRAN_SHIFT) : -1;
+  if (space == SP_T2) return a < T2_BYTES ? (int)(NGRAN3 + (a >> GRAN_SHIFT)) : -1;
+  return -1;
 }
-static bool revoker(Cap k) { return k.valid && (k.perms & P_V) && k.dom && doms[k.dom].alive; }
+
+/* A capability can be used only while valid and, if it is revocable, while
+ * the granule holding its base still has the generation it was made under. */
+static bool live(Cap k) {
+  if (!k.valid || !k.rv) return k.valid;
+  int g = gidx(k.space, k.base);
+  return g >= 0 && ggen[g] == k.gen;
+}
+/* a revoker: a live capability with V (revokers are never revocable themselves) */
+static bool revoker(Cap k) { return live(k) && (k.perms & P_V) && !k.rv; }
+
+/* Revokes the units the granules [a, b) touch (b > a): every one of their
+ * granules gets the generation one past the highest among them, so every
+ * revocable capability based there dies, and [a, b) becomes a unit of its
+ * own (the parts of touched units outside it become units too). Returns
+ * the new generation. */
+static uint16_t revoke_units(int a, int b) {
+  int lo0 = a < (int)NGRAN3 ? 0 : (int)NGRAN3, end = a < (int)NGRAN3 ? (int)NGRAN3 : (int)(NGRAN3 + NGRAN2);
+  int lo = a, hi = b;
+  while (lo > lo0 && !ghead[lo]) lo--; /* back to the start of the unit holding a */
+  while (hi < end && !ghead[hi]) hi++; /* on to the end of the unit holding b - 1 */
+  uint16_t m = 0;
+  for (int k = lo; k < hi; k++)
+    if (ggen[k] > m) m = ggen[k];
+  m++;
+  for (int k = lo; k < hi; k++) {
+    ggen[k] = m;
+    ghead[k] = k == lo || k == a || k == b;
+  }
+  return m;
+}
 
 typedef struct {
   Cap cap;
@@ -699,14 +729,20 @@ static bool step(Core *c) {
     case CF_SPLIT:
       if (!live(s)) { trap(c, C_CAPINV, cs); return true; }
       /* capabilities are 8-byte aligned: the split point must be a multiple of 8 */
-      if (cd == cs || b > s.len || (b & 7) || !DEST_OK(dcap)) { trap(c, C_CAPOP, b); return true; }
-      c->caps[cd] = (Cap){true, s.space, s.perms, s.base + b, s.len - b, s.dom, s.gen};
+      /* a revoker is cut only at granule boundaries */
+      if (cd == cs || b > s.len || (b & 7) || ((s.perms & P_V) && (b & GMASK)) || !DEST_OK(dcap)) {
+        trap(c, C_CAPOP, b);
+        return true;
+      }
+      c->caps[cd] = (Cap){true, s.space, s.perms, s.base + b, s.len - b, s.rv, s.gen};
       c->caps[cs].len = b;
       break;
     case CF_JOIN:
       if (!live(s) || !live(dcap)) { trap(c, C_CAPINV, cs); return true; }
-      if (cd == cs || dcap.space != s.space || dcap.perms != s.perms || dcap.dom != s.dom ||
-          dcap.base + dcap.len != s.base) { /* never across revocation domains */
+      /* never across units: revocable pieces join only with the same generation,
+       * and not where a unit begins (cs's base on a HEAD granule boundary) */
+      if (cd == cs || dcap.space != s.space || dcap.perms != s.perms || dcap.rv != s.rv || dcap.gen != s.gen ||
+          dcap.base + dcap.len != s.base || (s.rv && !(s.base & GMASK) && ghead[gidx(s.space, s.base)])) {
         trap(c, C_CAPOP, cs);
         return true;
       }
@@ -717,14 +753,14 @@ static bool step(Core *c) {
       if (!live(s)) { trap(c, C_CAPINV, cs); return true; }
       if (!(s.perms & (P_R | P_X))) { trap(c, C_PERM, cs); return true; }
       if (cd != cs && !DEST_OK(dcap)) { trap(c, C_CAPOP, cd); return true; }
-      c->caps[cd] = (Cap){true, s.space, (uint8_t)((s.perms & (P_R | P_X)) | P_D), s.base, s.len, s.dom, s.gen};
+      c->caps[cd] = (Cap){true, s.space, (uint8_t)((s.perms & (P_R | P_X)) | P_D), s.base, s.len, s.rv, s.gen};
       if (cd != cs && linear) c->caps[cs] = (Cap){0};
       break;
     case CF_ATOM:
       if (!live(s)) { trap(c, C_CAPINV, cs); return true; }
       if (!(s.perms & P_W) || (s.space != SP_T2 && s.space != SP_T3)) { trap(c, C_PERM, cs); return true; }
       if (cd != cs && !DEST_OK(dcap)) { trap(c, C_CAPOP, cd); return true; }
-      c->caps[cd] = (Cap){true, s.space, P_A | P_D, s.base, s.len, s.dom, s.gen};
+      c->caps[cd] = (Cap){true, s.space, P_A | P_D, s.base, s.len, s.rv, s.gen};
       if (cd != cs) c->caps[cs] = (Cap){0};
       break;
     case CF_BASE: case CF_LEN: case CF_PERMS:
@@ -966,34 +1002,34 @@ static bool step(Core *c) {
     if (c->user && fn != C2_SEND && fn != C2_RECV) { trap(c, C_PRIV, ir); return true; }
     Cap s = c->caps[cs], dcap = c->caps[cd];
     switch (fn) {
-    case C2_DOM: { /* tag a region: cd = working capability, cs becomes its revoker */
+    case C2_DOM: { /* make a region revocable: cd = working capability, cs becomes its revoker */
       if (!live(s)) { trap(c, C_CAPINV, cs); return true; }
-      if (cd == cs || !(s.perms & P_W) || (s.perms & P_D) || s.dom || (s.space != SP_T2 && s.space != SP_T3) ||
-          !DEST_OK(dcap)) { trap(c, C_CAPOP, cs); return true; }
-      int d = 0;
-      for (int i = 1; i < NDOMS && !d; i++)
-        if (!doms[i].alive) d = i;
-      if (!d) { trap(c, C_CAPOP, cs); return true; }
-      doms[d].alive = true;
-      doms[d].gen++;
-      doms[d].space = s.space;
-      doms[d].perms = s.perms;
-      doms[d].base = s.base;
-      doms[d].len = s.len;
-      c->caps[cd] = (Cap){true, s.space, s.perms, s.base, s.len, (uint8_t)d, doms[d].gen};
-      c->caps[cs] = (Cap){true, s.space, P_V, s.base, s.len, (uint8_t)d, 0};
+      if (cd == cs || !(s.perms & P_W) || (s.perms & P_D) || s.rv || (s.space != SP_T2 && s.space != SP_T3) ||
+          !s.len || ((s.base | s.len) & GMASK) || !DEST_OK(dcap)) { trap(c, C_CAPOP, cs); return true; }
+      int a = gidx(s.space, s.base), n = (int)(s.len >> GRAN_SHIFT), end = s.space == SP_T3 ? (int)NGRAN3 : (int)(NGRAN3 + NGRAN2);
+      uint16_t m = 0;
+      for (int k = a; k < a + n; k++)
+        if (ggen[k] > m) m = ggen[k];
+      m++; /* one generation for the whole region, newer than any of its granules had */
+      for (int k = a; k < a + n; k++) {
+        ggen[k] = m;
+        ghead[k] = k == a;
+      }
+      if (a + n < end) ghead[a + n] = true; /* a unit ends here */
+      c->caps[cd] = (Cap){true, s.space, s.perms, s.base, s.len, true, m};
+      c->caps[cs] = (Cap){true, s.space, P_V, s.base, s.len, false, s.perms};
       break;
     }
-    case C2_REVOKE: case C2_UNDOM: { /* kill every capability of the domain */
+    case C2_REVOKE: case C2_UNDOM: { /* kill every revocable capability based in the revoker's range */
       if (!revoker(s)) { trap(c, C_CAPINV, cs); return true; }
       if (cd == cs || !DEST_OK(dcap)) { trap(c, C_CAPOP, cd); return true; }
-      int d = s.dom;
-      doms[d].gen++;
+      if (!s.len) { trap(c, C_CAPOP, cs); return true; }
+      int a = gidx(s.space, s.base);
+      uint16_t g = revoke_units(a, a + (int)(s.len >> GRAN_SHIFT));
       if (fn == C2_REVOKE) {
-        c->caps[cd] = (Cap){true, doms[d].space, doms[d].perms, doms[d].base, doms[d].len, (uint8_t)d, doms[d].gen};
+        c->caps[cd] = (Cap){true, s.space, (uint8_t)(s.gen & 63), s.base, s.len, true, g};
       } else {
-        doms[d].alive = false;
-        c->caps[cd] = (Cap){true, doms[d].space, doms[d].perms, doms[d].base, doms[d].len, 0, 0};
+        c->caps[cd] = (Cap){true, s.space, (uint8_t)(s.gen & 63), s.base, s.len, false, 0};
         c->caps[cs] = (Cap){0};
       }
       break;
