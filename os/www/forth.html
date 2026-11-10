@@ -23,8 +23,7 @@ as lent 4&nbsp;KiB message buffers. Nothing is copied between address
 spaces, because there are none.</li>
 <li>Programs share the worker cores, switched every 2&nbsp;ms. A switch
 copies out the part of the Local Store a program uses: the cost other
-machines hide. (The assembly <code>httpd</code>, on port 80 or 8080 from the
-host, has a live page of what the machine is doing at <code>/~ps</code>.)</li>
+machines hide. <a href="/~ps">See what the machine is doing</a>.</li>
 <li>This request went through the network server <code>net</code> (IPv4,
 TCP, UDP: <a href="/bin/net/">its programs</a>) and the file server
 <code>fs</code>, which reads the disk from user mode.</li>

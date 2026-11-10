@@ -29,7 +29,7 @@ Content-Type: text/html; charset=utf-8
 <h1><a href="/~/">/</a><a href="/www/">www</a>/</h1>
 <table>
 <tr><th>file</th><th>bytes</th><th>tags</th></tr>
-<tr><td><a href="/www/forth.html">forth.html</a></td><td class="n">3244</td><td><a href="/www/">www</a> </td></tr>
+<tr><td><a href="/www/forth.html">forth.html</a></td><td class="n">3158</td><td><a href="/www/">www</a> </td></tr>
 <tr><td><a href="/www/index.html">index.html</a></td><td class="n">2789</td><td><a href="/www/">www</a> </td></tr>
 <tr><td><a href="/www/style.css">style.css</a></td><td class="n">1312</td><td><a href="/www/">www</a> </td></tr>
 </table>
@@ -127,7 +127,7 @@ strata$ cat sh.s | wc
 6948 41272 331763
 strata$ rm index.html
 strata$ echo GET / HTTP/1.0 | nc 127.0.0.1 80 > r12
-GET / 200 13088
+GET / 200 13229
 strata$ grep title < r12
 <html><head><meta charset="utf-8"><title>every file</title><link rel="stylesheet" href="/style.css"></head><body>
 strata$ rm r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15

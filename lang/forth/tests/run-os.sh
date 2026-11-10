@@ -83,15 +83,17 @@ else
 fi
 # ---- 4. the network words and httpd.fs, over loopback (127.0.0.1: no link needed)
 # tests/nettest.fs uses the words at the prompt (on demand) and for good, TCP
-# and UDP within one process; then httpd.fs answers 9 requests sent with nc
+# and UDP within one process; then httpd.fs answers 11 requests sent with nc
 # for the files of tests/http/ (tagged httptest): two files, a listing with
-# and without a trailing /, HEAD, 404, 405, 400, a binary's type, and the
-# type of / (the disk's index.html, from os/www/); its log is shown last.
-# HTTP's CRs are dropped before the comparison.
+# and without a trailing /, HEAD, 404, 405, 400, a binary's type, the type
+# of / (its home page, /www/forth.html), and /~ps twice (what the machine is
+# doing: lines without numbers, which change with the OS);
+# its log is shown last. HTTP's CRs are dropped before the comparison, and
+# the size of /~ps in the log is masked.
 {
   printf 'forth < nettest.fs\n'
   printf -- '-n 2 forth -e 80 tcp-listen\n'
-  printf 'forth httpd.fs 8000 9 > hlog &\n'
+  printf 'forth httpd.fs 8000 11 > hlog &\n'
   printf 'echo "GET /httptest/note.txt HTTP/1.0" | nc 127.0.0.1 8000\n'
   printf 'echo "GET /httptest/page.html HTTP/1.0" | nc 127.0.0.1 8000\n'
   printf 'echo "GET /httptest HTTP/1.0" | nc 127.0.0.1 8000\n'
@@ -101,10 +103,12 @@ fi
   printf 'echo "nonsense" | nc 127.0.0.1 8000\n'
   printf 'echo "GET /httptest/blob.bin HTTP/1.0" | nc 127.0.0.1 8000 | grep Type\n'
   printf 'echo "HEAD / HTTP/1.0" | nc 127.0.0.1 8000 | grep Type\n'
+  printf 'echo "GET /~ps HTTP/1.0" | nc 127.0.0.1 8000 | grep doing\n'
+  printf 'echo "GET /~ps HTTP/1.0" | nc 127.0.0.1 8000 | grep Processes\n'
   printf 'wait\ncat hlog\nhalt\n'
 } > "$OUT/os4.in"
 boot os4
-sed -n '/^strata\$ forth < nettest.fs/,$p' "$OUT/os4.con" | mask | tr -d '\r' > "$OUT/os4.out"
+sed -n '/^strata\$ forth < nettest.fs/,$p' "$OUT/os4.con" | mask | tr -d '\r' | sed 's|^GET /~ps 200 [0-9]* $|GET /~ps 200 N |' > "$OUT/os4.out"
 if [ "${UPDATE:-0}" = 1 ]; then cp "$OUT/os4.out" "$HERE/net.out"; echo "test-forth: net.out updated"; fi
 if cmp -s "$OUT/os4.out" "$HERE/net.out"; then
   echo "test-forth: StrataOS network words and httpd.fs (loopback) match tests/net.out ($(wc -l < "$HERE/net.out" | tr -d ' ') lines)"

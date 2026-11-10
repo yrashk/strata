@@ -1145,12 +1145,15 @@ for inbound).
 give Strata Forth the same calls as words (`tcp-listen`, `tcp-accept`,
 `tcp-connect`, `sock-read`, `sock-write`, `sock-close`, `udp-open`,
 `udp-send`, `udp-recv`, `ping`, `ip>str`, `str>ip`), written in Forth on
-one kernel word that sends a message, `(msg)`; Forth keeps the endpoint
-in c1 (where `proc`'s was: LOOKUP's arrives in c6, its far heap, which
-waits in c7 meanwhile). `forth httpd.fs [PORT [COUNT]]` is an HTTP/1.0
-server written with them (port 8000, next to `httpd`'s 80; 2.11): GET and
-HEAD of the tag file system, URL paths as tag paths, listings of tag paths,
-`index.html`.
+one kernel word that sends a message, `(msg)`. Forth's c0..c7 are all in
+use, so the endpoint is not kept: before each request `(msg)` asks `proc`
+(c1) for it with LOOKUP (it arrives in c6, the far heap, which waits in c7
+meanwhile) and drops it after the answer, a `proc` round trip per request.
+`forth httpd.fs [PORT [COUNT]]` is an HTTP/1.0 server written with them
+(port 8000, next to `httpd`'s 80; 2.11): GET and HEAD of the tag file
+system, URL paths as tag paths, listings of tag paths, `index.html`, its
+own home page `/www/forth.html` at `/`, and `/~ps` from `proc`'s INFO,
+CORES and PS.
 
 ### 2.11 The HTTP server (`httpd`)
 
