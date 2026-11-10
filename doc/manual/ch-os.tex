@@ -563,6 +563,11 @@ handles (CLEANUP) and completes the parent's WAIT.
 15 & RENAME & data = a path, a zero byte, a new path. The file takes the new name and gains the new
   path's tags (created if new); it keeps its tags, blocks and directory entry, and another file of
   that name is deleted. $-4$; $-6$; $-1$ a bad new name\\
+20 & CWD & the requester's current tag path (Section~\ref{sec:os-cwd}). Mode 0: reply = its length,
+  data = its text (\texttt{/} at the root). Mode 1: data = a path, relative to the current one
+  (\texttt{..} allowed; none: the root); reply as mode 0; $-4$ no such tag, or no file in that view;
+  $-1$ longer than 64 bytes. Mode 2, from \texttt{proc} only: data = u64 parent pid, u64 child pid:
+  the child starts in the parent's path\\
 27 & STAT & data = a path. Reply: the size; $-4$\\
 28 & LOADIMG & data = a path, mode = arena offset, handle = the most bytes; the arena as
   attachment. Reply: the image's size; the arena comes back with the reply\\
@@ -645,6 +650,22 @@ A component \texttt{-tag} excludes: the file must not carry that tag, so \texttt
 the sources that are not demos (excluding a tag that does not exist excludes nothing). A path that
 creates a file or tags (writing, RENAME's new path) cannot exclude, and no tag name starts with
 \texttt{-}.
+
+\paragraph{The current tag path.}\label{sec:os-cwd} Every process has a current tag path, the
+analogue of a working directory, kept by \texttt{fs}: one entry per live process that is not at
+\texttt{/} (32 entries of at most 64 bytes), found by the sender pid the kernel stamps on each
+request. A path that does not start with \texttt{/} is read as that path, a \texttt{/}, then the
+path; DIR with no path lists it. In \texttt{/src/demo}, \texttt{cat hello.s} opens
+\texttt{/src/demo/hello.s}, \texttt{ls x/} lists \texttt{/src/demo/x}, and \texttt{echo hi > notes}
+creates \texttt{notes} tagged \texttt{src} and \texttt{demo}. Every path is then normalized:
+\texttt{.} components go, \texttt{..} removes the one before it. When creating, exclusions that come
+from the current path are dropped (the new file simply gets its tags). Setting it (CWD mode 1, the
+shell's \texttt{cd}) requires every component to be a tag that exists (or \texttt{-} and one) and
+at least one file to match, so no process is left in an empty view. A child starts in its parent's
+path: \texttt{proc} sends CWD mode 2 while it spawns, after LOADIMG and before CREATE, and the
+CLEANUP it sends when the process ends frees the entry. \texttt{proc} itself stays at \texttt{/}, so
+program images are always found from the root. Every client gets this for free: library programs,
+Forth's \texttt{include} and file words, and servers.
 
 \paragraph{Subdirectories are facets.} With its files DIR answers the other tags that at least one of
 them carries: the OR of their tag sets, without the path's own tags, computed in the same loop. These
@@ -834,13 +855,20 @@ cause after a fault; a non-zero status shows in the prompt, as in \texttt{[130] 
 \item[Builtins] \texttt{help}, \texttt{echo}, \texttt{set}, \texttt{unset}, \texttt{history},
   \texttt{jobs}, \texttt{fg}, \texttt{wait}, \texttt{kill} (a pid, or \texttt{\%J} for every stage of job
   $J$), \texttt{sleep} (decimal seconds), \texttt{clear}, \texttt{source}, \texttt{exit}, \texttt{halt},
-  \texttt{true}, \texttt{false}. A builtin that is a pipeline stage or runs in the background is run by
-  a child \texttt{sh -c}.
+  \texttt{true}, \texttt{false}, \texttt{cd}, \texttt{pwd}. A builtin that is a pipeline stage or runs
+  in the background is run by a child \texttt{sh -c}.
+\item[cd and pwd] \texttt{cd [PATH]} sets the current tag path (Section~\ref{sec:os-cwd}):
+  \texttt{cd TAG} appends a tag, \texttt{cd a/b} both, \texttt{cd -x} an exclusion, \texttt{cd /x/y}
+  replaces the path, \texttt{cd ..} drops the last component, \texttt{cd} or \texttt{cd /} goes back to
+  every file. A tag no file carries is refused (\texttt{sh: cd: no such tag: PATH}, status 1).
+  \texttt{pwd} prints the path. Away from the root the prompt shows it, as in
+  \texttt{strata:/src/demo\$}; programs and child shells start in it.
 \item[Line editing] The shell switches the console to raw mode while a line is typed. Left, Right,
   Home, End and Ctrl-B/F/A/E move; Backspace and Delete erase; Ctrl-K, Ctrl-U and Ctrl-W erase to the
   end, to the start, and the word before the cursor; Up, Down and Ctrl-P/N walk a history of 32 lines;
   Ctrl-L clears the screen; Tab completes a command (builtins and the programs on the disk) or a file
-  name, also behind a tag path (\texttt{cat /doc/mo}; a tag completes as \texttt{tag/}), and a second Tab lists the candidates; Ctrl-D on an empty line ends the input; Ctrl-C abandons
+  name, also behind a tag path (\texttt{cat /doc/mo}; a tag completes as \texttt{tag/}) and under the
+  current tag path (its files and facets), and a second Tab lists the candidates; Ctrl-D on an empty line ends the input; Ctrl-C abandons
   the line.
 \item[Running a command] Each stage's command text goes to \texttt{proc} with SPAWN, together with the
   three handles that become the child's 0, 1 and 2: the shell's own, pipe ends from \texttt{pipe}, or
@@ -862,7 +890,8 @@ At boot the login shell runs the script \texttt{rc} if the disk has one; the sup
 \begin{tabularx}{\linewidth}{@{}>{\ttfamily}l X@{}}
 \toprule
 \textrm{\bfseries Program} & \textbf{Action}\\\midrule
-ls [-t] [PATH] & list the files with their sizes: every file, or those carrying the tags of PATH
+ls [-t] [PATH] & list the files with their sizes: those of the current tag path (every file at
+  \texttt{/}), or those carrying the tags of PATH
   (\texttt{ls /src/demo}, \texttt{ls /src/-demo}), then its facets as \texttt{tag/};
   \texttt{-t} adds each file's tags\\
 tag FILE TAG \ldots & give a file tags; \texttt{untag FILE TAG \ldots} takes them away;

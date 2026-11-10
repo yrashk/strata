@@ -1,6 +1,6 @@
 #!/bin/sh
 # The interactive shell on the emulator: line editing, history, Tab
-# completion, quoting and variables, lists, jobs and builtins. Boots StrataOS
+# completion, quoting and variables, lists, jobs, builtins, tags and cd. Boots StrataOS
 # with a scripted console (keys as the terminal sends them: escape sequences
 # for the arrows, Home/End and Delete; DEL for Backspace; control characters)
 # and compares the console output with tools/test-sh.out.
@@ -136,6 +136,22 @@ CW=$(printf '\027'); CL=$(printf '\014'); CD=$(printf '\004')
   printf 'touch /extra/p2; tags p2; cat p2\n'
   printf 'retag p6 x y; tags p6; retag p6 y; tags p6; retag p6; tags p6; retag nosuch\n'
   printf 'rm p1 p2 p3 p4 p6 p8; ls /proj\n'
+  # the current tag path: cd, pwd, relative names under it (also for child
+  # programs and shells), creating there, exclusions, completion
+  printf 'echo one > /cdt/c1; echo two > /cdt/sub/c2; echo five > /other/c5; pwd\n'
+  printf 'cd cdt; pwd; ls\n'
+  printf 'echo three > c3; tags c3; cat c1 c3\n'
+  printf 'cat c5 || cat /other/c5\n'
+  printf 'cd sub; ls; cat c2; cd ..; pwd\n'
+  printf 'cd sub/../-sub; ls; touch c4; tags c4; ls -t /other\n'
+  printf 'cd /cdt/sub; pwd; cd /; pwd; cd /cdt\n'
+  printf 'cd nosuch; cd c1; cd /cdt/other; pwd\n'
+  printf 'cat c%s%s%s\n' "$TAB" "$TAB" "$CU"
+  printf 'cat s%sc2\n' "$TAB"
+  printf 'he%s%s%s\n' "$TAB" "$TAB" "$CU"
+  printf 'sh -c pwd; echo pwd | sh; wc < c1\n'
+  printf 'mv c3 sub/; ls sub/; cp -t c1 sub/c6; tags c6\n'
+  printf 'rm c1 sub/c2 sub/c3 c4 c6 /other/c5; ls; cd; pwd\n'
   printf 'rm f1 f2 f3 s1 tfile\n'
   printf 'exit 3 &\n'
   printf 'wait\n'
@@ -150,6 +166,6 @@ awk 'f || /^strata\$ /{f=1; print}' "$tmp/raw.out" |
          -e 's/time: [0-9]+\.[0-9]+ s/time: T s/' -e 's/^(sourced) [0-9]+$/\1 PID/' | cat -v >"$tmp/out.txt"
 if [ $upd -eq 1 ]; then cp "$tmp/out.txt" "$here/tools/test-sh.out"; echo "tools/test-sh.out updated"; exit 0; fi
 if cmp -s "$tmp/out.txt" "$here/tools/test-sh.out"; then
-  printf '%-14s OK    line editing, history, completion, syntax, jobs, tags, file utilities\n' shell; exit 0
+  printf '%-14s OK    line editing, history, completion, syntax, jobs, tags, file utilities, cd\n' shell; exit 0
 fi
 printf '%-14s FAIL\n' shell; diff "$here/tools/test-sh.out" "$tmp/out.txt" | head -40; exit 1

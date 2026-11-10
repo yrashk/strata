@@ -304,7 +304,59 @@ tag: no such file: nosuch
 [1] strata$ rm p1 p2 p3 p4 p6 p8; ls /proj
 ls: no such tag or file: /proj
 [exit 1]
-[1] strata$ rm f1 f2 f3 s1 tfile
+[1] strata$ echo one > /cdt/c1; echo two > /cdt/sub/c2; echo five > /other/c5; pwd
+/
+strata$ cd cdt; pwd; ls
+/cdt
+c1                        4
+c2                        4
+sub/
+strata:/cdt$ echo three > c3; tags c3; cat c1 c3
+c3: cdt
+one
+three
+strata:/cdt$ cat c5 || cat /other/c5
+cat: no such file: c5
+[exit 1]
+five
+strata:/cdt$ cd sub; ls; cat c2; cd ..; pwd
+c2                        4
+two
+/cdt
+strata:/cdt$ cd sub/../-sub; ls; touch c4; tags c4; ls -t /other
+c1                        4
+c3                        6
+c4: cdt
+c5                              5  other
+strata:/cdt/-sub$ cd /cdt/sub; pwd; cd /; pwd; cd /cdt
+/cdt/sub
+/
+strata:/cdt$ cd nosuch; cd c1; cd /cdt/other; pwd
+sh: cd: no such tag: nosuch
+sh: cd: no such tag: c1
+sh: cd: no such tag: /cdt/other
+/cdt
+strata:/cdt$ cat c
+c1  c2  c3  c4
+strata:/cdt$ cat c^[[5D^[[K
+strata:/cdt$ cat sub/c2
+two
+strata:/cdt$ he
+hello    help     hexdump
+strata:/cdt$ he^[[2D^[[K
+strata:/cdt$ sh -c pwd; echo pwd | sh; wc < c1
+/cdt
+/cdt
+1 1 4
+strata:/cdt$ mv c3 sub/; ls sub/; cp -t c1 sub/c6; tags c6
+c2                        4
+c3                        6
+c6: cdt sub
+strata:/cdt$ rm c1 sub/c2 sub/c3 c4 c6 /other/c5; ls; cd; pwd
+ls: no such tag or file: /cdt
+[exit 1]
+/
+strata$ rm f1 f2 f3 s1 tfile
 strata$ exit 3 &
 [1] PID
 strata$ wait

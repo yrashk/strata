@@ -59,7 +59,7 @@ HTTP/1.0 200 OK
 Server: StrataOS/0.1 httpd
 Connection: close
 Content-Type: text/plain; charset=utf-8
-Content-Length: 321774
+Content-Length: 331763
 
 strata$ echo GET /www/nosuch.html HTTP/1.0 | nc 127.0.0.1 80 > r7
 GET /www/nosuch.html 404 106
@@ -120,10 +120,10 @@ strata$ grep "<h2>" < r11
 <h2>Cores</h2>
 <h2>Processes</h2>
 strata$ echo GET /src/sh.s HTTP/1.0 | nc 127.0.0.1 80 | wc
-GET /src/sh.s 200 321774
-6758 39932 321905
+GET /src/sh.s 200 331763
+6954 41286 331894
 strata$ cat sh.s | wc
-6752 39918 321774
+6948 41272 331763
 strata$ rm index.html
 strata$ echo GET / HTTP/1.0 | nc 127.0.0.1 80 > r12
 GET / 200 12977

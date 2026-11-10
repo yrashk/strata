@@ -646,7 +646,11 @@ tags in use), -1 (bad tag name); 14 TAGS (data = a path, none = every tag)
 number); 15 RENAME (data = path, a zero byte, a new path) → 0, -4, -6, -1
 (bad new name): the file takes the new path's name and gains its tags
 (created if new), keeping its own tags, its blocks and its directory entry;
-another file of the new name is deleted; 27 STAT (data = path) → size; 28 LOADIMG (from `proc` when
+another file of the new name is deleted; 20 CWD (mode 0 get → length, data
+= the current tag path, "/" at the root; mode 1 set, data = a path → the new
+one as get, -4 no such tag or no file in that view, -1 longer than 64
+bytes, -6 table full; mode 2 from `proc` only, data = u64 parent pid, u64
+child pid: the child starts in the parent's path); 27 STAT (data = path) → size; 28 LOADIMG (from `proc` when
 spawning: data = path, handle = most bytes, mode = arena offset, the arena
 as attachment: fs copies the program image into it and the arena goes back
 with the reply) → size; 32 STATFS → data: u64 total blocks, used blocks,
@@ -678,6 +682,34 @@ file not tagged bin (excluding a tag that does not exist excludes nothing).
 A path that creates (opening for writing, RENAME's new path) cannot exclude
 (-1), and a tag name cannot start with `-`.
 
+**The current tag path** is the tag-system analogue of a working
+directory. `fs` keeps one per process (a table of 32 entries of at most 64
+bytes, one per live process that is not at `/`) and reads every path that
+does not start with `/` under it: the requester's path (from the sender pid
+the kernel stamps), a `/`, then the path. So in `/src/demo`, `cat hello.s`
+opens `/src/demo/hello.s` (hello.s must carry src and demo), `ls` (DIR with
+no path) lists the files carrying both and their facets, `ls x/` narrows to
+`/src/demo/x`, and `echo hi > notes` creates notes tagged src and demo.
+Every path is then normalized: `.` components go and `..` takes the one
+before it away (never above `/`), so `cat ../f` works too. When creating,
+exclusions that come from the current path are dropped (in `/notes/-work`,
+`echo x > f` gives f the tag notes); one written in the path itself is -1
+as before. CWD set takes a path relative to the current one (`..`, `a/b`,
+`-x`, or absolute) whose every component is a tag that exists, or `-` and
+one; at least one file must match the result, so that `cd` cannot leave a
+process in an empty view (-4). If the tags of a current path go away later
+(the last file carrying one is deleted), relative names in it answer -4
+until the process changes it; `/` always works. **Inheritance**: `proc`
+sends CWD mode 2 (parent, child) while it spawns, after LOADIMG and before
+CREATE, so a child starts where its parent is before it can send anything;
+CLEANUP (the process ended, or CREATE failed) frees the entry. `proc` itself
+is at `/`, so program images (LOADIMG) are always found from the root.
+Every client gets this without doing anything: the programs on the
+library, Forth's file words and `include` (its platform layer talks to `fs`
+directly), servers such as `httpd`. Names a program got from a listing are
+unique on the disk, so such a program asks with `/NAME` (`ls -t`, the
+shell's completion of programs).
+
 **Subdirectories are facets.** DIR also answers the other tags that at least
 one matching file carries: the OR of their tag sets, without the path's own
 tags (one loop over the 128 sets; nothing on the disk changes). These are
@@ -688,7 +720,7 @@ no facets. The shell's Tab completes facets in a path like folders (`cat
 /sr` Tab gives `/src/`, with no space after it).
 
 Utilities: `ls [-t] [PATH]` (files, then facets as `tag/`; `-t` adds each
-file's tags), `cat`, `cp [-t] SRC DST` (a copy; DST's path gives it tags,
+file's tags; no PATH: the current tag path), `cat`, `cp [-t] SRC DST` (a copy; DST's path gives it tags,
 `-t` also copies SRC's; names are unique, so DST must name another file),
 `mv SRC DST` (RENAME; `mv notes /todo/notes` or `mv notes /todo/` keeps the
 name and adds the tag), `rm FILE...`, `touch FILE...` (creates empty files;
@@ -769,9 +801,10 @@ ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47.
 - Line editing: left/right, Home/End, Backspace, Delete, Ctrl-A/E/K/U/W
   (also Ctrl-B/F/P/N), up/down history (32 lines), Tab completion of
   commands (builtins and the programs on the disk) and file names (the
-  common prefix; a second Tab lists the candidates), Ctrl-L clear, Ctrl-D on
+  common prefix; a second Tab lists the candidates; under a current tag
+  path its files and facets), Ctrl-L clear, Ctrl-D on
   an empty line exits, Ctrl-C abandons the line. The prompt (`strata$ `)
-  shows a non-zero last status. The console is raw only while a line is
+  shows a non-zero last status and the current tag path. The console is raw only while a line is
   being typed; jobs run with it cooked.
 - Syntax: quotes, `\x`, `$?`, `$$`, `$NAME` (`set`/`unset`), `;`, `&&`,
   `||`, pipelines up to 4 stages, `<`, `>`, `>>`, `&` (anywhere in a list),
@@ -780,7 +813,16 @@ ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47.
 - Jobs: `jobs`, `fg [%n]`, `wait [%n|pid]`, `kill %n|pid`; a finished
   background job is reported before the next prompt.
 - Builtins: help, echo, set, unset, history, jobs, fg, wait, kill, sleep
-  (decimal seconds), time, clear, source, exit, halt, run, true, false.
+  (decimal seconds), time, clear, source, exit, halt, run, true, false,
+  cd, pwd.
+- `cd [PATH]` sets the current tag path (2.4): `cd TAG` appends a tag,
+  `cd a/b` both, `cd -x` an exclusion, `cd /x/y` replaces, `cd ..` drops the
+  last component, `cd` or `cd /` goes back to every file; a tag no file
+  carries (or a view with no file) is refused: `sh: cd: no such tag: PATH`,
+  status 1. `pwd` prints it (`/` at the root). Away from the root the
+  prompt shows it: `strata:/src/demo$ ` (at the root it stays `strata$ `).
+  A `cd` in a pipeline or in the background runs in a child shell and does
+  not change the shell's own path.
   A builtin in a pipeline or in the background runs in a child shell.
 - Programs on disk: ls, cat, cp, mv, rm, touch, df, tag, untag, retag,
   tags, ps, free, uptime,
@@ -789,8 +831,7 @@ ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47.
   sets it; `rc` may set it at boot),
   seq, grep, wc, upper, spin, as, units, and the examples (all but `clock`
   and `gfx`, which need the device root that only `dev` holds).
-- Not there: `cd` (directories are tags: there is no current one),
-  globbing, `2>`; completion
+- Not there: globbing, `2>`; completion
   assumes an 80-column terminal, and a line longer than the terminal's
   width redraws wrongly.
 

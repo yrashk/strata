@@ -7,7 +7,7 @@
 #      output of the bare-metal Forth (first line and the lines marked as
 #      platform-specific aside);
 #   2. tests/ostest.fs and a few command lines (files, tools on demand,
-#      `forth FILE`, `forth -e`, pipes) give tests/os.out;
+#      `forth FILE`, `forth -e`, pipes, `include` after a `cd`) give tests/os.out;
 #   3. preemption: `forth preempt.fs` compiles and runs code while `spin`
 #      shares its core; its output is right, and `ps`, a little later, shows
 #      that both were switched (forth at least 5 times);
@@ -53,6 +53,9 @@ fi
   printf 'echo ": sq dup * ; 12 sq . see sq" | forth | grep mul | wc\n'
   printf 'forth nofile.fs\n'
   printf 'forth incerr.fs\n'
+  # the current tag path: relative names (and nested includes) resolve under it
+  printf 'cd /test; forth -e include inc1.fs cr .fcache\n'
+  printf 'cd /demo; forth inc2.fs; cd /\n'
   printf 'halt\n'
 } > "$OUT/os2.in"
 boot os2

@@ -52,5 +52,11 @@ strata$ forth nofile.fs
 fine 
 incerr.fs:3: *** nosuchword: undefined word
 [exit 1]
-[1] strata$ halt
+[1] strata$ cd /test; forth -e include inc1.fs cr .fcache
+inc2 inc1 
+0 hits, 0 misses, 0 write-backs
+strata:/test$ cd /demo; forth inc2.fs; cd /
+*** inc2.fs: no such file
+[exit 1]
+strata$ halt
 StrataOS: all cores halted

@@ -484,18 +484,17 @@ pt_skip:                                ; next entry: skip past the name's zero
         bnez  t4, pt_skip               ; ...
         j     pt_entry                  ; continue
 pt_hit:                                 ; t1 = 1: tools.fs; 2, 3, 4: see.fs, net.fs, udp.fs
-        la    a0, pl_ftools             ; "tools.fs"
-        li    a1, 8                     ; ...
+        la    a0, pl_ftools             ; "/tools.fs"
+        li    a1, 9                     ; ...
         addi  t1, t1, -1                ; file 1?
         beqz  t1, pt_ret                ; yes
-        addi  t1, t1, -1                ; t1 = 0, 1, 2: the others have 6-byte names,
-        slli  t2, t1, 1                 ; one after another from pl_fsee:
-        add   t1, t1, t2                ; t1 * 3
-        slli  t1, t1, 1                 ; t1 * 6
+        addi  t1, t1, -1                ; t1 = 0, 1, 2: the others have 7-byte names,
+        slli  t2, t1, 3                 ; one after another from pl_fsee:
+        sub   t1, t2, t1                ; t1 * 7
         la    a0, pl_fsee               ; ...
         add   a0, a0, t1                ; the name
-        li    a1, 6                     ; its length
-pt_ret:                                ; a0, a1 = the file
+        li    a1, 7                     ; its length
+pt_ret:                                 ; a0, a1 = the file
         ret                             ; done
 pt_none:                                ; not in the table
         li    a0, 0                     ; no file

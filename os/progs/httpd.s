@@ -285,6 +285,10 @@ _start:
 main:
         li    sp, 65536                 ; stack at the top of the D-LS
         call  sys_init                  ; ...
+        la    a0, ftbuf                 ; URLs are absolute: work from "/" whatever the
+        li    a1, 0                     ;   current tag path of the shell that started us
+        la    a2, ftbuf                 ;   (an empty path is "/"; the reply lands in ftbuf)
+        call  sys_chdir                 ; ...
         call  sys_cmdline               ; s1 = cursor, s2 = end
         add   s2, a0, a1                ; ...
         mv    a1, s2                    ; skip the program's name

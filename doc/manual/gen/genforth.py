@@ -380,6 +380,9 @@ GROUPS = [
     ("cores", "Multicore", "Other cores are workers: they receive the image by being lent capability "
      "<code>c0</code>, and jobs through the board."),
     ("time", "Time and cost", "The timer and the counters."),
+    ("net", "Networking", "StrataOS only: TCP and UDP through the <code>net</code> server (net.fs, udp.fs, loaded "
+     "on demand or with <code>require net</code> / <code>require udp</code>); a socket is a handle. "
+     "<code>httpd.fs</code> is a web server written with them."),
     ("files", "Files and the system", "Files are StrataOS's; <code>bye</code> halts every core (bare metal) or "
      "ends the process."),
     ("tools", "Tools", "<code>see</code>, the disassembler, <code>words</code>, <code>dump</code> and the "
@@ -426,6 +429,7 @@ SECTION_GROUP = {
     "cores": "cores",
 }
 FILE_GROUP = {FORTH + "/tools.fs": "tools", FORTH + "/see.fs": "tools", FORTH + "/os/os.fs": "files",
+              FORTH + "/net.fs": "net", FORTH + "/udp.fs": "net",
               FORTH + "/bare/start.fs": "io"}
 
 
@@ -709,7 +713,7 @@ def avail_of(w, tools):
         return "os", "StrataOS only"
     if f.endswith("/bare/start.fs"):
         return "bare", "bare metal only"
-    if f.endswith("/tools.fs") or f.endswith("/see.fs"):
+    if f.endswith("/tools.fs") or f.endswith("/see.fs") or f.endswith("/net.fs") or f.endswith("/udp.fs"):
         base = os.path.basename(f)[:-3]
         if w["name"] in tools:
             return "demand", "StrataOS: loaded on demand"
@@ -781,7 +785,8 @@ def word_html(w, ex):
 def collect():
     kernel = kernel_words()
     files = [(FORTH + "/core.fs", "core"), (FORTH + "/tools.fs", "tools"), (FORTH + "/see.fs", "see"),
-             (FORTH + "/os/os.fs", "os"), (FORTH + "/bare/start.fs", "bare")]
+             (FORTH + "/os/os.fs", "os"), (FORTH + "/bare/start.fs", "bare"),
+             (FORTH + "/net.fs", "net"), (FORTH + "/udp.fs", "udp")]
     words, by = [], {}
     for w in kernel:
         w["sources"] = [w]
