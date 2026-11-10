@@ -347,7 +347,6 @@ constant value to defer is s" ." abort" catch throw evaluate`...):
 | `demos/gfx.fs` | a parallel Mandelbrot: the framebuffer is cut into bands, one per worker, then joined and presented (bare metal only) |
 | `tests/test.fs`, `tests/test.out`, `tests/run.sh` | the regression test, bare metal on the emulator and the RTL |
 | `tests/run-os.sh`, `tests/ostest.fs`, `tests/os.out`, `tests/inc*.fs`, `tests/preempt.fs` | the same test under StrataOS, files and tools, command lines and pipes, preemption |
-| `PLAN-forth.md` | a short checklist of what is done and what is open |
 
 The images are built by
 `build/sasm -I lang/forth/bare -I build/forth -o build/forth.stx lang/forth/forth.s`
