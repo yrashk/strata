@@ -197,8 +197,9 @@ strata$ ws                          # the window server takes the screen
   code units it loads into its own instruction store on demand, with the
   same `xcall` / miss mechanism programs use.
 - **Servers are processes.** `proc` (processes, names, signals), `dev`
-  (devices), `fs` (files; it drives the block device from user mode), `tty`
-  (the console, Ctrl-C) and `pipe` run in user mode, one per core. A message
+  (devices), `fs` (files, with tags instead of directories; it drives the
+  block device from user mode), `tty` (the console, Ctrl-C) and `pipe` run
+  in user mode, one per core. A message
   is a lent buffer capability: a program gives its 4 KiB buffer to a server
   through an endpoint and gets it back with the answer. Nothing is copied
   between address spaces, because there are none.
@@ -373,7 +374,10 @@ the main points:
   budget), and StrataOS needs at least 6 cores.
 - A console read cannot be cancelled, so `halt` may wait for one more key
   when a program was waiting for input.
-- The file system is flat, with contiguous files and 128 directory entries.
+- The file system has tags instead of directories (`ls /src/demo` lists
+  the files tagged both `src` and `demo`), but files are contiguous runs of
+  blocks, a deleted file's space comes back only if it was the last one, and
+  a disk holds at most 128 files and 64 tags.
 - The shell has no globbing and no `2>`.
 - Strata Forth runs on the bare machine only, not yet as a StrataOS program.
 - With timer-driven preemption, the emulator and the RTL cannot be compared

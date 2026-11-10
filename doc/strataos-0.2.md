@@ -521,20 +521,42 @@ program library (`os/lib/sys.s`) sends READ/WRITE/CLOSE for a handle to the
 server that owns it; SPAWN passes handles to the child (the servers keep
 reference counts per process).
 
-**fs (c2)**: 3 OPEN (mode 0 read, 1 write/truncate, 2 append; data = name)
+**fs (c2)**: 3 OPEN (mode 0 read, 1 write/truncate, 2 append; data = path)
 → id; 1 READ (0 at the end of the file), 2 WRITE, 4 CLOSE (a written file is
 saved to disk when its last reference closes; files being written are held
-in a 128 KiB region); 10 DIR → count + 32-byte records (24 bytes name, u64
-size); 11 UNLINK; 27 STAT (data = name) → size; 28 LOADIMG (from `proc`
-when spawning: data = name, handle = most bytes, mode = arena offset, the
-arena as attachment: fs copies the program image into it and the arena goes
-back with the reply) → size; 32 STATFS → data: u64 total blocks, used
-blocks, files; 33 READBLK (handle = block) → the raw 512-byte block;
-34 READALL (handle = id, mode = arena offset, length = most bytes, the
-arena as attachment) → size, the whole file copied in; 35 WRITEALL (handle
-= id, mode = arena offset, length, the arena as attachment) → bytes
-appended to the file; 36–38 from `proc`. Files are contiguous runs of
-blocks in a 128-entry directory.
+in a 128 KiB region); 10 DIR (data = a tag path, none = every file) → count
++ 32-byte records (24 bytes name, u64 size), -4 no such tag; 11 UNLINK;
+12 TAG / 13 UNTAG (data = path, a zero byte, a tag name) → 0, -4, -6 (64
+tags in use), -1 (bad tag name); 14 TAGS (data = a path, none = every tag)
+→ count + 32-byte records (16 bytes name, u64 files carrying it, u64 tag
+number); 27 STAT (data = path) → size; 28 LOADIMG (from `proc` when
+spawning: data = path, handle = most bytes, mode = arena offset, the arena
+as attachment: fs copies the program image into it and the arena goes back
+with the reply) → size; 32 STATFS → data: u64 total blocks, used blocks,
+files; 33 READBLK (handle = block) → the raw 512-byte block; 34 READALL
+(handle = id, mode = arena offset, length = most bytes, the arena as
+attachment) → size, the whole file copied in; 35 WRITEALL (handle = id,
+mode = arena offset, length, the arena as attachment) → bytes appended to
+the file; 36–38 from `proc`. Files are contiguous runs of blocks in a
+128-entry directory.
+
+**Tags instead of directories.** A file has one name, unique on the disk,
+and carries any number of the disk's 64 tags (names of 1–16 bytes, no
+`/`). A "directory" is a set of tags, so one file shows up in several
+directories at once, without copies or links. Every name `fs` takes is a
+*path*: components separated by `/` (empty ones are skipped). The last
+component is the file's name; the ones before it are tags the file must
+carry. So `motd`, `/motd` and `/doc/motd` all open motd when it carries
+`doc`, and `/bin/motd` is "no such file" (-4). Opening for writing (or
+appending) gives the file the path's tags, creating tags that do not exist
+yet: `echo hi > /notes/todo` makes `todo` tagged `notes`; a file replaced by
+a write keeps its tags. DIR takes a path of tags and lists the files that
+carry all of them (`/` or nothing: every file); when its last component is
+not a tag but names a file carrying the others, it lists that file. UNLINK
+through a path deletes the file (to take it out of a directory, untag it).
+A tag that no file carries any more disappears. Utilities: `ls [-t] [PATH]`,
+`tag FILE TAG...`, `untag FILE TAG...`, `tags [FILE...]`; the shell completes
+file names behind a tag path (`cat /doc/mo` Tab).
 
 **Bare-metal programs and redirection.** A program without the marker has
 no library, so `prog < in > out` uses 34/35: `proc` has `fs` copy the
@@ -612,12 +634,14 @@ ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47.
 - Builtins: help, echo, set, unset, history, jobs, fg, wait, kill, sleep
   (decimal seconds), time, clear, source, exit, halt, run, true, false.
   A builtin in a pipeline or in the background runs in a child shell.
-- Programs on disk: ls, cat, rm, df, ps, free, uptime, devs, hexdump, cores,
+- Programs on disk: ls, cat, rm, df, tag, untag, tags, ps, free, uptime,
+  devs, hexdump, cores,
   sched (`sched` shows the slice and switch rates; `sched 500us` / `sched 5ms`
   sets it; `rc` may set it at boot),
   seq, grep, wc, upper, spin, as, units, and the examples (all but `clock`
   and `gfx`, which need the device root that only `dev` holds).
-- Not there: `cd` (the file system is flat), globbing, `2>`; completion
+- Not there: `cd` (directories are tags: there is no current one),
+  globbing, `2>`; completion
   assumes an 80-column terminal, and a line longer than the terminal's
   width redraws wrongly.
 
@@ -779,7 +803,11 @@ in `os/ws/`).
   0xD0000 bytes) and gives core 0 a read+execute share of exactly that range
   in **c12** (other cores do not get it).
 - The directory has 128 entries (8 blocks) of {name[24], u32 first block,
-  u32 size}; files are contiguous runs of blocks.
+  u32 size}; files are contiguous runs of blocks. Header offset 52: u32 LBA
+  of the tag table (4 blocks, right after the directory; 0 = none): 64 tag
+  names of 16 bytes (zero-padded; a zero first byte = a free slot), then 128
+  u64 tag sets, one per directory entry (bit t of set f = entry f carries
+  tag t). `mkdisk -t tag,tag...` tags the files named after it.
 - Memory handed over by the boot ROM: c0 = [0, 15 MiB), and **c13 =
   [16 MiB, 48 MiB)**: system memory above the load area and below the
   framebuffer window; and core 0 also gets **c14 = the framebuffer window
