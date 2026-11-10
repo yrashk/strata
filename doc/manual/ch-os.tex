@@ -534,6 +534,8 @@ handles (CLEANUP) and completes the parent's WAIT.
 30 & GETDISK & for \texttt{fs}: a device capability for the block device's window and a send-only
   endpoint to its node\\
 31 & GETCON & for \texttt{tty}: a device capability for the console's ports\\
+59 & GETNET & for \texttt{net}: a device capability for the network interface's ports. $-5$ unless
+  the caller is the process registered as \texttt{net}\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -897,7 +899,8 @@ sh & the shell\\
 
 The disk also carries the five servers, the bare-metal examples \texttt{hello}, \texttt{stream\_sum},
 \texttt{swcache}, \texttt{overlay}, \texttt{faults}, \texttt{pipeline}, \texttt{parsum}, \texttt{mandel}
-and \texttt{race}, the sources of all of these, and the text files \texttt{rc}, \texttt{motd} and
+and \texttt{race}, the sources of all of these (a utility's source has the library appended, without
+its comments, so that they fit the 4~MiB disk), and the text files \texttt{rc}, \texttt{motd} and
 \texttt{about}. A session:
 
 \begin{shell}
@@ -1036,6 +1039,67 @@ return, backspace and tab; \texttt{ESC [ K} (erase to end of line); \texttt{ESC 
 \texttt{ESC [ n D} (cursor right and left); \texttt{ESC [ 2 J} and \texttt{ESC [ H} (clear, home);
 \texttt{ESC [ r ; c H} (position); and \texttt{ESC [ \ldots\ m} with 0, 1, 30--37, 90--97 and 40--47
 (colours). The shell's line editor uses only this subset.
+
+\section{Networking}\label{sec:os-net}
+
+TCP/IP is a server too: \texttt{net} (\texttt{os/servers/net.s}). \texttt{net}~\textit{address}
+starts it (\texttt{net 10.0.0.1 \&}); like \texttt{ws}, a program with exactly that name becomes the
+server of the lowest empty core, and like \texttt{tty} it is alone there, because it keeps a device read
+in flight: the network interface's RX (Section~\ref{sec:netif}). It registers \texttt{"net"}, obtains
+the interface's ports from \texttt{dev} (GETNET, op 59, only for the process registered under that
+name) and waits in RECEIVE for a request, a packet (the RX read's tag) or its next timer. The first
+program that uses the network starts it with address 10.0.0.1 if it is not running, so
+\texttt{ping 127.0.0.1} works on a freshly booted machine.
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[IPv4] one interface with a static address (\texttt{ifconfig} changes it), no routing (every
+  address is on the link), no fragments. Packets to 127.0.0.0/8 and to the interface's own address
+  never reach the device: they wait in a local queue in the server's arena and are handled as if they
+  had arrived, so a machine with no link can still talk to itself.
+\item[ICMP] echo requests are answered; replies complete PING requests, timed with the timer.
+\item[UDP] sockets bound to ports; datagrams of up to 1472 bytes, queued with their sender.
+\item[TCP] four sockets in all, each with a 2~KiB receive ring (the advertised window) and a 2~KiB
+  send buffer; segments of at most 1024 bytes; in-order receive; the oldest unacknowledged segment is
+  sent again after 250~ms, doubling up to 8~s, at most eight times, before the connection is reset;
+  listen and accept, connect, close and half-close. Timers are the RECEIVE timeout, computed from the
+  clock in \reg{c7}.
+\end{description}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Operations of \texttt{net} (through LOOKUP)}\label{tab:os-net}
+\begin{tabularx}{\linewidth}{@{}r l X@{}}
+\toprule
+\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
+1 & READ & TCP: handle = socket; waits for data. Reply: bytes; 0 once the peer has closed; $-1$ after
+  a reset\\
+2 & WRITE & TCP: the data. Reply: the bytes taken (at least one); waits while the send buffer is full\\
+4 & CLOSE & mode bit 0: stop sending only (half-close). The buffered data goes, then FIN\\
+50 & STAT & reply: the sockets in use; data: address, the interface's STATUS, packet counters, then
+  32 bytes per socket\\
+51 & SETIP & handle = the new address\\
+52 & PING & handle = address, length = payload bytes, mode = timeout. Reply: the round trip in ticks;
+  $-8$\\
+53 & CONNECT & handle = address, length = port. Reply: the socket once established; $-1$ refused;
+  $-8$ no answer\\
+54 & LISTEN & handle = port. Reply: the socket; $-7$ in use\\
+55 & ACCEPT & handle = a listening socket. Reply: the next established connection, now the caller's\\
+56 & UDP & handle = port (0: any). Reply: the socket\\
+57 & SENDTO & data: address, port, payload. Reply: the bytes sent\\
+58 & RECVFROM & waits for a datagram. Reply: its bytes; data: sender's address and port, payload\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+A socket belongs to the process that made it. \texttt{proc} sends CLEANUP only to \texttt{fs},
+\texttt{tty} and \texttt{pipe}, so \texttt{net} looks at the process list every two seconds while
+sockets are open and closes those whose owners have ended. The library's \texttt{net\_init} puts the
+endpoint in \reg{c6} (no network call returns a capability, so nothing else lands there), and TCP
+sockets are ordinary handles (server register 6): \texttt{sys\_read}, \texttt{sys\_write} and
+\texttt{sys\_close} work on them. The programs are \texttt{ping} (until Ctrl-C or \texttt{-c}~$n$),
+\texttt{nc} (TCP and UDP, client and listener), \texttt{tcpecho} (an echo server), \texttt{ifconfig}
+and \texttt{netstat}. Two simulators joined with \texttt{-N udp:\ldots} are two machines on one link
+(\texttt{tools/test-net.sh} runs both).
 
 \section{Boot}\label{sec:os-boot}
 

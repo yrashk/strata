@@ -227,7 +227,7 @@ p2                        4
 p1                        4
 strata$ ls -t /-proj/-bin/-src/-sys/-demo/-ws/-forth
 about                         120  doc
-motd                         1312  doc
+motd                         1402  doc
 rc                              9  etc
 tfile                          11 
 f1                             15 

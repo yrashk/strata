@@ -19,3 +19,4 @@ Try:
   as < hello.s > hi          assemble with the assembler written in Strata
   spin                       runs forever: press Ctrl-C to stop it
   ws                         the window server: tiled windows (help lists its keys)
+  ping 127.0.0.1             TCP/IP: starts the network server; also nc, tcpecho, netstat

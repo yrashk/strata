@@ -6,7 +6,8 @@
 # Boots StrataOS on the emulator (12 cores, no window) with scripted keys:
 # `ws` from the shell; in its first terminal a command that leaves a file
 # (keys -> ws -> term -> the shell's pipe); wmandel and wclock through the
-# palette; a second terminal (four tiles); focus changes; a window closed;
+# palette; a second terminal (four tiles); focus changes (Alt+2, Alt+Right,
+# Alt+Left, Alt+1); wmandel focused and ended with its own `q` key;
 # Alt+Shift+Q back to the shell, which shows the file; then `ws` again and
 # Alt+Shift+H (halt with the desktop on the screen). Checks the console
 # markers and the last frame (-F): the status strip, a focused tile's amber
@@ -23,7 +24,7 @@ T=$BUILD/test-ws
 mkdir -p $T
 cp "$DISK" $T/disk.img
 W='\033W'
-printf "ws\n$W$W$W${W} echo ws-term-ok > wsmark\n$W\033pwm\n$W$W\033pwclock\n$W$W\033\n$W${W}ps\n$W\0332$W\033q$W$W\0331$W\033Qcat wsmark\nws\n$W$W$W${W} cores\n$W$W\033H" > $T/keys
+printf "ws\n$W$W$W${W} echo ws-term-ok > wsmark\n$W\033pwm\n$W$W\033pwclock\n$W$W\033\n$W${W}ps\n$W\0332${W}q$W$W\033\033[C$W\033\033[D$W\0331$W\033Qcat wsmark\nws\n$W$W$W${W} cores\n$W$W\033H" > $T/keys
 $BUILD/strata-emu -c 12 -g none -m 40000000000 -F $T/frame.ppm -d $T/disk.img -i $T/keys "$ROM" > $T/out.txt 2>&1 || {
   echo "test-ws: FAILED: the emulator exited with an error"; tail -5 $T/out.txt; exit 1; }
 fail() { echo "test-ws: FAILED: $1"; tail -20 $T/out.txt; exit 1; }

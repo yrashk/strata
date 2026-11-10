@@ -2,7 +2,7 @@
  *
  *   strata-emu [-c ncores] [-t trace.txt] [-m max_steps] [-d disk.img]
  *              [-i input.txt] [-b steps] [-T real|virtual] [-g none]
- *              [-F frame.ppm] [-z scale] [-r WxH] [-H] [-J|-j] image.stx
+ *              [-F frame.ppm] [-z scale] [-r WxH] [-H] [-N mode] [-J|-j] image.stx
  *
  * This is the ISA's sequential semantics written as code: every transfer
  * completes at the instant it issues, so tags are never busy and nothing
@@ -30,6 +30,7 @@
 #include "../common/stx.h"
 #include "../common/platform.h"
 #include "../common/display.h"
+#include "../common/net.h"
 #include "jit/jit.h"
 
 #define MAXCORES 15 /* + the block device = 16 inbox senders, the width of cpoll/tany masks */
@@ -140,6 +141,7 @@ static uint64_t ptr_lstate;        /* the pointer's STATE, latched when its byte
 static int npending;            /* pending device reads, machine wide */
 static uint64_t slow_events = 1; /* counts what can unblock a core: completed device reads, steps of step() */
 static uint64_t pend_seq;
+static uint64_t net_lstat;      /* network STATUS, latched when its byte 0 is read */
 
 static Core cores[MAXCORES];
 static int ncores = 4;
@@ -262,6 +264,15 @@ static void con_in_fill(Core *c, uint64_t ls, uint64_t len) {
   }
 }
 
+/* Network RX for a read of `len` bytes into c's D-LS: the head packet's
+ * first bytes, zeros past its end; the packet leaves the queue. */
+static void net_rx_fill(Core *c, uint64_t ls, uint64_t len) {
+  unsigned n;
+  const uint8_t *pk = net_rx_head(&n);
+  for (uint64_t i = 0; i < len; i++) c->dls[ls + i] = i < n ? pk[i] : 0;
+  net_rx_pop();
+}
+
 /* Completes whatever pending device reads can complete now. */
 static void pend_service(void) {
   if (!npending) return;
@@ -271,6 +282,13 @@ static void pend_service(void) {
   while (host_ptr_ready() && (p = pend_oldest(DEV_POINTER + PTR_EVENT, &c))) pend_fill(c, p, host_ptr_pop());
   while ((p = pend_oldest(DEV_CONSOLE + CON_IN, &c)) && con_in_ready(p->len)) {
     con_in_fill(c, p->ls, p->len);
+    p->on = false;
+    npending--;
+    slow_events++;
+  }
+  /* network: the oldest waiting RX read takes the next packet */
+  while (net_rx_count() && (p = pend_oldest(DEV_NET + NET_RX, &c))) {
+    net_rx_fill(c, p->ls, p->len);
     p->on = false;
     npending--;
     slow_events++;
@@ -290,10 +308,11 @@ static void pend_service(void) {
 static void dev_write(uint64_t port, uint64_t i, uint8_t b) {
   uint64_t a = port + i;
   if (port == DEV_CONSOLE) { fputc(b, stdout); return; }
-  if (port == DEV_CONSOLE + CON_RELEASE) {   /* complete every pending break read with 0 */
+  if (port == DEV_CONSOLE + CON_RELEASE) {   /* complete every pending break and input read with 0 */
     Core *c;
     Pending *p;
     while ((p = pend_oldest(DEV_CONSOLE + CON_BREAK, &c))) pend_fill(c, p, 0);
+    while ((p = pend_oldest(DEV_CONSOLE + CON_IN, &c))) pend_fill(c, p, 0);
     return;
   }
   if (port == DEV_POINTER + PTR_EVENT) { /* complete every waiting EVENT read with 0 */
@@ -306,6 +325,13 @@ static void dev_write(uint64_t port, uint64_t i, uint8_t b) {
     unsigned j = (unsigned)(a - DEV_TIMER - TMR_DEADLINE);
     tmr_wbuf = (tmr_wbuf & ~(0xffull << (8 * j))) | (uint64_t)b << (8 * j);
     if (j == 7) tmr_deadline = tmr_wbuf; /* pending waits see it at once (pend_service) */
+    return;
+  }
+  if (port == DEV_NET + NET_TX) { net_tx_put(i, b); return; } /* the packet: sent when the transfer ends */
+  if (port == DEV_NET + NET_CANCEL) {        /* complete every waiting RX read with zeros */
+    Core *c;
+    Pending *p;
+    while ((p = pend_oldest(DEV_NET + NET_RX, &c))) pend_fill(c, p, 0);
     return;
   }
   if (port == DEV_BLK0 + BLK_SQ) {
@@ -333,6 +359,11 @@ static uint8_t dev_read(uint64_t port, uint64_t i) {
     case TMR_DEADLINE: if (j == 0) tmr_ldl = tmr_deadline; return (uint8_t)(tmr_ldl >> (8 * j));
     default: return 0; /* WAIT other than at the start of a transfer */
     }
+  }
+  if (a >= DEV_NET + NET_STATUS && a < DEV_NET + NET_STATUS + 8) { /* latched at byte 0 */
+    unsigned j = (unsigned)(a & 7);
+    if (j == 0) net_lstat = net_status();
+    return (uint8_t)(net_lstat >> (8 * j));
   }
   if (a >= DEV_POINTER + PTR_STATE && a < DEV_POINTER + PTR_STATE + 8) {
     unsigned j = (unsigned)(a & 7);
@@ -559,7 +590,8 @@ static bool step(Core *c) {
       }
     } else if (k->space == SP_DEV && sub == XF_GET && len &&
                (far == DEV_CONSOLE + CON_IN || far == DEV_CONSOLE + CON_BREAK ||
-                far == DEV_TIMER + TMR_WAIT || far == DEV_FBCTL + FBC_VSYNC || far == DEV_POINTER + PTR_EVENT)) {
+                far == DEV_TIMER + TMR_WAIT || far == DEV_FBCTL + FBC_VSYNC || far == DEV_POINTER + PTR_EVENT ||
+                far == DEV_NET + NET_RX)) {
       /* a read that may have to wait: it completes now if it can, else stays in flight */
       Pending p = {true, (int)tg, ls, len, far, 0, pend_seq++};
       uint64_t now = 0;
@@ -567,6 +599,7 @@ static bool step(Core *c) {
       if (far == DEV_TIMER + TMR_WAIT || far == DEV_FBCTL + FBC_VSYNC) now = now_ticks();
       if (far == DEV_FBCTL + FBC_VSYNC) p.target = (now / FB_FRAME_TICKS + 1) * FB_FRAME_TICKS;
       bool ready = far == DEV_CONSOLE + CON_IN ? con_in_ready(len)
+                 : far == DEV_NET + NET_RX ? net_rx_count() > 0
                  : far == DEV_CONSOLE + CON_BREAK ? host_breaks > 0
                  : far == DEV_POINTER + PTR_EVENT ? host_ptr_ready()
                  : far == DEV_TIMER + TMR_WAIT ? now >= tmr_deadline : false;
@@ -576,6 +609,7 @@ static bool step(Core *c) {
       if (!ready && slot < 0) return false; /* too many in flight: the issue waits */
       if (ready) {
         if (far == DEV_CONSOLE + CON_IN) con_in_fill(c, ls, len);
+        else if (far == DEV_NET + NET_RX) net_rx_fill(c, ls, len);
         else {
           if (far == DEV_CONSOLE + CON_BREAK) host_breaks--;
           uint64_t v = far == DEV_CONSOLE + CON_BREAK ? 0x0303030303030303ull
@@ -592,6 +626,7 @@ static bool step(Core *c) {
         else c->dls[ls + i] = dev_read(far, i);
       }
       if (sub == XF_PUT && far == DEV_FBCTL + FBC_PRESENT && len) host_present(t3 + FB_BASE);
+      if (sub == XF_PUT && far == DEV_NET + NET_TX && len) net_tx_done(len); /* one transfer, one packet */
       fflush(stdout);
     } else {
       for (uint64_t i = 0; i < len; i += 8) {
@@ -1461,6 +1496,7 @@ static int machine_round(void) {
       else if (p->port == DEV_FBCTL + FBC_VSYNC) { idle.timed = true; idle.next = idle.next < p->target ? idle.next : p->target; }
       else if (p->port == DEV_CONSOLE + CON_IN) idle.input |= host_input_live();
       else if (p->port == DEV_CONSOLE + CON_BREAK) idle.input |= host_break_live();
+      else if (p->port == DEV_NET + NET_RX) idle.input |= net_live(); /* a packet may come from the peer */
       else if (p->port == DEV_POINTER + PTR_EVENT) idle.input |= host_ptr_live();
     }
   uint64_t now = now_ticks();
@@ -1474,7 +1510,7 @@ static int machine_round(void) {
   "usage: strata-emu [-c ncores] [-t trace.txt] [-m max_steps] [-d disk.img] [-i input.txt]\n"       \
   "                  [-P pointer.txt] [-b steps] [-T real|virtual] [-g none] [-F frame.ppm]\n"             \
   "                  [-z scale] [-r WxH]\n"                                                         \
-  "                  [-H] [-J|-j] image.stx\n"                                                                     \
+  "                  [-H] [-N mode] [-J|-j] image.stx\n"                                                                     \
   "  -c N        cores (1..15, default 4)\n"                                                          \
   "  -t FILE     write an instruction trace\n"                                                        \
   "  -m N        stop after N steps (timeout)\n"                                                      \
@@ -1488,6 +1524,7 @@ static int machine_round(void) {
   "  -z N        window scale (default 1)\n"                                                         \
   "  -r WxH      framebuffer size (default 1280x800; width a multiple of 8, 320x200..2560x1600)\n"   \
   "  -H          when every core has halted, keep the window open until it is closed\n"         \
+  "  -N MODE     network: none (default), loop, peer, udp:LPORT:HOST:RPORT (common/net.h)\n" \
   "  -J / -j     run with the JIT / only interpret (default: the JIT, except with -t or\n"     \
   "              -T virtual, which keep the exact one-instruction interleaving)\n"
 
@@ -1536,7 +1573,9 @@ int main(int argc, char **argv) {
       scale = atoi(argv[++i]);
       if (scale < 1 || scale > 8) { fprintf(stderr, "bad scale (1..8)\n"); return 2; }
     } else if (!strcmp(argv[i], "-H")) hold = true;
-    else if (!strcmp(argv[i], "-J")) jit_opt = 1;
+    else if (!strcmp(argv[i], "-N") && more) {
+      if (!net_host_open(argv[++i])) return 2;
+    } else if (!strcmp(argv[i], "-J")) jit_opt = 1;
     else if (!strcmp(argv[i], "-j")) jit_opt = 0;
     else if (argv[i][0] != '-' && !path) path = argv[i];
     else { fputs(USAGE, stderr); return 2; }
@@ -1602,6 +1641,7 @@ int main(int argc, char **argv) {
     if (rounds >= poll_at || use_jit) { /* now and then: terminal input, window events */
       poll_at = rounds + 4096;
       host_poll();
+      net_host_poll();
       if (host_quit) break;
     }
     int r = machine_round();
@@ -1622,6 +1662,7 @@ int main(int argc, char **argv) {
       } else {
         uint64_t wait = !idle.timed ? 1000 : next <= now ? 0 : next - now < 1000 ? next - now : 1000;
         host_poll_input();
+        net_host_poll();
         host_pump();
         if (host_quit) break;
         if (wait) usleep((useconds_t)wait);

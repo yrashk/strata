@@ -196,8 +196,12 @@ package strata_pkg;
   localparam logic [63:0] DEV_FB_VSYNC   = 64'h4008;
   localparam logic [63:0] DEV_PTR_EVENT  = 64'h4100;  // pointer: EVENT (waiting read; a write releases), STATE
   localparam logic [63:0] DEV_PTR_STATE  = 64'h4108;
+  localparam logic [63:0] DEV_NET_TX     = 64'h4200;  // network: TX (one transfer = one packet)
+  localparam logic [63:0] DEV_NET_RX     = 64'h4208;  // RX (waits for a packet)
+  localparam logic [63:0] DEV_NET_STATUS = 64'h4210;  // STATUS (latched at byte 0)
+  localparam logic [63:0] DEV_NET_CANCEL = 64'h4218;  // CANCEL (completes waiting RX reads with zeros)
   localparam logic [63:0] DEV_LEN     = 64'h5000;
-  localparam int          PLAT_LEN    = 288;      // 32 + 32 x 8 entries
+  localparam int          PLAT_LEN    = 320;        // 32 + 32 x 9 entries (common/platform.h)
   localparam longint      TMR_HZ      = 1000000;    // timer ticks per second (1 tick = 1 us)
   localparam longint      FRAME_TICKS = 16667;      // one 60 Hz display refresh, in ticks
   localparam int          IDENT_LEN   = 64;
@@ -223,6 +227,10 @@ package strata_pkg;
   import "DPI-C" function void sim_fb_present();    // PRESENT: the harness reads the framebuffer
   import "DPI-C" function void sim_fb_write(input int widx); // a system-memory word in the framebuffer window was written (live scanout)
   import "DPI-C" function void sim_trace(input int core, input longint pc, input int ir);
+  import "DPI-C" function void sim_net_tx(input int idx, input byte b, input int last); // a TX byte; last: the packet is complete
+  import "DPI-C" function int sim_net_rx_take();    // the next packet becomes the current one: its length, or -1 if none
+  import "DPI-C" function byte sim_net_rx_byte(input int idx); // byte idx of the current packet (0 past its end)
+  import "DPI-C" function longint sim_net_status(); // the STATUS register
 `endif
 
 endpackage

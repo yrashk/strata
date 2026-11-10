@@ -38,10 +38,10 @@
 ; Halting: `halt` waits for a core's pending device reads. The break read is
 ; armed again after a Ctrl-C (it reads 3) but not after a release (it reads
 ; 0): the kernel writes the release port once every core's dispatcher has
-; stopped its processes (u_halt), so this core can halt. An input read still
-; in flight then (a reader was waiting for a key) completes with the next key
-; or the end of input: it cannot be cancelled. The pointer's EVENT read is
-; completed by the kernel's write to that port (it reads 0: not armed again).
+; stopped its processes (u_halt), so this core can halt. The same write
+; completes an input read still in flight (a reader was waiting for a key;
+; it reads 0), and the pointer's EVENT read is completed by the kernel's
+; write to that port (it reads 0: not armed again).
 
 CON_OUT  = 0x00                         ; console ports (offsets in the window)
 CON_IN   = 0x08                         ; ...
