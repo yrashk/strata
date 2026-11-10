@@ -150,6 +150,4 @@ How it differs from spec 2.8 (the implementation wins):
   No calendar: the clock is the time since boot.
 - SET_SCRATCH covers the strips and the scene (24 KiB) only while ws waits
   in RECEIVE: a preemption in the middle of a frame must keep them.
-- `halt` typed in a terminal stops the machine only at the next key (tty
-  cannot cancel the console read ws keeps there). Alt+Shift+H halts at once.
 - Not exercised yet: TEXT, FILL, TITLE (implemented, no client uses them).

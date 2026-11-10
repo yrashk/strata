@@ -225,6 +225,10 @@ module strata_dev
   // brk_rel[c] = a release came while it waited (its next try returns 0).
   logic [NCORES-1:0] brk_wait, brk_rel;
   logic        brk_rel_me;     // the current transfer's core has a release waiting
+  // The release also completes console input reads waiting for their first
+  // byte (in_wait / in_rel, the same way): their bytes all read 0.
+  logic [NCORES-1:0] in_wait, in_rel;
+  logic        in_rel_me;
   logic [7:0]  rom_b;
   // pointer: ptr_have/ptr_ev = an event fetched from the host, not yet read;
   // ptr_wait/ptr_rel per core, as for the break port (a write to EVENT
@@ -247,8 +251,11 @@ module strata_dev
   assign wait_ok   = now >= deadline;
   always_comb begin
     brk_rel_me = 0;
-    for (int c = 0; c < NCORES; c++)
+    in_rel_me  = 0;
+    for (int c = 0; c < NCORES; c++) begin
       if (int'(t_core) == c && brk_rel[c]) brk_rel_me = 1;
+      if (int'(t_core) == c && in_rel[c])  in_rel_me  = 1;
+    end
   end
   always_comb begin
     vsync_ok = 0;
@@ -355,7 +362,10 @@ module strata_dev
           rvalid = 1;
           rdata  = {56'b0, tmr_val[8*ra[2:0] +: 8]};
         end else if (is_con_in) begin
-          if (!rx_ok && t_idx == 0) retry = 1;
+          if (in_rel_me) begin                       // released: zeros, no input taken
+            rvalid = 1;
+            rdata  = 64'd0;
+          end else if (!rx_ok && t_idx == 0) retry = 1;
           else if (rx_ok) begin
             rvalid     = 1;
             rdata      = {56'b0, con_rx_byte};
@@ -380,6 +390,8 @@ module strata_dev
       brk_cnt  <= '0;
       brk_rel  <= '0;
       brk_wait <= '0;
+      in_rel   <= '0;
+      in_wait  <= '0;
     end else begin
       // one Ctrl-C is consumed by each break read it completes; a release
       // marks every break read waiting at that moment
@@ -397,6 +409,12 @@ module strata_dev
           if (done) brk_rel[c] <= 0;
         end
         if (ts == T_RUN && t_we && t_port == DEV_CON_REL && wvalid && brk_wait[c]) brk_rel[c] <= 1;
+        if (ts == T_RUN && is_con_in && !t_we && int'(t_core) == c) begin
+          if (t_idx == 0 && retry) in_wait[c] <= 1;  // waits for its first byte
+          else if (rvalid) in_wait[c] <= 0;          // (bytes flow: no longer waiting)
+          if (done) in_rel[c] <= 0;
+        end
+        if (ts == T_RUN && t_we && t_port == DEV_CON_REL && wvalid && in_wait[c]) in_rel[c] <= 1;
       end
     end
   end
@@ -476,7 +494,7 @@ module strata_dev
   always_ff @(posedge clk) begin
     if (rst) sim_have <= 0;
     else if (con_rx_pop) sim_have <= 0;
-    else if (!sim_have && ts == T_RUN && is_con_in && !t_we) begin
+    else if (!sim_have && ts == T_RUN && is_con_in && !t_we && !in_rel_me) begin
       int c;
       c = sim_getc();
       if (c >= 0) begin

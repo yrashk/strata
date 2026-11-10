@@ -337,8 +337,9 @@ the console never appears on the console input port.
 
 \begin{rule*}{One release completes every pending break read}
 A write to the release port (device offset \hex{0018}) completes, with zeros, every break read that is
-waiting at that moment, on every core. A break read issued after the release waits for the next Ctrl-C
-or the next release. A release while no break read is waiting has no effect.
+waiting at that moment, on every core, and every read of the console input port that is waiting for its
+first byte (all its bytes read zero, and no input is taken). A read issued after the release waits for
+the next Ctrl-C, key or release. A release while no such read is waiting has no effect.
 \end{rule*}
 
 A program uses the release port to retire its break read when it no longer needs it, in particular

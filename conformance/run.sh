@@ -67,6 +67,13 @@ for t in "$@"; do
     printf '%-16s %s\n' "$t" "ASSEMBLY FAILED"; cat "$out/$t.asm.err"; bad=1; continue
   fi
   args=$(sed -n 's/^; args: *//p' "$src" | head -1 | sed "s|\\\$ROOT|$here|g")
+  # "; stdin: open": console input that never ends and never comes (a FIFO
+  # we hold open for writing), so input reads wait as at a terminal
+  fifo=""
+  if grep -q '^; stdin: open' "$src"; then
+    fifo="$out/$t.fifo"; rm -f "$fifo"; mkfifo "$fifo"; exec 3<>"$fifo"
+    args="$args -i $fifo"
+  fi
   # the three machines run at once
   ( cd "$here" && "$b/strata-emu" -c "$ncores" -j -T virtual -g none -m 100000000 $args "$img" \
       >"$out/$t.interp.out" 2>"$out/$t.interp.err" </dev/null; echo $? >"$out/$t.interp.ec" ) &
@@ -75,6 +82,7 @@ for t in "$@"; do
   ( cd "$here" && "$b/strata-rtl" -T virtual -g none -m 400000000 $args "$img" \
       >"$out/$t.rtl.out" 2>"$out/$t.rtl.err" </dev/null; echo $? >"$out/$t.rtl.ec" ) &
   wait
+  if [ -n "$fifo" ]; then exec 3>&-; rm -f "$fifo"; fi
   grep '^sig ' "$out/$t.interp.out" >"$out/$t.interp.sig"
   n=$(wc -l <"$out/$t.interp.sig" | tr -d ' ')
   nsig=$((nsig + n))

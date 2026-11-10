@@ -290,10 +290,11 @@ static void pend_service(void) {
 static void dev_write(uint64_t port, uint64_t i, uint8_t b) {
   uint64_t a = port + i;
   if (port == DEV_CONSOLE) { fputc(b, stdout); return; }
-  if (port == DEV_CONSOLE + CON_RELEASE) {   /* complete every pending break read with 0 */
+  if (port == DEV_CONSOLE + CON_RELEASE) {   /* complete every pending break and input read with 0 */
     Core *c;
     Pending *p;
     while ((p = pend_oldest(DEV_CONSOLE + CON_BREAK, &c))) pend_fill(c, p, 0);
+    while ((p = pend_oldest(DEV_CONSOLE + CON_IN, &c))) pend_fill(c, p, 0);
     return;
   }
   if (port == DEV_POINTER + PTR_EVENT) { /* complete every waiting EVENT read with 0 */

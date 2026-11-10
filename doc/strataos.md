@@ -52,7 +52,10 @@ tests `brkrel`, `pendxfer`, `haltdrain`):
   (0x18) completes, with 0, every break read waiting at that moment, on
   every core. A break read issued after the release waits for the next
   Ctrl-C or release; a release with no break read waiting does nothing. A
-  core has at most one break read in flight.
+  core has at most one break read in flight. The release also completes
+  every console input read waiting for its first byte (its bytes read 0;
+  no input is taken), so a core waiting for a key can be stopped too
+  (conformance test `inrel`).
 - **Transfers are ordered after an in-flight device read.** A transfer
   (`tget`, `tput`, core-control `tput`; not `tgetx`, which writes the I-LS)
   whose D-LS range overlaps the destination of a device read still in
@@ -527,13 +530,14 @@ controller's capability is cut by `dev` from the device root.
 and wakes every worker; each dispatcher stops its threads and counts
 itself in before its own `halt`; the system core waits (bounded) for all
 of them, so that no process can start another read, then writes the
-console's release port (completing every break read), the pointer's EVENT
+console's release port (completing every break read and a waiting input
+read), the pointer's EVENT
 port (completing `tty`'s EVENT read) and DEADLINE 0 (completing its own
 timer WAIT), and halts. `tty` arms its break read
-again only after a real Ctrl-C, not after a release. Console *input*
-cannot be cancelled: if a reader was waiting for a key at that moment,
-that core halts at the next key or at the end of input (a known
-limitation).
+again only after a real Ctrl-C, not after a release; an input read it had
+in flight (a reader was waiting for a key) is completed by the same
+release, so `halt` typed in a terminal under `ws` stops the machine at
+once.
 
 **Time needs no call.** Every process starts with a read-only device
 capability to the timer's NOW and FREQ registers (c7): reading the clock is
