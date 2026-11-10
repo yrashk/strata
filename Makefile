@@ -9,6 +9,7 @@
 #   make show-NAME  run one example on the emulator and keep its window open
 #                   after it halts, e.g. make show-gfx (show-rtl-NAME: the RTL)
 #   make boot       boot StrataOS on the emulator and type at its shell
+#   make boot-ws    the same, with the window server started at boot (os/files-ws/rc)
 #   make boot-demo  boot StrataOS on the emulator with a scripted session
 #   make boot-rtl   boot StrataOS on the Verilog simulator (interactive)
 #   make boot-rtl-demo  the scripted session on the Verilog simulator
@@ -41,7 +42,7 @@ IMAGES  := $(patsubst examples/%.s,$(BUILD)/examples/%.stx,$(EXAMPLES))
 PROGS   := $(patsubst examples/%.s,$(BUILD)/prog/%,$(EXAMPLES))
 EMU     := $(BUILD)/strata-emu -c $(NCORES)
 
-.PHONY: all examples test clean lint run run-emu boot boot-demo boot-rtl boot-rtl-demo os fpga-images manual
+.PHONY: all examples test clean lint run run-emu boot boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
 
 all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl
 
@@ -199,11 +200,21 @@ $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 
 os: $(BUILD)/bootrom.stx $(BUILD)/disk.img
 
+# the same disk with an rc that starts the window server (make boot-ws)
+DISK_WS_FILES := $(filter-out os/files/rc,$(DISK_FILES)) os/files-ws/rc
+
+$(BUILD)/disk-ws.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_WS_FILES)
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WS_FILES)
+
 # the emulator boots StrataOS with 12 cores; the RTL with NCORES
 BOOT_EMU := $(BUILD)/strata-emu -c 12
 
 boot: $(BUILD)/strata-emu os
 	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
+	@$(BOOT_EMU) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
+
+boot-ws: $(BUILD)/strata-emu $(BUILD)/bootrom.stx $(BUILD)/disk-ws.img
+	@cp $(BUILD)/disk-ws.img $(BUILD)/disk-run.img
 	@$(BOOT_EMU) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
 
 boot-demo: $(BUILD)/strata-emu os
