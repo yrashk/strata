@@ -711,6 +711,9 @@ def avail_of(w, tools):
     f = w["file"]
     if f.endswith("/os/os.fs"):
         return "os", "StrataOS only"
+    if f.endswith("/net.fs") or f.endswith("/udp.fs"): # (sockets exist only under StrataOS)
+        base = os.path.basename(f)[:-3]
+        return "os", "StrataOS only: loaded on demand, or <code>require %s</code>" % base
     if f.endswith("/bare/start.fs"):
         return "bare", "bare metal only"
     if f.endswith("/tools.fs") or f.endswith("/see.fs") or f.endswith("/net.fs") or f.endswith("/udp.fs"):
