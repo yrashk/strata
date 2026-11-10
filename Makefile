@@ -349,7 +349,10 @@ bench: $(BUILD)/strata-emu examples $(BUILD)/forth.stx
 #             browser (site/code/), by tools/web-code.py
 # web-docs    build/web-docs/: the manual on the web, isa/ (every instruction)
 #             and arch/ (the architecture outline), by doc/manual/gen/genweb.py
-#             from the manual's sources (the same data as make manual)
+#             from the manual's sources (the same data as make manual); and
+#             forth/ (every Forth word with its source, and a playground that
+#             runs the play page's worker), by doc/manual/gen/genforth.py
+#             from lang/forth/
 # web-site    build/web-site/: site/ with build/web/ under play/ and
 #             build/web-code/ under code/; preview it with
 #             python3 -m http.server --directory build/web-site

@@ -1,0 +1,26 @@
+<!--
+  The Forth section's playground (forth/): a panel at the side on wide
+  screens, a drawer at the bottom on narrow ones. site/forth/forth.js runs
+  build/forth.stx in it with site/play/worker.js and the play page's
+  strata-emu.wasm. Put after the page's main column by genforth.py.
+-->
+<aside class="pg" id="pg" aria-label="Forth playground">
+  <div class="pg-bar">
+    <button type="button" class="pg-toggle" id="pg-toggle" aria-expanded="false" aria-controls="pg-body">
+      <span class="pg-title">▸ PLAYGROUND</span><span class="pg-sub">forth.stx · 8 cores</span>
+    </button>
+    <div class="pg-ctl">
+      <label class="pg-demos"><span class="sr">Paste a demo</span>
+        <select id="pg-demos"><option value="">demo…</option></select></label>
+      <button type="button" class="small" id="pg-screen-b" title="Show or hide the framebuffer" aria-pressed="false">Screen</button>
+      <button type="button" class="small" id="pg-reset" title="Boot a fresh machine">Reset</button>
+    </div>
+  </div>
+  <div class="pg-body" id="pg-body">
+    <div class="pg-term"><div id="pg-term"></div></div>
+    <div class="pg-screen" id="pg-screen" hidden>
+      <canvas id="pg-canvas" width="640" height="400" aria-label="The Strata framebuffer"></canvas>
+    </div>
+    <p class="pg-status" id="pg-status" aria-live="polite">idle</p>
+  </div>
+</aside>

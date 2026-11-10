@@ -1,0 +1,143 @@
+<!--
+  The prose of the website's Strata Forth section (forth/), written for the
+  web from lang/forth/README.md and the manual's chapter (ch-forth.tex).
+  doc/manual/gen/genforth.py puts it in front of the word reference, which
+  it generates from the sources. Placeholders (counts): {{words}} {{kernel}}
+  {{forth}} {{inline}} {{tools}}. The playground panel is forth-play.html.
+-->
+<header class="doc-head">
+  <p class="kicker">Strata Forth · lang/forth/</p>
+  <h1>Strata Forth</h1>
+  <p class="doc-meta"><span>{{words}} words</span><span>{{kernel}} kernel primitives</span><span>{{forth}} defined in Forth</span><span>generated from the sources</span></p>
+  <p class="doc-desc">A Forth for Strata, the ISA where memory is explicit I/O: a small kernel in Strata
+    assembly and the rest of the language written in Forth, compiled at power-on, with words that
+    compile to <b>native code</b> installed the only way code can reach the instruction Local
+    Store. Every word the system defines is below, with its stack effect, what it does, where it
+    lives and its source, read from <code>lang/forth/</code> itself. The playground runs the real
+    <code>forth.stx</code> in the WebAssembly emulator: press <b>Try</b> on any word.</p>
+</header>
+
+<section class="chap" id="intro" data-unfiltered>
+<h2><span class="num">Overview</span>What it is</h2>
+<p>A classic bootstrap: the kernel, <a class="srcpath" href="../code/#lang/forth/forth.s"><code>forth.s</code></a>,
+  is the outer interpreter, a native-code compiler, the dictionary, number parsing,
+  <code>catch</code>/<code>throw</code>, multicore support, the far cache and about 150 primitives
+  (every line commented). <a class="srcpath" href="../code/#lang/forth/core.fs"><code>core.fs</code></a>
+  builds the rest of the language on them: control structures, a small assembler, defining words,
+  strings, number formatting, locals, quotations and the words for tiers, capabilities and cores.
+  <code>tools.fs</code> and <code>see.fs</code> add <code>words</code>, <code>dump</code>, the
+  capability and JIT inspectors, and a disassembler with <code>see</code>.</p>
+<p>It runs bare metal on <code>strata-emu</code> and <code>strata-rtl</code> (8 cores by default,
+  byte-identical console output on both), and as a program of StrataOS 0.1: <code>forth</code> at the
+  shell, <code>forth FILE</code>, pipes, <code>-n N forth</code> for threads. One kernel source, two
+  platform layers (<code>lang/forth/bare/</code>, <code>lang/forth/os/</code>).</p>
+
+<pre class="lst"><code class="language-forth" data-session>: sq ( n -- n*n ) dup * ;  12 sq . 144  ok
+see sq
+: sq  ( xt $80f0 , 40 bytes)
+  80f0:   442fff8  addi sp, sp, -8
+  80f4:  60220000  sd ra, 0(sp)
+  80f8:   508fff8  addi s0, s0, -8
+  80fc:  61280000  sd s1, 0(s0)
+  8100:  40a80000  ld t0, 0(s0)
+  8104:   5080008  addi s0, s0, 8
+  8108:   125480a  mul s1, t0, s1
+  810c:  40220000  ld ra, 0(sp)
+  8110:   4420008  addi sp, sp, 8
+  8114:  a4010000  ret
+ ok
+true jit-trace  : cube dup dup * * ; [jit: tput+tgetx 64 bytes -> I-LS 0x8160]  ok
+1234 0 far!  0 far@ . 1234  ok
+7 1 ' sq 1 spawn  1 await . 49  ok</code></pre>
+<p>In <code>sq</code> the bodies of <code>dup</code> and <code>*</code> were copied inline between
+  the prologue and the epilogue; the numbers are hex.</p>
+
+<h3 id="threading">Threading model: native code, installed by transfers</h3>
+<p>Subroutine threading, compiled to machine code. A colon definition is a routine: a prologue that
+  saves <code>ra</code>, one <code>jal</code> per word called or the word's body copied inline, and an
+  epilogue. Stores cannot reach the I-LS, so the compiler assembles a definition into a 4&nbsp;KiB
+  staging buffer in the D-LS, and <code>;</code> installs it with two transfers: a <code>tput</code>
+  to a far-memory <em>mirror</em> of the I-LS (far offset = I-LS address), then a <code>tgetx</code>
+  from the mirror into the I-LS. A fetch from a range a <code>tgetx</code> is still filling waits, so
+  the word can run at once. Everything compiled can be read back from the mirror: <code>see</code>
+  disassembles it, the compiler inlines from it, other cores install it from there.</p>
+<div class="tbl"><table><thead><tr><th>Register</th><th>Use</th></tr></thead><tbody>
+<tr><td><code>s1</code></td><td>the top of the data stack, cached</td></tr>
+<tr><td><code>s0</code></td><td>the data stack pointer: it points at the second item and grows down</td></tr>
+<tr><td><code>sp</code></td><td>the return stack, which is the machine stack</td></tr>
+<tr><td><code>s2</code>, <code>s3</code></td><td>the index and limit of the innermost <code>do</code> loop (<code>i</code> is <code>mv s1, s2</code>)</td></tr>
+<tr><td><code>s4</code></td><td>the locals frame</td></tr>
+<tr><td><code>t*</code>, <code>a*</code>, <code>s5</code>..<code>s11</code></td><td>scratch: any word may clobber them</td></tr>
+</tbody></table></div>
+<p>The compiler <b>inlines</b> primitives of at most four instructions ({{inline}} of them are marked
+  inline), <b>folds</b> a 16-bit literal followed by <code>+ - and or xor lshift rshift arshift @ ! c@
+  c!</code> into one instruction (a variable then <code>@</code> is one <code>ld</code> from an
+  absolute address), turns a call just before <code>;</code> into a <b>jump</b> (tail calls;
+  <code>recurse</code> in tail position is a loop) and keeps <code>do</code> loop indices in
+  registers. Under StrataOS, where code space is 32&nbsp;KiB, <em>compact code</em> makes the prologue
+  one <code>jal t0, k_enter</code> and a return one <code>j k_exit</code>.</p>
+<p>Strata instructions name capability registers and transfer tags in immediate fields, so
+  "transfer through capability register <i>n</i>" is sixteen instructions. <code>xexec ( a0 a1 a2
+  insn -- a0' )</code> assembles the one wanted, installs it with a <code>ret</code> into one of eight
+  I-LS trampolines (direct mapped by a hash, so a loop pays the install once) and calls it. Every
+  capability and transfer word in <code>core.fs</code> is a one-liner over <code>xexec</code>.</p>
+
+<h3 id="cores">Cores, capabilities and far memory</h3>
+<p>Other cores are workers. At power-on core 0 gives each a private 64&nbsp;KiB page and a copy of
+  the <em>job board</em>, an atomics-only segment. A worker waits in <code>ctake</code>: a capability
+  with <b>X</b> permission is the <em>image</em> (core 0's <code>c0</code>, lent: it
+  <code>tgetx</code>es the code and <code>tget</code>s a snapshot of the dictionary, then gives it
+  back); anything else is the doorbell for a job on the board. <code>spawn</code> publishes a new image
+  only when something was compiled since the last one. Memory moves between cores as ownership, with
+  <code>give</code> and <code>take</code>.</p>
+<p><code>far@</code> and <code>far!</code> address the heap capability through a 2-way, 32-set
+  write-back cache of 64-byte lines in the D-LS, built on the hardware's <code>ltag</code> and
+  <code>linst</code>; <code>.fcache</code> shows its hits, misses and write-backs.</p>
+
+<h3 id="dialect">The dialect</h3>
+<p>Close to Forth 2012 for the core words. Deviations:</p>
+<ul>
+<li>A cell is 64 bits and there are no double-cell words; <code>&lt;# # #s #&gt;</code> work on single
+  cells, <code>*/</code> has a 64-bit intermediate, <code>um*hi</code> gives the high half of a
+  product.</li>
+<li><code>/</code> and <code>mod</code> truncate, like the hardware.</li>
+<li>Code space and data space are separate: <code>here</code>, <code>,</code> and <code>allot</code>
+  are data space; <code>chere</code> is the code pointer. String literals live in data space.</li>
+<li>Numbers: <code>$ff</code>, <code>#99</code>, <code>%1010</code>, <code>'c'</code>,
+  <code>-$10</code>. Names are case-blind.</li>
+<li>Locals <code>{ a b -- }</code> at the start of a definition (up to 16, <code>to</code> works on
+  them); quotations <code>[: ... ;]</code>; <code>[if] [else] [then]</code> within one line.</li>
+<li><code>bye</code>, or the end of input, halts every core (StrataOS: ends the process). There is no
+  Ctrl-C on bare metal: the REPL runs in supervisor mode, which nothing preempts.</li>
+<li>Under StrataOS the tools (<code>{{tools}}</code> entry points: <code>see</code>,
+  <code>words</code>, <code>dump</code>, ...) are not compiled at start-up: their file is loaded,
+  run and forgotten when one is used; <code>require tools</code> / <code>require see</code> load them
+  for good.</li>
+</ul>
+
+<h3 id="reading">Reading the reference</h3>
+<p>Each entry gives the stack effect and description from the source's own comments, the kind of
+  word (a kernel primitive, inlined or called; a colon definition; a constant, variable or created
+  word), whether it is immediate, where it is available (everywhere unless marked: StrataOS only,
+  bare metal only, loaded on demand under StrataOS, or after <code>require</code>), and its source,
+  linked to its lines in the <a href="../code/">source browser</a>. Link to a word as
+  <code>forth/#w-<i>name</i></code>, with symbols spelled out: <a href="#w-dup"><code>#w-dup</code></a>,
+  <a href="#w-plus-store"><code>#w-plus-store</code></a> (<code>+!</code>),
+  <a href="#w-dot-quote"><code>#w-dot-quote</code></a> (<code>."</code>).</p>
+</section>
+
+<section class="chap" id="playground" data-unfiltered>
+<h2><span class="num">In the browser</span>Playground</h2>
+<p>The playground (the panel at the right; on narrower screens, the bar at the bottom of the
+  window, which opens it) is the Strata reference emulator compiled to
+  WebAssembly, running the real Strata Forth image (<code>forth.stx</code>, bare metal, 8 cores, a
+  640×400 framebuffer), the same as <code>make forth</code> on the desktop and the
+  <a href="../play/?run=forth">play page</a>'s Forth. Click the terminal and type; each line you
+  enter is echoed and answered with <code>ok</code>. <b>Try</b> on a word types its example in
+  (most come from the regression test, <code>lang/forth/tests/test.fs</code>; words it does not use
+  show their machine code with <code>see</code>). The demo menu pastes one of
+  <code>lang/forth/demos/</code>: <code>gfx</code> renders a Mandelbrot set on every worker core into
+  the screen, which opens under the terminal when something is drawn. <b>Reset</b> boots a fresh
+  machine.</p>
+<p class="pg-open-p"><button type="button" class="btn pg-open" data-pg-open>Open the playground</button></p>
+</section>
