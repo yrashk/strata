@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strata source</title>
+<meta name="description" content="Every Strata assembly and Forth program in the repository, syntax-coloured: the examples, the StrataOS kernel, servers and programs, the self-hosted assembler, the firmware, Strata Forth and the conformance tests.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="code.css">
+</head>
+<body class="src-page">
+
+<nav class="top">
+  <a class="mark" href="../">STRATA</a>
+  <div class="links">
+    <a href="../#idea">Idea</a>
+    <a href="../#os">StrataOS</a>
+    <a href="../#forth">Forth</a>
+    <a href="../play/">Play</a>
+    <a href="./" aria-current="page">Source</a>
+    <a class="pill" href="../Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
+    <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
+  </div>
+</nav>
+
+<div class="src">
+  <aside id="side" class="src-side" aria-label="Files">
+    <div class="src-find">
+      <input id="filter" type="search" placeholder="Filter files…  ( / )" autocomplete="off" spellcheck="false" aria-label="Filter files by name or description">
+    </div>
+    <div id="tree" class="src-tree" role="navigation"></div>
+    <p class="src-keys"><kbd>/</kbd> filter · <kbd>↑</kbd><kbd>↓</kbd> move · <kbd>[</kbd><kbd>]</kbd> prev / next file · click a line number to link to it</p>
+  </aside>
+  <div id="scrim" class="src-scrim" hidden></div>
+
+  <main id="view" class="src-view" tabindex="-1">
+    <header class="src-head">
+      <button id="files-btn" class="src-files-btn" aria-controls="side" aria-expanded="false">▸ Files</button>
+      <p class="kicker" id="crumb">Source</p>
+      <h2 id="title">Every program, in Strata assembly and Forth</h2>
+      <p class="src-meta" id="meta"></p>
+      <p class="src-desc" id="desc">Loading the file list…</p>
+      <div class="src-actions" id="actions"></div>
+    </header>
+    <div id="body"></div>
+  </main>
+</div>
+
+<script src="code.js"></script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+\chapter{Inter-core communication}\label{ch:intercore}
+
+Cores share no writable memory. They cooperate by passing capabilities: a core that wants another core
+to see data hands over the capability for it. The hand-over is both the communication and the
+synchronisation.
+
+\section{Nodes and inboxes}\label{sec:inbox}
+
+Nodes $0 \ldots N-1$ are the cores, where $N$ is the number of cores, and node $N$ is block device~0
+(Section~\ref{sec:blkdev}). Every core has an \term{inbox} that keeps a separate FIFO queue, two entries
+deep, for each node that may give to it. The block device has a single four-entry inbox.
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[\insn{cgive cs, rx}] appends \reg{cs} to the giver's own queue in the inbox of node \reg{rx}. A
+  linear capability leaves \reg{cs} empty; a copyable one is copied. If the giver's queue at that node is
+  full, the giver waits; gifts from other senders never make it wait. Giving to a core that has halted,
+  or to a node number above $N$, traps with \cause{capop}.
+\item[\insn{ctake cd, rs}] removes the oldest gift \emph{from node} \reg{rs} into \reg{cd}, waiting until
+  there is one. Supervisor mode only, like the next form, \insn{cpoll} and the inbox bit of \insn{tany}
+  (Section~\ref{sec:userinbox}).
+\item[\insn{ctake cd}] removes the oldest gift of the \emph{lowest-numbered} sender that has one,
+  waiting while the inbox is empty.
+\item[\insn{csend cs, ce}, \insn{crecv cd, ce}] give to and take from the node named by an endpoint
+  capability (Section~\ref{sec:endpoints}).
+\item[\insn{cpoll rd}] returns a bit mask with bit $i$ set if a gift from sender $i$ is waiting. It
+  never waits.
+\item[\insn{tany rd, rs}] with bit~16 of \reg{rs} set waits until any gift is waiting, possibly together
+  with transfer tags (Section~\ref{sec:events}).
+\item[\csr{takefrom}] holds the sender of the capability most recently taken by \insn{ctake} or
+  \insn{crecv}.
+\end{description}
+
+\section{Ordering guarantees}\label{sec:publication}
+
+\begin{rule*}{The publication rule}
+\insn{cgive}, \insn{csend}, \insn{cshare}, \insn{catomic} and \insn{tamo} take effect only when none of
+the issuing core's memory transfers (\insn{tget}, \insn{tput} or \insn{tgetx} to T2 or T3) is in
+flight. When the receiver's \insn{ctake} or \insn{crecv} returns, every byte the giver wrote with
+\insn{tput}, through that capability or any other, is in far memory, and every byte the giver read with
+\insn{tget} or \insn{tgetx} has been read. \insn{halt} waits for all of the core's transfers, device
+transfers and pending device reads included, in user mode as in supervisor mode.
+\end{rule*}
+
+So a producer can fill a buffer with \insn{tput}s and immediately \insn{cgive} it; the consumer may
+\insn{tget} from it as soon as it has taken it. No fences, flags or locks are involved, and since there
+are no caches there is no coherence traffic. The \texttt{pipeline} and \texttt{race} examples rely on
+this rule.
+
+Device transfers do not hold a hand-over up. A device read can stay in flight indefinitely (a
+pending console break read completes only on Ctrl-C), and device space is not memory that a
+capability hand-over publishes, so a core may give, share or convert capabilities while it waits for a
+device event. \insn{halt} is different: it drains everything, so a core that is about to halt first
+retires a break read by writing the console's release port (Section~\ref{sec:break}).
+
+Gifts from one sender are taken in the order they were given. Gifts from different senders are
+independent queues.
+
+\section{Deterministic fan-in}
+
+When several cores may give to the same core at once, an any-sender \insn{ctake} returns the gift of
+the lowest-numbered sender \emph{that has already delivered}, which depends on timing. To collect
+results deterministically, take from each sender explicitly:
+
+\begin{asm}
+        li    s1, 1                     ; first worker
+collect:
+        ctake c5, s1                    ; only a gift from core s1 counts
+        cjoin c4, c5                    ; append its piece (pieces arrive in core order)
+        addi  s1, s1, 1
+        blt   s1, s2, collect           ; s2 = number of cores
+\end{asm}
+
+Because every sender has its own queue, gifts that other senders deliver early can never fill the
+inbox and block the sender a \insn{ctake cd, rs} is waiting for. Each (sender, receiver) pair behaves as
+an independent bounded FIFO channel, which is what the determinism argument of
+Section~\ref{sec:determinism} needs.
+
+\section{Supervised execution}\label{sec:supervised}
+
+An operating system runs a program written for the bare machine, which assumes it is core 0 of $N$ and
+that \insn{halt} ends it, on a subset of the cores, in user mode. The core window and the privilege
+modes make this possible without changing the program:
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[\csr{corebase}, \csr{corecount}] define a window of physical cores
+  $[\textit{corebase}, \textit{corebase} + \textit{corecount})$. When \csr{corecount} is nonzero:
+  \begin{itemize}
+  \item \csr{coreid} reads as physical id $-$ \csr{corebase}, and \csr{ncores} reads as \csr{corecount};
+  \item \insn{cgive} target \reg{rx} must be less than \csr{corecount} (else \cause{capop}) and is
+        delivered to physical node \reg{rx} + \csr{corebase};
+  \item \insn{ctake cd, rs} matches sender \reg{rs} + \csr{corebase}, and \csr{takefrom} and
+        \insn{cpoll} report senders relative to \csr{corebase} (these two instructions execute only in
+        supervisor mode, where the supervisor may run them on a program's behalf).
+  \end{itemize}
+  \csr{corebase} applies even when \csr{corecount} is zero; only the window check and \csr{ncores} depend
+  on \csr{corecount} being nonzero. Both CSRs are writable only in supervisor mode.
+\item[User mode] The supervisor enters the program with \insn{eret} and \csr{status}.SPP = 0. The
+  program's \insn{halt} traps back to the supervisor with cause \cause{halt}
+  (Section~\ref{sec:halt}); its faults go to its own handler if it installed one in \csr{tvec} (which
+  in user mode is \csr{utvec}), and otherwise to the supervisor.
+\end{description}
+
+A supervisor sets the window on each core of the program (in code it runs on that core before entering
+the program), gives the program only the capabilities it should have, and points its own \csr{tvec} at
+its handler. In user mode \insn{cgive} cannot leave the window and the window cannot be changed, so
+the program cannot address cores outside it, nor the block device unless the window includes node $N$.
+The capabilities it holds are its only authority over memory and devices; the capability save table,
+the domain operations and the creation of endpoints are out of its reach. To let the program reach a
+node outside its window, the supervisor gives it an endpoint for that node. To take its memory back
+regardless of where the program has passed it, the supervisor lends it memory inside a revocation
+domain. To take its core back, the supervisor sends a stop request through core control
+(Section~\ref{sec:corectl}).
+
+\subsection{The inbox in user mode}\label{sec:userinbox}
+
+\begin{rule*}{The inbox belongs to the supervisor}
+In user mode \insn{ctake} (with or without a sender), \insn{cpoll}, and \insn{tany} with bit~16 of its
+operand set always trap with cause \cause{priv}. \csr{tval} is the instruction word.
+\end{rule*}
+
+A core's inbox receives everything that is given to the core: gifts for the program, and whatever the
+supervisor itself is sent, such as requests, replies and memory for the next program. If a program
+could take from the inbox it could take what was meant for its supervisor, or for another program that
+shares the core. So the supervisor takes every arrival and decides whose it is, and the three inbox
+instructions trap. Three things remain available to a user program:
+\begin{itemize}
+\item \insn{cgive}, restricted to the core window, and \insn{csend} through an endpoint with \perm{W};
+\item \insn{crecv} through an endpoint with \perm{R}, which names one sending node; a supervisor that
+  keeps all receiving to itself simply never hands out \perm{R};
+\item \insn{tany}, \insn{twait} and \insn{tpoll} on transfer tags.
+\end{itemize}
+
+The \cause{priv} trap is also what lets a supervisor run programs written for the bare machine
+unchanged: it \emph{emulates} the trapping instruction. The handler decodes the instruction word in
+\csr{tval}, performs the take or poll on the queue of gifts it keeps for that program, writes the
+result to the program's registers and returns to \csr{epc} + 4; if nothing has arrived, it suspends the
+program, runs another, and retries the instruction later. StrataOS does exactly this
+(Section~\ref{sec:os-emul}), which is how the multicore examples run as time-shared threads.

@@ -1,0 +1,146 @@
+\chapter{Software-managed caching and overlays}\label{ch:swmanaged}
+
+\IS has no hardware caches. When a program's access pattern is regular it streams data with
+transfers; when it is irregular, the program builds a cache in its D-LS. Two hardware assists make the
+common operations cheap without taking policy away from software: a tag lookup for data caches and an
+overlay map for code.
+
+\section{Software data caches}\label{sec:swcache}
+
+\subsection{Geometry}
+A software cache is described by three CSRs:
+
+\begin{center}\small
+\begin{tabular}{@{}l l@{}}
+\toprule
+\textbf{CSR} & \textbf{Contents}\\\midrule
+\csr{ttag} & D-LS address of the tag table (8-byte aligned)\\
+\csr{tdata} & D-LS address of the line storage ($\textit{sets} \times \textit{ways}$ lines)\\
+\csr{tgeom} & bits 5:0 $\log_2$(line bytes); bits 11:6 $\log_2$(sets); bits 15:12 ways (1--15)\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[htbp]
+\centering
+\begin{bytefield}[bitwidth=0.75cm,endianness=big,boxformatting={\centering\footnotesize}]{16}
+\bitheader{0,5,6,11,12,15}\\
+\bitbox{4}{ways}\bitbox{6}{$\log_2$ sets}\bitbox{6}{$\log_2$ line}
+\end{bytefield}
+\caption{Low 16 bits of \csr{tgeom}; higher bits are ignored}\label{fig:tgeom}
+\end{figure}
+
+The tag table holds, for each set, \textit{ways} tag doublewords followed by one replacement-counter
+doubleword, so set $s$ starts at $\csr{ttag} + s \cdot 8(\textit{ways}+1)$. A tag doubleword holds
+$(\textit{line} \ll 1) \mid 1$, where $\textit{line} = \textit{offset} \gg \log_2(\text{line bytes})$
+is the full line number; zero means invalid. Software initialises the table (normally to zero), so the
+format is architectural.
+
+\subsection{Lookup and install}
+\insref{ltag} \texttt{rd, rs} looks up far offset \reg{rs}:
+\begin{itemize}
+\item \emph{hit}: \reg{rd} = D-LS address of the cached byte, i.e.\ line storage plus the offset within
+  the line;
+\item \emph{miss}: \reg{rd} = D-LS address of the victim line's storage, with bit 63 set. The victim is
+  the way selected by the set's replacement counter.
+\end{itemize}
+\insref{linst} \texttt{rs} writes the tag for \reg{rs}'s line into the victim way and advances the
+counter, which cycles $0, 1, \ldots, \textit{ways}-1, 0, \ldots$ (round robin).
+
+A miss is handled by ordinary code. Because of the as-if-synchronous rule the load that follows the
+fill is always correct; there is no window in which the cache can return stale bytes:
+
+\begin{asm}
+load_cached:                            ; a0 = far byte offset -> a0 = value
+        ltag  t0, a0                    ; look the offset up in the tag table
+        bltz  t0, lc_miss               ; bit 63 set means a miss
+        ld    a0, 0(t0)                 ; hit: t0 is the LS address of the word
+        ret
+lc_miss:
+        slli  t0, t0, 1                 ; clear bit 63 of the victim slot address
+        srli  t0, t0, 1
+        srli  t1, a0, LINE_LG           ; t1 = line number
+        slli  t1, t1, LINE_LG           ; t1 = far offset of the line start
+        li    t2, 1 << LINE_LG          ; one line, in bytes
+        tget  tg0, t0, c0, t1, t2       ; fetch the line into the victim slot
+        linst a0                        ; record the new line in the tag table
+        andi  t1, a0, (1 << LINE_LG) - 1 ; byte offset within the line
+        add   t0, t0, t1                ; LS address of the wanted word
+        ld    a0, 0(t0)                 ; stalls until the line has landed
+        ret
+\end{asm}
+
+The \texttt{swcache} example (Section~\ref{sec:ex-swcache}) is a complete set-associative cache.
+Write-back, write-allocate, prefetching and replacement policy are all decided by software; the
+hardware supplies only the lookup.
+
+\section{Code overlays and code paging}\label{sec:overlays}
+
+Code that does not fit in the I-LS, or that is loaded on demand, lives in far memory and is copied in
+with \insn{tgetx}. The \term{overlay map} lets a program call such code by its far address and have the
+hardware take the fast path when it is already resident. It has sixteen entries, each mapping a far
+address in some space to an I-LS address.
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[\insref{xcall} \texttt{rd, cs, ro}] looks up far address $\texttt{C[cs].base} + \reg{ro}$ in the
+  overlay map. On a hit it jumps to the mapped I-LS address and leaves a link in \reg{rd}. On a miss it
+  traps with cause \cause{xmiss} and \csr{tval} = the far address.
+\item[\insref{xret} \texttt{rs}] returns through a link left by \insn{xcall}.
+\item[\insref{xmap} \texttt{idx, rl, cs, ro}] sets entry \field{idx} (0--15) to map that far address to
+  I-LS address \reg{rl}.
+\item[\insref{xunmap} \texttt{idx}] clears entry \field{idx}.
+\end{description}
+
+The miss handler chooses where to put the code, loads it with \insn{tgetx}, records the mapping with
+\insn{xmap} and returns with \insn{eret}, which re-executes the \insn{xcall}; this time it hits. The
+handler does not wait for the code: fetching from the range being filled stalls. \insn{tgetx}
+automatically invalidates every overlay entry whose I-LS slot overlaps the range it overwrites, so the
+map never points at code that has been replaced.
+
+Overlay code must be position-independent. All \IS branches and jumps are PC-relative, so code
+assembled at one address runs at any other. The \texttt{overlay} example (Section~\ref{sec:ex-overlay})
+runs three routines through two I-LS slots.
+
+\subsection{Exact and slot mapping}\label{sec:xslot}
+
+CSR \csr{xslot} selects how an entry matches:
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[\csr{xslot} = 0 (exact mapping)] An entry matches one far address. Each routine is called at its
+  entry point and mapped individually. A link is always an ordinary I-LS return address.
+\item[\csr{xslot} = $n > 0$ (slot mapping)] Code is organised in \term{units} of $2^n$ bytes, aligned
+  to $2^n$ within the far segment, and the I-LS holds a cache of $2^n$-byte \term{slots}. An entry maps
+  the unit starting at its far address to the slot starting at its I-LS address: any far address inside
+  the unit hits, at the same offset in the slot. A program can therefore call any function of a unit,
+  not only its first, and a unit may contain many functions.
+\end{description}
+
+The bits of \csr{xslot} above bit 5 are ignored; it is zero at reset and writable in either mode.
+
+\subsection{Far links}
+
+With slot mapping, a unit may be evicted while code inside it is waiting for a call to return. An
+\insn{xcall} executed inside a mapped slot therefore does not leave an I-LS return address: it leaves
+a \term{far link}, the far address of the instruction after the call with bit~63 set. \insn{xret}
+resolves a far link through the overlay map exactly as \insn{xcall} resolves a target. If the caller's
+unit is still resident, \insn{xret} returns into it, wherever it now sits; if it has been evicted,
+\insn{xret} traps with \cause{xmiss} and \csr{tval} = the far link, the handler pages the unit back
+in, and \insn{eret} retries the return. An ordinary link (bit~63 clear) makes \insn{xret} behave like
+\insn{jr}, so functions that may be called from either resident or paged code return with
+\insn{xret ra}.
+
+\subsection{Demand paging}
+
+Slot mapping turns the overlay map into a demand-paging mechanism for code, with the policy entirely in
+software. A miss handler:
+\begin{enumerate}
+\item takes the far address from \csr{tval}, clearing bit~63 if the miss was a return;
+\item rounds it down to the start of its unit;
+\item picks a victim slot (StrataOS uses round robin over the slots that fit between the end of the
+  program's resident code and the end of the I-LS, at most sixteen);
+\item loads the unit with \insn{tgetx}, which also unmaps whatever the slot held;
+\item maps the unit with \insn{xmap} and returns with \insn{eret}.
+\end{enumerate}
+The \texttt{units} program of StrataOS (Section~\ref{sec:os-paging}) runs 24 one-KiB code units through
+a sixteen-slot code cache with call chains seven deep, and checks its result against the same
+computation done by resident code.

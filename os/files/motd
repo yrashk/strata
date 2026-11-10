@@ -1,0 +1,17 @@
+Welcome to StrataOS 0.1: a microkernel with preemptive multitasking.
+
+Core 0 runs only the kernel. Files, the console, pipes, processes and
+devices are servers (fs, tty, pipe, proc, dev): user processes that get
+requests as lent message buffers. Programs share worker cores, switched
+every 2 ms (`sched` shows and sets the slice); a switch saves only the
+Local Store a program uses (ps shows the switches and the KiB they moved).
+
+Try:
+  ls                         programs, their sources and files
+  seq 30 | grep 2 | wc       a pipeline through the pipe server
+  -n 3 mandel                a bare-metal program as 3 threads on 3 cores
+  spin 20 a & spin 20 b &    time sharing (add -c 6 to put both on core 6)
+  ps, cores, free, uptime    who runs where, and what switching costs
+  as < hello.s > hi          assemble with the assembler written in Strata
+  spin                       runs forever: press Ctrl-C to stop it
+  ws                         the window server: tiled windows (help lists its keys)

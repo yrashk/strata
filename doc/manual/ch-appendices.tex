@@ -1,0 +1,225 @@
+\chapter{Calling convention}\label{app:abi}
+
+The examples, the firmware and StrataOS use this convention. It is a software agreement, not an
+architectural requirement.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Integer register usage}\label{tab:cc}
+\begin{tabularx}{\linewidth}{@{}l l X l@{}}
+\toprule
+\textbf{Registers} & \textbf{ABI names} & \textbf{Use} & \textbf{Saved by}\\\midrule
+\reg{x0} & \reg{zero} & constant zero & ---\\
+\reg{x1} & \reg{ra} & return address (\insn{call}, \insn{jal ra}) & caller\\
+\reg{x2} & \reg{sp} & stack pointer; the stack lives in the D-LS and grows down & callee\\
+\reg{x3} & \reg{gp} & global pointer; the firmware requires \reg{gp} = \texttt{GPBASE} & ---\\
+\reg{x4} & \reg{tp} & reserved & ---\\
+\reg{x5}--\reg{x7}, \reg{x28}--\reg{x31} & \reg{t0}--\reg{t6} & temporaries & caller\\
+\reg{x8}, \reg{x9}, \reg{x18}--\reg{x27} & \reg{s0}--\reg{s11} & saved registers (\reg{s0} is also \reg{fp}) & callee\\
+\reg{x10}--\reg{x17} & \reg{a0}--\reg{a7} & arguments; \reg{a0}, \reg{a1} results & caller\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{itemize}
+\item Bare-metal programs set \reg{sp} to 65536 (the top of the D-LS) at entry. The stack is kept 8-byte
+  aligned. Under StrataOS the stack occupies D-LS \hex{E000}--\hex{FFFF} and a program's data D-LS
+  \hex{0000}--\hex{9FFF}.
+\item \reg{a0} at \insn{halt} is the program's exit status.
+\item Capability registers have no general convention. The firmware conventions
+  (Table~\ref{tab:sficonv}) are: \reg{c0} memory root, \reg{c2} console output, \reg{c3} device root,
+  \reg{c9} block I/O buffer, \reg{c12}--\reg{c15} scratch. StrataOS programs receive their arena in
+  \reg{c0}, endpoints to the servers in \reg{c1}--\reg{c4}, their message buffer in \reg{c5} and the
+  clock in \reg{c7} (Table~\ref{tab:os-start}); \reg{c0}--\reg{c7} are preserved across context switches
+  and \reg{c8}--\reg{c15} are not. A routine must not leave a live linear
+  capability in a register its caller expects to be free, since a later write to it would trap.
+\item Transfer tags: \reg{tg15} is used for console output by the examples; \reg{tg12}--\reg{tg15} are
+  used by the firmware; \reg{tg10} by the StrataOS program library; \reg{tg14} by the StrataOS
+  dispatcher, which a program must leave alone. Because tags affect only timing, sharing a tag is never incorrect.
+\end{itemize}
+
+\chapter{Trap causes}\label{app:causes}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Trap causes and trap values}\label{tab:causes}
+\begin{tabularx}{\linewidth}{@{}r >{\sffamily}l X X@{}}
+\toprule
+\textbf{Code} & \textrm{\bfseries Name} & \textbf{Raised when} & \textbf{\csr{tval}}\\\midrule
+1 & illegal & undefined opcode or function; a checked field with a value no instruction defines (Table~\ref{tab:fieldrules}); SYS function $>$ 2; CAP2 function $>$ 5; \insn{svc} in supervisor mode & the instruction word\\
+2 & lsfault & load/store out of range or misaligned; transfer Local Store range out of range; bad tag-table entry; bad \insn{xmap} I-LS address & the Local Store address\\
+3 & capinv & the named capability register or save slot is not live (empty, or its domain revoked); \insn{crevoke}/\insn{cundom} without a revoker; \insn{csend}/\insn{crecv} without a suitable endpoint & transfers and atomics: the far offset; capability and overlay instructions: the register or slot number\\
+4 & perm & missing permission; transfer through an endpoint; \insn{tgetx} through device or core-control space; \insn{tget} through core-control space; \insn{catomic} outside T2/T3 & far offset (transfers, atomics) or register number\\
+5 & bounds & far range outside the segment; overlay offset $\geq$ length & the far offset\\
+6 & xalign & memory transfer operands or atomic offset not multiples of 8 & the far offset\\
+7 & ifault & fetch from a misaligned \reg{pc} or one $\geq$ 65536 & \reg{pc}\\
+8 & xmiss & \insn{xcall} target, or \insn{xret} far link, not mapped & the absolute far address; for \insn{xret}, the link (bit 63 set)\\
+9 & pend & with CCR.PTRAP, a load, store, \insn{ltag} or \insn{linst} that would stall on an in-flight range; a \insn{tget} or \insn{tput} whose D-LS range overlaps a pending device read & the Local Store address\\
+10 & capop & overwrite of a live linear capability; bad \insn{csplit} (beyond the end, or an offset that is not a multiple of 8) or \insn{cjoin}; \insn{cgive} outside the window (or in user mode without one), beyond node $N$ or to a halted core; \insn{csend} to such a node; bad \insn{cdom} source or no free domain; \insn{cmkep} beyond node $N$ & register or slot number, split offset, or node number\\
+11 & priv & in user mode: \insn{csave}, \insn{crestore}, \insn{cdom}, \insn{crevoke}, \insn{cundom}, \insn{cmkep}; \insn{ctake}, \insn{cpoll}, \insn{tany} with the inbox bit; reading \csr{sscratch} or \csr{ipend}; writing \csr{status}, \csr{corebase}, \csr{corecount} or CSRs 19--24 & the instruction word\\
+12 & halt & \insn{halt} in user mode (always to the supervisor) & 0\\
+13 & stop & a stop request from core control, taken in user mode (always to the supervisor) & 0\\
+14 & svc & \insn{svc} in user mode (always to the supervisor) & 0\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Code 0 is never reported. Simulators print causes by these names. Causes 11--14 are always delivered
+to the supervisor; the others go to the user handler when a user-mode program has installed one
+(Section~\ref{sec:trapentry}).
+
+\chapter{Control and status registers}\label{app:csrs}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Control and status registers}\label{tab:csrs}
+\begin{tabularx}{\linewidth}{@{}r >{\ttfamily}l c c X@{}}
+\toprule
+\textbf{No.} & \textrm{\bfseries Name} & \textbf{S} & \textbf{U} & \textbf{Description}\\\midrule
+0 & cycle & R & R & clock cycles since reset. Timing-visible; the emulator returns \csr{instret}\\
+1 & instret & R & R & instructions retired (trapping instructions, \insn{svc} among them, do not retire; a supervisor \insn{halt} does)\\
+2 & cause & RW & RW & cause of the last trap taken in the current mode (banked; Appendix~\ref{app:causes})\\
+3 & epc & RW & RW & address of the trapping instruction, banked; \insn{eret} continues here\\
+4 & tval & RW & RW & trap value, banked\\
+5 & tvec & RW & RW & trap handler address, banked. Supervisor: 0 means a trap stops the core. User: 0 means every trap goes to the supervisor\\
+6 & ccr & RW & RW & core control: bit 0 PTRAP (turn hazard stalls into \cause{pend} traps); the other bits are reserved: they hold what is written and have no effect\\
+7 & coreid & R & R & this core's number, relative to \csr{corebase}\\
+8 & ttag & RW & RW & software cache: D-LS address of the tag table\\
+9 & tdata & RW & RW & software cache: D-LS address of the line storage\\
+10 & tgeom & RW & RW & software cache geometry (Figure~\ref{fig:tgeom})\\
+11 & ncores & R & R & \csr{corecount} if nonzero, otherwise the number of cores $N$\\
+12 & scratch & RW & RW & free for software, shared by both modes\\
+13 & stalls & R & R & cycles spent stalled. Timing-visible; the emulator returns 0\\
+14 & takefrom & R & R & sender of the capability most recently taken by \insn{ctake} or \insn{crecv}, relative to \csr{corebase}\\
+15 & corebase & RW & R & first physical core of the core window\\
+16 & corecount & RW & R & size of the core window; 0 means no window\\
+17 & reserved17 & --- & --- & reserved: reads as 0, writes are ignored\\
+18 & status & RW & R & bit 0: 1 in supervisor mode (read-only); bit 1, SPP: \insn{eret} from supervisor mode enters supervisor mode if 1, user mode if 0\\
+19 & ucause & RW & R & the user-mode copy of \csr{cause}\\
+20 & uepc & RW & R & the user-mode copy of \csr{epc}\\
+21 & utval & RW & R & the user-mode copy of \csr{tval}\\
+22 & utvec & RW & R & the user-mode copy of \csr{tvec}: the program's trap handler, 0 for none\\
+23 & sscratch & RW & --- & supervisor scratch register\\
+24 & ipend & RW & --- & bit 0: a stop request is pending (set through core control; taken in user mode)\\
+25 & xslot & RW & RW & bits 5:0: $\log_2$ of the overlay slot size; 0 selects exact mapping (Section~\ref{sec:xslot})\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Columns S and U give the access in supervisor and user mode. R: read; RW: read and write; ---: the
+access traps with \cause{priv}. In user mode, writing a register marked R traps with \cause{priv} if it
+is \csr{status}, \csr{corebase}, \csr{corecount} or one of CSRs 19--22, and is ignored otherwise.
+Reading an unassigned CSR number returns 0; writing a read-only or unassigned CSR has no effect. All
+CSRs are zero at reset, except \csr{status}, which reads 3 (supervisor mode, SPP = 1).
+
+\chapter{Encoding tables and instruction index}\label{app:index}
+
+The primary opcode map is Table~\ref{tab:opmap} and the function assignments follow it in
+Chapter~\ref{ch:encoding}. Table~\ref{tab:insindex} lists every instruction.
+
+\input{gen-index}
+
+\chapter{Glossary}\label{app:glossary}
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[As-if-synchronous] The rule that each transfer takes effect at its issue point; hardware hides the
+  latency by stalling conflicting accesses.
+\item[Atomic segment] Memory reachable only through an \perm{A} capability, created by \insn{catomic};
+  accessed only with \insn{tamo}.
+\item[Capability] An unforgeable (space, base, length, permissions, domain, generation) descriptor that
+  authorises far accesses.
+\item[Code unit] A $2^{\csr{xslot}}$-byte block of code in far memory that slot mapping pages into an
+  I-LS slot as a whole.
+\item[Cluster store (T2)] Shared on-chip memory, 256 KiB in the prototype.
+\item[Copyable] A capability with \perm{D}; moving it leaves the source in place.
+\item[D-LS, I-LS] The data and instruction Local Stores of a core (T1d, T1i).
+\item[Dead] Of a capability: valid, but belonging to a domain that has since been revoked or
+  dissolved; it behaves like an empty register.
+\item[Drain] Wait for all of the core's in-flight transfers to complete.
+\item[Endpoint] A capability in space 6 that names a node for \insn{csend} and \insn{crecv}.
+\item[Dispatcher] The StrataOS kernel code on a worker core: it schedules the core's threads, switches
+  contexts and demultiplexes the inbox.
+\item[Doorbell] A stop request sent to a core so that its supervisor looks at its inbox.
+\item[Event] Something a core waits for: a transfer completing or a gift arriving (\insn{tany}).
+\item[Event port] A device port whose reads stay pending until the device has something to deliver:
+  console input, console break, the timer's WAIT, the framebuffer controller's VSYNC.
+\item[Far] Beyond the Local Stores: T2, T3, T4.
+\item[Far link] A return link with bit 63 set: the far address of the instruction after an \insn{xcall}
+  made from paged code, resolved by \insn{xret}.
+\item[Framebuffer] The top 16~MiB of system memory, whose first rows the display scans out.
+\item[Gift] A capability in an inbox, with its sender.
+\item[Inbox] Where a node receives capabilities: for a core, one two-entry FIFO queue per sender; for the block device, one four-entry FIFO.
+\item[Linear] A capability without \perm{D}; it can be moved but never copied or silently overwritten.
+\item[Live] Of a capability: valid and, if it belongs to a revocation domain, of the domain's current
+  generation.
+\item[Node] A destination of \insn{cgive}: a core, or the block device (node $N$).
+\item[Message] In StrataOS, a 4~KiB buffer capability lent to a server and given back with the result.
+\item[Overlay] Code kept in far memory and loaded into the I-LS on demand; see \insn{xcall}.
+\item[Pending device read] A read of an event port that has issued and not yet completed; its tag is
+  busy.
+\item[Platform table] The self-description of the machine (\texttt{STPD}) in device space.
+\item[Publication rule] A hand-over (\insn{cgive}, \insn{csend}, \insn{cshare}, \insn{catomic},
+  \insn{tamo}) waits until the core has no transfer to T2 or T3 in flight.
+\item[Revocation domain] One of 15 machine-wide entries that tag capabilities; revoking it kills every
+  capability tagged with it at once.
+\item[Revoker] The \perm{V} capability that \insn{cdom} returns; it controls its domain.
+\item[Segment] The range of a far space that a capability names.
+\item[Share] A non-writable copyable capability made by \insn{cshare}.
+\item[Stop request] A doubleword written through core control; it makes a user-mode core trap to its
+  supervisor with cause \cause{stop}.
+\item[Supervised execution] Running a program in user mode in a window of cores set by
+  \csr{corebase}/\csr{corecount}; its \insn{halt} traps to the supervisor.
+\item[Supervisor call] The trap taken by \insn{svc} in user mode, cause \cause{svc}.
+\item[Supervisor mode, user mode] The two privilege modes (Section~\ref{sec:modes}).
+\item[System core] Core 0 under StrataOS: it runs only the kernel.
+\item[System memory (T3)] Shared main memory, 64 MiB in the prototype; its top 16 MiB is the framebuffer
+  window.
+\item[Tag] One of 16 transfer identifiers used by \insn{twait}, \insn{tpoll} and \insn{tany}.
+\item[Tick] The timer's unit: one microsecond.
+\item[Timing-visible] State or behaviour whose value can depend on latency or scheduling.
+\item[Transfer Unit (TU)] The per-core engine that performs \insn{tget}, \insn{tput} and \insn{tgetx}.
+\end{description}
+
+\chapter{Known limitations and future work}\label{app:limits}
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[No timer interrupt] The timer is a device, and preemption is a stop request that some core
+  sends. An operating system that preempts dedicates a core, or part of one, to waiting for the timer;
+  StrataOS dedicates core 0.
+\item[One deadline] The timer has a single DEADLINE register. Software that needs several timeouts
+  keeps a queue and gives the timer to one owner.
+\item[Pending device reads] A core has at most four in flight. \insn{halt} waits for them, so a core
+  must retire a read that may never complete before it halts. \insn{ltag} and \insn{linst} must not be
+  used on a tag table or line that a pending device read is filling.
+\item[Display] The geometry is fixed for a run and the only pixel format is XRGB8888. The FPGA builds
+  have no video output.
+\item[Supervisor code is never preempted] A stop request waits until the core runs in user mode. A
+  supervisor that loops forever can be stopped only by resetting the machine.
+\item[Revocation-domain limits] The machine has 15 domains. A domain's generation is 16 bits wide, so a
+  dead capability of a domain becomes live again after 65,536 further revocations of that domain while
+  it is held. A domain covers the one region it was created from; the region cannot be grown or shrunk
+  without dissolving the domain.
+\item[Block device and revocation] The block device performs a command through the capability it was
+  given, even if that capability's domain is revoked after the gift and before the command runs; the
+  capability is returned dead.
+\item[Serial Transfer Unit and bus] Each TU executes one transfer at a time, and the current far bus
+  carries one transaction system-wide. This is sufficient for invariant I2 but limits bandwidth. A
+  parallel TU must preserve the order of overlapping transfers and of device accesses.
+\item[Inbox capacity] Each sender's queue at a core holds two gifts, so a sender that runs ahead of
+  its receiver by more than two gifts waits. This is flow control, not a determinism hazard
+  (Section~\ref{sec:determinism}).
+\item[Atomic reads] An atomic segment can only be read with an atomic (e.g.\ \insn{tamo.add} of 0).
+\item[Block device] Commands submitted beyond the queue depth are discarded silently; an empty
+  completion queue reads as zeros; the return core in a command is a physical core number and is not
+  translated by \csr{corebase}; a user-mode program reaches the device only through an endpoint for its
+  node, and its supervisor must hand it the buffer that comes back.
+\item[Cores] At most 15 cores: fifteen cores and the block device are the sixteen inbox senders that
+  the masks of \insn{cpoll} and \insn{tany} describe.
+\item[StrataOS] The limits of Table~\ref{tab:os-limits} apply: three threads per core, 1~MiB arenas,
+  eight handles. A thread's \reg{c8}--\reg{c15} do not survive a context switch. An attachment is paired
+  with the next message from the same core, so a process that sends attachments must be alone on its
+  core or tolerate the pairing. A file being written is limited to 128~KiB, and the directory to 128
+  contiguous files. The kernel is not preempted.
+\item[Integer arithmetic] There are no 32-bit arithmetic forms, no signed high multiply, and no
+  floating point.
+\end{description}

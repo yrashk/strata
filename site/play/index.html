@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run Strata in your browser</title>
+<meta name="description" content="The Strata reference emulator compiled to WebAssembly: boot StrataOS, watch eight cores draw a Mandelbrot set, or type at a native-code Forth, right in the page.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="play.css">
+</head>
+<body>
+
+<nav class="top">
+  <a class="mark" href="../">STRATA</a>
+  <div class="links">
+    <a href="../#idea">Idea</a>
+    <a href="../#os">StrataOS</a>
+    <a href="../#forth">Forth</a>
+    <a href="../code/">Source</a>
+    <a class="pill" href="../Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
+    <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
+  </div>
+</nav>
+
+<main class="play">
+  <header class="play-head">
+    <p class="kicker">The reference emulator, compiled to WebAssembly</p>
+    <h2>Run Strata in your browser</h2>
+    <p class="intro">This is <code>emu/emu.c</code>, the same C emulator as on the desktop, with a JIT
+      that turns hot Strata code into WebAssembly on the fly. Pick something to run. Click the terminal (or the screen)
+      and type; <b>Ctrl-C</b> is the break key, just like at a real terminal.</p>
+  </header>
+
+  <div class="presets" role="group" aria-label="What to run">
+    <button class="preset" data-preset="os">Boot StrataOS</button>
+    <button class="preset" data-preset="ws">Window server demo</button>
+    <button class="preset" data-preset="gfx">gfx: 8-core Mandelbrot</button>
+    <button class="preset" data-preset="forth">Forth</button>
+    <button class="preset" data-preset="hello">hello</button>
+    <button class="preset" data-preset="mandel">mandel</button>
+  </div>
+
+  <div class="bar">
+    <div class="ctl">
+      <button id="reset" class="small" disabled>Reset</button>
+      <button id="brk" class="small" disabled title="The break key (Ctrl-C)">Ctrl-C</button>
+      <label class="jit" title="Translate hot Strata code to WebAssembly at run time (off: interpret only)"><input type="checkbox" id="jit" checked> JIT</label>
+      <label id="demos-wrap" class="demos" hidden>Forth demo
+        <select id="demos"><option value="">paste a demo…</option></select>
+      </label>
+    </div>
+    <div id="status" class="status" aria-live="polite">idle · pick something to run</div>
+  </div>
+  <p id="about" class="about"></p>
+
+  <section id="screen-panel" class="panel screen collapsed" aria-label="Framebuffer">
+    <div class="tag"><span>▸ SCREEN</span><em id="geom">no framebuffer output yet</em></div>
+    <canvas id="screen" width="1280" height="800" tabindex="0" aria-label="The Strata framebuffer; focus it to type"></canvas>
+  </section>
+
+  <section class="panel term" aria-label="Console">
+    <div class="tag"><span>▸ CONSOLE</span><em>keys go to the console input queue</em></div>
+    <div class="term-box"><div id="term"></div></div>
+  </section>
+
+  <section class="notes">
+    <h3>What is running</h3>
+    <ul class="ticks">
+      <li>The emulator runs in a Web Worker, continuously; this page only paints the screen and
+        passes your keys along. The timer is real time, so a 10&nbsp;ms preemption tick in StrataOS is
+        10&nbsp;ms of your wall clock, and the screen's VSYNC is 60&nbsp;Hz.</li>
+      <li>With <b>JIT</b> on (the default; <code>?jit=0</code> turns it off), hot Strata code is
+        translated to WebAssembly while it runs: loops and the functions they call become one
+        WebAssembly function, compiled by your browser and called through the emulator's function
+        table. Expect a few thousand MIPS (millions of Strata instructions per second); the status line shows
+        the rate.</li>
+      <li>With JIT off you get the reference interpreter with its exact one-instruction-per-core
+        interleaving (a predecoded fast loop keeps it at hundreds of MIPS on plain code).</li>
+      <li>The disk is a copy in memory: whatever StrataOS writes is gone after Reset.</li>
+      <li>On the desktop: <code>make boot</code>, <code>make show-gfx</code>, <code>make forth</code>.</li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  <div class="bands small" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+  <p><a href="../">Strata</a> ·
+    <a href="../Strata-Architecture-Reference-Manual.pdf">Architecture Reference Manual</a> ·
+    <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<script src="strata-emu.js"></script>
+<script src="play.js"></script>
+</body>
+</html>

@@ -1,0 +1,153 @@
+\chapter{Introduction}\label{ch:intro}
+
+\IS is a 64-bit load/store architecture with fixed 32-bit instructions, built on one idea:
+\emph{memory beyond the core is explicit I/O, and every storage tier is visible to software.}
+
+\section{Design principles}
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[Loads and stores reach only the Local Store.] Each core has a private 64~KiB data Local Store
+  (D-LS), the only memory that load and store instructions can address, and a private 64~KiB instruction
+  Local Store (I-LS), the only memory from which instructions are fetched. The Local Stores are
+  architectural scratchpads at the latency of a first-level cache.
+\item[Everything else is reached by transfers.] The cluster store (T2), system memory (T3) and devices
+  (T4) are reached only through the core's \term{Transfer Unit} (TU), by block copies
+  (\insn{tget}, \insn{tput}, \insn{tgetx}) or by far atomics (\insn{tamo}). There are no hardware
+  caches and nothing to keep coherent; software builds caches when it wants them, with hardware assists
+  for the tag lookup (\insn{ltag}, \insn{linst}) and for code overlays (\insn{xmap}, \insn{xcall}).
+\item[Far memory is named by capabilities.] Every transfer and atomic names its target segment through
+  a capability register: a hardware-protected (space, base, length, permissions) descriptor that
+  software can split, join, restrict, inspect and pass between cores, but never forge.
+\item[Writable capabilities are linear.] A capability that permits writing cannot be copied; moving it
+  empties its source, and no instruction may overwrite one that is still live. At any instant a byte of
+  memory has a single writer, or any number of readers, or any number of atomic users. Data races between
+  cores cannot be expressed.
+\item[Transfers are as-if-synchronous.] Each transfer takes effect at its issue point in program order.
+  The hardware stalls any later access to a Local Store range that is still in flight. Overlapping
+  transfers with computation is a performance decision, never a correctness one, and a single core's
+  results do not depend on timing.
+\item[Ownership transfer is synchronisation.] Cores communicate by giving capabilities to each other's
+  inboxes (\insn{cgive}, \insn{ctake}). A gift completes only after the giver's memory transfers have
+  finished, so handing over a buffer also publishes its contents.
+\item[Authority can be lent and taken back.] A region of memory can be placed in a revocation domain
+  (\insn{cdom}). Everything derived from it, however it was split, shared or passed on, dies at once when
+  its owner revokes the domain (\insn{crevoke}, \insn{cundom}).
+\item[Two privilege modes, no interrupts.] A supervisor runs programs in user mode, where the
+  capability save table, the domain operations and the core window are out of reach. There are no
+  interrupts: a device signals an event by completing a transfer, a core waits for any of several events
+  with \insn{tany}, and the only forced preemption is a stop request sent through core control. A program
+  asks its supervisor for service with \insn{svc}.
+\item[Time and pictures are devices like any other.] The timer is a set of device registers, and waiting
+  for a deadline is a read that completes when the time has come. The framebuffer is ordinary system
+  memory that the display scans out, owned and passed around through capabilities like any other
+  memory.
+\end{description}
+
+\section{System organisation}
+
+Figure~\ref{fig:system} shows an \IS system. Each core contains its integer and capability registers,
+its two Local Stores and its Transfer Unit. All cores share the far tiers through an arbiter. The block
+device is itself a node that can receive and return capabilities.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw=accent,fill=accentlight,rounded corners=2pt,minimum height=8mm,align=center,font=\small},
+  ls/.style={draw=accent,fill=white,minimum width=19mm,minimum height=7mm,align=center,font=\footnotesize},
+  far/.style={draw=black!60,fill=black!5,minimum height=9mm,align=center,font=\small},
+  >={Stealth[length=2.2mm]}]
+  \foreach \i/\x in {0/0,1/4.6,2/9.2} {
+    \node[draw=accent,line width=0.8pt,minimum width=40mm,minimum height=38mm,rounded corners=3pt] (core\i) at (\x,0) {};
+    \node[font=\small\bfseries,anchor=north] at (core\i.north) {\ifnum\i=2 Core $N-1$\else Core \i\fi};
+    \node[box,minimum width=34mm] (rf\i) at (\x,0.75) {x0--x31 \quad c0--c15};
+    \node[ls] (ils\i) at (\x-0.95,-0.35) {I-LS 64 KiB};
+    \node[ls] (dls\i) at (\x+0.95,-0.35) {D-LS 64 KiB};
+    \node[box,minimum width=34mm,minimum height=6mm] (tu\i) at (\x,-1.35) {Transfer Unit, tg0--tg15};
+    \draw[<->] (rf\i.south -| dls\i) -- node[right,font=\scriptsize]{ld/st} (dls\i.north);
+    \draw[->] (ils\i.north) -- node[left,font=\scriptsize]{fetch} (rf\i.south -| ils\i);
+    \draw[<->] (tu\i.north -| dls\i) -- (dls\i.south);
+    \draw[->] (tu\i.north -| ils\i) -- (ils\i.south);
+  }
+  \node at (6.9,0) {\Large$\cdots$};
+  \node[draw=black!60,minimum width=133mm,minimum height=7mm,font=\small] (arb) at (4.6,-3.0) {Far arbiter (TU transfers and far atomics)};
+  \foreach \i in {0,1,2} \draw[<->] (tu\i.south) -- (tu\i.south |- arb.north);
+  \node[far,minimum width=30mm] (t2) at (0,-4.6) {T2 cluster store\\256 KiB};
+  \node[far,minimum width=30mm] (t3) at (4.6,-4.6) {T3 system memory\\64 MiB};
+  \node[far,minimum width=30mm] (t4) at (9.2,-4.6) {T4 device space\\console, disk, timer, display};
+  \foreach \t in {t2,t3,t4} \draw[<->] (\t.north) -- (\t.north |- arb.south);
+  \draw[dashed,accent,->,thick] (core0.north) to[bend left=25] node[above,font=\scriptsize]{cgive / ctake (inboxes)} (core1.north);
+\end{tikzpicture}
+\caption{An \IS system. Solid arrows carry data; the dashed arrow carries capabilities.}
+\label{fig:system}
+\end{figure}
+
+\section{Storage tiers}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Storage tiers of the prototype platform}\label{tab:tiers}
+\begin{tabularx}{\linewidth}{@{}l l l X@{}}
+\toprule
+\textbf{Tier} & \textbf{Name} & \textbf{Size} & \textbf{Access}\\\midrule
+T1i & Instruction Local Store (I-LS) & 64 KiB per core & Instruction fetch; written only by \insn{tgetx}\\
+T1d & Data Local Store (D-LS) & 64 KiB per core & Loads and stores; \insn{tget}/\insn{tput} endpoints\\
+T2 & Cluster store & 256 KiB, shared & Transfers and far atomics through a capability (space 2)\\
+T3 & System memory & 64 MiB, shared & Transfers and far atomics through a capability (space 3); the top 16 MiB is the framebuffer window\\
+T4 & Device space & \hex{5000} bytes & Transfers of one byte per beat through a device capability (space 4)\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Two further spaces hold no storage: core-control space (space 5), through which a core stops other
+cores, and endpoint space (space 6), whose capabilities name nodes.
+
+The sizes are those of the prototype platform. The Local Store sizes are part of the architecture
+(the \texttt{DLS\_SIZE} and \texttt{ILS\_SIZE} of the pseudocode); the far tier sizes are properties of
+the platform and are reported by the platform table (Chapter~\ref{ch:platform}).
+
+\section{A first program}
+
+The smallest complete program prints a greeting from every core in turn. It shows the three things
+that make \IS different: code and data are in the Local Stores, output is a transfer through a
+capability, and cores are sequenced by passing a capability.
+
+\begin{asm}
+        .data                           ; data Local Store
+msg:    .ascii "Hello from Strata core "
+msg_end:
+        .text                           ; instruction Local Store; execution starts at 0
+_start: csrr  s0, coreid                ; s0 = this core's number
+        beqz  s0, speak                 ; core 0 speaks first
+        addi  t0, s0, -1                ; t0 = the core before us
+        ctake c3, t0                    ; wait for its token (only from that core)
+speak:  la    a0, msg                   ; D-LS address of the text
+        li    a1, msg_end - msg         ; its length
+        tput  tg15, a0, c2, zero, a1    ; console output is a transfer through c2
+        ...                             ; (print the core number, a newline)
+        addi  t0, s0, 1                 ; t0 = the next core (the last core skips this)
+        cgive c2, t0                    ; pass a copy of the console capability on;
+                                        ; completes only after our output has gone out
+        halt
+\end{asm}
+
+Chapter~\ref{ch:examples} walks through this and the other example programs in detail.
+
+\section{Terminology}
+\begin{description}[leftmargin=1em,style=nextline]
+\item[Node] A destination of \insn{cgive}: cores $0 \ldots N-1$ and block device 0 as node $N$, where
+  $N$ is the number of cores.
+\item[Segment] The contiguous range of a far space named by a capability.
+\item[In flight] A transfer that has issued but whose data movement has not finished. In-flight state
+  is never architecturally observable except through timing-visible state (Section~\ref{sec:timing-visible}).
+\item[Drain] To wait until all of the core's in-flight transfers have completed.
+\item[Supervisor, user] The two privilege modes. Cores start in supervisor mode; programs run by an
+  operating system run in user mode (Chapter~\ref{ch:traps}).
+\item[Pending device read] A \insn{tget} from a device port that has nothing to deliver yet. It stays in
+  flight until the device completes it; this is how a core waits for input, for Ctrl-C, for a deadline
+  or for the display (Section~\ref{sec:events}).
+\item[Revocation domain] A machine-wide tag that capabilities carry; revoking the domain makes all of
+  them unusable (Section~\ref{sec:domains}).
+\item[Endpoint] A capability that names a node, used to give and take capabilities without naming the
+  node by number (Section~\ref{sec:endpoints}).
+\end{description}
+A full glossary is in Appendix~\ref{app:glossary}.

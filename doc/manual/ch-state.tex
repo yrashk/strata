@@ -1,0 +1,136 @@
+\chapter{Architectural state}\label{ch:state}
+
+This chapter lists all state visible to software on one core, and the shared state of the machine.
+
+\section{Per-core state}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Architectural state of one core}\label{tab:state}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{State} & \textbf{Size} & \textbf{Description}\\\midrule
+\reg{x0}--\reg{x31} & $32 \times 64$ bits & Integer registers. \reg{x0} reads as zero; writes to it are discarded.\\
+\reg{pc} & 64 bits & Address of the current instruction in the I-LS. Always a multiple of 4 when fetched.\\
+\reg{c0}--\reg{c15} & 16 capabilities & Capability registers (Chapter~\ref{ch:caps}).\\
+\texttt{CTAB[0..63]} & 64 capabilities & Capability save table, reached only by \insn{csave}/\insn{crestore}.\\
+\reg{tg0}--\reg{tg15} & 16 tags & Transfer tags: each is busy while a transfer issued with it is in flight.\\
+\texttt{XMAP[0..15]} & 16 entries & Overlay map: (valid, space, far address, I-LS address).\\
+Inbox & 2 per sender & one FIFO queue of capabilities per sending node, filled by \insn{cgive} and \insn{csend}.\\
+Mode & 1 bit & Supervisor or user (\csr{status} bit 0); SPP, the mode \insn{eret} returns to (\csr{status} bit 1).\\
+Stop request & 1 bit & \csr{ipend}: set through core control, taken as a \cause{stop} trap in user mode.\\
+Pending device reads & up to 4 & Device reads that have issued and wait for their device (Section~\ref{sec:devxfer}); each keeps its tag busy.\\
+D-LS & 64 KiB & Data Local Store.\\
+I-LS & 64 KiB & Instruction Local Store.\\
+CSRs & see Appendix~\ref{app:csrs} & Control and status registers.\\
+Halted & 1 bit & Set by \insn{halt} in supervisor mode or by a trap the supervisor cannot take.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Integer registers}
+
+The 32 integer registers are 64 bits wide. The assembler accepts \reg{x0}--\reg{x31} and the ABI
+names of Table~\ref{tab:abi}; Appendix~\ref{app:abi} gives the calling convention.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Integer register ABI names}\label{tab:abi}
+\begin{tabular}{@{}l l l @{\hspace{3em}} l l l@{}}
+\toprule
+\textbf{Reg} & \textbf{ABI} & \textbf{Role} & \textbf{Reg} & \textbf{ABI} & \textbf{Role}\\\midrule
+\reg{x0} & \reg{zero} & constant zero & \reg{x10}--\reg{x11} & \reg{a0}--\reg{a1} & arguments, results\\
+\reg{x1} & \reg{ra} & return address & \reg{x12}--\reg{x17} & \reg{a2}--\reg{a7} & arguments\\
+\reg{x2} & \reg{sp} & stack pointer & \reg{x18}--\reg{x27} & \reg{s2}--\reg{s11} & callee-saved\\
+\reg{x3} & \reg{gp} & global pointer & \reg{x28}--\reg{x31} & \reg{t3}--\reg{t6} & temporaries\\
+\reg{x4} & \reg{tp} & thread pointer & & & \\
+\reg{x5}--\reg{x7} & \reg{t0}--\reg{t2} & temporaries & & & \\
+\reg{x8} & \reg{s0} / \reg{fp} & callee-saved, frame pointer & & & \\
+\reg{x9} & \reg{s1} & callee-saved & & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Capability registers and the save table}
+
+The sixteen capability registers \reg{c0}--\reg{c15} each hold either a capability or nothing
+(\term{empty}, the null capability). Every far access names one. The 64-entry \term{capability save
+table} gives the supervisor somewhere to keep capabilities while a program owns the registers; it is
+not addressable memory, so capabilities can never be read or written as data, and user-mode code cannot
+reach it. Capabilities are described in Chapter~\ref{ch:caps}.
+
+\subsection{Transfer tags}
+
+Each transfer names one of sixteen tags \reg{tg0}--\reg{tg15}. A tag is \term{busy} from the issue of a
+transfer until its completion. Issuing a transfer on a busy tag waits for the tag to become free.
+\insn{twait} waits for a set of tags and \insn{tpoll} reports which are busy. Because transfers are
+as-if-synchronous, tags affect only \emph{when} a core waits, never what it computes. The tag of a
+pending device read is the handle by which a core waits for the device's event: \insn{tany} returns when
+the tag becomes idle.
+
+\subsection{Overlay map and inbox}
+
+The overlay map (Section~\ref{sec:overlays}) holds sixteen translations from far code addresses (or,
+with \csr{xslot} set, far code units) to I-LS addresses for \insn{xcall} and \insn{xret}. The inbox (Section~\ref{sec:inbox}) holds up to two capabilities from each sender, given to
+this core, each tagged with the node that sent it. The inbox belongs to the supervisor: the
+instructions that take from it or inspect it by sender number are privileged
+(Section~\ref{sec:userinbox}).
+
+\section{Control and status registers}\label{sec:csrs}
+
+CSRs are read with \insn{csrr} and written with \insn{csrw}. Table~\ref{tab:csrs} in
+Appendix~\ref{app:csrs} defines each one. In summary:
+\begin{itemize}
+\item counters: \csr{cycle}, \csr{instret}, \csr{stalls};
+\item traps, banked by mode: \csr{cause}, \csr{epc}, \csr{tval}, \csr{tvec}; scratch: \csr{scratch};
+\item privilege: \csr{status}, the user trap registers \csr{ucause}, \csr{uepc}, \csr{utval},
+  \csr{utvec}, and \csr{sscratch}, \csr{ipend} (Chapter~\ref{ch:traps});
+\item debug control: \csr{ccr} (bit 0, PTRAP);
+\item identity: \csr{coreid}, \csr{ncores};
+\item software cache geometry: \csr{ttag}, \csr{tdata}, \csr{tgeom};
+\item code paging: \csr{xslot};
+\item inter-core: \csr{takefrom};
+\item supervised execution: \csr{corebase}, \csr{corecount}.
+\end{itemize}
+CSR 17 is reserved: it reads as zero and writes to it are ignored.
+
+\section{Shared state}
+
+All cores share T2, T3, the devices and the \term{revocation-domain table}: 15 entries (numbered 1--15;
+0 means ``no domain''), each holding whether the domain is alive, its 16-bit generation, and the region
+and permissions it was created for (Section~\ref{sec:domains}). Nothing else is shared: in particular, no
+core can read another core's registers, Local Stores, save table or inbox. The only ways to affect
+another core are far memory (through capabilities), gifts (\insn{cgive}, \insn{csend}), revoking a
+domain whose capabilities it holds, and a stop request through core control.
+
+\section{Reset state}\label{sec:reset}
+
+At reset every core starts with:
+\begin{itemize}
+\item supervisor mode with \csr{status}.SPP = 1 (\csr{status} reads 3);
+\item \reg{pc} = 0, all integer registers zero, all other CSRs zero, all tags free, the overlay map and
+  inbox empty, and the save table empty; every revocation domain free;
+\item its I-LS and D-LS loaded from the boot image (the same image on every core; see the STX2 format,
+  Section~\ref{sec:stx});
+\item the reset capabilities of Table~\ref{tab:resetcaps}. All other capability registers are empty.
+\end{itemize}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Capabilities present at reset}\label{tab:resetcaps}
+\begin{tabularx}{\linewidth}{@{}l l l l l X@{}}
+\toprule
+\textbf{Reg} & \textbf{Cores} & \textbf{Space} & \textbf{Range} & \textbf{Perms} & \textbf{Purpose}\\\midrule
+\reg{c0} & core 0 & T3 & $[0, 64~\text{MiB})$ & \perm{RWX} & memory root: all of system memory, the framebuffer window included\\
+\reg{c1} & core 0 & T2 & $[0, 256~\text{KiB})$ & \perm{RWX} & all of the cluster store\\
+\reg{c2} & every core & device & $[0, 1)$ & \perm{W}\perm{D} & console output port only\\
+\reg{c3} & core 0 & device & $[0, \hex{5000})$ & \perm{RWD} & device root: the whole device space\\
+\reg{c4} & core 0 & core control & $[0, 8N)$ & \perm{W}\perm{D} & core control: stop any core (Section~\ref{sec:corectl})\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The sizes are those of the prototype platform (Section~\ref{sec:memmap}); software reads them from
+the platform table. Since \reg{c0} and \reg{c1} are linear and exist only on core 0, every byte of T2 and
+T3 starts out owned by exactly one core. Other cores obtain memory only when core 0 gives it to them. No reset
+capability belongs to a revocation domain.

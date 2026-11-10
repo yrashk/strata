@@ -1,0 +1,411 @@
+\chapter{The prototype platform}\label{ch:platform}
+
+This chapter describes the memory and devices of the prototype platform, as implemented identically by
+the emulator and the RTL simulation harness (\texttt{common/platform.h}). Unlike the instruction set,
+the platform is discovered at run time from the platform table, so software should not hard-code it.
+
+\section{System memory map}\label{sec:memmap}
+
+System memory (T3, space 3) is 64~MiB. The architecture gives it no structure: at reset core 0 holds
+one capability for all of it. The platform fixes one region, the framebuffer window, and the boot ROM
+fixes another, its load area (Section~\ref{sec:boot}).
+
+\begin{table}[htbp]
+\centering\small
+\caption{System memory (T3) of the prototype platform}\label{tab:memmap}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{Range} & \textbf{Size} & \textbf{Use}\\\midrule
+\hex{0000000}--\hex{0EFFFFF} & 15 MiB & general memory; handed to the OS in \reg{c0}\\
+\hex{0F00000}--\hex{0FFFFFF} & 1 MiB & boot load area: the OS code, data and far images, immutable after boot\\
+\hex{1000000}--\hex{2FFFFFF} & 32 MiB & general memory; handed to the OS in \reg{c13}\\
+\hex{3000000}--\hex{3FFFFFF} & 16 MiB & framebuffer window: the display scans out its first
+  $\textit{height} \times \textit{stride}$ bytes (Section~\ref{sec:fbctl})\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The framebuffer window is ordinary memory in every architectural respect: it is reached by transfers
+and atomics through capabilities cut from the memory root, it can be split, given, shared and placed
+in a revocation domain, and the part of it the display does not scan out is free for any use. The
+cluster store (T2, space 2) is 256~KiB with no fixed regions.
+
+\section{Device space}
+
+Device space (space 4) is \hex{5000} bytes long. Core 0's device root capability \reg{c3} covers all of
+it; software cuts narrower capabilities from copies of \reg{c3} with \insn{csplit}. Every port,
+register and window starts at a multiple of 8, so a capability can be cut to exactly one of them
+(Section~\ref{sec:capalign}).
+
+\begin{table}[htbp]
+\centering\small
+\caption{Device space map}\label{tab:devmap}
+\begin{tabularx}{\linewidth}{@{}l l l X@{}}
+\toprule
+\textbf{Offset} & \textbf{Length} & \textbf{Device} & \textbf{Ports, registers and windows}\\\midrule
+\hex{0000} & \hex{100} & console & \hex{0000} output stream; \hex{0008} input stream; \hex{0010} break
+                                     port; \hex{0018} break release\\
+\hex{1000} & 256 & platform table & read-only window (\texttt{STPD})\\
+\hex{2000} & \hex{300} & block device 0 & \hex{2000} identify window (64 B); \hex{2100} submission port;
+                                          \hex{2200} completion port\\
+\hex{3000} & \hex{20} & timer & \hex{3000} NOW; \hex{3008} FREQ; \hex{3010} DEADLINE; \hex{3018} WAIT\\
+\hex{4000} & \hex{10} & framebuffer controller & \hex{4000} PRESENT; \hex{4008} VSYNC\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Device transfers follow the rules of Section~\ref{sec:devxfer}: one byte per beat to consecutive
+offsets; registers are 8 bytes, little-endian, latched when byte 0 is read and committed when byte 7 is
+written; a transfer that starts at a stream port belongs to that stream. Reads from unassigned device
+offsets return zero; writes to them are ignored. Four ports are \term{event ports}, whose reads stay
+pending until the device has something to deliver (Section~\ref{sec:pendread}): console input, console
+break, the timer's WAIT and the controller's VSYNC.
+
+\section{Console}\label{sec:console}
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[Output (port \hex{0000})] Every byte of a \insn{tput} that starts at this port is output in order.
+  Every core starts with \reg{c2}, a copyable write-only capability for exactly this port.
+\item[Input (port \hex{0008})] Each byte of a \insn{tget} that starts at this port is the next input
+  byte. The read is a pending device read: it waits until its bytes are available, so a \insn{tget} of
+  $n$ bytes completes only after $n$ bytes have arrived, and meanwhile nothing else is held up. Pending
+  reads are served oldest first. At end of input the port returns \hex{04} (EOT) for every further
+  byte. Programs normally read one byte at a time.
+\item[Break (port \hex{0010})] A \insn{tget} from this port completes when the user presses Ctrl-C,
+  with the byte 3. Presses that arrive while no read is pending are counted and complete later reads at
+  once, one press per read. Ctrl-C typed at the console is not delivered to the input port.
+\item[Release (port \hex{0018})] Writing a byte to this port completes, with zeros, \emph{every} break
+  read pending at that moment, on every core. A break read issued later waits for the next Ctrl-C or
+  release. A write while no break read is pending has no effect.
+\end{description}
+
+The break port is how the console signals an event without an interrupt
+(Section~\ref{sec:events}): a core that wants to be told about Ctrl-C keeps a one-byte read of the
+break port in flight and waits for its tag, typically together with other event sources, with
+\insn{tany}. A core retires its break read with a release before it halts (Section~\ref{sec:halt}).
+
+On FPGA builds the console is a UART (8N1, 115200 baud). In the simulators it is the host's standard
+output and standard input (or a file given with \texttt{-i}); when standard input is a terminal the
+simulators pass keys through unechoed, the guest echoes them, and Ctrl-C goes to the break port. When
+the simulators' graphics window has the keyboard focus, its keys feed the same input stream
+(Section~\ref{sec:window}). The \texttt{-b} option of both simulators presses Ctrl-C at a given point
+of the run for tests.
+
+\section{Platform table}\label{sec:stpd}
+
+The platform table describes the machine: memory tiers, cores and devices. It is a read-only window at
+device offset \hex{1000}, 256 bytes long: a 32-byte header and seven 32-byte entries. All fields are
+little-endian.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Platform table header (32 bytes)}\label{tab:stpdhdr}
+\begin{tabular}{@{}r l l@{}}
+\toprule
+\textbf{Offset} & \textbf{Type} & \textbf{Field}\\\midrule
+0 & char[4] & magic \texttt{"STPD"}\\
+4 & u16 & version (1)\\
+6 & u16 & entry size in bytes (32)\\
+8 & u16 & number of entries (7)\\
+10 & u16 & number of cores $N$\\
+12 & u32 & total length of the table in bytes (256)\\
+16 & u32 & checksum: sum of all bytes of the table, with this field taken as zero, mod $2^{32}$\\
+20 & u8[12] & reserved, zero\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Platform table entry (32 bytes)}\label{tab:stpdent}
+\begin{tabularx}{\linewidth}{@{}r l l X@{}}
+\toprule
+\textbf{Offset} & \textbf{Type} & \textbf{Field} & \textbf{Meaning}\\\midrule
+0 & u16 & type & 1 memory, 2 console, 3 platform table, 4 block device, 5 framebuffer, 6 timer\\
+2 & u16 & index & instance number among entries of the same type\\
+4 & u16 & space & far space of the resource (2, 3 or 4)\\
+6 & u16 & node & \insn{cgive} node number, or \hex{ffff} if the device takes no capabilities\\
+8 & u64 & info & type-specific (Table~\ref{tab:stpdinfo})\\
+16 & u64 & base & base address in \textit{space}\\
+24 & u64 & size & size in bytes\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[htbp]
+\centering\small
+\caption{The \textit{info} word by entry type}\label{tab:stpdinfo}
+\begin{tabularx}{\linewidth}{@{}r l X@{}}
+\toprule
+\textbf{Type} & \textbf{Name} & \textbf{\textit{info}}\\\midrule
+1 & memory & 0\\
+2 & console & bit 0 = has output, bit 1 = has input\\
+3 & platform table & 1\\
+4 & block device & capacity in 512-byte blocks\\
+5 & framebuffer & bits 15:0 width in pixels; bits 31:16 height in pixels; bits 47:32 stride in bytes
+  per row; bits 63:48 pixel format (1 = XRGB8888)\\
+6 & timer & ticks per second (1000000)\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The prototype publishes seven entries:
+
+\begin{center}\small
+\begin{tabular}{@{}l l l l l l l@{}}
+\toprule
+\textbf{\#} & \textbf{Type} & \textbf{Index} & \textbf{Space} & \textbf{Node} & \textbf{Base} & \textbf{Size}\\\midrule
+0 & memory & 0 & 3 & --- & 0 & 64 MiB\\
+1 & memory & 1 & 2 & --- & 0 & 256 KiB\\
+2 & console & 0 & 4 & --- & \hex{0000} & \hex{100}\\
+3 & platform & 0 & 4 & --- & \hex{1000} & 256\\
+4 & block & 0 & 4 & $N$ & \hex{2000} & \hex{300}\\
+5 & framebuffer & 0 & 3 & --- & \hex{3000000} & 16 MiB\\
+6 & timer & 0 & 4 & --- & \hex{3000} & \hex{20}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The framebuffer entry describes the framebuffer \emph{memory}: a region of system memory. The
+framebuffer controller's two registers are at the fixed device offset \hex{4000} and have no entry of
+their own.
+
+\section{Timer}\label{sec:timer}
+
+The timer is four 8-byte registers at device offset \hex{3000}. It counts \term{ticks}; one tick is one
+microsecond.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Timer registers}\label{tab:timer}
+\begin{tabularx}{\linewidth}{@{}l l l X@{}}
+\toprule
+\textbf{Offset} & \textbf{Name} & \textbf{Access} & \textbf{Function}\\\midrule
+\hex{3000} & NOW & read & ticks since power-on\\
+\hex{3008} & FREQ & read & ticks per second: 1000000\\
+\hex{3010} & DEADLINE & read, write & an absolute tick count; 0 at reset\\
+\hex{3018} & WAIT & read (event port) & the read completes when NOW $\ge$ DEADLINE and returns NOW as of
+  its completion\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{itemize}
+\item NOW is latched when its byte 0 is read, so an 8-byte read returns one consistent value.
+\item A write to DEADLINE takes effect when its byte 7 is written. Pending WAIT reads are re-evaluated
+  at once: a deadline in the past, in particular 0, completes them immediately.
+\item There is one DEADLINE register. Several cores may have a WAIT pending at the same time; each
+  completes when NOW reaches the single DEADLINE. A system that needs many timeouts gives the timer to
+  one core, which keeps a queue of deadlines in software and always programs the earliest.
+\item A WAIT read issued when NOW $\ge$ DEADLINE completes at once.
+\item Writes to NOW, FREQ and WAIT are ignored.
+\end{itemize}
+
+Waiting for a point in time is therefore a transfer like any other event
+(Section~\ref{sec:events}): write DEADLINE, start a read of WAIT on some tag, and wait for the tag with
+\insn{tany}, together with whatever else the core is waiting for.
+
+\begin{asm}
+        la    t2, dlbuf                 ; the absolute deadline, 8 bytes in the D-LS
+        li    t3, 0x10                  ; DEADLINE (offsets within the timer capability c5)
+        li    t4, 8
+        tput  tg2, t2, c5, t3, t4       ; takes effect when its byte 7 lands
+        la    t2, wbuf
+        li    t3, 0x18                  ; WAIT
+        tget  tg1, t2, c5, t3, t4       ; pending until NOW >= DEADLINE; tg1 stays busy
+        li    t0, (1 << 16) | (1 << 1)  ; a gift, or tag 1 idle
+        tany  t1, t0                    ; sleep until either
+\end{asm}
+
+Reading the clock needs only \perm{R} on NOW and FREQ, so an operating system can hand every program
+a read-only capability for exactly those 16 bytes and keep DEADLINE and WAIT to itself. StrataOS does
+(Section~\ref{sec:os-time}).
+
+\subsection{Time base}
+\begin{description}[leftmargin=1em,style=nextline]
+\item[Emulator] \texttt{-T real} (the default): NOW is host wall-clock microseconds since the start of
+  the run. \texttt{-T virtual}: NOW is the number of machine rounds executed, divided by 100 (a nominal
+  100~MHz machine in which every core executes one instruction per cycle); when every core is waiting
+  for the timer, virtual time advances to the next deadline.
+\item[RTL] A 64-bit counter of clock cycles divided by the parameter \texttt{CLK\_MHZ} (default 100).
+  In simulation, \texttt{-T real} (the default) takes NOW from the host clock and \texttt{-T virtual}
+  uses the cycle counter.
+\end{description}
+Runs whose output is compared between machines use \texttt{-T virtual}; even then the two machines'
+clocks advance at different rates per instruction, so timer values are timing-visible
+(Section~\ref{sec:determinism}).
+
+\section{Framebuffer and display controller}\label{sec:fbctl}
+
+The display has two parts: the \term{framebuffer}, which is memory, and the \term{framebuffer
+controller}, which is two device registers.
+
+\subsection{The framebuffer}
+The framebuffer is the window \hex{3000000}--\hex{3FFFFFF} of system memory (16~MiB). The display scans
+out its first $\textit{height} \times \textit{stride}$ bytes, row after row from the top.
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[Geometry] is a property of the machine, reported by the framebuffer entry of the platform table
+  (Table~\ref{tab:stpdinfo}); software must not assume it. The default is 1280 $\times$ 800 pixels. Both
+  simulators accept \texttt{-r W}x\texttt{H}, with a width that is a multiple of 8, from 320 $\times$ 200
+  up to 2560 $\times$ 1600, which is the largest size the window holds.
+\item[Pixels] are 4 bytes; the stride is $\textit{width} \times 4$ bytes. Format 1 is XRGB8888: a pixel is
+  a little-endian 32-bit word with red in bits 23:16, green in bits 15:8 and blue in bits 7:0; in
+  memory the bytes are B, G, R and one unused byte. A doubleword holds two pixels, the left one in its
+  low half.
+\item[Scanout is live.] The display continuously shows what is in the framebuffer memory. A write into
+  it, by \insn{tput}, by \insn{tamo} or by a block-device read into a framebuffer capability, becomes
+  visible at the next refresh with nothing else to do. Software that must not show a half-drawn frame
+  draws elsewhere and copies.
+\item[Ownership] is by capability, like all memory. Whoever holds a writable capability for a range of
+  the framebuffer is the only one who can draw there; a renderer on $N$ cores splits the framebuffer
+  capability into $N$ bands and gives one to each core (the \texttt{gfx} example,
+  Section~\ref{sec:ex-gfx}), and a window system keeps the capability to itself and lends clients
+  surfaces elsewhere (Section~\ref{sec:os-ws}).
+\end{description}
+
+\subsection{The controller}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Framebuffer controller registers}\label{tab:fbctl}
+\begin{tabularx}{\linewidth}{@{}l l l X@{}}
+\toprule
+\textbf{Offset} & \textbf{Name} & \textbf{Access} & \textbf{Function}\\\midrule
+\hex{4000} & PRESENT & write & ``this frame is complete'': the display is refreshed at once. The value
+  written is ignored\\
+\hex{4008} & VSYNC & read (event port) & the read completes at the next display refresh and returns the
+  frame number\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The display refreshes 60 times per second of timer time: a refresh occurs every 16667 ticks, at the
+ticks that are multiples of 16667, and the frame number is NOW divided by 16667. A VSYNC read always
+waits for the \emph{next} refresh, so a loop that reads VSYNC once per frame is paced at 60~Hz, and
+several cores may wait at once.
+
+PRESENT does not copy anything and is not needed for pixels to appear. It marks a point at which the
+framebuffer holds a complete frame: the simulators repaint their window at once and record that frame
+for the \texttt{-F} option (Section~\ref{sec:emu}), which is what tests compare. A program that
+animates draws a frame, writes PRESENT and reads VSYNC.
+
+\begin{asm}
+        tput  tg0, s1, c9, zero, t1     ; PRESENT: 8 bytes at offset 0 of the controller capability
+        li    t0, 8                     ; VSYNC
+        tget  tg1, s1, c9, t0, t1       ; pending until the next refresh
+        ld    a0, 0(s1)                 ; the frame number: this load waits for the refresh
+\end{asm}
+
+In the simulators the framebuffer appears in a window, opened the first time software writes into the
+framebuffer or writes PRESENT (Section~\ref{sec:window}). The FPGA builds have no video output:
+PRESENT has no effect there, and VSYNC still paces at 60~Hz of timer time.
+
+\section{Block device}\label{sec:blkdev}
+
+Block device 0 (the \texttt{STBD} protocol) stores 512-byte blocks. Its distinguishing feature is how it
+is given access to memory: the device can touch far memory only through a capability that a core
+\emph{gives} it. Handing over the buffer capability \emph{is} the DMA permission, and the device hands it
+back when the operation is complete. While the device holds the buffer, no core can touch it, so DMA
+protection holds by construction.
+
+\subsection{Identify window}
+\begin{center}\small
+\begin{tabular}{@{}r l l@{}}
+\toprule
+\textbf{Offset} & \textbf{Type} & \textbf{Field}\\\midrule
+0 & char[4] & magic \texttt{"STBD"}\\
+4 & u16 & version (1)\\
+6 & u16 & $\log_2$ block size (9)\\
+8 & u64 & capacity in blocks\\
+16 & u32 & maximum blocks per command (256)\\
+20 & u32 & queue depth (4): submission and completion queues\\
+24 & u8[40] & reserved, zero\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Commands and completions}
+A command is 32 bytes written with one \insn{tput} to the submission port; a completion is 16 bytes read
+with one \insn{tget} from the completion port.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Block device command (32 bytes) and completion entry (16 bytes)}\label{tab:blkcmd}
+\begin{tabular}{@{}r l l @{\hspace{2.5em}} r l l@{}}
+\toprule
+\multicolumn{3}{@{}l}{\textbf{Command}} & \multicolumn{3}{l@{}}{\textbf{Completion}}\\\midrule
+0 & u8 & opcode: 1 read, 2 write, 3 flush & 0 & u16 & command id\\
+1 & u8 & core to return the buffer to & 2 & u16 & status\\
+2 & u16 & command id (echoed) & 4 & u32 & blocks transferred\\
+4 & u32 & block count & 8 & u8[8] & reserved, zero\\
+8 & u64 & first block (LBA) & & & \\
+16 & u64 & byte offset in the buffer capability & & & \\
+24 & u8[8] & reserved, zero & & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Block device status codes}\label{tab:blkstatus}
+\begin{tabularx}{\linewidth}{@{}r l X@{}}
+\toprule
+\textbf{Code} & \textbf{Name} & \textbf{Meaning}\\\midrule
+0 & OK & success\\
+1 & E\_OP & unknown opcode\\
+2 & E\_LBA & more than 256 blocks, or the block range is outside the disk\\
+3 & E\_RANGE & offset or length outside the buffer capability, or offset not a multiple of 8\\
+4 & E\_PERM & buffer is not T2/T3 memory, or lacks \perm{W} (for read) or \perm{R} (for write)\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+A command is checked in the order of the codes, and the first failure is reported: the opcode, then the
+block range, then the buffer range, then the buffer's space and permission. A command with an unknown
+opcode and a bad block range reports E\_OP; a read with a block range beyond the disk into a
+capability without \perm{W} reports E\_LBA. A flush is checked for its opcode only. A command that
+fails moves no data and reports zero blocks transferred.
+
+\subsection{Protocol}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[>={Stealth[length=2mm]},font=\small]
+  \node[font=\bfseries] (c) at (0,0) {Core};
+  \node[font=\bfseries] (d) at (8,0) {Block device (node $N$)};
+  \draw[black!40] (0,-0.3) -- (0,-6.2); \draw[black!40] (8,-0.3) -- (8,-6.2);
+  \draw[->] (0,-0.8) -- node[above]{\insn{tput} 32-byte command to \hex{2100}} (8,-1.2);
+  \draw[->,accent,thick] (0,-1.9) -- node[above]{\insn{cgive c9, N}: buffer capability (= DMA permission)} (8,-2.3);
+  \node[anchor=west,align=left,font=\footnotesize] at (8.2,-3.0) {pairs command and capability,\\ moves the data,\\ queues a completion};
+  \draw[<-,accent,thick] (0,-4.0) -- node[above]{capability returned to the core's inbox} (8,-3.6);
+  \node[anchor=east,font=\footnotesize] at (-0.2,-4.0) {\insn{ctake c9} returns};
+  \draw[<-] (0,-5.4) -- node[above]{\insn{tget} 16-byte completion from \hex{2200}} (8,-5.0);
+\end{tikzpicture}
+\caption{A block-device transfer}\label{fig:blkproto}
+\end{figure}
+
+\begin{enumerate}
+\item Write the command to the submission port (\insn{tput} of 32 bytes to window offset \hex{100}).
+\item Give the buffer capability to the device's node (from the platform table entry), with
+  \insn{cgive} or, from user mode, with \insn{csend} through an endpoint for that node. The device pairs a command and a capability whenever both have arrived, so the order in which they reach it does not matter.
+\item The device processes a command when it holds both a command and a capability, pairing them in
+  arrival order, and when it has room in its four-entry completion queue. It moves the data between the disk and
+  $[\textit{base} + \textit{offset}, \ldots)$ of the capability, appends a completion, and gives the
+  capability back to the core named in byte 1 of the command (core 0 if that is not a valid core).
+\item \insn{ctake} the capability back, from the device's node only (\insn{ctake cd, rs} with \reg{rs} = $N$). Its arrival means the operation has finished. (A user-mode driver, such as the StrataOS file server, is handed the capability by its supervisor instead.)
+\item Read the completion from the completion port and check the command id and status.
+\end{enumerate}
+
+The device signals completion the only way a device can, by completing something the core is waiting
+for: here, by giving the capability back. A core that has other things to wait for at the same time
+waits with \insn{tany} on its inbox.
+
+A block-device read into a capability for framebuffer memory is a write into the framebuffer and
+appears on the display like any other.
+
+Every command, including flush, consumes and returns one capability; a flush may be given a
+zero-length capability. Reading the completion port when no completion is queued returns 16 zero bytes,
+which software can recognise if it never issues command id 0 (the firmware numbers commands from 1). If more than four commands are
+submitted without being paired, further commands are discarded. The firmware routines
+\texttt{fw\_blk\_read} and \texttt{fw\_blk\_write} implement this protocol (Section~\ref{sec:sfi}).

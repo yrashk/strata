@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strata — memory is explicit I/O</title>
+<meta name="description" content="Strata is a prototype 64-bit instruction set where memory is explicit I/O, caches are software, capabilities name everything, and there are no interrupts. With a Verilog implementation, an emulator, StrataOS and a native-code Forth.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="top">
+  <a class="mark" href="#">STRATA</a>
+  <div class="links">
+    <a href="#idea">Idea</a>
+    <a href="#tiers">Tiers</a>
+    <a href="#os">StrataOS</a>
+    <a href="#forth">Forth</a>
+    <a href="#build">Build</a>
+    <a href="play/">Play</a>
+    <a href="code/">Source</a>
+    <a class="pill" href="Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
+    <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="bands" aria-hidden="true">
+    <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+  </div>
+  <div class="hero-text">
+    <p class="kicker">A prototype 64-bit instruction set architecture</p>
+    <h1>STRATA</h1>
+    <p class="lede">Memory is explicit I/O. Every storage tier is visible to software.
+      Capabilities name everything. There are no interrupts.</p>
+    <div class="cta">
+      <a class="btn" href="play/">Try it in your browser</a>
+      <a class="btn ghost" href="Strata-Architecture-Reference-Manual.pdf">Read the manual</a>
+      <a class="btn ghost" href="https://github.com/yrashk/strata">Source on GitHub</a>
+    </div>
+    <ul class="facts">
+      <li><b>Verilog</b> RTL, synthesizable</li>
+      <li><b>C</b> reference emulator</li>
+      <li><b>StrataOS</b> microkernel</li>
+      <li><b>Forth</b> with native code</li>
+      <li><b>Source</b> <a href="code/">browsable, syntax-coloured</a></li>
+    </ul>
+  </div>
+</header>
+
+<main>
+
+<section id="idea" class="section">
+  <h2><span class="num">01</span>The idea</h2>
+  <p class="intro">Modern CPUs pretend memory is flat and fast, then spend a third of the chip
+    keeping up the pretence. Strata stops pretending. What software can reach directly
+    is small and fast; everything else is a transfer you ask for, and can overlap with work.</p>
+  <div class="cards">
+    <article class="card">
+      <h3>Local Stores, not caches</h3>
+      <p>Loads and stores reach only registers and a 64&nbsp;KiB data Local Store per core.
+        Instructions come only from a 64&nbsp;KiB instruction Local Store. L1 is an
+        architectural scratchpad, and software decides what lives there.</p>
+    </article>
+    <article class="card">
+      <h3>Transfers, as if synchronous</h3>
+      <p><code>tget</code>, <code>tput</code> and <code>tgetx</code> move data between tiers
+        with completion tags. Each takes effect at its issue point; the hardware stalls any
+        access to a range still in flight. Overlap is a performance choice, never a correctness one.</p>
+    </article>
+    <article class="card">
+      <h3>Linear capabilities</h3>
+      <p>Far memory is named only through capabilities. Writable ones can be split, joined,
+        given to another core and taken back — never copied. A data race is not something you can
+        write down. Revocation domains take everything back at once.</p>
+    </article>
+    <article class="card accent">
+      <h3>No interrupts</h3>
+      <p>A device “interrupts” by completing a transfer. <code>tany</code> waits for any of a set
+        of transfers, or for a capability arriving in the inbox. Ctrl-C is a console read that
+        completes when you press the key. The timer is a read that completes at a deadline.</p>
+    </article>
+  </div>
+</section>
+
+<section id="tiers" class="section">
+  <h2><span class="num">02</span>The tiers, all visible</h2>
+  <div class="split">
+    <div class="tiers" aria-label="Storage tiers">
+      <div class="tier t0"><span>Registers</span><em>x0–x31 · c0–c15</em></div>
+      <div class="tier t1"><span>Local Stores</span><em>64 KiB I-LS + 64 KiB D-LS per core · load/store</em></div>
+      <div class="tier t2"><span>T2 cluster store</span><em>256 KiB · tget / tput</em></div>
+      <div class="tier t3"><span>T3 system memory</span><em>64 MiB · tget / tput / tamo</em></div>
+      <div class="tier t4"><span>Devices</span><em>console · disk · timer · framebuffer</em></div>
+    </div>
+    <div class="code">
+<pre><span class="c">; divide the work by dividing ownership</span>
+        csplit c5, c0, s6     <span class="c">; c0 = my piece, c5 = the rest</span>
+        csplit c8, c5, s6     <span class="c">; c5 = core k's piece</span>
+        cgive  c5, s3         <span class="c">; hand it over (c5 is now empty)</span>
+        ...
+        ctake  c5, s3         <span class="c">; take it back from core k only</span>
+        cjoin  c0, c5         <span class="c">; and glue the array together</span>
+
+<span class="c">; stream far data while computing</span>
+        tget   tg1, a0, c0, t0, t1   <span class="c">; ask for the next block</span>
+        ...                          <span class="c">; work on the current one</span>
+        twait  tg1                   <span class="c">; (loads would wait anyway)</span></pre>
+    </div>
+  </div>
+</section>
+
+<section class="section gallery">
+  <figure class="shot wide">
+    <img src="img/gfx-mandelbrot.png" alt="A Mandelbrot set rendered by eight Strata cores into the framebuffer" loading="lazy">
+    <figcaption><b>examples/gfx.s</b> — eight cores each own one band of the framebuffer through a
+      capability and render into it. The same frame, byte for byte, on the emulator and the Verilog RTL.</figcaption>
+  </figure>
+</section>
+
+<section id="os" class="section">
+  <h2><span class="num">03</span>StrataOS</h2>
+  <p class="intro">A microkernel written in Strata assembly, where the explicit machine shows
+    through instead of being hidden.</p>
+  <div class="cards three">
+    <article class="card">
+      <h3>A kernel that pages itself</h3>
+      <p>A few kilobytes stay resident. The rest of the kernel is code units it loads into its own
+        instruction store on demand — the same <code>xcall</code> / <code>xmiss</code> mechanism
+        programs use.</p>
+    </article>
+    <article class="card">
+      <h3>Servers are processes</h3>
+      <p><code>proc</code>, <code>dev</code>, <code>fs</code>, <code>tty</code>, <code>pipe</code>
+        and the window server <code>ws</code> run in user mode. A message is a lent buffer
+        capability; programs talk to servers directly, core to core, in hardware.</p>
+    </article>
+    <article class="card">
+      <h3>Context switches you can see</h3>
+      <p>Preemptive multitasking with a configurable time slice (2&nbsp;ms by default, down to 100&nbsp;µs). A switch copies the used Local Store out
+        and in — the cache flush other CPUs hide. <code>ps</code> shows each process's switches and
+        kilobytes moved; the window server's core lattice pulses with every one.</p>
+    </article>
+  </div>
+  <div class="terminal">
+<pre><span class="p">strata$</span> seq 30 | grep 2 | wc      <span class="c"># three processes, two pipes</span>
+<span class="p">strata$</span> -n 3 mandel &amp;             <span class="c"># three threads, time-shared</span>
+<span class="p">strata$</span> as &lt; hello.s &gt; hi &amp;&amp; hi   <span class="c"># the assembler, written in Strata</span>
+<span class="p">strata$</span> ps                        <span class="c"># switches and KiB moved, per process</span>
+<span class="p">strata$</span> ws                        <span class="c"># the window server takes the screen</span></pre>
+  </div>
+
+  <h3 class="sub">The window server</h3>
+  <p class="intro"><code>ws</code> is the only process that touches the framebuffer. It tiles
+    windows on a grid, and makes the machine visible: the strip at the top has one cell per core,
+    lit in the colour of the process running there, pulsing on every context switch; each
+    window's tag shows how many kilobytes its context switches have moved. Clients draw in
+    their own memory and lend each finished band to the server as a capability; only the server
+    writes the screen.</p>
+  <figure class="shot wide">
+    <a href="play/?run=os"><img src="img/ws-real-focus.png" alt="The StrataOS window server: four tiled windows, a terminal showing ps, a Mandelbrot, a clock and a terminal showing cores, under a strip of core cells" loading="lazy"></a>
+    <figcaption>StrataOS 0.1 running <code>ws</code>: two terminals with their own shells,
+      <code>wmandel</code> and <code>wclock</code>, each a separate process, at 1280&times;800.
+      <a href="play/?run=os"><b>Boot StrataOS in your browser and type <code>ws</code>&nbsp;&rarr;</b></a>
+      &nbsp;or <a href="play/?run=ws">watch the scripted demo</a>.</figcaption>
+  </figure>
+  <div class="shots2">
+    <figure class="shot">
+      <img src="img/ws-real-palette.png" alt="The launch palette open over a dimmed desktop" loading="lazy">
+      <figcaption><b>Alt+P</b> (or Alt+Space) — the launch palette, with completion.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="img/ws-splash.png" alt="The boot splash: the word STRATA assembling from horizontal bands" loading="lazy">
+      <figcaption>The boot splash: strata settling into place.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="forth" class="section">
+  <h2><span class="num">04</span>Strata Forth</h2>
+  <div class="split">
+    <div>
+      <p>A Forth bootstrapped the classic way — a small kernel of primitives in assembly, the rest
+        of the language defined in Forth — with a modern twist: words compile to <b>native Strata
+        code</b>. Because stores cannot write instruction memory, every definition is assembled in
+        data memory, written to far memory and installed with <code>tgetx</code>: a JIT whose
+        install step you can watch.</p>
+      <ul class="ticks">
+        <li>Inlining, constant folding and tail calls</li>
+        <li>Capabilities, transfers and tags as ordinary words</li>
+        <li><code>far@</code> / <code>far!</code> through a software cache built on <code>ltag</code> / <code>linst</code></li>
+        <li><code>spawn</code> / <code>await</code> across cores</li>
+        <li>Locals, quotations, <code>catch</code>/<code>throw</code>, <code>see</code></li>
+      </ul>
+    </div>
+    <div class="terminal">
+<pre>: sq ( n -- n*n ) dup * ;  <span class="ok">ok</span>
+7 sq . 49  <span class="ok">ok</span>
+see sq
+: sq  ( xt $8100 , 40 bytes)
+  8100:  addi sp, sp, -8
+  8104:  sd   ra, 0(sp)
+  8108:  addi s0, s0, -8
+  810c:  sd   s1, 0(s0)
+  8110:  ld   t0, 0(s0)
+  8114:  addi s0, s0, 8
+  8118:  mul  s1, t0, s1
+  811c:  ld   ra, 0(sp)
+  8120:  addi sp, sp, 8
+  8124:  ret
+ <span class="ok">ok</span>
+: sum-sq ( n -- ) 0 swap 0 do i sq + loop ;  <span class="ok">ok</span>
+100 sum-sq . 328350  <span class="ok">ok</span></pre>
+    </div>
+  </div>
+  <figure class="shot">
+    <img src="img/forth-mandelbrot.png" alt="A Mandelbrot set rendered in parallel by Strata Forth" loading="lazy">
+    <figcaption><b>lang/forth/demos/gfx.fs</b> — the framebuffer cut into bands with
+      <code>csplit</code>, rendered by workers spawned from the Forth prompt.</figcaption>
+  </figure>
+</section>
+
+<section id="play" class="section">
+  <h2><span class="num">05</span>Try it in your browser</h2>
+  <div class="card accent">
+    <p>The reference emulator, compiled to WebAssembly. Boot StrataOS on 12 cores and type at its
+      shell, watch eight cores draw a Mandelbrot set into the framebuffer, or define words in Forth
+      and see them run as native Strata code — no install.</p>
+    <p class="cta play-cta"><a class="btn" href="play/">Run Strata in your browser</a></p>
+  </div>
+</section>
+
+<section id="build" class="section">
+  <h2><span class="num">06</span>Run it</h2>
+  <p class="intro">Needs a C compiler and Verilator&nbsp;5; SDL2 is optional (for the window). Or read it first:
+    the <a href="code/">source browser</a> has every assembly and Forth program, syntax-coloured.</p>
+  <div class="cmds">
+    <div><code>make</code><span>assembler, emulator and the Verilated RTL</span></div>
+    <div><code>make test</code><span>every example and an OS boot on both machines, compared instruction by instruction</span></div>
+    <div><code>make show-gfx</code><span>open the framebuffer window and watch eight cores draw</span></div>
+    <div><code>make boot</code><span>boot StrataOS on the emulator</span></div>
+    <div><code>make forth</code><span>a Forth prompt on bare metal</span></div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="bands small" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+  <p>Strata — a prototype architecture, its RTL, emulator, firmware, OS and languages.
+    <a href="Strata-Architecture-Reference-Manual.pdf">Architecture Reference Manual</a> ·
+    <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,349 @@
+\chapter{Privilege, traps and events}\label{ch:traps}
+
+\IS has two privilege modes, a small set of banked trap registers, and no interrupts. A \term{trap}
+is the synchronous transfer of control that occurs when an instruction cannot complete. The only
+asynchronous event that changes a core's control flow is a \term{stop request} sent through the
+core-control space, and it is delivered as a trap at an instruction boundary. Everything else a core
+waits for, including device events, arrives as the completion of a transfer or as a capability in its
+inbox.
+
+\section{Privilege modes}\label{sec:modes}
+
+Each core runs in \term{supervisor mode} or \term{user mode}. Cores leave reset in supervisor mode.
+The current mode and the mode that \insn{eret} returns to are recorded in CSR \csr{status}:
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}c l X@{}}
+\toprule
+\textbf{Bit} & \textbf{Name} & \textbf{Meaning}\\\midrule
+0 & S & 1 while the core runs in supervisor mode. Read-only: it changes only on trap entry and \insn{eret}.\\
+1 & SPP & The mode a supervisor \insn{eret} enters: 1 supervisor, 0 user. Set by trap entry; writable by the supervisor.\\
+63:2 & --- & Read as zero; writes are ignored.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+A core enters user mode only by executing \insn{eret} in supervisor mode with SPP = 0. It returns to
+supervisor mode only by taking a trap that is routed to the supervisor. User mode differs from
+supervisor mode in exactly the operations of Table~\ref{tab:userlimits}; every other instruction,
+including every transfer, far atomic, overlay operation and the endpoint operations \insn{csend} and
+\insn{crecv}, behaves identically in both modes. Authority over memory and devices is never a matter of mode: it comes from the capabilities
+a core holds.
+
+\begin{table}[htbp]
+\centering\small
+\caption{What user mode cannot do}\label{tab:userlimits}
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+\textbf{Operation} & \textbf{In user mode}\\\midrule
+\insn{csave}, \insn{crestore} & \cause{priv}: the capability save table belongs to the supervisor\\
+\insn{cdom}, \insn{crevoke}, \insn{cundom}, \insn{cmkep} & \cause{priv}: domains and endpoints are created and destroyed by the supervisor\\
+\insn{csrr} of \csr{sscratch} or \csr{ipend} & \cause{priv}\\
+\insn{csrw} of \csr{status}, \csr{corebase}, \csr{corecount}, \csr{ucause}, \csr{uepc}, \csr{utval}, \csr{utvec}, \csr{sscratch}, \csr{ipend} & \cause{priv}\\
+\insn{ctake}, \insn{cpoll}, \insn{tany} with bit~16 set & \cause{priv}: the inbox belongs to the supervisor (Section~\ref{sec:userinbox})\\
+\insn{halt} & after draining the core's transfers, traps to the supervisor with cause \cause{halt} instead of stopping the core\\
+\insn{svc} & traps to the supervisor with cause \cause{svc} (in supervisor mode it is \cause{illegal})\\
+\insn{cgive} & restricted to the core window: \cause{capop} if \csr{corecount} is 0\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Banked trap state}
+
+\csr{cause}, \csr{epc}, \csr{tval} and \csr{tvec} exist twice: once for the supervisor and once for
+user mode. An access by name reaches the copy of the current mode, so the same handler code works in
+either mode. The supervisor reaches the user copies through \csr{ucause}, \csr{uepc}, \csr{utval} and
+\csr{utvec} (CSRs 19--22), for example to install or inspect a program's handler. \csr{sscratch} is a
+scratch register only the supervisor can read or write; \csr{scratch} is shared by both modes.
+
+\begin{center}\small
+\begin{tabular}{@{}l l l@{}}
+\toprule
+\textbf{Register} & \textbf{In supervisor mode} & \textbf{In user mode}\\\midrule
+\csr{cause}, \csr{epc}, \csr{tval}, \csr{tvec} & supervisor copy & user copy\\
+\csr{ucause}, \csr{uepc}, \csr{utval}, \csr{utvec} & user copy & user copy, read-only\\
+\csr{sscratch}, \csr{ipend} & read and write & \cause{priv}\\
+\csr{scratch} & read and write & read and write\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The pseudocode writes the two copies as \texttt{SEPC}, \texttt{STVEC}, \ldots\ and \texttt{UEPC},
+\texttt{UTVEC}, \ldots
+
+\section{Trap entry and routing}\label{sec:trapentry}
+
+A trap in supervisor mode always goes to the supervisor handler. A trap in user mode goes to the
+program's own handler when the program has installed one and the cause is the program's business;
+otherwise it goes to the supervisor:
+
+\begin{pseudo}
+func Trap(c, value)
+    if Mode == User and c not in {halt, stop, priv, svc}
+       and UTVEC != 0 and PC != UTVEC then
+        UEPC = PC; UCAUSE = c; UTVAL = value;     // the program's own handler,
+        NextPC = UTVEC;                           // still in user mode
+    else
+        double = (Mode == Supervisor and STVEC != 0 and PC == STVEC);
+        SEPC = PC; SCAUSE = c; STVAL = value;
+        STATUS.SPP = if Mode == User then 0 else 1;
+        Mode = Supervisor;
+        if STVEC == 0 or double then
+            Halted = TRUE;                        // reported as a (double) fault
+        else
+            NextPC = STVEC;
+        end
+    end
+end
+\end{pseudo}
+
+\begin{itemize}
+\item \cause{halt}, \cause{stop}, \cause{priv} and \cause{svc} always reach the supervisor: a program
+  can neither catch its own end nor its own preemption, nor hide a privilege violation, nor answer its
+  own supervisor call.
+\item A fault on the first instruction of the user handler ($\reg{pc} = \csr{utvec}$) goes to the
+  supervisor, so a broken user handler cannot loop.
+\item In supervisor mode, a fault on the first instruction of the handler is a \term{double fault} and
+  stops the core, as does any supervisor trap while \csr{tvec} is zero.
+\end{itemize}
+
+A trap is \term{precise}: the trapping instruction has had no architectural effect (no register, Local
+Store, capability, far memory or device state has changed, and no transfer has started). It does not
+retire: \csr{instret} is not incremented. Execution continues at the handler with all other state
+unchanged.
+
+\section{Causes}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Trap causes (summary; see Appendix~\ref{app:causes} for \csr{tval})}\label{tab:causes-short}
+\begin{tabularx}{\linewidth}{@{}r >{\sffamily}l X@{}}
+\toprule
+\textbf{Code} & \textrm{\bfseries Cause} & \textbf{Meaning}\\\midrule
+1 & illegal & undefined encoding\\
+2 & lsfault & Local Store address out of range or misaligned\\
+3 & capinv & capability register or save slot is not live (empty, or revoked)\\
+4 & perm & capability lacks the permission or names the wrong kind of space\\
+5 & bounds & far range outside the segment\\
+6 & xalign & memory transfer or atomic not 8-byte aligned\\
+7 & ifault & instruction fetch outside the I-LS or misaligned\\
+8 & xmiss & \insn{xcall} target, or \insn{xret} far link, not in the overlay map\\
+9 & pend & access to an in-flight range with CCR.PTRAP set (debug)\\
+10 & capop & capability operation precondition failed (overwrite, split, join, give, domain)\\
+11 & priv & privileged operation in user mode\\
+12 & halt & \insn{halt} in user mode\\
+13 & stop & a stop request sent through core control, taken in user mode\\
+14 & svc & \insn{svc} in user mode: a supervisor call\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Priority}
+
+At most one trap is taken per instruction. The order of checks is:
+\begin{enumerate}
+\item a pending stop request, in user mode: \cause{stop};
+\item instruction fetch: \cause{ifault};
+\item decoding: \cause{illegal};
+\item the instruction's own checks, in the order listed in its \emph{Exceptions} table in
+  Part~\ref{part:isa} (for privileged instructions, \cause{priv} comes first).
+\end{enumerate}
+For example, a \insn{tget} through an empty capability with a misaligned length reports
+\cause{capinv}, not \cause{xalign}.
+
+\section{The trap value}
+
+\csr{tval} identifies what was wrong:
+\begin{itemize}
+\item for transfer faults, the far offset \reg{ro}, except \cause{lsfault}, where it is the Local
+  Store address;
+\item for loads and stores, the effective address;
+\item for \cause{ifault}, the faulting \reg{pc}; for \cause{illegal} and \cause{priv}, the instruction
+  word;
+\item for capability instructions, the register or slot number concerned, or the offending value (see each
+  instruction);
+\item for \cause{xmiss}, the absolute far address of the call target, or the far link (bit~63 set) of
+  an \insn{xret};
+\item for \cause{halt}, \cause{stop} and \cause{svc}, zero.
+\end{itemize}
+
+\section{Returning from a trap}
+
+\insn{eret} continues at \csr{epc} of the current mode. In user mode it stays in user mode. In
+supervisor mode it enters the mode that \csr{status}.SPP names, so a supervisor handler that took a
+trap from a program returns to the program, and one that took a trap from supervisor code returns to
+supervisor code. After a trap \csr{epc} holds the address of the trapping instruction: to resume after
+it, add 4 to \csr{epc}; to retry it (as an overlay or paging handler does), return with \csr{epc}
+unchanged. A supervisor starts a program the same way: it sets \csr{epc} to the entry point, clears
+SPP and executes \insn{eret}.
+
+\section{Supervisor calls}\label{sec:svc}
+
+\insref{svc} is the one instruction whose purpose is to trap. Executed in user mode it enters the
+supervisor with cause \cause{svc}, \csr{tval} = 0 and \csr{epc} = the address of the \insn{svc}; the
+supervisor serves the call and returns with \csr{epc} + 4. It is never routed to the program's own
+handler. In supervisor mode \insn{svc} is an illegal instruction: a supervisor has nobody to call.
+
+The architecture defines no arguments. A supervisor reads the program's registers, which it has just
+saved, and writes results back into the saved copies. Supervisor calls are few in \IS because
+authority comes from capabilities, not from the supervisor: a program reads a file by sending a message
+to a server through an endpoint, which is a user-mode instruction. What only the supervisor of the
+program's core can do is \emph{stop running the program until something happens}, and give it what
+arrived in the core's inbox meanwhile. StrataOS has eleven supervisor calls, of which blocking for a
+reply, receiving a request and yielding are the important ones (Section~\ref{sec:os-svc}).
+
+\begin{asm}
+        csend c5, c2                    ; lend the message buffer to a server (user mode)
+        li    a0, 1                     ; StrataOS convention: a0 = the function
+        svc                             ; "kernel: wake me when it comes back"
+        bltz  a0, failed                ; the supervisor wrote the result into a0
+\end{asm}
+
+\section{Writing a handler}
+
+A handler starts with no free register. A supervisor handler frees one with \csr{sscratch}, which user
+code can neither read nor write; this is how the StrataOS handler saves a program's registers without
+trusting anything the program left behind:
+
+\begin{asm}
+w_trap:                                 ; the supervisor's tvec
+        csrw  sscratch, t0              ; free t0 (only the supervisor can see sscratch)
+        la    t0, w_save                ; t0 = register save area in kernel data
+        sd    x1, 8(t0)                 ; save x1 ... x31
+        ...
+        csrr  t1, sscratch              ; the program's t0
+        sd    t1, 40(t0)                ; save it too
+        la    sp, kstack_top            ; a stack of our own
+        csrr  t1, cause                 ; the supervisor's copy: why are we here?
+\end{asm}
+
+Bare-metal code and user handlers save registers to a fixed D-LS area addressed from \reg{x0} (offsets
+up to 32767), or stash one register in \csr{scratch}. A handler that may itself trap must save
+\csr{epc}, \csr{cause} and \csr{tval} first, because a nested trap in the same mode overwrites them.
+
+\begin{asm}
+handler:                                ; tvec points here
+        sd    t0, hsave+0(zero)         ; save t0 without needing a base register
+        csrr  t0, cause
+        sd    t0, last_cause(zero)      ; remember why
+        csrr  t0, epc
+        addi  t0, t0, 4                 ; skip the trapping instruction
+        csrw  epc, t0
+        ld    t0, hsave+0(zero)
+        eret
+\end{asm}
+
+The same handler works on the bare machine, where it runs in supervisor mode, and under StrataOS, where
+it runs in user mode: there its \insn{csrw tvec} installs the user handler and the banked registers it
+reads are the user copies.
+
+\section{Halting}\label{sec:halt}
+
+\insn{halt} first waits for all of the core's in-flight transfers to complete, pending device reads
+included, so output a program issued before halting is not lost. The drain happens in both modes: in
+user mode it precedes the \cause{halt} trap. A core must therefore not halt while it has a device read
+in flight that may never complete; a read of the console break port is retired first by writing the
+release port (Section~\ref{sec:break}). In supervisor mode the core then stops for good; \reg{a0} is
+conventionally its exit status and simulators report it. A halted core's capabilities are destroyed,
+and any later \insn{cgive} to it traps with \cause{capop}.
+
+In user mode \insn{halt} does not stop the core: it traps to the supervisor with cause \cause{halt}
+and \csr{epc} = the address of the \insn{halt}. A program written for the bare machine therefore runs
+unmodified under an operating system, which regains control when it ends.
+
+A core also stops when a trap reaches the supervisor while \csr{tvec} is zero, or on a double fault.
+The machine stops when every core has stopped. A machine in which every live core is waiting in
+\insn{cgive}, \insn{ctake}, \insn{csend}, \insn{crecv}, \insn{tany} or \insn{halt}, and in which no
+pending device read can still complete, is deadlocked; the simulators detect and report this.
+
+\section{Stopping a core: core control}\label{sec:corectl}
+
+Core-control space (space 5) is the only way one core can interrupt another. It has one doubleword per
+core: offset $8n$ belongs to core $n$. A \insn{tput} through a core-control capability that writes a
+doubleword with bit~0 set to offset $8n$ sends a \term{stop request} to core $n$; doublewords with
+bit~0 clear have no effect. At reset core~0 holds \reg{c4}, a copyable write-only capability for the
+whole space, $[0, 8N)$. Core-control capabilities permit only \insn{tput}: \insn{tget} and
+\insn{tgetx} through them trap with \cause{perm}.
+
+A stop request sets the target core's \csr{ipend} bit. A core in user mode takes it before its next
+instruction, and also while an instruction is waiting (in \insn{ctake}, \insn{crecv}, \insn{cgive},
+\insn{csend}, \insn{tany}, \insn{twait} or a stall): \csr{ipend} is cleared and the core traps to the
+supervisor with cause \cause{stop}, \csr{tval} = 0 and \csr{epc} = the instruction that did not
+execute. A waiting instruction is abandoned with no effect, so \insn{eret} would simply resume the
+wait. A core in supervisor mode is never interrupted: the request stays pending in \csr{ipend} until
+the core next runs in user mode. The supervisor may read \csr{ipend}, clear it to discard a request, or
+set it.
+
+This is the only forced preemption in the architecture. There is no timer interrupt: the timer is a
+device (Section~\ref{sec:timer}), and a core learns that a deadline has passed because its read of the
+WAIT register completes. An operating system preempts by dedicating a core to this: the StrataOS system
+core waits for the timer and, every time slice, writes a stop request to each worker core that has
+more than one runnable process (Section~\ref{sec:os-preempt}). The same mechanism serves as a doorbell:
+a core that has sent a message stops the destination core so that its supervisor looks at its inbox at
+once.
+
+\section{Events without interrupts}\label{sec:events}
+
+\IS has no interrupt lines, interrupt controller, interrupt masks or interrupt handlers. A device
+``interrupts'' by \emph{completing a transfer}: the core asks for the event by issuing a transfer that
+the device completes only when the event happens, and learns of it the way it learns of any transfer
+completing. Device-to-core notifications that carry authority arrive the same way capabilities always
+do, as gifts in the inbox.
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+\textbf{Event} & \textbf{How a core waits for it}\\\midrule
+console input byte & a \insn{tget} from the console input port completes when the byte arrives\\
+Ctrl-C & a \insn{tget} from the console break port completes when Ctrl-C is pressed (Section~\ref{sec:break})\\
+a deadline & a \insn{tget} from the timer's WAIT register completes when NOW $\ge$ DEADLINE (Section~\ref{sec:timer})\\
+the next display refresh & a \insn{tget} from the framebuffer controller's VSYNC register completes at the refresh (Section~\ref{sec:fbctl})\\
+block-device command done & the buffer capability comes back to the inbox (Section~\ref{sec:blkdev})\\
+message from another core & a capability arrives in the inbox\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\insref{tany} \texttt{rd, rs} waits for the first of several such events. Bits 15:0 of \reg{rs}
+select transfer tags, bit~16 selects the inbox; \insn{tany} returns as soon as a selected tag is idle
+or a gift is waiting, with the mask of ready sources in \reg{rd}. The inbox bit is available in
+supervisor mode only. The StrataOS system core sleeps on a pending timer read and its inbox at once:
+
+\begin{asm}
+        tget  tg11, t0, c13, t1, t2     ; read the timer's WAIT: completes at the DEADLINE
+        ...
+ev_wait:
+        li    t0, (1 << 16) | (1 << 11) ; a gift, or tag 11 idle
+        tany  t1, t0                    ; sleep until something happens
+        srli  t2, t1, 16                ; a gift?
+        bnez  t2, ev_msg                ; yes: take and serve it
+        ...                             ; no: tg11 completed, the time slice is over
+\end{asm}
+
+Because an event is a transfer, everything the architecture says about transfers applies to it. The
+read is checked and authorised by a capability when it issues; while it is pending its tag is busy and
+loads from its D-LS bytes, and transfers that overlap them, wait, so a program that reads the event
+byte early simply waits for it; and
+nothing asynchronous ever runs on the core, so there are no handler races, no reentrancy and no
+interrupt-masking discipline. Whether an event has happened \emph{yet} is timing-visible (the result of
+\insn{tany} or \insn{tpoll}), just as for any transfer.
+
+\subsection{The console break port}\label{sec:break}
+
+The console's break port (device offset \hex{0010}) delivers Ctrl-C. A \insn{tget} from it stays in
+flight until Ctrl-C is pressed and then completes with the byte 3. Ctrl-C presses that arrive while no
+break read is pending are remembered and complete later reads at once, one press per read. A Ctrl-C typed at
+the console never appears on the console input port.
+
+\begin{rule*}{One release completes every pending break read}
+A write to the release port (device offset \hex{0018}) completes, with zeros, every break read that is
+waiting at that moment, on every core. A break read issued after the release waits for the next Ctrl-C
+or the next release. A release while no break read is waiting has no effect.
+\end{rule*}
+
+A program uses the release port to retire its break read when it no longer needs it, in particular
+before it halts. Because one release retires the break reads of all cores, the cores that share the
+console's break port must agree on who releases; a core whose break read completes with 0 instead of 3
+knows it was a release. Software must keep at most one break read in flight per core. Both ports are
+reached through the device root, so only a holder of a device capability covering them can wait for
+Ctrl-C.

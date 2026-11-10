@@ -1,0 +1,222 @@
+\chapter{Local Stores and the Transfer Unit}\label{ch:memory}
+
+\section{The Local Stores}
+
+\subsection{Data Local Store}
+The D-LS is a 64~KiB byte-addressed memory private to its core. Loads and stores address it with
+\reg{rs1} plus a sign-extended 16-bit offset. An access of size $n$ (1, 2, 4 or 8 bytes) must be
+naturally aligned and lie entirely inside $[0, 65536)$; otherwise it traps with cause \cause{lsfault} and
+\csr{tval} set to the address. There is no address translation: D-LS addresses are physical, and
+address 0 is a valid location.
+
+Because a 16-bit signed offset from \reg{x0} reaches addresses 0--32767, data placed in the lower half
+of the D-LS can be addressed absolutely, as in \insn{ld t1, counter(zero)}, without a base register.
+Trap handlers use this to save registers before they have any free register.
+
+\subsection{Instruction Local Store}
+The I-LS is a 64~KiB memory from which, and only from which, instructions are fetched. Before each
+instruction the core checks that \reg{pc} is a multiple of 4 and less than 65536; if not, the fetch
+traps with cause \cause{ifault} and \csr{tval} = \reg{pc}. No load or store can read or write the I-LS.
+It is filled at reset from the boot image and at run time only by \insn{tgetx}.
+
+\section{Far spaces}
+
+Everything beyond the Local Stores is organised into \term{spaces}, each a separate address range:
+
+\begin{center}\small
+\begin{tabular}{@{}c l l l@{}}
+\toprule
+\textbf{Space} & \textbf{Name} & \textbf{Granule} & \textbf{Notes}\\\midrule
+0 & none & --- & the space of the null capability\\
+2 & T2 cluster store & 8 bytes & memory\\
+3 & T3 system memory & 8 bytes & memory\\
+4 & T4 device space & 1 byte & ports, registers and read-only windows (Chapter~\ref{ch:platform})\\
+5 & core control & 8 bytes & one doubleword per core; \insn{tput} only (Section~\ref{sec:corectl})\\
+6 & endpoints & --- & names of nodes for \insn{csend}/\insn{crecv}; no transfers (Section~\ref{sec:endpoints})\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A far location is never named by a bare address. Every far access gives a capability register and an
+offset; the access goes to \texttt{base + offset} in the capability's space and must lie inside the
+capability's segment. The base of every capability is a multiple of 8 in every space
+(Section~\ref{sec:capalign}), so the granule of a space constrains only the offsets and lengths of
+accesses.
+
+\section{Transfers}\label{sec:transfers}
+
+A \term{transfer} copies a block of bytes between a Local Store and a far space:
+
+\begin{center}\small
+\begin{tabular}{@{}l l l l@{}}
+\toprule
+\textbf{Instruction} & \textbf{Direction} & \textbf{Permission} & \textbf{Local Store}\\\midrule
+\insref{tget} \texttt{tag, rl, cs, ro, rn} & far $\to$ local & \perm{R} & D-LS\\
+\insref{tput} \texttt{tag, rl, cs, ro, rn} & local $\to$ far & \perm{W} & D-LS\\
+\insref{tgetx} \texttt{tag, rl, cs, ro, rn} & far $\to$ local & \perm{X} & I-LS (memory spaces only)\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\reg{rl} holds the Local Store address, \reg{ro} the offset in the segment and \reg{rn} the length in
+bytes. A transfer is checked in full when it issues; if any check fails, the instruction traps
+precisely, before any byte has moved. The checks, in order, are: the capability is live
+(\cause{capinv}); it has the required permission and names a space the transfer may use: never an
+endpoint, \insn{tgetx} never device or core-control space, and core-control space only for \insn{tput}
+(\cause{perm}); outside device space, \reg{rl}, \reg{ro} and \reg{rn} are multiples of 8
+(\cause{xalign}); the far range lies inside the segment (\cause{bounds}); and the Local Store range lies
+inside the Local Store (\cause{lsfault}). For every transfer fault \csr{tval} is the far offset
+\reg{ro}, except \cause{lsfault}, for which it is the Local Store address \reg{rl}.
+
+A \insn{tget} or \insn{tput} that has passed its checks is then ordered after the core's pending
+device reads: if its D-LS range overlaps the destination of a device read that is still in flight, it
+waits at issue until that read has completed (Section~\ref{sec:devxfer}). Last, it waits for its tag.
+
+Once it has issued, a memory transfer always completes; there are no asynchronous transfer errors. A
+device read completes when its device has the data, which for an event port can be arbitrarily late.
+
+\section{As-if-synchronous semantics}\label{sec:asif}
+
+\begin{rule*}{The as-if-synchronous rule}
+Every transfer takes effect at its issue point in program order: the program behaves exactly as if
+the whole block had been copied, instantaneously, when the transfer instruction executed.
+\end{rule*}
+
+An implementation is free to perform the copy later, in the background, provided no instruction can
+tell the difference. It achieves that by stalling every access that could observe an incomplete
+transfer (Table~\ref{tab:hazards}), and by performing the far-side effects of one core's transfers in
+issue order.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Local Store hazards and the stalls that hide them}\label{tab:hazards}
+\begin{tabularx}{\linewidth}{@{}l X X@{}}
+\toprule
+\textbf{In-flight transfer} & \textbf{Its Local Store range is} & \textbf{Accesses that stall while it is in flight}\\\midrule
+\insn{tget} & being written by the TU & loads, stores, \insn{ltag}, \insn{linst} that overlap it\\
+\insn{tput} & being read by the TU & stores and \insn{linst} that overlap it\\
+\insn{tgetx} & being written by the TU (I-LS) & instruction fetch from an overlapping address\\
+pending device read & to be written when the device completes the read & loads and stores that overlap
+  it; the issue of a \insn{tget} or \insn{tput} whose D-LS range overlaps it\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Two consequences matter in practice:
+\begin{itemize}
+\item A program may load from a buffer immediately after issuing the \insn{tget} that fills it, and may
+  refill a buffer immediately after issuing the \insn{tput} that empties it. No \insn{twait} is ever
+  needed for correctness.
+\item A program may jump to code immediately after issuing the \insn{tgetx} that loads it. There is no
+  instruction-synchronisation barrier.
+\item A program may start a device read and use its destination at once: a load from it, or a
+  \insn{tput} that sends it on, waits for the device. The wait can be long (the next key, the next
+  deadline), which is exactly how a program sleeps until an event.
+\end{itemize}
+
+Overlapping a transfer with computation (double buffering, prefetching) is therefore purely a
+performance choice. The \texttt{stream\_sum} example (Section~\ref{sec:ex-stream}) computes the same
+sum with and without double buffering.
+
+\subsection{Waiting explicitly}
+\insn{twait} waits for a set of tags, and the pseudo-instruction \insn{tfence} waits for all of them.
+\insn{tpoll} returns the busy subset of a set of tags without waiting, and \insn{tany} waits until any
+of a set of tags is idle or a gift arrives. These matter only for timing: for example, before reading
+\csr{cycle} to time a loop, to overlap work with a transfer whose progress a program wants to observe,
+or to wait for a device event (Section~\ref{sec:events}).
+
+\subsection{Pending-access traps}
+For debugging, setting bit 0 of CSR \csr{ccr} (PTRAP) turns the stall of a load, store, \insn{ltag} or
+\insn{linst} on an in-flight range into a trap with cause \cause{pend} and \csr{tval} = the Local
+Store address. The wait of a \insn{tget} or \insn{tput} whose D-LS range overlaps a pending device read
+becomes a \cause{pend} trap in the same way, with \csr{tval} = the transfer's D-LS address \reg{rl}. This
+shows where a program relies on the hardware stall. Whether a \cause{pend} trap occurs on a memory
+transfer's range depends on timing; in the reference emulator, where memory transfers complete at
+issue, it occurs only for the range of a pending device read. Instruction fetch stalls on an in-flight
+\insn{tgetx}, and waits for a busy tag, are never converted into traps.
+
+\section{Device transfers}\label{sec:devxfer}
+
+Transfers to device space (space 4) differ from memory transfers.
+
+\begin{rule*}{One byte per beat, to consecutive offsets}
+A device transfer moves one byte per beat. Beat $i$ of a transfer of $n$ bytes at offset \reg{ro}
+addresses device offset $\texttt{base} + \reg{ro} + i$. There is no alignment requirement on \reg{rl},
+\reg{ro} or \reg{rn}.
+\end{rule*}
+
+\begin{itemize}
+\item The offset names where the transfer \emph{starts}: the bounds check requires only
+  $\reg{ro} < \textit{len}$, and the length is not bounded by the capability. A device capability
+  therefore grants every transfer that starts inside it.
+\item A \term{register} is 8 bytes wide, little-endian, at an 8-byte-aligned offset. It is read or
+  written by an 8-byte transfer at its offset. Its value is \emph{latched when byte 0 is read}, so a read
+  never sees a value that changed between beats, and a written value \emph{takes effect when byte 7 is
+  written}. A longer transfer runs on into the following registers: 16 bytes read from the timer's FREQ
+  register return FREQ and then DEADLINE.
+\item A \term{window} (the platform table, the block device's identify data) is read-only and
+  byte-addressed like memory: a read of 4 bytes at offset 4 of the platform table returns its bytes
+  4--7.
+\item A \term{stream port} (console output, console input, the block device's submission and completion
+  ports) takes the whole transfer that starts at it: every beat of a \insn{tput} that starts at the
+  console output port is the next byte of output, and every beat of a \insn{tget} that starts at a stream
+  port is the next byte of the stream.
+\item Reads of unassigned offsets, and of write-only ports, return zero; writes to unassigned offsets
+  and to read-only registers and windows are ignored.
+\item \insn{tgetx} from device space is not permitted (\cause{perm}).
+\end{itemize}
+
+\subsection{Pending device reads}\label{sec:pendread}
+
+A read that starts at an \term{event port} completes only when the device has something to deliver.
+The prototype has four: console input (the next byte), the console break port (Ctrl-C), the timer's
+WAIT register (the deadline) and the framebuffer controller's VSYNC register (the next refresh). Such a
+read is a \term{pending device read}. It is an ordinary transfer in every respect but its latency:
+
+\begin{itemize}
+\item its tag is busy until the device completes it, which \insn{tpoll} reports and \insn{tany} and
+  \insn{twait} wait for;
+\item nothing else is held up: the core runs on, other cores run, the timer counts and the display
+  refreshes;
+\item a load or store that overlaps its D-LS destination waits until it completes (\cause{pend} with
+  CCR.PTRAP);
+\item a \insn{tget} or \insn{tput} whose D-LS range overlaps its destination waits \emph{at issue} until
+  it completes, so transfers stay ordered after the read. With CCR.PTRAP it traps with \cause{pend}
+  instead, with \csr{tval} = its D-LS address. \insn{tgetx} writes the I-LS and is not affected;
+\item a core has at most four pending device reads; issuing a fifth waits. Software must keep at most
+  one read of the break port in flight per core;
+\item \insn{halt} drains them like every other transfer of the core, in supervisor mode before the core
+  stops and in user mode before the \cause{halt} trap. Software must not halt a core while it has a
+  read in flight that may never complete: a break read is retired first by writing the console's
+  release port (Section~\ref{sec:break}); a WAIT is retired by writing a DEADLINE of zero.
+\end{itemize}
+Pending device reads do not hold up hand-overs: \insn{cgive}, \insn{csend}, \insn{cshare},
+\insn{catomic} and \insn{tamo} wait only for the core's \emph{memory} transfers
+(Section~\ref{sec:publication}).
+
+The ports, registers and windows of the prototype platform are defined in Chapter~\ref{ch:platform}.
+
+\section{Far atomics}\label{sec:atomics}
+
+\insn{tamo.add}, \insn{tamo.swap}, \insn{tamo.cas}, \insn{tamo.and} and \insn{tamo.or} perform an
+indivisible read-modify-write of one aligned doubleword at the memory that holds it, and return the old
+value. They require the \perm{A} permission, which only \insn{catomic} grants; an atomic capability has
+no \perm{R} or \perm{W}, so an atomic segment is reachable \emph{only} through atomics. All atomics on
+one doubleword, from all cores, are linearizable.
+
+A far atomic first waits until none of the issuing core's memory transfers is in flight, so every
+far access the core issued before it is complete and visible to every other core before the atomic is (the
+publication rule, Section~\ref{sec:publication}). Atomics do not use a tag and are complete when the
+instruction retires.
+
+\section{Timing-visible state}\label{sec:timing-visible}
+
+Apart from the following, nothing a single core can observe depends on transfer latency or on the
+timing of other cores:
+\begin{itemize}
+\item the \csr{cycle} and \csr{stalls} CSRs;
+\item the results of \insn{tpoll} and \insn{tany};
+\item \cause{pend} traps when CCR.PTRAP is set.
+\end{itemize}
+Inter-core interactions, stop requests and device events add a few more sources of timing
+dependence, listed in Section~\ref{sec:determinism}.

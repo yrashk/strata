@@ -1,0 +1,36 @@
+help
+ls
+cat about
+cat wc.s | wc
+seq 30 | grep 2 | wc
+seq 12 > nums
+wc < nums
+echo one more line >> nums
+cat nums | wc
+cat motd | grep pipe | upper
+sched 1ms
+-c 6 spin 12 a > sa &
+-c 6 spin 12 b > sb &
+ps
+wait
+cat sa sb
+sched
+sched 2ms
+spin > forever &
+jobs
+kill %1
+wait
+-n 2 hello
+-n 2 mandel
+units
+as < hello.s > hi
+-n 2 hi
+hexdump 0
+devs
+df
+cores
+free
+uptime
+rm nums sa sb forever
+ls
+halt

@@ -1,0 +1,89 @@
+/* The play page: the emulator in the browser, in the site's look. */
+.play { padding-top: 40px; }
+.play-head h2 { font-size: clamp(30px, 4.4vw, 46px); }
+.play-head .intro { margin-bottom: 24px; }
+
+button {
+  font: 600 15px var(--sans); cursor: pointer; border: 0;
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+button:disabled { opacity: 0.4; cursor: default; }
+
+.presets { display: flex; flex-wrap: wrap; gap: 10px; }
+.preset {
+  padding: 11px 20px; color: var(--text); background: rgba(12, 22, 38, 0.85);
+  box-shadow: inset 0 0 0 1px var(--edge); transition: box-shadow .2s, color .2s, background .2s;
+}
+.preset:hover { color: var(--cyan); box-shadow: inset 0 0 0 1px var(--cyan); }
+.preset.on { color: var(--bg); background: var(--cyan); box-shadow: none; }
+.preset:first-child:not(.on) { box-shadow: inset 0 0 0 1px var(--amber); color: var(--amber); }
+
+.bar {
+  margin-top: 18px; display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between;
+}
+.ctl { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.small {
+  padding: 7px 16px; font-size: 14px; color: var(--text); background: transparent;
+  box-shadow: inset 0 0 0 1px var(--edge);
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+}
+.small:not(:disabled):hover { color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
+#brk:not(:disabled) { color: var(--amber); }
+.jit { font: 13px var(--mono); color: var(--dim); display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.jit input { accent-color: var(--accent, #4de1ff); }
+.demos { font: 13px var(--mono); color: var(--dim); display: flex; gap: 8px; align-items: center; }
+.demos select {
+  font: 13px var(--mono); color: var(--text); background: var(--bg2); border: 1px solid var(--edge);
+  padding: 6px 8px; border-radius: 0;
+}
+.status {
+  font: 13px/1.4 var(--mono); color: var(--cyan); letter-spacing: 0.02em;
+  padding: 7px 14px; background: rgba(5, 8, 15, 0.9); box-shadow: inset 3px 0 0 var(--cyan);
+  min-width: 0; overflow-wrap: anywhere;
+}
+.status.stopped { color: var(--amber); box-shadow: inset 3px 0 0 var(--amber); }
+.about { margin: 14px 0 0; color: var(--dim); font-size: 15px; min-height: 1.6em; }
+
+.panel {
+  margin-top: 18px; background: rgba(5, 8, 15, 0.94);
+  box-shadow: inset 0 0 0 1px rgba(31, 111, 139, 0.6);
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+}
+.panel:focus-within { box-shadow: inset 0 0 0 1px var(--amber), 0 0 30px rgba(255, 179, 71, 0.08); }
+.tag {
+  display: flex; gap: 14px; align-items: baseline; padding: 9px 18px;
+  font: 12.5px var(--mono); border-bottom: 1px solid rgba(31, 111, 139, 0.4);
+}
+.tag span { color: var(--cyan); letter-spacing: 0.12em; }
+.panel:focus-within .tag span { color: var(--amber); }
+.tag em { font-style: normal; color: var(--dim); }
+
+.screen canvas {
+  display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; background: #000;
+  max-height: 74vh; object-fit: contain;
+  image-rendering: pixelated; image-rendering: crisp-edges; outline: none;
+}
+.screen.collapsed canvas { display: none; }
+
+/* the padding is on the wrapper: #term itself is exactly the box the fit
+   addon fills with whole rows, so the last row is never clipped */
+.term-box { padding: 10px 8px 14px 14px; }
+#term { height: 440px; overflow: hidden; }
+#term .xterm { height: 100%; }
+/* xterm's root element has the class "terminal", which the site styles as a
+   cut-corner sample panel (margin, clip-path): undo that here */
+#term .terminal { margin: 0; padding: 0; clip-path: none; box-shadow: none; background: transparent; overflow: hidden; }
+#term .xterm-viewport { background-color: transparent !important; }
+
+.notes { margin-top: 40px; }
+.notes h3 { margin: 0 0 6px; font-size: 19px; color: #fff; }
+.notes .ticks li { color: var(--text); opacity: 0.88; font-size: 15.5px; }
+
+@media (max-width: 820px) {
+  .play { padding-top: 24px; }
+  #term { height: 360px; }
+  .term-box { padding-left: 8px; }
+  .bar { flex-direction: column; align-items: stretch; }
+}
+.demos[hidden] { display: none; }
+@media (max-width: 520px) { .tag em { display: none; } }

@@ -1,0 +1,49 @@
+% Strata Architecture Reference Manual
+% Build:  cd doc/manual && python3 gen/geninsns.py && tectonic main.tex
+\documentclass[10pt,a4paper,twoside,openright]{book}
+\usepackage{strata-manual}
+
+\hypersetup{pdftitle={Strata Architecture Reference Manual},
+  pdfsubject={Prototype edition, version 0.1},pdfauthor={Strata project}}
+
+\begin{document}
+
+\frontmatter
+\input{cover}
+\input{ch-about}
+\cleardoublepage
+\tableofcontents
+\cleardoublepage
+\listoftables
+\listoffigures
+
+\mainmatter
+\part{Architecture}\label{part:arch}
+\input{ch-intro}
+\input{ch-state}
+\input{ch-memory}
+\input{ch-caps}
+\input{ch-intercore}
+\input{ch-swmanaged}
+\input{ch-traps}
+\input{ch-model}
+
+\part{Instruction Set}\label{part:isa}
+\input{ch-encoding}
+\input{ch-iset}
+
+\part{Platform and System Software}\label{part:platform}
+\input{ch-platform}
+\input{ch-firmware}
+\input{ch-os}
+
+\part{Tools and Implementation}\label{part:tools}
+\input{ch-toolchain}
+\input{ch-examples}
+\input{ch-forth}
+\input{ch-impl}
+
+\appendix
+\input{ch-appendices}
+
+\end{document}

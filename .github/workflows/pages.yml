@@ -1,0 +1,68 @@
+# Builds the Architecture Reference Manual, the emulator as WebAssembly
+# (the play page, site/play/) and the source browser's data (site/code/),
+# and publishes them with the site (site/) on GitHub Pages:
+# https://yrashk.github.io/strata/
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tectonic
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL https://drop-sh.fullyjustified.net | sh
+          sudo mv tectonic /usr/local/bin/
+      - name: Build the manual
+        run: make manual
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.74
+          actions-cache-folder: emsdk-cache
+      - name: Build the emulator for the browser
+        # web-assets: the boot ROM, disk, Forth and example images (sasm, cc);
+        # wasm: build/web/ = strata-emu.js/.wasm + images/ + demos/
+        run: make web-assets wasm
+      - name: Test the WebAssembly emulator and its JIT under node
+        # the examples, Forth and the window-server demo: interpreter and
+        # JIT against the native interpreter; then the JIT fuzzer
+        run: |
+          node --version
+          make test-wasm
+      - name: Collect the sources for the source browser
+        # web-code: build/web-code/ = src/ (every .s and .fs) + manifest.json
+        run: make web-code
+      - name: Assemble the site
+        run: |
+          mkdir -p public
+          cp -r site/. public/
+          cp doc/Strata-Architecture-Reference-Manual.pdf public/
+          cp -r build/web/. public/play/
+          cp -r build/web-code/. public/code/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

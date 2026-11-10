@@ -1,0 +1,2 @@
+# Known discrepancies: "test machine reason". Each refers to conformance/FINDINGS.md.
+# A listed cell shows "xfail" and does not fail `make conformance`.

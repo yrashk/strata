@@ -1,0 +1,198 @@
+\chapter{Strata Forth}\label{ch:forth}
+
+Strata Forth (\texttt{lang/forth/}) is an interactive programming system for the bare machine: a small
+kernel in assembly language (\texttt{forth.s}), and the rest of the language written in Forth
+(\texttt{core.fs}) and compiled at power-on. It is the manual's example of a language implementation
+that takes the architecture's rules as its design: words compile to native code that reaches the
+instruction Local Store the only way code can, the storage tiers and capabilities are words, and the
+other cores are workers that are lent the image.
+
+\begin{shell}
+make forth                 the REPL on the emulator, on every core
+make forth-rtl             the same on the RTL simulator
+make forth-demo-tiers      one demo: tiers, multicore or gfx; make forth-demos runs all three
+make test-forth            the regression test on both machines
+\end{shell}
+
+Input may be typed or fed from a file with \texttt{-i}; each line is echoed, then its output follows,
+then \texttt{ok}. The end of input, or \texttt{bye}, halts every core. The REPL runs in supervisor mode,
+which nothing can preempt, so there is no Ctrl-C.
+
+\begin{shell}
+Strata Forth 0.1 (native code, 8 cores, bare metal) 32528 code bytes free, 18200 data bytes free
+: sq ( n -- n*n ) dup * ;  12 sq . 144  ok
+true jit-trace  : cube dup dup * * ; [jit: tput+tgetx 64 bytes -> I-LS 0x8160]  ok
+1234 0 far!  0 far@ . 1234  ok
+.fcache 1 hits, 1 misses, 0 write-backs
+7 1 ' sq 1 spawn  1 await . 49  ok
+\end{shell}
+
+\section{Native code, installed by transfers}\label{sec:forth-jit}
+
+A colon definition is a machine-code subroutine: a prologue that saves \reg{ra}, one \insn{jal} per
+word called or the word's body copied inline, and an epilogue.
+
+\begin{center}\small
+\begin{tabular}{@{}l l@{}}
+\toprule
+\textbf{Register} & \textbf{Use}\\\midrule
+\reg{s1} & the top of the data stack, cached\\
+\reg{s0} & the data stack pointer: it points at the second item and grows down\\
+\reg{sp} & the return stack, which is the machine stack\\
+\reg{s2}, \reg{s3} & the index and limit of the innermost \texttt{do} loop\\
+\reg{s4} & the locals frame\\
+\reg{t0}--\reg{t6}, \reg{a0}--\reg{a7}, \reg{s5}--\reg{s11} & scratch\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Stores cannot reach the I-LS, and the I-LS cannot be read. Strata Forth therefore keeps an
+\term{identity mirror} of its I-LS in far memory: far offset = I-LS address. The compiler works in three
+steps.
+\begin{enumerate}
+\item \texttt{:} opens a definition at the next free I-LS address. Instructions are assembled into a
+  4~KiB staging buffer in the D-LS, where forward branches are patched.
+\item \texttt{;} compiles the epilogue and installs the code with two transfers:
+  \insn{tput} from the staging buffer to the mirror, then \insn{tgetx} from the mirror into the I-LS at
+  the same address.
+\item The word can run at once: a fetch from a range that a \insn{tgetx} is still filling waits
+  (Section~\ref{sec:asif}).
+\end{enumerate}
+
+The kernel installs itself the same way: the image's \texttt{.text} is only a boot stub, which
+\insn{tgetx}es the kernel from the far image. Everything compiled is therefore readable in far memory.
+\texttt{see} disassembles a word by reading it from the mirror; the compiler inlines a primitive by
+reading its body from the mirror with \insn{tget}; and other cores install the code from there.
+
+\begin{shell}
+see sq
+: sq  ( xt $80f0 , 40 bytes)
+  80f0:   442fff8  addi sp, sp, -8
+  80f4:  60220000  sd ra, 0(sp)
+  80f8:   508fff8  addi s0, s0, -8
+  80fc:  61280000  sd s1, 0(s0)
+  8100:  40a80000  ld t0, 0(s0)
+  8104:   5080008  addi s0, s0, 8
+  8108:   125480a  mul s1, t0, s1
+  810c:  40220000  ld ra, 0(sp)
+  8110:   4420008  addi sp, sp, 8
+  8114:  a4010000  ret
+\end{shell}
+
+In \texttt{sq}, the bodies of \texttt{dup} and \texttt{*} were copied inline between the prologue and the
+epilogue.
+
+The compiler inlines primitives of up to four instructions, folds a 16-bit literal into the
+instruction that uses it (a variable followed by \texttt{@} is one \insn{ld} from an absolute D-LS
+address), turns a call before \texttt{;} into a jump, and keeps \texttt{do} loop indices in registers.
+Control structures, loops, locals and quotations are themselves written in Forth with the
+code-generation words. Code space and data space are separate, as the Local Stores are: \texttt{here},
+\texttt{,} and \texttt{allot} address the dictionary in the D-LS, and \texttt{chere} is the code pointer.
+
+\subsection{Instructions built at run time}
+\IS instructions name capability registers and transfer tags in immediate fields, so ``transfer
+through capability register $n$'' is not one instruction but sixteen. \texttt{xexec} assembles the
+instruction wanted, installs it followed by \insn{ret} into one of eight I-LS trampolines (a
+\insn{tput} and a \insn{tgetx} of 8 bytes; the trampoline is chosen by a hash of the instruction, so a
+loop pays the install once) and calls it. Every capability and transfer word is a one-line definition
+over \texttt{xexec}.
+
+\section{Words for the architecture}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Strata Forth words for tiers, capabilities and cores. \textit{c\#} is a capability register
+number; a transfer through register $n$ uses tag $n$.}\label{tab:forth}
+\begin{tabularx}{\linewidth}{@{}>{\ttfamily\raggedright\arraybackslash}p{15.5em} X@{}}
+\toprule
+\textrm{\bfseries Words} & \textbf{Function}\\\midrule
+tget tput ( dls off len c\# -- ) & a transfer between the D-LS and the segment of a capability\\
+tag ( c\# -- mask ) \ twait tpoll tany & tags: wait for, poll, wait for any\\
+csplit ( cs off cd -- ) \ cjoin ( cd cs -- ) & split and join segments\\
+cmov cshare catomic ( cs cd -- ) & move, share, make atomic\\
+crestrict ( c\# perms -- ) \ cclear ( c\# -- ) & restrict, discard\\
+cbase clen cperms cvalid ( c\# -- x ) & inspect; \texttt{.cap} and \texttt{.caps} print capabilities\\
+give take ( c\# core -- ) & \insn{cgive} to a core; \insn{ctake} from a core\\
+tamo ( addr operand c\# fn -- old ) & a far atomic; \texttt{atomic@}, \texttt{atomic!}, \texttt{atomic+!}\\
+far@ far! farc@ farc! & cells and bytes of the far heap, through the software cache\\
+far-read far-write ( dls far u -- ) & the far heap in bulk\\
+fflush finval .fcache fcache-reset & write back, forget, show and reset the cache's counters\\
+cores core\# workers & the number of cores, this core, the number of workers\\
+spawn ( x1..xn n xt core -- ) & start a word on another core with $n$ arguments\\
+await ( core -- y1..ym ) & wait for it and fetch its results\\
+run-on ( xt core -- ... ) \ par ( xt -- ) & spawn and await; run a word on every worker\\
+ticks ( -- us ) \ ms ( n -- ) & the timer's NOW; sleep on the timer's WAIT\\
+cycles instret timeit ( xt -- ) csr@ & cost: counters, the time and cycles of a word, a CSR\\
+see disasm dis code@ & the disassembler; code read back from the mirror\\
+.jit jit-trace ( f -- ) chere & the code space, a report of every install\\
+xexec ( a0 a1 a2 insn -- a0' ) & run one instruction built at run time\\
+insn, mark if, ahead, resolve addi, ld, \ldots & code generation and the assembler\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Far memory through a software cache}
+\texttt{far@} and \texttt{far!} address the heap capability through a 2-way, 32-set write-back cache of
+64-byte lines in the D-LS, built on \insn{ltag} and \insn{linst} (Section~\ref{sec:swcache}). A miss
+writes a dirty victim back with \insn{tput} and fetches the line with \insn{tget}; the load from the
+line simply waits for the transfer. \texttt{.fcache} shows hits, misses and write-backs, so the cost of
+a far reference is on display. Each core has its own cache, over whatever its heap register holds.
+
+\subsection{Cores as workers}
+At power-on core 0 gives each worker a private 64~KiB page and a copy of the \term{job board}, a 4~KiB
+atomic segment of the cluster store. A worker waits in \insn{ctake}.
+\begin{itemize}
+\item When it receives a capability with \perm{X}, that is the \emph{image}: core 0's own memory
+  capability, lent. The worker \insn{tgetx}es the compiled code into its I-LS, \insn{tget}s a snapshot
+  of the dictionary into its D-LS, and gives the capability back. Code compiled on core 0 thus runs on
+  every core, although no core can write another's I-LS.
+\item Otherwise it is the \emph{doorbell}: the worker reads its job slot on the board with far atomics,
+  runs the word under \texttt{catch}, writes back its results and rings core 0.
+\end{itemize}
+\texttt{spawn} publishes a new image only when something was compiled since the last one, and lends it
+only to workers that hold an older generation. Memory moves between cores as ownership:
+
+\begin{shell}
+: job ( k -- sum )  drop  8 0 take              \ our slice of the heap becomes our c8
+  0  n 0 do  i cells far@ +  loop               \ sum it through our own far cache
+  8 0 give ;                                    \ hand it back
+: deal ( -- )  cores 1 ?do  i 1 ['] job i spawn  loop
+  cores 1 ?do  8 slice 11 csplit  8 i give  11 8 cmov  loop ;
+\end{shell}
+
+The three demos in \texttt{lang/forth/demos/} are sessions of this kind: \texttt{tiers.fs} walks
+through capabilities, transfers, the far cache, a bounds fault caught with \texttt{catch}, ownership
+moving to another core and back, and code installation; \texttt{multicore.fs} is the parallel sum
+above; \texttt{gfx.fs} cuts the framebuffer into one band per worker, renders the Mandelbrot set in
+parallel, joins the bands and writes PRESENT.
+
+\section{Memory map and dialect}
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{Where} & \textbf{Range} & \textbf{Contents}\\\midrule
+I-LS & \hex{0000}--\hex{013F} & the boot stub, the worker loop, eight \texttt{xexec} trampolines\\
+I-LS & \hex{0140}-- & the kernel (about 11~KiB), then compiled code; about 32~KiB free after start-up\\
+D-LS & \hex{0000}-- & kernel variables and buffers, the far cache, then the dictionary (about 18~KiB free)\\
+D-LS & \hex{9800}--\hex{9EFF} & the data stack\\
+D-LS & \hex{E000}--\hex{FFFF} & the return stack\\
+T3 & $[0, 1~\text{MiB})$ & \reg{c0}: the I-LS mirror, the text of \texttt{core.fs}, the D-LS snapshot for workers\\
+T3 & $[1, 2~\text{MiB})$ & the workers' private pages\\
+T3 & $[2, 48~\text{MiB})$ & \reg{c8}: the heap behind \texttt{far@} and \texttt{far!}\\
+T3 & $[48, 64~\text{MiB})$ & \reg{c9}: the framebuffer window\\
+T2 & $[0, 4~\text{KiB})$ & \reg{c12}: the job board, atomic\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+The dialect is close to Forth 2012 for the core words. A cell is 64 bits and there are no double-cell
+words; \texttt{/} and \texttt{mod} truncate, like the hardware's division; names are case-blind;
+numbers may be written \texttt{\$ff}, \texttt{\#99}, \texttt{\%1010} and \texttt{'c'}. Beyond the
+standard words it has locals (\texttt{\{ a b -- \}}), quotations (\texttt{[: \ldots\ ;]}),
+\texttt{catch} and \texttt{throw} with error messages that name the word, \texttt{words}, \texttt{.s}
+and \texttt{dump}. Compiling \texttt{core.fs} at power-on takes about one million instructions.
+
+Strata Forth runs on the bare machine. A program of its kind under StrataOS, which installs code at
+run time, declares its far mirror to the kernel as a code mirror, so that a context switch reloads the
+I-LS from it (Section~\ref{sec:os-switch}).

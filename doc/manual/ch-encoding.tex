@@ -1,0 +1,223 @@
+\chapter{Instruction encoding and conventions}\label{ch:encoding}
+
+\section{Instruction formats}\label{sec:formats}
+
+Every instruction is one 32-bit little-endian word, aligned on a 4-byte boundary. Bits 31:26 hold the
+primary opcode \field{op}. The remaining bits follow one of six formats.
+
+\newcommand{\fmtrow}[2]{\par\noindent\textbf{#1}\hfill\small #2\par\nobreak}
+
+\fmtrow{R: register}{ALU, TAMO, CAP, CAP2, XMAP, XCALL}
+\begin{encoding}
+\bitheader{0,10,11,15,16,20,21,25,26,31}\\
+\fv{6}{op}\fv{5}{rd}\fv{5}{rs1}\fv{5}{rs2}\fv{11}{funct}
+\end{encoding}
+
+\fmtrow{I: immediate}{ALU immediates, LUI, loads, JALR, TWAIT, TPOLL, TANY, CSRR, CSRW, SYS, LTAG, LINST}
+\begin{encoding}
+\bitheader{0,15,16,20,21,25,26,31}\\
+\fv{6}{op}\fv{5}{rd}\fv{5}{rs1}\fv{16}{imm16}
+\end{encoding}
+
+\fmtrow{S: store}{SD, SW, SH, SB}
+\begin{encoding}
+\bitheader{0,15,16,20,21,25,26,31}\\
+\fv{6}{op}\fv{5}{rs2 (data)}\fv{5}{rs1 (base)}\fv{16}{imm16}
+\end{encoding}
+
+\fmtrow{B: branch}{BEQ, BNE, BLT, BGE, BLTU, BGEU}
+\begin{encoding}
+\bitheader{0,15,16,20,21,25,26,31}\\
+\fv{6}{op}\fv{5}{rs1}\fv{5}{rs2}\fv{16}{off16 (instructions)}
+\end{encoding}
+
+\fmtrow{J: jump}{JAL}
+\begin{encoding}
+\bitheader{0,20,21,25,26,31}\\
+\fv{6}{op}\fv{5}{rd}\fv{21}{off21 (instructions)}
+\end{encoding}
+
+\fmtrow{X: transfer}{TGET, TPUT, TGETX}
+\begin{encoding}
+\bitheader{0,4,5,9,10,13,14,18,19,22,23,25,26,31}\\
+\fv{6}{op}\fv{3}{sub}\fv{4}{tag}\fv{5}{rl}\fv{4}{cs}\fv{5}{ro}\fv{5}{rn}
+\end{encoding}
+
+\subsection{Fields}
+\begin{description}[leftmargin=1em,style=nextline]
+\item[\field{rd}, \field{rs1}, \field{rs2}] Integer registers, in bits 25:21, 20:16 and 15:11. In the S and
+  B formats the register in bits 25:21 is a \emph{source}.
+\item[\field{cd}, \field{cs}, \field{ce}] Capability registers (\field{ce} names an endpoint). When a
+  capability instruction names a capability in the \field{rd} or \field{rs1} position, the low four bits
+  select \reg{c0}--\reg{c15} and the high bit (25 or 20) must be zero, else the instruction is
+  \cause{illegal}. Transfers, atomics and overlay instructions have dedicated 4-bit \field{cs} fields.
+\item[\field{imm16}] Sign-extended for arithmetic, comparisons, loads, stores and \insn{jalr};
+  zero-extended for \insn{andi}, \insn{ori} and \insn{xori}; a 16-bit CSR number for \insn{csrr}/\insn{csrw};
+  a tag mask for \insn{twait}/\insn{tpoll}.
+\item[\field{off16}, \field{off21}] Signed offsets counted in instructions (multiplied by 4) relative to
+  the address of the branch or jump itself.
+\item[\field{funct}] Selects the operation within an opcode. For CAP, bits 3:0 select the function, bit 4
+  is a flag (sender filter for \insn{ctake}) and bits 10:5 hold the save-table slot. For CAP2, bits 3:0
+  select the function and bits 10:4 are ignored. For XMAP and XCALL, bit 4 selects the second instruction
+  of the pair (\insn{xunmap}, \insn{xret}) and bits 3:0 hold \field{cs}.
+\end{description}
+
+Fields shown shaded in the instruction entries are \term{reserved}. Implementations ignore them: an
+instruction executes identically whatever they hold. Software must write them as zero, because future
+editions may assign them. Fields shown in colour are fixed opcode or function values, and they are
+checked: an encoding whose fixed fields match no entry is \cause{illegal}. Table~\ref{tab:fieldrules}
+lists, for every opcode, which bits are checked and which are ignored.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Checked and ignored encoding bits}\label{tab:fieldrules}
+\begin{tabularx}{\linewidth}{@{}l X X@{}}
+\toprule
+\textbf{Opcode} & \textbf{Checked (else \cause{illegal})} & \textbf{Ignored (reserved)}\\\midrule
+ALU & \field{funct}\texttt{<10:4>} = 0 & ---\\
+LUI & --- & bits 20:16\\
+XFER & \field{sub} $\le$ 2 & ---\\
+TWAIT, TPOLL, CSRR, CSRW & --- & the unused register field\\
+TANY, LTAG, LINST & --- & \field{imm16}\\
+TAMO & \field{funct}\texttt{<2:0>} $\le$ 4, \field{funct}\texttt{<6:3>} = 0 & ---\\
+CAP & bit 25 = 0 where bits 24:21 name a capability; bit 20 = 0 where bits 19:16 name a capability &
+  unused register fields; \field{funct}\texttt{<10:5>} except as a save-table slot;
+  \field{funct}\texttt{<4>} except for \insn{ctake}\\
+CAP2 & bits 25 and 20 = 0; \field{funct}\texttt{<3:0>} $\le$ 5 & \field{funct}\texttt{<10:4>}; unused register fields\\
+SYS & \field{imm16} $\le$ 2 & bits 25:16\\
+XMAP & map index (bits 25:21) $\le$ 15 & unused bits of \field{funct}; for \insn{xunmap}, bits 20:11\\
+XCALL & --- & unused bits of \field{funct} and unused register fields\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Opcode map}
+
+\input{gen-opmap}
+
+Within an opcode, the function assignments are:
+
+\begin{center}\small
+\begin{tabular}{@{}l l l@{}}
+\toprule
+\textbf{Opcode} & \textbf{Selector} & \textbf{Values}\\\midrule
+ALU & \field{funct}\texttt{<3:0>}, bits 10:4 zero & 0 add, 1 sub, 2 and, 3 or, 4 xor, 5 sll, 6 srl, 7 sra,\\
+ & & 8 slt, 9 sltu, 10 mul, 11 mulhu, 12 divu, 13 remu, 14 div, 15 rem\\
+XFER & \field{sub} (bits 25:23) & 0 tget, 1 tput, 2 tgetx; 3--7 illegal\\
+TAMO & \field{funct}\texttt{<2:0>}, bits 6:3 zero & 0 add, 1 swap, 2 cas, 3 and, 4 or; 5--7 illegal\\
+CAP & \field{funct}\texttt{<3:0>} & 0 cmov, 1 csplit, 2 cjoin, 3 cshare, 4 catomic, 5 crestrict,\\
+ & & 6 cbase, 7 clen, 8 cperms, 9 cgive, 10 ctake, 11 cclear,\\
+ & & 12 csave, 13 crestore, 14 cvalid, 15 cpoll\\
+CAP2 & \field{funct}\texttt{<3:0>} & 0 cdom, 1 crevoke, 2 cundom, 3 csend, 4 crecv, 5 cmkep; 6--15 illegal\\
+SYS & \field{imm16} & 0 halt, 1 eret, 2 svc; all others illegal\\
+XMAP & \field{funct}\texttt{<4>} & 0 xmap, 1 xunmap\\
+XCALL & \field{funct}\texttt{<4>} & 0 xcall, 1 xret\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Appendix~\ref{app:index} lists every instruction alphabetically with its opcode, function and page.
+
+\section{Pseudocode conventions}\label{sec:pseudo}
+
+The \emph{Operation} section of each entry is written in a small pseudocode language.
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+\textbf{Notation} & \textbf{Meaning}\\\midrule
+\texttt{X[r]} & integer register $r$; reading \texttt{X[0]} gives 0 and writing it has no effect\\
+\texttt{C[c]}, \texttt{CTAB[s]} & capability register $c$, save-table slot $s$\\
+\texttt{PC}, \texttt{NextPC} & address of this instruction; address of the next one (default \texttt{PC + 4})\\
+\texttt{EPC}, \texttt{TVEC}, \ldots & CSRs, by name; the banked trap CSRs name the current mode's copy\\
+\texttt{SEPC}, \texttt{UEPC}, \ldots & the supervisor's and the user's copy of a banked trap CSR\\
+\texttt{Mode} & the current privilege mode, \texttt{Supervisor} or \texttt{User} (\csr{status} bit 0)\\
+\texttt{DOM[d]} & entry $d$ of the machine-wide revocation-domain table (Section~\ref{sec:domains})\\
+\texttt{DEV}, \texttt{CORE}, \texttt{EP} & spaces 4 (device), 5 (core control) and 6 (endpoint)\\
+\texttt{instr} & the instruction word\\
+\texttt{v<h:l>} & bits $h$..$l$ of $v$\\
+\texttt{SInt}, \texttt{UInt} & a bit vector as a signed or unsigned integer\\
+\texttt{SignExtend(v, n)}, \texttt{ZeroExtend(v, n)} & extend $v$ to $n$ bits\\
+\texttt{ASR(v, n)} & arithmetic shift right\\
+\texttt{DLS.Read(a, n)}, \texttt{DLS.Write(a, n, v)} & little-endian access to $n$ bytes of the D-LS\\
+\texttt{Far.Read(sp, a, n)}, \texttt{Far.Write(\ldots)} & access to far space \texttt{sp} at absolute address \texttt{a}\\
+\texttt{Device.Read(port, i)}, \texttt{Device.Write(port, i, b)} & beat $i$ of a device transfer starting at \texttt{port}: one byte from or to device offset \texttt{port} + $i$, or the next byte of the stream at \texttt{port} (Section~\ref{sec:devxfer})\\
+\texttt{Trap(cause, value)} & take a trap (Chapter~\ref{ch:traps}); the instruction has no other effect\\
+\texttt{Stall} & wait; no architectural effect\\
+\texttt{Block} & do not execute now; retry when another node has made progress\\
+\texttt{DrainTransfers()} & wait until all of this core's in-flight transfers have completed\\
+\texttt{WaitMemory()} & wait until none of this core's transfers to T2 or T3 is in flight (the publication rule)\\
+\texttt{WaitPendingReads(ls, n)} & if $n \neq 0$ and D-LS range $[\textit{ls}, \textit{ls}+n)$ overlaps the destination of an in-flight device read of this core: \texttt{Trap(pend, ls)} when CCR.PTRAP is set, otherwise wait until the read completes\\
+\texttt{BusyTags()} & 16-bit mask of tags with transfers in flight (in $\mathcal{S}$, only pending device reads)\\
+\texttt{N} & number of cores; node \texttt{N} is block device 0\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+All arithmetic is modulo $2^{64}$ unless written with \texttt{SInt}/\texttt{UInt}. The steps of an
+operation that precede a \texttt{Trap} have no lasting effect.
+
+\subsection{Shared functions}
+
+\begin{pseudo}
+// A capability can be used only while valid and, if it belongs to a revocation
+// domain, while that domain is alive and has not been revoked since it was made.
+func Live(c)
+    if not c.valid or c.dom == 0 then return c.valid; end
+    if c.V then return DOM[c.dom].alive; end        // a revoker outlives revocations
+    return DOM[c.dom].alive and DOM[c.dom].gen == c.gen;
+end
+func IsRevoker(c)   = c.valid and c.V and c.dom != 0 and DOM[c.dom].alive
+func Linear(c)      = not c.D                  // linear unless copyable
+func Replaceable(c) = not Live(c) or c.D       // may be overwritten
+
+// Issue-time checks of TGET (kind GET, need R), TPUT (PUT, W) and TGETX (GETX, X).
+func CheckTransfer(cap, kind, ls, off, n, lslimit)
+    if not Live(cap) then Trap(capinv, off); end
+    if not cap.need then Trap(perm, off); end
+    if cap.space == EP then Trap(perm, off); end
+    if cap.space in {DEV, CORE} and kind == GETX then Trap(perm, off); end
+    if cap.space == CORE and kind != PUT then Trap(perm, off); end
+    if cap.space != DEV and (ls OR off OR n) MOD 8 != 0 then Trap(xalign, off); end
+    if cap.space == DEV then
+        if UInt(off) >= cap.len then Trap(bounds, off); end      // off names a port
+    elsif UInt(off) > cap.len or UInt(n) > cap.len - off then
+        Trap(bounds, off);
+    end
+    if UInt(ls) > lslimit or UInt(n) > lslimit - ls then Trap(lsfault, ls); end
+end
+
+// Before every instruction (and while one waits): a pending stop, then the fetch.
+if Mode == User and IPEND == 1 then IPEND = 0; Trap(stop, 0); end
+if PC MOD 4 != 0 or UInt(PC) >= ILS_SIZE then Trap(ifault, PC); end
+Stall while PC overlaps the destination of an in-flight tgetx;
+instr = ILS.Read(PC, 4);
+\end{pseudo}
+
+\section{Pseudo-instructions}
+
+The assembler expands the pseudo-instructions of Table~\ref{tab:pseudo} into real instructions.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Assembler pseudo-instructions}\label{tab:pseudo}
+\begin{tabularx}{\linewidth}{@{}>{\ttfamily}l >{\ttfamily}X@{}}
+\toprule
+\textrm{\bfseries Pseudo-instruction} & \textrm{\bfseries Expansion}\\\midrule
+nop & addi x0, x0, 0\\
+mv rd, rs & addi rd, rs, 0\\
+neg rd, rs & sub rd, x0, rs\\
+li rd, value & \textrm{1 instruction (}addi\textrm{) if it fits 16 signed bits; 2 (}lui; ori\textrm{) if it fits 32; else 6 (}lui; ori; slli 16; ori; slli 16; ori\textrm{)}\\
+la rd, symbol & lui rd, hi; ori rd, rd, lo \textrm{(always 2 instructions; 0 $\le$ value $<2^{31}$)}\\
+j label & jal x0, label\\
+call label & jal ra, label\\
+ret & jalr x0, ra, 0\\
+jr rs & jalr x0, rs, 0\\
+tfence & twait 0xffff\\
+beqz / bnez / bltz / bgez rs, l & beq / bne / blt / bge rs, x0, l\\
+bgtz rs, l \textrm{;} blez rs, l & blt x0, rs, l \textrm{;} bge x0, rs, l\\
+bgt / ble rs, rt, l & blt / bge rt, rs, l\\
+bgtu / bleu rs, rt, l & bltu / bgeu rt, rs, l\\
+\bottomrule
+\end{tabularx}
+\end{table}

@@ -1,0 +1,31 @@
+% cover page
+\begin{titlepage}
+\newgeometry{margin=0pt}
+\thispagestyle{empty}
+\begin{tikzpicture}[remember picture,overlay]
+  \fill[accent] (current page.north west) rectangle ([yshift=-11.5cm]current page.north east);
+  % the storage strata motif
+  \foreach \i/\w/\o in {0/4.0/55,1/7.0/45,2/10.0/35,3/13.0/25} {
+    \fill[white,opacity=0.\o] ([xshift=2.2cm,yshift=-3.0cm-\i*1.45cm]current page.north west)
+      rectangle ++(\w,-1.05);
+  }
+  \node[anchor=west,white,font=\sffamily\bfseries\small] at ([xshift=2.45cm,yshift=-3.52cm]current page.north west) {T1 \quad Local Stores};
+  \node[anchor=west,white,font=\sffamily\bfseries\small] at ([xshift=2.45cm,yshift=-4.97cm]current page.north west) {T2 \quad Cluster store};
+  \node[anchor=west,white,font=\sffamily\bfseries\small] at ([xshift=2.45cm,yshift=-6.42cm]current page.north west) {T3 \quad System memory};
+  \node[anchor=west,white,font=\sffamily\bfseries\small] at ([xshift=2.45cm,yshift=-7.87cm]current page.north west) {T4 \quad Devices};
+  \node[anchor=north east,white,font=\sffamily\bfseries\Large] at ([xshift=-2.2cm,yshift=-1.6cm]current page.north east) {Strata};
+  \node[anchor=north west,text width=17cm,font=\Huge\bfseries,text=accent] at ([xshift=2.2cm,yshift=-13.4cm]current page.north west)
+    {Strata Architecture\\[0.25em]Reference Manual};
+  \node[anchor=north west,text width=17cm,font=\Large,text=black!75] at ([xshift=2.2cm,yshift=-17.2cm]current page.north west)
+    {A 64-bit capability architecture in which memory is explicit I/O};
+  \draw[accent,line width=1.5pt] ([xshift=2.2cm,yshift=-18.6cm]current page.north west) -- ++(16.6,0);
+  \node[anchor=north west,text width=17cm,font=\large,text=black!80] at ([xshift=2.2cm,yshift=-19.0cm]current page.north west)
+    {Prototype edition, version 0.1: first public release\\[0.3em] November 2026};
+  \node[anchor=south west,text width=17cm,font=\small,text=black!60] at ([xshift=2.2cm,yshift=2.0cm]current page.south west)
+    {This edition describes the prototype architecture as defined by the reference emulator
+     (\texttt{emu/emu.c}), the prototype platform, StrataOS 0.1 and the tools. Figures marked \estimate are
+     projections, not measurements.};
+\end{tikzpicture}
+\restoregeometry
+\end{titlepage}
+\cleardoublepage

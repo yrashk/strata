@@ -1,0 +1,88 @@
+; =============================================================================
+; lang/forth/os/config.s: build constants and data of Strata Forth on StrataOS 0.1
+; =============================================================================
+;
+; The kernel (lang/forth/forth.s) includes "config.s" first, "boot.s" as its
+; .text and "platform.s" near its end. This is the StrataOS set:
+;   build/sasm -T 0x8000 -I lang/forth/os -I build/forth-os -o build/prog/forth lang/forth/forth.s
+; Forth is an ordinary StrataOS program (marker "SYS2"): one thread that
+; time-shares a worker core, or N threads on N cores when started with -n N.
+; It talks to the servers itself (the message code is in platform.s; os/lib/
+; sys.s is not included: it would cost 4 KiB of the 32 KiB of code space and
+; 13 KiB of data space).
+;
+; The arena (the program's far memory; thread 0's c0 covers [0, 0x3A000)):
+;   0x00000..0x07FFF  the embedded source text (core.fs + os/os.fs), from the
+;                     image's .far section; read once, at start-up
+;   0x08000..0x0FFFF  the code mirror: an identity copy of I-LS 0x8000..0xFFFF
+;                     (far offset == I-LS address, as on bare metal), declared
+;                     to the kernel with svc SET_MIRROR: the dispatcher
+;                     reloads the I-LS from it on every switch-in. The image's
+;                     .far section puts the boot stub copy and the Forth
+;                     kernel there; compiled code follows.
+;   0x10000..0x1FFFF  the text of INCLUDEd files (a stack: nested includes)
+;   0x20000..0x39FFF  the parcel, lent to a thread that needs a new image:
+;                     +0x8000 a copy of the compiled code (parcel offset ==
+;                     I-LS address), +0x10000 the D-LS snapshot
+;   0x3A000..         the far heap (c6) behind far@ / far!. With threads, the
+;                     job board (4 KiB) and each worker's page (32 KiB: its
+;                     own code mirror) and message buffer (4 KiB) are cut
+;                     from its top. (0x7F000, inside it, is the start-up
+;                     block: read once, then cleared.)
+
+ORIGIN    = 0x8000                      ; I-LS address of .text (sasm -T 0x8000): programs live at 0x8000..0xFFFF
+PLAT_OS   = 1                           ; 1: StrataOS (threads instead of worker cores)
+PLAT_ECHO = 0                           ; the tty echoes what is typed (plat_init turns echo on for input from a file or pipe)
+PLAT_STUB = 0x100                       ; bytes of .text before the xexec trampolines (the boot stub)
+PLAT_COMPACT = 1                        ; 1: words share one prologue and one return (12 bytes less per word)
+FAR_SRC   = 0                           ; arena: the embedded source text (below the mirror: at most 32 KiB)
+A_FILES   = 0x10000                     ; arena: text of included files, up to A_PARCEL
+A_PARCEL  = 0x20000                     ; arena: the parcel (code copy + snapshot) lent to threads
+A_HEAP    = 0x3A000                     ; arena: the far heap starts here
+A_START   = 0x7F000                     ; arena: the start-up block proc wrote (pid, handles, command line)
+PG_SNAP   = 0x10000                     ; parcel offset of the D-LS snapshot (38 KiB)
+FAR_SNAP  = A_PARCEL + PG_SNAP          ; c0 offset: where thread 0 publishes the snapshot
+PL_PAGE   = 0x8000                      ; a worker thread's page: the mirror of its I-LS 0x8000..0xFFFF
+PL_WHDR   = PL_PAGE - 16                ; page offset of its start-up header (the top of code space: unused then)
+PL_IOSZ   = 1024                        ; bytes of the transfer bounce buffer / a file read
+PL_KSZ    = 256                         ; bytes of console input per read
+
+; ---- the platform's data (before the kernel's, so that the dictionary stays last) --
+        .data                           ; D-LS
+        .align 8                        ; transfer buffers are 8-byte aligned
+pl_hdr:   .space 64                     ; the message header being sent / answered
+pl_start: .space 512                    ; the start-up block: pid, parent, handles, command line
+pl_iobuf: .space PL_IOSZ                ; file chunks, code on its way between far regions
+pl_kbuf:  .space PL_KSZ                 ; console input, a read at a time
+pl_kpos:  .dword 0                      ; next byte of pl_kbuf to hand out
+pl_klen:  .dword 0                      ; bytes in pl_kbuf
+pl_keof:  .dword 0                      ; 1: standard input has ended
+pl_bufb:  .dword 0                      ; base of the buffer a reply comes back in (0: the process's own)
+pl_arena: .dword 0                      ; base address of the arena (thread 0's c0 at start-up)
+pl_wh:    .dword 0, 0                   ; a worker page's header: mirror arena offset, code end
+pl_hreg:  .dword 0, 0, 0                ; handles 0..2: the server's endpoint register (2 fs, 3 tty, 4 pipe; 0 closed)
+pl_hid:   .dword 0, 0, 0                ; handles 0..2: the server's id for the handle
+pl_inc:   .ascii "include "             ; put in front of a file name on the command line
+pl_ftools: .ascii "tools.fs"            ; the file of tools 1 below
+pl_fsee:  .ascii "see.fs"               ; the file of tools 2
+pl_tools:                               ; words loaded on demand (plat_tool): u8 file, name, 0
+          .byte 1                       ; tools.fs:
+          .asciz "words"                ; ...
+          .byte 1                       ; ...
+          .asciz "dump"                 ; ...
+          .byte 1                       ; ...
+          .asciz ".cap"                 ; ...
+          .byte 1                       ; ...
+          .asciz ".caps"                ; ...
+          .byte 1                       ; ...
+          .asciz ".jit"                 ; ...
+          .byte 1                       ; ...
+          .asciz ".fcache"              ; ...
+          .byte 2                       ; see.fs:
+          .asciz "see"                  ; ...
+          .byte 2                       ; ...
+          .asciz "disasm"               ; ...
+          .byte 2                       ; ...
+          .asciz "dis"                  ; ...
+          .byte 0                       ; end of the table
+        .align 8                        ; the kernel's data follows

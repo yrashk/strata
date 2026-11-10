@@ -1,0 +1,188 @@
+\chapter{Implementation}\label{ch:impl}
+
+This chapter describes the SystemVerilog implementation in \texttt{rtl/} (top level
+\texttt{strata\_top}, core \texttt{strata\_core}, Transfer Unit \texttt{strata\_tu}, far bus
+\texttt{strata\_bus}, memory targets \texttt{strata\_mem}, devices \texttt{strata\_dev}). It is not
+normative. Figures marked \estimate are projections.
+
+\section{Organisation}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[b/.style={draw=accent,fill=accentlight,rounded corners=2pt,minimum height=8mm,
+    align=center,font=\small},t/.style={draw=black!60,fill=black!5,minimum height=8mm,align=center,font=\small},
+    >={Stealth[length=2mm]}]
+  \foreach \i/\x in {0/0,1/3.4,2/6.8} {
+    \node[b,minimum width=28mm] (core\i) at (\x,0) {core \ifnum\i=2 $N\!-\!1$\else\i\fi\\\scriptsize I-LS, D-LS (dual-port RAM)};
+    \node[b,minimum width=13mm,font=\scriptsize] (tu\i) at (\x-0.75,-1.3) {TU};
+    \node[b,minimum width=13mm,font=\scriptsize] (am\i) at (\x+0.75,-1.3) {atomics};
+    \draw[<->] (core\i.south -| tu\i) -- (tu\i); \draw[<->] (core\i.south -| am\i) -- (am\i);
+  }
+  \node[b,minimum width=22mm] (dma) at (10.2,-1.3) {block device\\\scriptsize DMA engine};
+  \node[draw=black!60,minimum width=118mm,minimum height=7mm,font=\small] (bus) at (5.0,-2.8)
+    {far bus: one burst transaction at a time, system wide};
+  \foreach \n in {tu0,am0,tu1,am1,tu2,am2,dma} \draw[<->] (\n.south) -- (\n.south |- bus.north);
+  \node[t,minimum width=30mm] (t3) at (0.5,-4.3) {T3 system memory};
+  \node[t,minimum width=30mm] (t2) at (4.6,-4.3) {T2 cluster store};
+  \node[t,minimum width=36mm] (dev) at (9.0,-4.3) {device space\\\scriptsize UART, platform ROM, block device};
+  \foreach \n in {t3,t2,dev} \draw[<->] (\n.north) -- (\n.north |- bus.south);
+  \node[draw=accent,dashed,minimum width=118mm,minimum height=6mm,font=\small] (ib) at (5.0,1.3) {capability inboxes: per-sender queues, 2 deep; nodes $0 \ldots N$};
+  \foreach \i in {0,1,2} \draw[<->,dashed,accent] (core\i.north) -- (core\i.north |- ib.south);
+  \draw[<->,dashed,accent] (dma.north) -- (dma.north |- ib.south);
+\end{tikzpicture}
+\caption{Structure of the implementation}\label{fig:impl}
+\end{figure}
+
+\subsection{Core}
+The core is multi-cycle over block-RAM Local Stores. Its states are: F0, present the fetch address to
+the I-LS (stalling while an in-flight \insn{tgetx} covers it); F1, latch the instruction; EX, execute,
+remaining there while stalled; LD, receive load data; LT and LW, the tag-table walk of
+\insn{ltag}/\insn{linst}; DV, iterative division (one quotient bit per cycle); AM, a far atomic in
+flight. Each Local Store is a true dual-port RAM: port A belongs to the core and port B to its TU. The
+integer registers, capability registers, the sixteen-entry overlay map, the mode bits and the banked
+trap CSRs are flip-flops. A pending stop request is checked in F0 and in EX, so a user-mode core takes it
+at the next instruction boundary even while an instruction is stalled. The 64-entry capability
+save table is LUT-RAM with a separate valid bit per slot held in flip-flops, so that the no-overwrite
+check of \insn{csave}/\insn{crestore} reads only the valid bit. The decoder is purely combinational
+and flags undefined encodings; the divider is iterative (one quotient bit per cycle).
+
+\subsection{Transfer Unit}
+The TU accepts transfer commands from EX in program order into a four-entry in-order queue and executes
+them one at a time as far-bus bursts, so one core's transfers take effect at the far side in issue
+order (invariant I2). Issue waits while the queue is full, while the transfer's tag is busy, or while
+the D-LS range of a \insn{tget} or \insn{tput} overlaps a queued device read (with CCR.PTRAP the core
+traps with \cause{pend} instead). For every
+queued entry the TU compares its Local Store range with the range of the current load, store or
+tag-table access and with the fetch address, and raises the stalls that implement invariant I1.
+The TU reports two status signals to the core: \emph{idle} (its queue is empty) and \emph{memory
+idle} (no queued or executing transfer targets a space other than device space). \insn{cgive},
+\insn{csend}, \insn{cshare}, \insn{catomic} and \insn{tamo} wait for memory idle, the publication rule
+of invariant I4; device transfers, such as a pending console break read, do not hold them up.
+\insn{halt}, in either mode, waits for idle, device reads included. Memory
+transfers move 8-byte beats; device transfers move single bytes to consecutive device offsets.
+
+\subsection{Far bus and targets}
+The far bus connects the masters (every core's TU and atomic unit, and the block device's DMA engine) to
+the targets (T3, T2, device space). Exactly one burst transaction is in flight system-wide, which keeps
+each core's transfers in order at the target and makes atomics trivially linearizable. A memory target
+has a fixed start-up latency per burst (by default 20 cycles for T3 and 4 for T2) and then delivers one
+beat per cycle; an atomic is a read-modify-write of one word. A device with nothing to deliver yet
+(console input with no byte pending, the break port, WAIT before the deadline, VSYNC before the next
+refresh) answers \emph{retry} before any data, so a pending device read does not hold the bus: the TU
+tries it again later, and the rest of the machine runs meanwhile.
+
+\subsection{Revocation domains and core control}
+The fifteen-entry revocation-domain table lives in the top level and is shared by all cores. Each core
+receives every domain's alive bit and generation, so its \texttt{Live} check is combinational. A core
+executing \insn{cdom}, \insn{crevoke} or \insn{cundom} requests the table; one request is granted per
+cycle, lowest-numbered core first, and a core that is not granted stalls in EX. Core-control space is
+a far-bus target in the top level: a \insn{tput} through a core-control capability raises the stop request of the core whose doubleword it
+writes with bit~0 set.
+
+\subsection{Devices}
+Device space contains the UART console, the platform table ROM, block device 0, the timer and the
+framebuffer controller. A read of the console break port answers \emph{retry} until a Ctrl-C is counted
+or the release port is written while it waits, so a pending break read occupies its tag but never the
+bus. The device keeps one waiting bit and one released bit per core, so that one write to the release
+port completes the break reads of all cores. The timer is a 64-bit counter of clock cycles divided by
+the parameter \texttt{CLK\_MHZ}; in simulation the harness can supply host time instead. NOW and
+DEADLINE are latched at byte 0 of a read and DEADLINE is committed at byte 7 of a write. The
+controller counts refreshes of 16667 ticks for VSYNC; PRESENT calls the simulation harness, which
+shows the framebuffer, and has no effect in synthesis. The framebuffer itself is T3 memory: the
+harness reads back the range written since its last repaint. On FPGA builds a received byte 3 counts as
+Ctrl-C and is not delivered to the input port; the simulation harness reports Ctrl-C from the host
+terminal or from \texttt{-b}. The block device
+receives its buffer capability through its own inbox (node $N$), moves blocks between its storage and the
+memory the capability names using its own bus port, posts a completion and gives the capability back.
+Holding the capability is the only way it can reach that memory.
+
+\section{Toward FPGA}
+
+The RTL is synthesizable. Its FPGA-specific elements are:
+\begin{itemize}
+\item Local Stores in inferred dual-port block RAM, initialised with \texttt{\$readmemh} for the boot ROM;
+\item an iterative divider in place of a combinational one;
+\item an 8N1 UART console (115200 baud at 100~MHz) with a 16-byte receive FIFO;
+\item an external system-memory port: with the top-level parameter \texttt{T3\_EXT} set, T3 is not built
+  in block RAM but exported as a target port. \texttt{fpga/rtl/strata\_t3\_litedram.sv} adapts that port
+  to a LiteDRAM native user port; each 8-byte beat becomes one DRAM access, and an atomic is a read
+  followed by a write while the far bus is held, so atomics stay linearizable.
+\end{itemize}
+
+\texttt{fpga/arty/} contains a top level for the Digilent Arty A7-100T: two cores, a 64~KiB cluster
+store and a 128~KiB disk in block RAM, the console on the USB UART, and T3 in the board's DDR3 through a
+LiteDRAM controller. It is synthesizable but has not yet run on hardware. \texttt{fpga/synth.sh}
+synthesizes the system with Yosys (through \texttt{sv2v}) for Xilinx 7-series or Lattice ECP5.
+
+\subsection{Synthesis results}
+
+Yosys \texttt{synth\_xilinx} for 7-series, one core:
+
+\begin{center}\small
+\begin{tabular}{@{}l r l@{}}
+\toprule
+\textbf{Resource} & \textbf{Count} & \textbf{Notes}\\\midrule
+LUTs & $\approx$26,400 & \\
+Flip-flops & $\approx$16,600 & with the save table still in flip-flops; moving it to LUT-RAM removes $\approx$8,800\\
+RAMB36 & 32 & the two 64~KiB Local Stores\\
+DSP48E1 & 24 & the $64 \times 64$ multiplier\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+These are pre-placement figures for one core and will be updated with final results. Whole-system figures
+in Table~\ref{tab:fpga} are extrapolations from them.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Candidate FPGA boards and projected configurations \estimate}\label{tab:fpga}
+\begin{tabularx}{\linewidth}{@{}l X X X@{}}
+\toprule
+ & \textbf{Digilent Arty A7-100T} & \textbf{Radiona ULX3S (ECP5-85F)} & \textbf{AMD Kria KV260}\\\midrule
+Device & XC7A100T & LFE5U-85F & XCK26 (Zynq UltraScale+)\\
+Logic & 63,400 LUTs & 84k LUTs & 117k LUTs\\
+On-chip RAM & 4.86 Mb BRAM (135 $\times$ 36 Kb) & $\approx$3.7 Mb EBR (208 $\times$ 18 Kb) & 5.1 Mb BRAM + 18 Mb UltraRAM\\
+External memory & 256 MB DDR3 & 32 MB SDRAM & 4 GB DDR4 (attached to the processing system)\\
+Toolchain & Vivado or yosys & open: yosys + nextpnr & Vivado\\
+Cores & 2 (logic-limited) & 2 & 3--4 (logic-limited)\\
+T2 & 64 KiB (board design) & 64 KiB & 256 KiB\\
+T3 & DDR3 via LiteDRAM (in RTL) & SDRAM via LiteDRAM & DDR4 through PS AXI ports\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+At roughly 26k LUTs per core, logic rather than RAM limits the core count on all three boards; each
+core also needs 1~Mb of block RAM for its Local Stores.
+
+\subsection{Schematics}
+
+Figures~\ref{fig:sch-div}--\ref{fig:sch-sys} are netlist schematics generated from the RTL
+(\texttt{doc/figures/}). They are included for orientation; zoom into the PDF to read them.
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\linewidth]{figures/schematic-divider.pdf}
+\caption{Netlist schematic of the iterative divider (\texttt{strata\_div})}\label{fig:sch-div}
+\vspace{2em}
+\includegraphics[width=\linewidth]{figures/schematic-uart.pdf}
+\caption{Netlist schematic of the UART (\texttt{strata\_uart})}\label{fig:sch-uart}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\includegraphics[height=0.88\textheight]{figures/schematic-system.pdf}
+\caption{Netlist schematic of the system top level (\texttt{strata\_top})}\label{fig:sch-sys}
+\end{figure}
+
+\section{Conformance}\label{sec:rtl-deltas}
+
+The implementation conforms when \texttt{make test} passes: every example produces the same output,
+halt states and per-core instruction traces as the reference emulator; a complete StrataOS boot and
+scripted session produces the same output (Section~\ref{sec:compare}); and every test of the
+conformance suite passes with the reference emulator's signature (Section~\ref{sec:conformance}). The
+RTL implements every feature of this edition, including supervisor and user modes with banked trap
+state, \insn{svc} and the user-mode inbox rule, revocation domains, endpoints, core control,
+\insn{tany}, pending device reads and their ordering rules, the 8-byte alignment of capabilities, the
+timer and the framebuffer controller, sixteen-entry overlay mapping with \csr{xslot}, far links and
+\insn{xret}, per-sender inbox queues, \csr{takefrom}, the no-overwrite rule, and the publication rule.
+Any remaining difference from this manual is a defect of the RTL.

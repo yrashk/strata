@@ -1,0 +1,68 @@
+\chapter*{About this manual}
+\addcontentsline{toc}{chapter}{About this manual}
+\markboth{About this manual}{About this manual}
+
+This manual is the architectural specification of \IS, a prototype 64-bit instruction set architecture,
+and of the platform, firmware interface and tools built around it. It is written for people who write
+\IS software (compilers, operating systems, firmware, applications in assembly language) and for people
+who implement the architecture in hardware or in simulators.
+
+\section*{Structure}
+\begin{description}[leftmargin=1em,style=nextline]
+\item[Part~\ref{part:arch}, Architecture] The programmer's model: architectural state, the storage
+  tiers and the Transfer Unit, capabilities and revocation domains, inter-core communication,
+  software-managed caching and code paging, privilege modes, traps and events, and the memory model with
+  its soundness argument.
+\item[Part~\ref{part:isa}, Instruction Set] Instruction formats, the opcode map, the pseudocode
+  conventions, and one entry per instruction giving its encoding, assembler syntax, operation and
+  exceptions.
+\item[Part~\ref{part:platform}, Platform and System Software] The system memory map, the device space,
+  the platform table, the console, the block device, the timer and the framebuffer; the firmware
+  interface (SFI) and boot protocol; the StrataOS operating system, a microkernel with preemptive
+  multitasking, its servers, shell and window server.
+\item[Part~\ref{part:tools}, Tools and Implementation] The assembler and image format, the simulators
+  and the JIT, the conformance suite, the emulator in a web browser, annotated example programs,
+  Strata Forth, and the prototype and FPGA implementations.
+\item[Appendices] Calling convention, trap causes, CSRs, encoding tables, an alphabetical instruction
+  index, a glossary, and known limitations.
+\end{description}
+
+\section*{Normative sources}
+The architecture is defined by its reference emulator, \texttt{emu/emu.c}, which executes the
+sequential semantics directly: every transfer completes at the instant it issues. Where this manual and
+the emulator disagree, the emulator is authoritative and the manual is in error. The SystemVerilog
+implementation in \texttt{rtl/} is one implementation of the architecture and is not normative; where
+it differs from this manual the difference is a defect of that implementation
+(Section~\ref{sec:rtl-deltas}). The conformance suite (Section~\ref{sec:conformance}) checks both
+against the rules of this manual.
+
+\section*{Status}
+This is the \emph{prototype edition, version 0.1}, the first public release of the manual. It
+describes the instruction set as the reference emulator, the RTL implementation and the conformance
+suite agree on it, together with the prototype platform, StrataOS 0.1 and the tools. The ISA is not
+frozen: encodings, CSR numbers and platform layouts may change between editions. Resource and
+performance figures marked \estimate are projections.
+
+\section*{Typographic conventions}
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+\textbf{Convention} & \textbf{Meaning}\\\midrule
+\insn{tget}, \reg{a0}, \reg{c3} & Instruction mnemonics, register names and assembler text.\\
+\csr{tvec} & Control and status register names.\\
+\cause{capop} & Trap cause names.\\
+\perm{R}, \perm{W}, \perm{X}, \perm{A}, \perm{D}, \perm{V} & Capability permissions.\\
+\field{rd}, \field{imm16} & Fields of an instruction encoding.\\
+\hex{4000} & Hexadecimal numbers. Plain numbers are decimal.\\
+\texttt{x<h:l>} & Bits $h$ down to $l$ of value \texttt{x}; bit 0 is least significant.\\
+KiB, MiB & $2^{10}$ and $2^{20}$ bytes.\\
+\bottomrule
+\end{tabularx}
+
+Byte order is little-endian throughout: in memory, in the Local Stores, in images and in device
+data structures. Sizes: a \term{byte} is 8 bits, a \term{halfword} 16, a \term{word} 32, a
+\term{doubleword} 64.
+
+\section*{Normative language}
+\term{Must} and \term{must not} state requirements on software or implementations. \term{Is} and
+\term{does} describe architectural behaviour. \term{Should} is a recommendation. Behaviour described as
+\term{timing-visible} may differ between implementations and between runs.

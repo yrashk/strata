@@ -1,0 +1,1004 @@
+\chapter{StrataOS}\label{ch:os}
+
+StrataOS 0.1 is the operating system of the prototype platform: a microkernel with preemptive
+multitasking, written in \IS assembly language. It exists to show that the architecture carries a
+complete system, and it uses every mechanism of Part~\ref{part:arch} for the purpose it was designed
+for: user mode and the core window to confine programs, revocation domains to reclaim their memory,
+endpoints for messages, core control for preemption and doorbells, the timer's WAIT register for the
+time slice, \insn{svc} to block, the user-mode inbox rule to demultiplex messages, and code paging for
+programs and for the kernel itself.
+
+Its design follows the architecture's first principle. On \IS a program's working memory is its Local
+Stores, and they belong to the core, not to the program. A context switch therefore has to \emph{move}
+the program's Local Store contents out to far memory and another program's in, with transfers, and
+StrataOS makes that cost explicit: it moves only what the program uses, it counts every byte, and it
+shows the count.
+
+\section{Structure}\label{sec:os-shape}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  core/.style={draw=accent,line width=0.8pt,rounded corners=3pt,minimum width=29mm,minimum height=36mm},
+  k/.style={draw=accent,fill=accentlight,minimum width=25mm,minimum height=7mm,font=\footnotesize,align=center},
+  p/.style={draw=black!60,fill=black!5,minimum width=25mm,minimum height=6mm,font=\footnotesize,align=center},
+  >={Stealth[length=2mm]}]
+  \foreach \i/\x/\t in {0/0/Core 0,1/3.3/Core 1,2/6.6/Core 3,3/9.9/Core 6} {
+    \node[core] (c\i) at (\x,0) {};
+    \node[font=\small\bfseries,anchor=north] at (c\i.north) {\t};
+  }
+  \node[k,minimum height=22mm] at (0,-0.35) {system core\\[2pt]processes\\memory\\timer, slices};
+  \node[p] at (3.3,0.55) {\texttt{proc} (server)};
+  \node[p] at (3.3,-0.2) {\texttt{sh}};
+  \node[k] at (3.3,-1.15) {dispatcher};
+  \node[p] at (6.6,0.55) {\texttt{fs} (server)};
+  \node[p] at (6.6,-0.2) {\texttt{cat}};
+  \node[k] at (6.6,-1.15) {dispatcher};
+  \node[p] at (9.9,0.55) {\texttt{mandel} thread 0};
+  \node[p] at (9.9,-0.2) {\texttt{spin}};
+  \node[k] at (9.9,-1.15) {dispatcher};
+  \node at (11.9,0) {\Large$\cdots$};
+  \draw[->,accent,thick,dashed] (0.6,1.95) to[bend left=18] node[above,font=\scriptsize]{stop requests: time slice, doorbells} (9.9,1.85);
+  \draw[<->,thick] (3.9,-2.0) to[bend right=25] node[below,font=\scriptsize]{messages: lent buffer capabilities through endpoints} (6.0,-2.0);
+\end{tikzpicture}
+\caption{StrataOS: the system core, and a dispatcher under the processes of every worker core}
+\label{fig:os}
+\end{figure}
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[The system core] Core 0 runs only kernel code, in supervisor mode, and no processes. It does
+  what nothing else can: it creates and destroys processes and places them on cores, hands out memory
+  (1~MiB \term{arenas}, each in its own revocation domain), owns the timer and its single DEADLINE
+  register, and drives preemption and the timeouts of timed waits. Its message interface is a handful
+  of operations (Table~\ref{tab:os-kops}), and only two servers may use it.
+\item[The dispatchers] Every other core is a \term{worker}. The kernel code on a worker is its
+  \term{dispatcher}: the supervisor that runs the core's processes. It keeps the core's run queue,
+  performs context switches, takes every capability that arrives in the core's inbox and hands it to
+  the process it is for, serves \insn{svc}, emulates the inbox instructions, and pages programs' code
+  units.
+\item[Servers] Everything else is a user-mode \term{server} process, scheduled like any other and
+  pinned to one core, at most one server per core (Table~\ref{tab:os-servers}). A request addressed to a
+  core goes to that core's server.
+\item[Programs] Ordinary processes: the shell, the utilities, the examples, the assembler.
+\end{description}
+
+\begin{table}[htbp]
+\centering\small
+\caption{The servers}\label{tab:os-servers}
+\begin{tabularx}{\linewidth}{@{}>{\ttfamily}l X@{}}
+\toprule
+\textrm{\bfseries Server} & \textbf{Owns and does}\\\midrule
+proc & the process server (pid 1): spawning, the process tree, exit statuses, WAIT and KILL,
+  interrupts, the name registry. It is the endpoint every process is born with, and it holds the
+  kernel's endpoint\\
+dev & the device manager: holds the device root, describes the platform, hands out device
+  capabilities (the disk to \texttt{fs}, the console to \texttt{tty}, the framebuffer to \texttt{ws}),
+  halts the machine\\
+fs & the file server: owns the block device; files, the directory, program images\\
+tty & the console server: owns console output, input, break and release; line discipline, the
+  foreground process, Ctrl-C\\
+pipe & pipes\\
+ws & the window server, started on demand: owns the framebuffer and, while it runs, the keyboard
+  (Section~\ref{sec:os-ws})\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The kernel shares no memory with processes and almost none between its own cores. The system core and
+the dispatchers coordinate through the \term{kernel shared table}, 32~KiB of system memory that every
+core reaches through a copy of one \emph{atomic} capability: the system core posts job records, kills
+and notifications there, and each dispatcher publishes its run-queue length, its counters and its exit
+events. All access is by far atomics, which is the only way several cores can touch the same memory.
+
+\section{Memory}\label{sec:os-mem}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Local Store layout of a worker core under StrataOS}\label{tab:os-ls}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{Store} & \textbf{Range} & \textbf{Contents}\\\midrule
+I-LS & \hex{0000}--\hex{3FFF} & the boot ROM\\
+I-LS & \hex{4000}--\hex{7FFF} & the resident kernel (the dispatcher)\\
+I-LS & \hex{8000}--\hex{FFFF} & the running program: its code, then its code cache\\
+D-LS & \hex{0000}--\hex{9FFF} & the running program's data\\
+D-LS & \hex{A000}--\hex{DFFF} & kernel data and the kernel stack\\
+D-LS & \hex{E000}--\hex{FFFF} & the running program's stack\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The system core uses the program ranges for itself: its I-LS \hex{8000}--\hex{FFFF} is the kernel's code
+cache (Section~\ref{sec:os-kpaging}) and its D-LS \hex{0000}--\hex{9FFF} holds the kernel's tables.
+
+System memory is used as follows: $[0, 32~\text{KiB})$ the kernel shared table; $[32, 64~\text{KiB})$ the
+system core's own message buffers; the arenas, 1~MiB each, from $[16, 48~\text{MiB})$; and the
+framebuffer window, which the kernel places in a revocation domain of its own at boot and lends to the
+window server.
+
+\subsection{Arenas}
+A process's memory is one arena: 1~MiB of system memory in a fresh revocation domain, zeroed when it is
+handed out. The kernel keeps the domain's revoker in the system core's save table. When the process
+ends, for whatever reason, the kernel dissolves the domain with \insn{cundom}: every capability the
+process held or derived, in whatever register, save table or inbox of whatever core, dies at that
+instant, and the kernel has the memory back.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Layout of an arena for a process with $N$ threads; $P = \hex{D0000} - (N-1) \cdot 48$~KiB}\label{tab:os-arena}
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+\textbf{Offset} & \textbf{Contents}\\\midrule
+$[0, P)$ & the program's own memory: thread 0 receives it in \reg{c0}. The image's \texttt{.far}
+  section is loaded here at its own offsets, so \texttt{.far} labels are arena offsets\\
+\hex{7F000} & the start-up block written by \texttt{proc}: pid, parent, the three standard handles,
+  the command line\\
+$[P, \hex{D0000})$ & the save areas of threads $N-1 \ldots 1$, 48~KiB each\\
+$[\hex{D0000}, \hex{F0000})$ & the program image as \texttt{fs} loaded it (at most 128~KiB); the dispatcher
+  of each thread keeps a read-only share and reloads code from it\\
+$[\hex{F0000}, \hex{FC000})$ & thread 0's save area\\
+$[\hex{FF000}, \hex{100000})$ & the message buffer (\reg{c5})\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+A \term{save area} holds the part of the D-LS a thread uses while the thread is switched out: its data
+extent from offset 0 (at most 40~KiB) and its live stack at offset \hex{A000} (at most 8~KiB).
+
+\section{Processes and threads}\label{sec:os-proc}
+
+Every process time-shares worker cores; no process owns a core. A process has one or more
+\term{threads}, each on a different core.
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[StrataOS programs] are written against the program library (Section~\ref{sec:os-lib}). The
+  second word of their code is the marker \texttt{"SYS2"}; the kernel recognises it and starts the
+  program as one thread, without a core window, with the capabilities of Table~\ref{tab:os-start}.
+\item[Bare-metal programs] have no marker. They are programs written for the bare machine, such as the
+  examples of Chapter~\ref{ch:examples}, and they run unchanged: the kernel gives each thread the core
+  window \csr{corebase}/\csr{corecount} (Section~\ref{sec:supervised}), so the program sees itself as
+  cores $0 \ldots N-1$ of an $N$-core machine, with the console in \reg{c2} and, on its core 0, its
+  memory in \reg{c0}.
+\item[Threads] The shell's \texttt{-n N prog} runs a program as $N$ threads on $N$ contiguous worker
+  cores that host no server. Every thread runs the same image, as every core of the bare machine does.
+  Each is scheduled on its own core like any process; there is no gang scheduling. Threads give
+  capabilities to each other directly with \insn{cgive}, through the window.
+\end{description}
+
+\begin{table}[htbp]
+\centering\small
+\caption{What a StrataOS program starts with}\label{tab:os-start}
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+\textbf{Register} & \textbf{Contents}\\\midrule
+\reg{c0} & its arena's program memory, \perm{RWX}, in the process's revocation domain\\
+\reg{c1} & a send-only endpoint to \texttt{proc}\\
+\reg{c2}, \reg{c3}, \reg{c4} & send-only endpoints to \texttt{fs}, \texttt{tty} and \texttt{pipe} (absent in a
+  process spawned without server endpoints)\\
+\reg{c5} & its 4~KiB message buffer\\
+\reg{c6} & empty: capabilities that arrive with a reply land here\\
+\reg{c7} & the clock: a read-only device capability for the timer's NOW and FREQ registers\\
+\reg{pc}, \reg{sp} & the image's entry at I-LS \hex{8000}; the program sets \reg{sp} to \hex{10000}\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+A process holds no receive right, no core-control capability, no device capability but the clock, and
+no memory but its arena. Everything else it obtains by asking a server, which answers with a
+capability if it agrees.
+
+\subsection{Placement and limits}
+The system core places threads when a process is created. A server goes on a core that has none.
+A single-threaded process goes on the least loaded worker core, preferring cores that host a server;
+an $N$-thread process goes on the run of $N$ contiguous server-free cores whose busiest core is least
+loaded. The shell's \texttt{-c N} pins a process to core $N$.
+
+\begin{table}[htbp]
+\centering\small
+\caption{StrataOS limits}\label{tab:os-limits}
+\begin{tabularx}{\linewidth}{@{}X l@{}}
+\toprule
+\textbf{Resource} & \textbf{Limit}\\\midrule
+Threads resident on one worker core & 3\\
+Threads of one process & 6\\
+Processes & 32\\
+Arenas (and so processes holding memory) & 24, and one revocation domain each\\
+Program image; code and code cache; data; stack & 128~KiB; 32~KiB; 40~KiB; 8~KiB\\
+Handles per process & 8\\
+Message data & 4032 bytes\\
+Requests queued at a server's core; requests parked by a server & 8; 8\\
+Capabilities queued at a core as attachments and gifts between threads & 11\\
+Pipes; bytes buffered per pipe & 8; 2~KiB\\
+Files in the directory & 128\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Three threads per core is the capability save table's budget made visible. Of its 64 slots a
+dispatcher uses 24 for the capability registers \reg{c0}--\reg{c7} of three resident threads, 6 for
+their save areas and image shares, 16 for its server's queued and parked requests, 11 for the queue of
+attachments and gifts, and the remaining 7 for its own capabilities: the shared table, core control,
+the clock, the console, the device root and the two registers it borrows from the running thread.
+
+\section{Scheduling and preemption}\label{sec:os-preempt}
+
+A dispatcher runs its core's runnable threads round robin. It gets control only by a trap: an
+\insn{svc}, a privileged instruction to emulate, a code-unit miss, a fault, a \insn{halt}, or a
+\cause{stop}. On every trap it first saves the running thread's integer registers, then takes
+everything from the core's inbox, applies the system core's commands, completes the waits that can
+complete, and picks the thread to run. If that is the thread already loaded, no switch happens.
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[The time slice] The system core keeps a read of the timer's WAIT register in flight and waits
+  with one \insn{tany} for it or for its inbox. Each time slice it reads the shared table and writes a
+  stop request, through core control, to every worker that has more than one runnable thread
+  (Section~\ref{sec:corectl}). The worker traps with \cause{stop} and its dispatcher switches to the next
+  thread. A core with a single runnable thread is never interrupted: it pays nothing for multitasking.
+\item[The slice is configurable] from 100~$\mu$s to 100~ms; the default is 2~ms. The \texttt{sched}
+  program shows it together with the machine's context switches per second and KiB moved per second,
+  and sets it (\texttt{sched 500us}, \texttt{sched 5ms}), so the trade between responsiveness and
+  switching cost can be measured rather than assumed.
+\item[Doorbells] After a process sends a message it executes \insn{svc}; its dispatcher then writes a
+  stop request to the destination core, so the destination's dispatcher takes the message from its
+  inbox within microseconds instead of at its next trap. A stop request that finds a core in supervisor
+  mode stays pending and is taken on its return to user mode, where the dispatcher discards it if the
+  work is already done.
+\item[Idle] A dispatcher with nothing runnable waits in \insn{tany} for its inbox. An idle core
+  executes no instructions.
+\item[Timed waits] A thread that waits with a timeout registers its deadline in the shared table. The
+  system core programs DEADLINE with the earliest of the next slice and every core's earliest deadline,
+  and rings the core whose deadline has passed.
+\end{description}
+
+The kernel is never preempted: a stop request waits while a core is in supervisor mode. Every kernel
+path is short and bounded.
+
+\section{Context switches: the cost is explicit}\label{sec:os-switch}
+
+A thread's state is its registers, its capability registers, its CSRs, and \emph{the parts of the
+Local Stores it uses}. Table~\ref{tab:os-switch} lists what a switch does with each.
+
+\begin{table}[htbp]
+\centering\small
+\caption{What a context switch saves and restores}\label{tab:os-switch}
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+\textbf{State} & \textbf{On a switch}\\\midrule
+In-flight transfers & drained first: the dispatcher waits for every tag but its own\\
+\reg{x1}--\reg{x31} & saved to the thread's record in kernel data on every trap; restored before \insn{eret}\\
+CSRs & \csr{epc} of the trap, the user trap registers \csr{utvec}, \csr{uepc}, \csr{ucause}, \csr{utval},
+  and \csr{xslot}, \csr{ccr}, \csr{scratch}, \csr{ttag}, \csr{tdata}, \csr{tgeom}: saved to and restored
+  from the record. The core window is set from the record\\
+\reg{c0}--\reg{c7} & moved to the thread's eight slots of the capability save table and back\\
+\reg{c8}--\reg{c15} & not preserved across a switch. They are the thread's own between switches (the
+  dispatcher borrows \reg{c8} and \reg{c9} during a trap and returns them)\\
+D-LS data & the thread's \term{data extent}, from address 0 to the end of its data section, is copied
+  to its save area with \insn{tput} and back with \insn{tget}; a bare-metal program, which may use any
+  address, has the extent \hex{0000}--\hex{9FFF}. A declared scratch range is skipped\\
+D-LS stack & only the live part, from \reg{sp} to \hex{10000}\\
+I-LS code & never saved: it is read-only. It is reloaded with \insn{tgetx} from the image in the
+  thread's arena, or from the program's code mirror\\
+Code cache, overlay map & not saved: the \insn{tgetx} that reloads the code invalidates the map, and
+  units are paged in again on demand\\
+Software cache & its CSRs are restored; its tag table and lines are data and travel with the data extent\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The I-LS cannot be read back and the D-LS has no address translation, so there is nothing to remap:
+every byte of a switch is a byte moved by a transfer. A switch between two small programs moves a few
+kilobytes; one between two programs that each use their whole data extent moves more than a hundred.
+The dispatcher counts context switches and bytes moved per process and per core; \texttt{ps},
+\texttt{cores}, \texttt{uptime} and \texttt{sched} print them, and the window server draws them.
+
+Two supervisor calls let a program reduce or correct what a switch does.
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[Scratch ranges (SET\_SCRATCH)] A program declares one range of its D-LS as scratch. The dispatcher
+  leaves it out of the saved and restored extent, and its contents are undefined after the thread has
+  been switched out. Buffers that are rebuilt before every use belong there: the window server's strip
+  buffers and display list are scratch, which cuts its switch cost by about two thirds.
+\item[Code mirrors (SET\_MIRROR)] A program that generates code installs it in its I-LS at run time
+  with \insn{tgetx} from its arena. The image no longer describes the I-LS of such a program, and the
+  dispatcher cannot read the I-LS to save it. The program therefore declares a \term{code mirror}: a
+  range of its arena that holds a copy of its I-LS program range from \hex{8000}. From then on the
+  dispatcher reloads the code from the mirror on every switch-in. Keeping the mirror current is the
+  program's job, and costs nothing: the code is written to far memory before it is installed anyway.
+\end{description}
+
+\section{Emulating the inbox}\label{sec:os-emul}
+
+In user mode \insn{ctake}, \insn{cpoll} and \insn{tany} with the inbox bit trap with \cause{priv}
+(Section~\ref{sec:userinbox}). The dispatcher has already taken everything out of the inbox; a gift
+from a core inside a local process's window is a gift between threads, and waits in the dispatcher's
+queue tagged with its sender. The handler decodes the trapping instruction and performs it on that
+queue:
+\begin{itemize}
+\item \insn{ctake}: if a gift from the named sender (or from any sender of the window, lowest first)
+  is queued, it goes to the destination register, \csr{takefrom} semantics included, and the thread
+  continues after the instruction. Otherwise the thread blocks, another thread runs, and the
+  instruction is retried when a gift arrives.
+\item \insn{cpoll}: the mask of window senders with a queued gift.
+\item \insn{tany}: the thread blocks until a selected tag is idle or a gift is queued.
+\end{itemize}
+A thread blocked this way on a core whose other threads keep it busy is found by the system core,
+which stops such a core at most every 10~ms so that its dispatcher looks at its inbox. The per-sender
+order of gifts is preserved, so a program that is deterministic on the bare machine
+(Section~\ref{sec:determinism}) computes the same results as time-shared threads.
+
+\section{Messages}\label{sec:os-msg}
+
+A \term{message} is a lent buffer capability. A process owns a 4~KiB message buffer, the last 4~KiB
+of its arena, in \reg{c5}. To make a request it writes a header and data into the buffer, gives the
+buffer to the server, and blocks; the server reads the request, writes the result into the same buffer
+and gives it back. No data is copied between address spaces, because there are none: for the duration
+of the request the server owns the buffer, and the client, having given it away, cannot touch it.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Message header (64 bytes, little-endian doublewords); data follows at offset 64}\label{tab:os-hdr}
+\begin{tabular}{@{}r l l@{}}
+\toprule
+\textbf{Offset} & \textbf{Field} & \textbf{Contents}\\\midrule
+0 & op & the operation number\\
+8 & handle & a handle, a process id, or an operation-specific value\\
+16 & length & bytes of data, or an operation-specific value\\
+24 & mode & flags\\
+32 & result & written by the server: $\ge 0$ success, $< 0$ an error (Table~\ref{tab:os-err})\\
+40 & sender & the sender's process id, stamped by the receiving core's dispatcher; servers trust it\\
+48 & --- & reserved\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Results common to all servers}\label{tab:os-err}
+\begin{tabular}{@{}r l @{\hspace{3em}} r l@{}}
+\toprule
+\textbf{Result} & \textbf{Meaning} & \textbf{Result} & \textbf{Meaning}\\\midrule
+$-1$ & failed, or invalid request & $-5$ & no free core\\
+$-2$ & interrupted & $-6$ & no memory\\
+$-3$ & would block & $-7$ & busy\\
+$-4$ & no such file, program or name & $-8$ & timed out\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[Sending is a user instruction.] \insn{csend c5, cE} through a send-only endpoint. Endpoints name
+  cores; the kernel mints them for the cores where servers run.
+\item[Receiving is the kernel's half.] The process executes \insn{svc} WAIT\_REPLY. When the buffer comes
+  back to the core's inbox the dispatcher recognises it by its base and puts it in \reg{c5} again.
+\item[Attachments.] A capability sent just before a message, with a second \insn{csend}, travels with
+  it: the dispatcher at the destination holds it and delivers it with the next message from the same
+  sending core, in \reg{c7} of a server (or \reg{c6}, then \reg{c7}, with a reply). This is how an arena
+  is lent to \texttt{fs} to load an image into, and how a server returns an endpoint or a device
+  capability.
+\item[Waiting on several things.] A process blocks in one \insn{svc} at a time. Servers hold a request
+  that cannot be answered yet (a read from an empty pipe, a WAIT for a running child), so a client waits
+  simply by not having its buffer back; a timeout on the wait, and the do-not-block mode of READ and
+  WAIT, cover the rest. Nothing in StrataOS polls.
+\end{description}
+
+\subsection{Supervisor calls}\label{sec:os-svc}
+
+The function number is in \reg{a0} and the result is returned in \reg{a0}. Timeouts are in ticks,
+$-1$ for none.
+
+\begin{table}[htbp]
+\centering\small
+\caption{StrataOS supervisor calls}\label{tab:os-svc}
+\begin{tabularx}{\linewidth}{@{}r l X@{}}
+\toprule
+\textbf{\reg{a0}} & \textbf{Name} & \textbf{Arguments and result}\\\midrule
+1 & WAIT\_REPLY & \reg{a1} = core to ring first (the destination of a message just sent), \reg{a2} =
+  timeout, \reg{a3} = base of the capability awaited (0 = the own message buffer; $-1$ = nothing: a
+  sleep), \reg{a4} = the register it is to arrive in. Returns 0, $-2$ interrupted or $-8$ timed out\\
+2 & RECEIVE & servers. \reg{a1} = a mask of transfer tags to wait for as well, \reg{a2} = timeout.
+  Returns a reply token, with the request in \reg{c6} and its attachment in \reg{c7}; or $-1$ with
+  \reg{a1} = the idle tags; or $-8$\\
+3 & REPLY & servers. \reg{a1} = token; \reg{a2} bit 0: send \reg{c7} with the reply, bit 2: send
+  \reg{c4} first, bit 1 (\texttt{proc} and \texttt{dev} only): mint an endpoint for core \reg{a3} and send
+  it. Gives the buffer in \reg{c6} back to its owner\\
+4 & YIELD & let the core's other runnable threads run\\
+5 & EXIT & \reg{a1} = exit code. \insn{halt} also exits, with the code in \reg{a0}\\
+6 & NOTIFY\_WAIT & \reg{a2} = timeout. Blocks until a notification; returns its bits, or $-8$\\
+7 & SET\_MIRROR & \reg{a1} = arena offset of the code mirror, \reg{a2} = its length (Section~\ref{sec:os-switch})\\
+8 & PARK & servers. The request in \reg{c6} is kept by the kernel; returns its id\\
+9 & UNPARK & servers. \reg{a1} = id; the parked request returns to \reg{c6}\\
+10 & CLOCK & the clock capability is put in \reg{c7} again\\
+11 & SET\_SCRATCH & \reg{a1} = D-LS address, \reg{a2} = length of the scratch range; length 0 clears it\\
+12 & SEND & \reg{a1} = the register of a send endpoint (1--7), \reg{a5} = the register of an attachment
+  (0--7, or $-1$ for none), \reg{a2}--\reg{a4} as WAIT\_REPLY. The dispatcher sends the attachment and
+  then the buffer in \reg{c5} through the endpoint, with nothing of this core in between, rings the
+  destination and waits as WAIT\_REPLY does. $-1$, with nothing sent, if a register is empty or is not a
+  send endpoint\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Demultiplexing}\label{sec:os-demux}
+
+Every capability that arrives at a worker is taken by its dispatcher, which decides whose it is by
+what it is and where it came from. The rules are applied in this order.
+
+\begin{enumerate}
+\item A piece of the arena of a process being created on this core, known from the job record the
+  system core posted: it is installed in the new thread.
+\item A capability whose base is the message buffer of a local process: that process's reply.
+\item A capability whose base a local process named in WAIT\_REPLY: it goes to that process.
+\item A capability sent by a core inside the window of a local multi-threaded process: a gift between
+  its threads, queued for the emulated \insn{ctake}.
+\item A 4~KiB memory capability: a request for this core's server. It is queued, with any attachment
+  waiting from the same sender, and the sender's process id is stamped into its header. On a core
+  without a server, or when eight requests are already queued, it is given back at once with result $-1$.
+\item Anything else: an attachment. It waits for the next message from the same sending core.
+\end{enumerate}
+
+A process cannot forge a reply or a request for another process, because what distinguishes them is
+the identity of memory it does not hold.
+
+\subsection{The kernel's operations}
+
+The system core has an endpoint too. Only \texttt{proc} holds it (and \texttt{dev}, to halt the machine
+and to lend the framebuffer). Tables~\ref{tab:os-kops}--\ref{tab:os-pipe} give the complete operation
+numbering of StrataOS 0.1; operation numbers are per server.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Operations of the system core}\label{tab:os-kops}
+\begin{tabularx}{\linewidth}{@{}r l X@{}}
+\toprule
+\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
+1 & CREATE & attachment: an arena holding the image at \hex{D0000} and the start-up block. Data: pid,
+  thread count (0 = one time-shared thread), flags, a core to pin to or $-1$, the cores of the endpoints
+  for \reg{c1}--\reg{c4}, \reg{a0}--\reg{a2}. Reply: 0 and the first core; the process starts. A server's
+  reply carries an endpoint to its core\\
+2 & DESTROY & handle = pid. The process is stopped and its domain dissolved; \texttt{proc} later
+  receives EXITED with the killed bit\\
+3 & MEMORY & reply: a zeroed 1~MiB arena in a fresh revocation domain, as an attachment; $-6$ if none\\
+4 & STATS & reply: counters for the machine, every core and every process\\
+5 & TUNE & length = the time slice in ticks, 100--100000; $-1$ out of range\\
+6 & FREE & attachment: an arena to return\\
+7 & EXITED & sent \emph{by} the kernel to \texttt{proc}: handle = pid, length = exit status\\
+8 & HALT & stops every core\\
+9 & NOTIFY & handle = pid, length = notification bits: wakes its NOTIFY\_WAIT or timed sleep\\
+10 & FBLEND & \texttt{dev} only. Handle = pid: revokes every older capability of the framebuffer's
+  domain and replies with a fresh one for that process; the kernel revokes it again when the process
+  ends. $-7$ if a live process holds it\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{The servers}\label{sec:os-servers}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Operations of \texttt{proc} (endpoint \reg{c1})}\label{tab:os-proc}
+\begin{tabularx}{\linewidth}{@{}r l X@{}}
+\toprule
+\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
+5 & SPAWN & data: thread count (0 or 1 = one thread, $N$ = $N$ threads on $N$ cores), three handle
+  descriptors that become the child's handles 0, 1, 2 ($-1$ = none), then the command line
+  \texttt{"prog args"}. Mode bit 0: no server endpoints; bit 1: pin to core mode $\gg 8$. Reply: the
+  pid; $-4$, $-5$, $-6$\\
+6 & WAIT & handle = pid, or 0 for any child; mode bit 0 = do not block. Reply: the exit status, with
+  the pid in the data; $-3$ still running; $-2$ interrupted; $-1$ no child\\
+7 & KILL & handle = pid\\
+9 & PS & reply: the count, and one 32-byte record per process: u8 pid, state (1 running, 2 ready,
+  3 blocked, 4 zombie), core, parent, flags (2 = server), threads; 2 reserved; u32 switches, u32 KiB
+  moved; 16 bytes of name\\
+16 & INFO & reply data: cores, free heap, total memory, processes, kernel units loaded, context
+  switches, KiB moved (u64 each)\\
+17 & SIGNAL & handle = pid: interrupt it\\
+22 & CATCH & handle = 1 catch interrupts, 0 do not\\
+25 & LOOKUP & data = a server's name. Reply: 0, with a send-only endpoint to it as an attachment; $-4$\\
+29 & REGISTER & data = a name: the caller becomes the server of that name; the entry dies with it.
+  $-5$ unless the caller was started as its core's server (the boot servers, and \texttt{ws}); $-7$ if
+  another live process holds the name\\
+30 & SCHED & handle 0: reply data = the time slice, switches per second, KiB moved per second since
+  the last read. Handle 1: length = a new slice, forwarded to TUNE\\
+31 & CORES & reply: the count, and one 32-byte record per core: u8 core, pid running, runnable,
+  processes, flags (2 = server); 3 reserved; u32 switches, u32 KiB moved\\
+39 & WHOIS & data = a name. Reply: the pid registered under it (0 for the boot servers); $-4$ if
+  none. \texttt{dev} asks it before GRANT\_FB\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+An exit status has the exit code in bits 31:0; bit 62 is set if the process was killed, and bit 63 if
+it faulted, with the trap cause in bits 7:0.
+
+\textbf{Spawning} shows how the pieces combine. \texttt{proc} asks the kernel for an arena (MEMORY),
+writes the start-up block into it, lends it to \texttt{fs} to read the program image into (LOADIMG),
+tells the servers of the three handles that the child now holds them (DUPS), and asks the kernel to
+CREATE the process from the arena. The system core chooses the cores, cuts the arena into the pieces
+of Table~\ref{tab:os-arena}, posts a job record for each thread and gives each worker its pieces; when
+a dispatcher has them all it makes the thread runnable. While it waits for these answers, \texttt{proc}
+keeps the caller's request parked. When a process ends, its dispatcher reports the exit, the system
+core dissolves the domain and sends EXITED, and \texttt{proc} tells the servers to drop the process's
+handles (CLEANUP) and completes the parent's WAIT.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Operations of \texttt{dev} (through LOOKUP)}\label{tab:os-dev}
+\begin{tabularx}{\linewidth}{@{}r l X@{}}
+\toprule
+\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
+23 & DEVS & reply: the count and the platform table's 32-byte entries (Table~\ref{tab:stpdent})\\
+24 & HALT & asks the kernel to stop every core\\
+26 & GRANT\_FB & reply: 0, with the framebuffer memory and a device capability for the controller's
+  PRESENT and VSYNC registers as attachments. $-5$ unless the caller is the process registered as
+  \texttt{ws}; $-7$ while a live process holds the framebuffer\\
+30 & GETDISK & for \texttt{fs}: a device capability for the block device's window and a send-only
+  endpoint to its node\\
+31 & GETCON & for \texttt{tty}: a device capability for the console's ports\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Operations of \texttt{fs} (endpoint \reg{c2})}\label{tab:os-fs}
+\begin{tabularx}{\linewidth}{@{}r l X@{}}
+\toprule
+\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
+1 & READ & handle, length. Reply: bytes read, in the data; 0 at the end of the file\\
+2 & WRITE & handle, length, data. Reply: bytes written\\
+3 & OPEN & data = the name; mode 0 read, 1 write (truncate), 2 append. Reply: a file id; $-4$\\
+4 & CLOSE & handle. A file that was written is saved to disk when its last reference closes\\
+10 & DIR & reply: the count, and 32-byte records: 24 bytes of name, u64 size\\
+11 & UNLINK & data = the name; $-4$\\
+27 & STAT & data = the name. Reply: the size; $-4$\\
+28 & LOADIMG & data = the name, mode = arena offset, handle = the most bytes; the arena as
+  attachment. Reply: the image's size; the arena comes back with the reply\\
+32 & STATFS & reply data: total blocks, used blocks, files\\
+33 & READBLK & handle = a block number. Reply data: the raw 512-byte block\\
+34 & READALL & handle = a file id, mode = arena offset, length = the most bytes; the arena as
+  attachment: the whole file is copied into it\\
+35 & WRITEALL & handle = a file id, mode = arena offset, length; the arena as attachment: appended to
+  the file\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\texttt{fs} drives the block device entirely from user mode (Section~\ref{sec:blkdev}): it writes a
+command to the submission port through its device capability, lends the device its I/O buffer with
+\insn{csend} through the endpoint to the device's node, and waits with WAIT\_REPLY for the buffer's
+base. The device's return of the buffer arrives at the core's inbox like any reply. Program images are
+read straight into the arena \texttt{proc} lends; the data never passes through \texttt{fs}'s Local
+Store. Files are contiguous runs of blocks; a file being written is held in a 128~KiB region.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Operations of \texttt{tty} (endpoint \reg{c3})}\label{tab:os-tty}
+\begin{tabularx}{\linewidth}{@{}r l X@{}}
+\toprule
+\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
+1 & READ & length; mode bit 0 = do not block. Cooked mode: input is echoed and edited with Backspace,
+  and a READ returns one line with its newline, or what was typed before Ctrl-D; 0 = end of input.
+  Raw mode: no echo; whatever bytes are there, at least one. CR becomes LF in both\\
+2 & WRITE & data to the console\\
+4 & CLOSE & 0 (the console is never closed)\\
+18 & SETFG & handle = pid: Ctrl-C now interrupts that process\\
+19 & CONMODE & handle = 0 cooked, 1 raw\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\texttt{tty} is the model of a driver without interrupts. It never blocks on its device: it keeps a
+read of the break port in flight on one tag always, and a one-byte read of console input on another
+while a reader is waiting, and its RECEIVE names both tags, so the one supervisor call wakes it for a
+request, a key or Ctrl-C. Input is neither read nor echoed before a program asks for it. Because it
+holds pending device reads, \texttt{tty} is alone on its core.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Operations of \texttt{pipe} (endpoint \reg{c4})}\label{tab:os-pipe}
+\begin{tabularx}{\linewidth}{@{}r l X@{}}
+\toprule
+\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
+8 & PIPE & reply: read id $|$ write id $\ll 8$\\
+1 & READ & handle, length; mode bit 0 = do not block. Reply: bytes; 0 = end of input (no writer is
+  left). A reader of an empty pipe waits\\
+2 & WRITE & handle, length, data. Reply: bytes taken, at least 1; $-1$ if no reader is left. A writer
+  to a full pipe waits\\
+4 & CLOSE & handle\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Three further operations go from \texttt{proc} to every server that keeps handles: 36 DUPS (a process
+now holds these handles too), 37 CLEANUP (a process ended: drop everything it held) and 38 CANCEL
+(answer the requests held for a process with $-2$). The ends of files and pipes are reference-counted
+per process, which is how a pipe's reader sees end of input when the last writer exits.
+
+\subsection{Handles}
+A handle is a small number, per process: 0 standard input, 1 standard output, 2 standard error, and up
+to five more from OPEN and PIPE. The library keeps, for each, the server it belongs to and the
+server's id for it, and sends READ, WRITE and CLOSE to that server; a program does not know whether its
+output is the console, a file or a pipe. SPAWN passes three handles to the child.
+
+\subsection{Time}\label{sec:os-time}
+Time needs no call. Every process holds the clock in \reg{c7}, a read-only capability for exactly the
+timer's NOW and FREQ registers (Section~\ref{sec:timer}): reading the clock is one 8-byte \insn{tget}.
+Sleeping is WAIT\_REPLY with a timeout and nothing awaited. DEADLINE and WAIT belong to the system
+core.
+
+\section{The program library}\label{sec:os-lib}
+
+Programs include \texttt{os/lib/sys.s}. It builds messages, keeps the handle table and buffers
+standard output.
+
+\begin{asm}
+_start: j     main                      ; skip the marker
+        .word 0x32535953                ; "SYS2": a StrataOS program
+main:   li    sp, 65536                 ; the stack is at the top of the D-LS
+        call  sys_init                  ; read the start-up block, set up handles 0..2
+        la    a0, text                  ; ...
+        li    a1, text_end - text       ; ...
+        call  out_str                   ; buffered standard output
+        li    a0, 0                     ; exit code
+        call  sys_exit                  ; flush standard output, end the process
+\end{asm}
+
+\begin{table}[htbp]
+\centering\small
+\caption{The program library, \texttt{os/lib/sys.s}}\label{tab:syslib}
+\begin{tabularx}{\linewidth}{@{}l >{\ttfamily\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Area} & \textrm{\bfseries Routines}\\\midrule
+Start and exit & sys\_init, sys\_exit(code), sys\_pid, sys\_cmdline, sys\_args(buf), arg\_next\\
+Handles & sys\_read(h, buf, max), sys\_readnb, sys\_write(h, buf, len), sys\_close(h),
+  sys\_open(name, len, mode), sys\_pipe, sys\_hdesc(h), sys\_hset(h, desc)\\
+Processes & sys\_spawn(n, mode, cmd, len, h0, h1, h2), sys\_wait(pid, nb), sys\_kill(pid),
+  sys\_signal(pid), sys\_catch(on), sys\_ps(buf), sys\_info(buf), sys\_cores(buf),
+  sys\_sched(op, arg), sys\_lookup(name, len, reg), sys\_register(name, len)\\
+Console & sys\_conmode(mode), sys\_setfg(pid)\\
+Files & sys\_dir(buf), sys\_unlink, sys\_stat(name, len), sys\_statfs(buf), sys\_readblk(n, buf)\\
+Devices & sys\_devs(buf), sys\_halt, sys\_grantfb\\
+Time & sys\_now, sys\_sleep(ticks), sys\_notify\_wait(timeout), sys\_yield, sys\_clock\\
+Switch cost & sys\_mirror(offset, len), sys\_scratch(start, len)\\
+Windows & ws\_call(op, handle, data, len)\\
+Output and input & out\_str, out\_chr, out\_nl, out\_dec, out\_sdec, out\_decw, out\_pad, out\_hex,
+  out\_flush, err\_str, in\_line(buf, max)\\
+Strings & str\_atoi, str\_num, str\_eq, str\_has, str\_len\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Results are returned in \reg{a0}. Calls clobber \reg{t0}--\reg{t6} and \reg{a0}--\reg{a7}; the saved
+registers, \reg{sp}, \reg{gp} and \reg{tp} are kept. Transfer tag \reg{tg10} belongs to the library. A
+write longer than a message is sent in pieces. Servers also include \texttt{os/lib/srv.s}: the
+receive, reply and park loop, a guard that drops a request whose owner died while it was being served,
+and the reference table for handles.
+
+\subsection{Bare-metal programs and redirection}
+A bare-metal program knows nothing of messages. Its console output works because it holds the console
+in \reg{c2}. For redirection the shell and \texttt{proc} use a memory convention: with \texttt{<
+file}, the file is copied into the arena at offset \hex{80000} (at most 256~KiB) and the program starts
+with its length in \reg{a0}; with \texttt{> file}, \reg{a1} is 1, the program leaves its output at
+arena offset \hex{C0000} and exits with its length (at most 64~KiB), and \texttt{proc} appends it to the
+file. The self-hosted assembler uses this convention (Section~\ref{sec:os-as}).
+
+\section{Interrupts and Ctrl-C}\label{sec:os-break}
+
+StrataOS has one asynchronous signal, the \term{interrupt}, and builds it from three mechanisms of
+Chapter~\ref{ch:traps}: an event that is a transfer, messages, and core control.
+
+\begin{enumerate}
+\item \texttt{tty} keeps a read of the console break port in flight. When the user presses Ctrl-C the
+  read completes, \texttt{tty}'s RECEIVE returns with that tag idle, and \texttt{tty} echoes
+  \texttt{\textasciicircum C}, drops the partial input line and asks \texttt{proc} to SIGNAL the
+  \term{foreground process} (the one named by the last SETFG).
+\item If the process does not catch interrupts, \texttt{proc} asks the kernel to DESTROY it. Its
+  cores are stopped through core control wherever they are, its domain is dissolved, and its parent's
+  WAIT returns a status with the killed bit.
+\item If the process catches interrupts (CATCH), the blocking call it is in, or its next one, returns
+  $-2$: \texttt{proc} answers its held WAIT, tells \texttt{tty} and \texttt{pipe} to CANCEL the
+  requests they hold for it, and has the kernel NOTIFY it to end a sleep or a NOTIFY\_WAIT.
+\end{enumerate}
+
+The shell catches interrupts. It gives the console to a foreground job with SETFG and takes it back
+afterwards; interrupted while it waits for a job, it SIGNALs every stage of the job; interrupted while
+reading a line, it abandons the line. The window server catches interrupts and forwards them to the
+process of the focused window.
+
+\section{Code paging}
+
+\subsection{Programs}\label{sec:os-paging}
+
+A program can keep code that does not fit in its I-LS in its image's \texttt{.far} section, organised
+in units of $2^n$ bytes, set \csr{xslot} to $n$ and call the units with \insn{xcall} through its arena
+capability \reg{c0}; units that call other units return with \insn{xret ra}
+(Section~\ref{sec:overlays}). Nothing is resident at first. A program that installs its own trap handler
+serves its own misses, in user mode, as the \texttt{overlay} example does. Otherwise every miss traps
+to the dispatcher, which:
+\begin{itemize}
+\item takes the far address from \csr{tval} (clearing bit~63 for a return), and rejects the miss if
+  \csr{xslot} is 0, the program no longer holds \reg{c0}, or the unit is not a whole slot inside it;
+\item uses the I-LS from the end of the program's resident code, rounded up to a slot, to \hex{10000}
+  as the code cache, at most sixteen slots, replaced round robin;
+\item loads the unit into the victim slot with \insn{tgetx}, maps it with \insn{xmap} and resumes the
+  program at the instruction that missed.
+\end{itemize}
+A miss the dispatcher cannot serve ends the program with a fault of cause \cause{xmiss}. The
+\texttt{units} program runs 24 one-KiB units through sixteen slots with call chains seven deep and
+checks its result against the same computation done by resident code. After a context switch the
+cache is empty and refills on demand.
+
+\subsection{The kernel pages itself}\label{sec:os-kpaging}
+
+The resident kernel is the 16~KiB at I-LS \hex{4000}--\hex{7FFF} of every core: the dispatcher, and on
+the system core the event loop and the paging handler. Everything the system core does rarely
+(start-up, creating and destroying processes, memory, statistics, exits) is \term{kernel code units}:
+27 units of 2~KiB in the kernel image's \texttt{.far} section, which the boot ROM loads into the load
+area and hands to core 0 as the far image share \reg{c12} (Section~\ref{sec:boot}).
+
+Resident code calls a unit with \insn{xcall ra, c12, t5}. A miss traps to the system core's own
+supervisor handler, which copies the unit into one of sixteen cache slots at I-LS
+\hex{8000}--\hex{FFFF}, round robin, maps it and retries: the mechanism programs use, applied by the
+kernel to itself, with \csr{xslot} = 11. Units run at a cache address rather than where they were
+assembled, so they call resident code through a register, call other units with \insn{xcall}, and
+return with \insn{xret}, whose far link pages the caller back in if it was evicted meanwhile.
+\texttt{uptime} reports how many units have been paged in.
+
+\section{The shell}\label{sec:os-sh}
+
+\begin{shell}
+sh                  interactive when standard input is the console
+sh -i               interactive even if standard input is a pipe
+sh -l               login shell: run the script rc first; at end of input, halt the machine
+sh -c "ls | wc"     run one command line and exit with its status
+sh FILE             run each line of FILE, then exit
+\end{shell}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Shell syntax}\label{tab:shell}
+\begin{tabularx}{\linewidth}{@{}>{\ttfamily}l X@{}}
+\toprule
+\textrm{\bfseries Form} & \textbf{Meaning}\\\midrule
+a ; b & run \texttt{a}, then \texttt{b}\\
+a \&\& b \quad a || b & run \texttt{b} only if \texttt{a} succeeded, or failed\\
+a \& & run \texttt{a} in the background: \texttt{[J] PID} now, \texttt{[J] done  a} later\\
+a | b | c | d & a pipeline of up to four stages\\
+< f \quad > f \quad >> f & redirect the first stage's input, the last stage's output (write, append)\\
+'text' \quad "text" & one word; \texttt{\$} is expanded inside double quotes only; \texttt{\textbackslash x} is the character \texttt{x}\\
+\$? \quad \$\$ \quad \$NAME & the last status, the shell's pid, a variable\\
+-n N prog & run \texttt{prog} as $N$ threads on $N$ cores\\
+-c N prog & pin \texttt{prog} to core $N$\\
+run prog & the same as \texttt{prog}\\
+time cmd & run \texttt{cmd}, then print the wall time it took\\
+\# comment & the rest of the line is ignored\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The status \texttt{\$?} is the exit code, 130 for a process killed by Ctrl-C, and 128 plus the trap
+cause after a fault; a non-zero status shows in the prompt, as in \texttt{[130] strata\$}.
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[Builtins] \texttt{help}, \texttt{echo}, \texttt{set}, \texttt{unset}, \texttt{history},
+  \texttt{jobs}, \texttt{fg}, \texttt{wait}, \texttt{kill} (a pid, or \texttt{\%J} for every stage of job
+  $J$), \texttt{sleep} (decimal seconds), \texttt{clear}, \texttt{source}, \texttt{exit}, \texttt{halt},
+  \texttt{true}, \texttt{false}. A builtin that is a pipeline stage or runs in the background is run by
+  a child \texttt{sh -c}.
+\item[Line editing] The shell switches the console to raw mode while a line is typed. Left, Right,
+  Home, End and Ctrl-B/F/A/E move; Backspace and Delete erase; Ctrl-K, Ctrl-U and Ctrl-W erase to the
+  end, to the start, and the word before the cursor; Up, Down and Ctrl-P/N walk a history of 32 lines;
+  Ctrl-L clears the screen; Tab completes a command (builtins and the programs on the disk) or a file
+  name, and a second Tab lists the candidates; Ctrl-D on an empty line ends the input; Ctrl-C abandons
+  the line.
+\item[Running a command] Each stage's command text goes to \texttt{proc} with SPAWN, together with the
+  three handles that become the child's 0, 1 and 2: the shell's own, pipe ends from \texttt{pipe}, or
+  files from \texttt{fs}. The shell closes its copies after each spawn, gives the console to the last
+  stage with SETFG, and waits for every stage.
+\item[Where its state lives] The history and the scripts being run are in the shell's arena, reached
+  with transfers; its D-LS holds only the lines being worked on, which keeps its context switches
+  small.
+\end{description}
+
+At boot the login shell runs the script \texttt{rc} if the disk has one; the supplied one prints
+\texttt{motd}. When console input ends, the login shell halts the machine.
+
+\subsection{Programs on the disk}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Programs supplied on the StrataOS disk}\label{tab:os-progs}
+\begin{tabularx}{\linewidth}{@{}>{\ttfamily}l X@{}}
+\toprule
+\textrm{\bfseries Program} & \textbf{Action}\\\midrule
+ls & list the files with their sizes\\
+cat [NAME \ldots] & copy the named files, or standard input, to standard output\\
+rm NAME \ldots & delete files\\
+df & disk blocks: total, used, free; the number of files\\
+hexdump BLOCK & the first 256 bytes of a raw disk block\\
+ps & the processes: pid, parent, state, core, threads, context switches, KiB moved, name\\
+cores & what every core is doing: the running process, runnable and resident counts, switches and
+  KiB moved\\
+free & total and free memory, and the number of processes\\
+uptime & time since power-on, processes, context switches and KiB moved, kernel units paged in\\
+sched [TIME] & show the time slice and the switch rates, or set the slice
+  (\texttt{500us}, \texttt{5ms}, or a number of microseconds)\\
+devs & the platform table\\
+seq N & print 1 to $N$, one per line\\
+grep TEXT & print the lines of standard input that contain TEXT\\
+wc & the line, word and byte counts of standard input\\
+upper & copy standard input to standard output in capital letters\\
+spin [N [C]] & burn CPU, printing a character now and then: $N$ times, or forever\\
+units & demand-paged code (Section~\ref{sec:os-paging})\\
+as & the assembler (Section~\ref{sec:os-as})\\
+sh & the shell\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The disk also carries the five servers, the bare-metal examples \texttt{hello}, \texttt{stream\_sum},
+\texttt{swcache}, \texttt{overlay}, \texttt{faults}, \texttt{pipeline}, \texttt{parsum}, \texttt{mandel}
+and \texttt{race}, the sources of all of these, and the text files \texttt{rc}, \texttt{motd} and
+\texttt{about}. A session:
+
+\begin{shell}
+strata$ seq 30 | grep 2 | wc
+12 12 35
+strata$ -c 6 spin 12 a > sa & -c 6 spin 12 b > sb &
+[1] 9
+[2] 10
+strata$ ps
+strata$ -n 3 mandel
+strata$ sched 500us
+\end{shell}
+
+The pipeline is three processes and two pipes; the two \texttt{spin} processes share core 6 and
+\texttt{ps} shows the switches between them and the bytes those switches moved; \texttt{mandel} runs as
+three threads on three cores, its \insn{ctake}s emulated.
+
+\section{The window server}\label{sec:os-ws}
+
+The graphical interface is a window server, \texttt{ws}, and client programs. \texttt{ws} is the only
+process that holds the framebuffer and, while it runs, the keyboard; it draws the desktop and
+composites what clients draw. Clients never see the framebuffer. \texttt{ws} is an ordinary program,
+started from a shell: it registers as the server named \texttt{ws}, obtains the framebuffer memory and
+the controller's registers from \texttt{dev} (GRANT\_FB), makes itself the console's foreground process
+in raw mode, and catches interrupts. When it ends, the kernel revokes its framebuffer capability and
+the console returns to the shell.
+
+\subsection{Drawing through transfers}
+No store can reach the framebuffer, so nothing is drawn in place. The screen is described by a
+\term{display list} of items (rectangles, gradients, edges with cut corners, text, blits of client
+surfaces). To draw a rectangle of the screen the renderer walks it strip by strip: the items that meet
+the strip are collected, an item that covers the strip opaquely drops everything under it, each item
+draws its part of each row into a strip buffer in the D-LS, and the strip leaves with one \insn{tput}.
+A blit of a client surface is a \insn{tget} of the source row straight into the strip buffer: no pixel
+of a client's surface passes through a register.
+
+Damage decides which rectangles are drawn. Every frame is: update the model, rebuild the display list,
+draw the damaged rectangles, write PRESENT once. While the layout is in motion, frames are paced by
+reads of VSYNC; otherwise \texttt{ws} sleeps in RECEIVE with a timeout. Its strip buffers and display
+list are a scratch range (Section~\ref{sec:os-switch}).
+
+\begin{center}\small
+\begin{tabular}{@{}l r r@{}}
+\toprule
+\textbf{Update, at 1280 $\times$ 800} & \textbf{Instructions} & \textbf{Pixels}\\\midrule
+A full frame: grid, status strip, four tiles and their blits & 3.77 M & 1 024 000\\
+A terminal line: render two text rows into the surface and composite them & 161 k & 22 104\\
+A pulse of one core's cell in the status strip & 8.7 k & 504\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{The desktop}
+The screen reads as an instrument panel of the machine and makes its explicitness visible.
+\begin{itemize}
+\item \textbf{Tiles.} Up to four windows, tiled without overlap: one full; two side by side; three as
+  one left and two stacked right; four as a 2 $\times$ 2 grid. Tiles float on a faint grid with 6-pixel
+  gaps; each has a luminous one-pixel edge with cut corners, amber when focused. A tag cut into the top
+  edge names the window, its process and its core, and a second tag shows the KiB that context switches
+  have moved for that process, updating live. When the layout changes, tiles slide to their new places
+  over twelve frames.
+\item \textbf{The core lattice.} The 28-pixel status strip has one cell per core, lit in the colour of
+  the process running on it and dark when idle; the system core and server cores are marked. A context
+  switch on a core makes its cell pulse. Beside it are the window list, uptime, the process count,
+  context switches per second and the clock.
+\item \textbf{Keys} (Alt is sent as an ESC prefix). Alt+Enter opens a terminal; Alt+Space opens the
+  command palette, a \texttt{launch} line with completion of program names; Alt+1--4 and Alt+arrows move
+  the focus; Alt+Q closes the focused window; Alt+Shift+Q quits the window server. Every other key is
+  an event for the focused window, and Ctrl-C interrupts its process.
+\item \textbf{Fonts.} An 8 $\times$ 16 body font and a 5 $\times$ 7 small-capitals font for labels,
+  both original and in the public domain.
+\end{itemize}
+
+\subsection{The client protocol}
+A client finds the server with LOOKUP \texttt{"ws"} and sends it the operations of
+Table~\ref{tab:os-ws}. A window's \term{surface} is memory of the client's own arena, width $\times$
+height pixels of 4 bytes in the framebuffer's format. The client draws into it with transfers. To show
+what it drew, it lends the band of rows concerned to the server as the attachment of a DAMAGE request;
+the server composites from it and returns it with the reply. While the band is lent the client cannot
+write it, so the server never reads a half-drawn row: the ownership rule that prevents data races
+between cores is also what makes composition tear-free.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Operations of the window server}\label{tab:os-ws}
+\begin{tabularx}{\linewidth}{@{}r l X@{}}
+\toprule
+\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
+40 & CREATE & mode bit 0 = interrupt the caller (SIGNAL) when events wait and it is not in EVENT.
+  Data: width, height (ignored: the tile decides), then the title (8 bytes). Reply: the window id, with
+  the surface's width and height in the data; $-7$ if there is no room (four windows)\\
+41 & DAMAGE & handle = window; data: x, y, width, height, stride; attachment: a band holding those
+  width $\times$ height pixels from its offset 0, rows stride bytes apart (0 = width $\times$ 4). The
+  server copies them into the window's surface and redraws that rectangle; the band returns with the
+  reply. Without an attachment the rectangle is only redrawn\\
+42 & TEXT & handle = window; data: x, y in pixels, foreground and background colours ($-1$ = no
+  background), then a string (length = 32 + its bytes): drawn by the server with its 8 $\times$ 16 font\\
+43 & FILL & handle = window; data: x, y, width, height, colour\\
+44 & EVENT & handle = window; mode bit 0 = do not block; length = a timeout in ticks (0 = none). Reply
+  data: the kind (1 key, 2 resize, 3 close, 4 focus in, 5 focus out), a value (the key's bytes, the
+  first in the low byte), the width (for a key: the number of bytes) and the height; $-3$ if none,
+  $-8$ when the timeout passes\\
+45 & DESTROY & handle = window\\
+46 & TITLE & handle = window; data = the title (8 bytes)\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[\texttt{term}] a terminal emulator. It creates a window, runs \texttt{sh -i} connected by two
+  pipes, renders the shell's output into its surface, sends key events to the shell's standard input
+  and forwards Ctrl-C as SIGNAL.
+\item[\texttt{wmandel}] renders the Mandelbrot set into its surface, damaging rows as they finish, and
+  renders again on a resize.
+\item[\texttt{wclock}] a clock that redraws only the band that changes each second.
+\end{description}
+\texttt{os/lib/gfx.s} is the drawing library both the server and its clients use: surfaces, the strip
+renderer, spans with alpha blending, the standard items and text. \texttt{make ws-demo} runs the
+server's renderers on the bare machine against a simulated twelve-core system.
+
+\subsection{Terminal output}
+Programs write plain bytes to standard output. On the console they go to the host terminal; a
+\texttt{term} window interprets this subset and ignores other escape sequences: newline, carriage
+return, backspace and tab; \texttt{ESC [ K} (erase to end of line); \texttt{ESC [ n C} and
+\texttt{ESC [ n D} (cursor right and left); \texttt{ESC [ 2 J} and \texttt{ESC [ H} (clear, home);
+\texttt{ESC [ r ; c H} (position); and \texttt{ESC [ \ldots\ m} with 0, 1, 30--37, 90--97 and 40--47
+(colours). The shell's line editor uses only this subset.
+
+\section{Boot}\label{sec:os-boot}
+
+\begin{enumerate}
+\item The boot ROM loads the kernel's code and data into every core's Local Stores and the far image
+  into the load area, and enters the kernel on every core with \reg{a0} = the core number
+  (Section~\ref{sec:boot}).
+\item Core 0 becomes the system core. It places the framebuffer window in a revocation domain, sets
+  \csr{xslot}, and calls the start-up code unit, which is the first unit paged in. Start-up creates the
+  kernel shared table as an atomic segment and gives every worker a copy, together with a core-control
+  capability for doorbells and the clock capability; cuts the arenas; and reads the directory from the
+  disk with the firmware's block routines, the only time the kernel touches the disk.
+\item The workers become dispatchers and wait in \insn{tany}.
+\item The system core loads \texttt{proc}, \texttt{dev} and \texttt{fs} from the disk itself, since
+  \texttt{fs} must exist before anything can be loaded through it, and creates them on cores 1, 2 and 3.
+  \texttt{dev} receives the device root; \texttt{fs} asks \texttt{dev} for the disk.
+\item \texttt{proc} spawns \texttt{tty} and \texttt{pipe} as servers on the next free cores, then the
+  login shell \texttt{sh -l}, and starts a new one whenever it exits.
+\end{enumerate}
+
+\texttt{make boot} boots StrataOS on the emulator with 12 cores: the system core, five servers, and six
+cores free of servers for threads. The RTL simulator boots it on \texttt{NCORES} cores (8 by default).
+
+\section{Self-hosting}\label{sec:os-as}
+
+A second implementation of the assembler, \texttt{as}, is written in \IS assembly language
+(\texttt{os/progs/as.s}). It accepts the \texttt{sasm} language and produces byte-identical STX2 images:
+on the bare machine it reads the source from console input and writes the image to console output;
+under StrataOS it runs as \texttt{as < prog.s > prog}, a bare-metal program using the redirection
+convention of Section~\ref{sec:os-lib}, so its input is limited to 256~KiB and its output to 64~KiB. The
+disk carries the source of every example and utility and of \texttt{as} itself (with \texttt{.include}
+expanded, since \texttt{as} has no file system), so programs can be rebuilt on the machine, and
+\texttt{as} rebuilds itself. \texttt{tools/test-as.sh} checks byte identity for every example, the
+kernel, the boot ROM and \texttt{as} itself (at origins 0 and \hex{8000}), a feature test covering every
+instruction and directive, a set of inputs both assemblers must reject, and a StrataOS boot that
+assembles and runs a program.

@@ -1,0 +1,330 @@
+\chapter{Toolchain}\label{ch:toolchain}
+
+The toolchain is built with \texttt{make} and consists of the assembler \texttt{sasm}, the reference
+emulator \texttt{strata-emu} with its dynamic binary translator, the Verilator-based RTL simulator
+\texttt{strata-rtl}, the disk builder \texttt{mkdisk}, the conformance suite in \texttt{conformance/},
+the test scripts in \texttt{tools/}, and a WebAssembly build of the emulator that runs in a web browser.
+\texttt{make} builds \texttt{build/sasm}, \texttt{build/strata-emu} and \texttt{build/strata-rtl}; the
+number of RTL cores is fixed at build time by \texttt{NCORES} (default 8), and the \texttt{make} targets
+pass the same count to the emulator.
+
+\section{The assembler, \texttt{sasm}}
+
+\begin{shell}
+sasm [-o out.stx] [-l] [-T text-origin] [-I dir] file.s
+\end{shell}
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[\texttt{-o}] output image (default: the source name with \texttt{.stx}).
+\item[\texttt{-l}] print a listing (section, address, up to four instruction words, source line).
+\item[\texttt{-T addr}] start \texttt{.text} at \texttt{addr} instead of 0. Programs for StrataOS use
+  \texttt{-T 0x8000}.
+\item[\texttt{-I dir}] add a directory to the \texttt{.include} search path (up to 16).
+\end{description}
+
+\texttt{sasm} is a two-pass assembler. It knows every instruction of Part~\ref{part:isa}, including
+\insref{svc}, every CSR by name, and the pseudo-instructions of Table~\ref{tab:pseudo}. Its output is an
+STX2 image (Section~\ref{sec:stx}). The self-hosted assembler \texttt{as} (Section~\ref{sec:os-as})
+accepts the same language and produces byte-identical images.
+
+\subsection{Source syntax}
+Each line holds optional labels (\texttt{name:}), then an instruction, directive or assignment.
+Comments start with \texttt{;}, \texttt{\#} or \texttt{//} and run to the end of the line. Mnemonics and
+directives are case-insensitive. Operands are separated by commas.
+
+\begin{itemize}
+\item Integer registers: \reg{x0}--\reg{x31} or ABI names (Table~\ref{tab:abi}), plus \reg{fp} for
+  \reg{s0}. Capability registers: \reg{c0}--\reg{c15}. Tags: \reg{tg0}--\reg{tg15}. CSRs: by name
+  (Appendix~\ref{app:csrs}) or by number.
+\item Memory operands: \texttt{imm(reg)} or \texttt{(reg)}.
+\item Symbols start with a letter, \texttt{\_}, \texttt{.} or \texttt{\$}. \texttt{.} alone is the
+  current location in the current section.
+\item Numbers: decimal, \texttt{0x} hexadecimal, leading-\texttt{0} octal, \texttt{0b} binary; character
+  literals \texttt{'a'}, \texttt{'\textbackslash n'}.
+\item Expressions, from lowest to highest precedence: \texttt{|}, \texttt{\textasciicircum},
+  \texttt{\&}, \texttt{<<} \texttt{>>}, \texttt{+} \texttt{-}, \texttt{*} \texttt{/} \texttt{\%}, unary
+  \texttt{-} \texttt{+} \texttt{\textasciitilde}, parentheses. Arithmetic is 64-bit.
+\end{itemize}
+
+Immediates are range-checked: signed 16 bits for arithmetic, loads, stores and \insn{jalr}; unsigned
+16 bits for logical immediates; 0--63 for shifts. Branch and jump targets must be in the same section
+and in range.
+
+\subsection{Sections}
+Each section has its own address space starting at 0:
+
+\begin{center}\small
+\begin{tabular}{@{}l l l@{}}
+\toprule
+\textbf{Directive} & \textbf{Assembles into} & \textbf{Labels are}\\\midrule
+\texttt{.text} & instruction Local Store & I-LS addresses (from \texttt{-T})\\
+\texttt{.data} & data Local Store & D-LS addresses\\
+\texttt{.far} & T3 system memory & offsets in T3\\
+\texttt{.cluster} & T2 cluster store & offsets in T2\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Directives}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Assembler directives}\label{tab:directives}
+\begin{tabularx}{\linewidth}{@{}>{\ttfamily}l X@{}}
+\toprule
+\textrm{\bfseries Directive} & \textbf{Effect}\\\midrule
+.text .data .far .cluster & select a section\\
+.org expr & advance the location to \textit{expr} (never backwards), filling with zeros\\
+.align n & pad with zeros to a multiple of $n$ bytes ($n$ a power of two)\\
+.byte .half .word .dword e, \ldots & emit 1-, 2-, 4- or 8-byte little-endian values\\
+.ascii "s" & emit a string; escapes \texttt{\textbackslash n \textbackslash t \textbackslash r \textbackslash 0 \textbackslash x}\textit{hh}\\
+.asciz "s", .string "s" & emit a string followed by a zero byte\\
+.space n[, fill], .zero n & emit $n$ bytes of \textit{fill} (default 0)\\
+.equ name, expr; .set; name = expr & define a constant (no forward references)\\
+.include "file" & include a file (searched next to the including file, then the current directory, then \texttt{-I} dirs)\\
+.global, .globl & accepted and ignored\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{The STX2 image format}\label{sec:stx}
+
+An image holds the initial contents of each section. Every part of the file is 8-byte aligned so that
+software (the boot ROM, the OS loader) can move it with transfers.
+
+\begin{center}\small
+\begin{tabular}{@{}r l l@{}}
+\toprule
+\textbf{Offset} & \textbf{Type} & \textbf{Field}\\\midrule
+0 & char[4] & magic \texttt{"STX2"}\\
+4 & u32 & number of sections\\
+\multicolumn{3}{@{}l}{\textit{then, for each section:}}\\
++0 & u32 & kind: 1 I-LS, 2 D-LS, 3 T3, 4 T2\\
++4 & u32 & base: lowest address used, rounded down to a multiple of 8\\
++8 & u32 & size in bytes, a multiple of 8\\
++12 & u32 & reserved, zero\\
++16 & u8[size] & contents of $[\textit{base}, \textit{base}+\textit{size})$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Empty sections are omitted. When an image is loaded by a simulator, the I-LS and D-LS contents go to
+every core, and the T2 and T3 contents to the shared memories.
+
+\section{The reference emulator, \texttt{strata-emu}}\label{sec:emu}
+
+\begin{shell}
+strata-emu [-c ncores] [-t trace.txt] [-m max_steps] [-d disk.img] [-i input.txt]
+           [-b steps] [-T real|virtual] [-g none] [-F frame.ppm] [-z scale]
+           [-r WxH] [-H] [-J|-j] image.stx
+\end{shell}
+
+The emulator executes the sequential semantics $\mathcal{S}$ (Chapter~\ref{ch:model}): every memory
+transfer completes at issue, and the only transfers that stay in flight are device reads that have
+nothing to deliver yet (console input, the break port, the timer's WAIT and the framebuffer
+controller's VSYNC; Section~\ref{sec:devxfer}), at most four per core. \insn{twait} and \insn{tpoll}
+see only those reads, and \csr{cycle} equals \csr{instret}. Cores take turns one instruction at a time
+(a \term{round} is every live core taking one step); a core blocked in \insn{cgive}, \insn{csend},
+\insn{ctake}, \insn{crecv}, \insn{tany}, on a busy tag or on a Local Store range a pending device read
+is filling yields its turn. The emulator reports each halt (\texttt{core N: halt a0=\ldots
+instret=\ldots}) and each unhandled fault on standard error. When every live core is blocked it
+detects deadlock, unless a pending read can still complete: a WAIT or VSYNC whose time will come, or
+console input or Ctrl-C from an interactive terminal or the window.
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[\texttt{-c n}] number of cores, 1--15 (default 4). Fifteen cores and the block device are the
+  sixteen inbox senders that the masks of \insn{cpoll} and \insn{tany} can name.
+\item[\texttt{-t file}] instruction trace, one line \texttt{core pc word} per executed instruction.
+  Implies interpretation.
+\item[\texttt{-m n}] stop with a timeout after $n$ instructions in all; by default there is no limit.
+\item[\texttt{-d file}] disk image for block device 0.
+\item[\texttt{-i file}] console input (default standard input). When standard input is a terminal it
+  is put in character mode: keys are delivered as typed, unechoed, and Ctrl-C goes to the console break
+  port. At the end of the file the input port returns \hex{04} forever.
+\item[\texttt{-b n}] press Ctrl-C once, after $n$ instructions: it completes the oldest pending break
+  read, or is remembered for the next one. Used by \texttt{tools/test-break.sh}.
+\item[\texttt{-T real|virtual}] the timer's time base (Section~\ref{sec:timer}). \texttt{real}
+  (default): host wall-clock microseconds since start. \texttt{virtual}: rounds / 100, a nominal
+  100~MHz machine; when every core waits only for the timer, virtual time skips ahead to the next
+  deadline. Runs whose output is compared use \texttt{-T virtual}.
+\item[\texttt{-g none}] never open a window. PRESENT is still accepted and still records the frame
+  for \texttt{-F}. (\texttt{-g window} is the default.)
+\item[\texttt{-F file}] at exit, write the frame as of the last PRESENT as a binary PPM. Writes into the
+  framebuffer after that PRESENT do not change the file.
+\item[\texttt{-z n}] window scale, 1--8 (default 1).
+\item[\texttt{-r W}x\texttt{H}] framebuffer geometry (default 1280\,x\,800; width a multiple of 8, from
+  320\,x\,200 to 2560\,x\,1600). The platform table reports it (Section~\ref{sec:stpd}).
+\item[\texttt{-H}] when every core has halted, keep the window open, showing the final memory contents,
+  until it is closed.
+\item[\texttt{-J}, \texttt{-j}] run with the JIT, or interpret only. The default is the JIT, except
+  with \texttt{-t} or \texttt{-T virtual}, which keep the exact one-instruction interleaving.
+\end{description}
+The exit status is 0 when every core halted (or the window was closed), 1 if any core faulted, on
+deadlock or on timeout, and 2 for a usage error.
+
+\subsection{The graphics window}\label{sec:window}
+
+Both simulators open a window (SDL2) the first time software writes into the framebuffer window of
+system memory (a \insn{tput}, a \insn{tamo} or a block-device read landing in
+\hex{3000000}--\hex{3FFFFFF}) or writes PRESENT, whichever comes first; before that they are plain
+terminal programs. The window scans out the framebuffer memory live (height $\times$ stride bytes,
+Section~\ref{sec:fbctl}): it is repainted from the current memory contents at most every 20~ms of host
+wall-clock time (about 30~Hz for \texttt{strata-rtl}, which reads back only the range written since the
+last repaint), only when something was written since then, on expose, and at once on PRESENT. Closing
+the window ends the simulation. A build without SDL2 (\texttt{-DNO\_SDL}) has no window and still
+records frames for \texttt{-F}.
+
+While the window has focus, keys are fed into the console input stream as a terminal sends them:
+printable characters as themselves; Enter \hex{0A}, Backspace \hex{7F}, Tab \hex{09}, Escape \hex{1B};
+the arrows \texttt{ESC [ A}/\texttt{B}/\texttt{C}/\texttt{D} (up, down, right, left); Home
+\texttt{ESC [ H}; End \texttt{ESC [ F}; Delete \texttt{ESC [ 3 \textasciitilde}; Page Up and Page Down
+\texttt{ESC [ 5 \textasciitilde} and \texttt{ESC [ 6 \textasciitilde}; Ctrl+letter as 1--26, except
+Ctrl+C, which is the break key (Section~\ref{sec:console}); Alt+key as ESC followed by the key's bytes.
+The terminal remains an input source at the same time.
+
+\subsection{The JIT}\label{sec:jit}
+
+\texttt{emu/jit/} is a dynamic binary translator with an arm64 and an x86-64 backend, selected at
+compile time; on other hosts the emulator only interprets. It translates the plain integer instruction
+set (ALU, immediates, D-LS loads and stores, branches, \insn{jal}, \insn{jalr}) into host code, a
+superblock at a time (up to 128 instructions, running on past conditional branches, which leave
+through side exits), and chains blocks through a direct-mapped table with one entry per I-LS word.
+Every other instruction, and every instruction that traps, is left to the interpreter: translated code
+stops in front of it with the core's state exactly as the interpreter would have it, so traps are
+precise and \csr{instret} is exact. A \insn{tgetx} invalidates every translation that read the
+overwritten I-LS range. With the JIT a core runs a quantum of up to 8192 instructions per turn, and
+ends its turn early at an instruction that meets other cores (a device or core-control transfer, a far
+atomic, \insn{tany}, \insn{cgive}, \insn{ctake}, \insn{cpoll}, \insn{csend}, \insn{crecv}); a core
+with a pending device read or a pending stop is interpreted. Results of programs that do not depend
+on timing (Section~\ref{sec:determinism}) are identical with and without the JIT; \texttt{make
+test-jit} checks this on every example and on the Forth regression test.
+
+\section{The RTL simulator, \texttt{strata-rtl}}
+
+\begin{shell}
+strata-rtl [-t trace.txt] [-m max_cycles] [-d disk.img] [-i input.txt] [-b cycles]
+           [-T real|virtual] [-g none] [-F frame.ppm] [-z scale] [-r WxH] [-H] image.stx
+\end{shell}
+
+The SystemVerilog implementation (Chapter~\ref{ch:impl}) compiled with Verilator 5 and the harness
+\texttt{sim/main.cpp}. The number of cores is fixed at build time (\texttt{make NCORES=}$n$, default
+8). It accepts the emulator's options with these differences: \texttt{-m} and \texttt{-b} count clock
+cycles; \texttt{-T virtual} makes the timer count cycles / 100 (\texttt{-T real}, the default, reads
+the host clock through a DPI call); there is no \texttt{-c} and no JIT. A console read with no byte
+available is retried by the RTL without stopping the simulation. Halt lines carry the core's cycle
+and stall counts in addition to the emulator's fields, and traces have the same format.
+
+\section{Cross-checking}\label{sec:compare}
+
+\texttt{tools/compare.sh image.stx \ldots} runs each image on both machines with \texttt{-T virtual -g
+none} and requires that they agree on: the exit status; the console output, ignoring lines that begin
+with \texttt{@} (by convention those carry cycle counts or times); each core's halt or fault line,
+without the RTL's cycle and stall counts; and each core's instruction trace. Neither machine may time
+out or deadlock. Because the two machines have entirely different timing, agreement is evidence both
+that the RTL implements the semantics and that the programs satisfy the determinism conditions of
+Section~\ref{sec:determinism}.
+
+\texttt{tools/compare-boot.sh} boots StrataOS from the disk image on both machines with \texttt{-T
+virtual -g none}, feeds the scripted session \texttt{os/demo.txt} to the console, and compares the
+console output and, for every core, the instruction trace of the boot ROM up to the jump into the
+kernel. StrataOS preempts processes on timer ticks, and the two machines' clocks advance at different
+rates per instruction, so the moments of context switches differ; the lines that report timing (the
+figures of \texttt{ps}, \texttt{cores}, \texttt{uptime} and \texttt{sched}) are normalised, and
+everything the programs compute must be identical.
+
+Further scripts:
+\begin{description}[leftmargin=1em,style=nextline]
+\item[\texttt{tools/test-break.sh}] boots StrataOS on both machines, starts \texttt{spin}, presses
+  Ctrl-C partway with \texttt{-b}, then runs another program; both machines must print the same output,
+  show the program killed, and show that the shell survived.
+\item[\texttt{tools/test-preempt.sh}] two \texttt{spin} processes pinned to one worker core both make
+  progress, and \texttt{ps} shows context switches and bytes moved for each.
+\item[\texttt{tools/test-boot-jit.sh}] the scripted session three times with \texttt{-J -T real}: coarse
+  interleaving and host-time preemption; each run must end in a halt, without a fault, with the
+  programs' results present.
+\item[\texttt{tools/test-fb.sh}] runs \texttt{gfx} on both machines with \texttt{-g none -F} and
+  compares the two presented frames byte for byte.
+\item[\texttt{tools/test-jit.sh}] every example and the Forth regression input with \texttt{-J} and
+  \texttt{-j}: same output, exit status, halt lines and frames.
+\item[\texttt{tools/test-sh.sh}] a scripted session of the interactive shell (line editing, history,
+  completion, jobs) compared with \texttt{tools/test-sh.out}.
+\item[\texttt{tools/test-as.sh}] the self-hosted assembler against \texttt{sasm}
+  (Section~\ref{sec:os-as}).
+\end{description}
+
+\section{The conformance suite}\label{sec:conformance}
+
+\texttt{conformance/} holds the architectural conformance suite. Each test in
+\texttt{conformance/tests/} is a bare-metal program that exercises one area of the architecture and
+checks its own results against values derived from this manual: the ALU, loads and stores, and branches
+(generated by \texttt{conformance/gen/*.py}, which compute the expected values independently of every
+implementation), transfers and hazards, pending-read ordering and \cause{pend} traps, capabilities and
+their alignment, revocation domains and endpoints, multicore gifts, core windows and stops, traps,
+\insn{svc} and the user-mode inbox rule, code paging, reserved fields and CSRs, halt draining, and every
+device: console, break and release, platform table, block device, timer and framebuffer controller,
+and device transfers spanning several ports.
+
+A test prints a \term{signature} (lines \texttt{sig} \textit{hex}) and a verdict, \texttt{pass} or
+\texttt{fail} with one \texttt{bad} line per failed check. \texttt{conformance/run.sh} runs every test
+on three machines at once: the emulator interpreting (\texttt{-j}), the emulator with the JIT
+(\texttt{-J}) and the RTL, all with \texttt{-T virtual -g none}, and prints a table of tests by machine.
+A cell passes when the machine ran the test to completion, printed \texttt{pass}, and, for the JIT and
+the RTL, printed exactly the interpreter's signature; otherwise the cell names the reason
+(\texttt{FAIL}~$n$, \texttt{SIG}, \texttt{NOVERD}, \texttt{TIMEOUT}, \texttt{FAULT}, \texttt{DEADLOCK}).
+A test may give extra simulator arguments (such as console input) on a line \texttt{; args:} in its
+header. Cells listed in \texttt{conformance/xfail.txt} (\textit{test machine reason}) are reported as
+\texttt{xfail} and do not fail the run; a listed cell that passes is reported as \texttt{XPASS}.
+
+\texttt{conformance/fuzz/fuzz.py} is a three-way differential fuzzer. Each seed generates a random
+valid program: every ALU function on random and edge values, loads and stores of every width (some out
+of range or misaligned), transfers between the D-LS and system memory with random tags, lengths and
+overlaps followed at once by accesses to the same bytes, far atomics, branches and calls, and a trap
+handler that folds every cause, \csr{epc} and \csr{tval} into a register. The program prints its
+registers, a hash of its memory and its trap count; the three machines must print the same bytes and
+halt with the same \reg{a0}. A failing seed's program is kept for reproduction.
+
+\section{The emulator in a web browser}\label{sec:web}
+
+\texttt{make wasm} compiles the emulator with Emscripten (interpreter only: the JIT is not built) into
+\texttt{build/web/}, and \texttt{make web-site} assembles the project's site with it under
+\texttt{play/}. The page drives the emulator from its animation loop, running rounds for about 10~ms
+per frame, so the browser never blocks; when every core is blocked the frame ends at once. Console
+output and input go through an in-page terminal (xterm.js) with the keyboard mapping of
+Section~\ref{sec:window}, the framebuffer is painted onto a canvas from live memory (only the rows
+written since the last paint), and a status line shows the instruction rate, the cores and the virtual
+time. Presets boot StrataOS on 12 cores, run \texttt{gfx}, \texttt{hello} or \texttt{mandel} on 8
+cores, or start Strata Forth on 8 cores with a 640\,x\,400 screen and its demos
+(Chapter~\ref{ch:forth}); Reset and Ctrl-C buttons complete the controls.
+
+\section{Build targets}
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}>{\ttfamily}l X@{}}
+\toprule
+\textrm{\bfseries Target} & \textbf{Effect}\\\midrule
+make & build \texttt{build/sasm}, \texttt{build/strata-emu}, \texttt{build/strata-rtl}\\
+make examples & assemble every example\\
+make test & every example on both machines (\texttt{compare.sh}); StrataOS boot compared (\texttt{compare-boot.sh}); Ctrl-C (\texttt{test-break.sh}); preemption (\texttt{test-preempt.sh}); StrataOS with the JIT (\texttt{test-boot-jit.sh}); framebuffer frames (\texttt{test-fb.sh}); JIT against interpreter (\texttt{test-jit.sh}); the conformance suite\\
+make conformance & the conformance suite on the interpreter, the JIT and the RTL\\
+make fuzz & the differential fuzzer (\texttt{SEEDS=}$n$, \texttt{FIRST=}\textit{seed})\\
+make test-jit & the JIT against the interpreter\\
+make bench & wall time of the interpreter and the JIT on \texttt{mandel}, \texttt{gfx} and the Forth graphics demo\\
+make run, make run-emu & show every example's output on the RTL, or the emulator\\
+make run-NAME & run one example on the RTL\\
+make show-NAME, show-rtl-NAME & run one example on the emulator (real-time timer) or the RTL and keep its window open after it halts, e.g.\ \texttt{make show-gfx}\\
+make lint & Verilator lint of the RTL\\
+make os & build the boot ROM and the disk image\\
+make boot & boot StrataOS on the emulator (12 cores), interactively\\
+make boot-demo & boot StrataOS on the emulator with the scripted session \texttt{os/demo.txt}\\
+make boot-rtl, boot-rtl-demo & the same on the RTL simulator (\texttt{NCORES} cores)\\
+make ws-demo & the window server's renderers as a bare-metal demo in a window (Chapter~\ref{ch:os})\\
+make ws-shots, ws-check, ws-perf & window-server screenshots; damage-driven frames compared with full redraws; instruction counts\\
+make forth, forth-rtl & the Strata Forth REPL on the emulator or the RTL\\
+make forth-demo-NAME, forth-demos & one Forth demo (\texttt{tiers}, \texttt{multicore}, \texttt{gfx}), or all three, on the emulator\\
+make test-forth & the Forth regression test on both machines\\
+make wasm, web-site & the WebAssembly emulator; the site with the emulator and the source browser\\
+make manual & this manual\\
+make clean & remove \texttt{build/}\\
+\bottomrule
+\end{tabularx}
+\end{center}

@@ -1,0 +1,206 @@
+\chapter{Memory model and soundness}\label{ch:model}
+
+This chapter states precisely what an \IS program can rely on when transfers have latency and cores run
+concurrently, and argues why the architecture guarantees it. The argument is a proof sketch, not a
+mechanised proof.
+
+\section{The reference semantics}
+
+The \term{sequential semantics} $\mathcal{S}$ of an \IS machine is the one the reference emulator
+implements:
+\begin{itemize}
+\item an execution is an interleaving of the cores' instructions, each executed atomically;
+\item every memory transfer is performed completely at the instant its instruction executes, so tags
+  are never busy and no memory transfer ever makes an access stall;
+\item a device read from an event port (console input, the console break port, the timer's WAIT, the
+  framebuffer controller's VSYNC) stays pending until its device completes it
+  (Section~\ref{sec:pendread}); until then its tag is busy, and loads, stores and transfers that overlap
+  its D-LS destination, and \insn{halt}, do not execute;
+\item \insn{cgive} or \insn{csend} to a full sender queue, \insn{ctake} or \insn{crecv} with no eligible
+  gift, and \insn{tany} with no ready source do not execute (the core is blocked) until another core's
+  step or an external event makes them possible.
+\end{itemize}
+The emulator's interpreter runs one particular interleaving (round-robin, one instruction per core per
+turn); with its JIT a core runs up to a quantum of instructions per turn (Section~\ref{sec:jit}).
+$\mathcal{S}$ admits all of them.
+
+An \term{implementation} (such as the RTL) performs transfers in the background with real latency, and
+runs cores truly concurrently. The question is whether its executions are still executions of
+$\mathcal{S}$.
+
+\section{Implementation invariants}
+
+An implementation must maintain four invariants.
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[I1. Local Store hazards stall.] A load, \insn{ltag} or \insn{linst} that overlaps the D-LS
+  destination of an in-flight \insn{tget} waits for it. A store or \insn{linst} that overlaps the D-LS
+  destination of an in-flight \insn{tget} or the D-LS source of an in-flight \insn{tput} waits for it.
+  An instruction fetch from an I-LS address that an in-flight \insn{tgetx} is writing waits for it.
+  A \insn{tget} or \insn{tput} whose D-LS range overlaps the destination of a device read that is still
+  in flight is not issued until that read has completed.
+\item[I2. Per-core order.] The transfers of one core take effect, on the Local Store side and on the far
+  side, in issue order. (The prototype TU executes transfers one at a time, which is sufficient. A
+  parallel TU must preserve the order of transfers whose ranges overlap and of all device accesses.)
+\item[I3. Exclusive writers.] At every instant, for every byte of T2 and T3, the \emph{live}
+  capabilities covering it, wherever they are held (registers, save tables, inboxes, the block device),
+  are either a single capability with \perm{W}, or any number without \perm{W} and \perm{A}
+  (\perm{R}/\perm{X} holders), or any number with only \perm{A}.
+\item[I4. Publishing hand-overs.] \insn{cgive}, \insn{csend}, \insn{cshare}, \insn{catomic} and
+  \insn{tamo} take effect only when none of the issuing core's transfers to T2 or T3 is in flight;
+  \insn{halt} only after all of its transfers, device transfers included, have completed. Revocation (\insn{crevoke},
+  \insn{cundom}) takes effect on every core at once: no use of a capability of the domain begins after
+  it.
+\end{description}
+
+I1, I2 and I4 are obligations on the hardware. I3 is maintained by the instruction set itself:
+\begin{itemize}
+\item it holds at reset, when the only memory capabilities are the linear \reg{c0} and \reg{c1} on core 0;
+\item no instruction copies a linear capability or adds \perm{W} or \perm{A} to one; \insn{csplit}
+  produces disjoint pieces; \insn{cjoin} consumes an operand; \insn{cdom} turns one writable
+  capability into one writable working capability and a revoker that grants no access;
+\item \insn{crevoke} and \insn{cundom} kill every capability of a domain before creating the single
+  writable capability they return, and a domain's region was covered by exactly one writable
+  capability when \insn{cdom} created it;
+\item \insn{cshare} and \insn{catomic} consume the writable capability they convert (they require
+  \perm{R}/\perm{X} and \perm{W} respectively, and drop \perm{W}), so a byte moves from case one to case
+  two or three, never back;
+\item \insn{cgive}, \insn{csend}, \insn{ctake}, \insn{crecv}, \insn{csave}, \insn{crestore} and the
+  block device move capabilities without duplicating linear ones; clearing, halting, revoking and
+  overwriting a copyable or dead capability only remove holders.
+\end{itemize}
+The no-overwrite rule (Section~\ref{sec:nooverwrite}) is not needed for I3; it prevents capabilities
+from being lost by accident.
+
+\section{As-if-synchronous execution}
+
+\begin{rule*}{Theorem 1 (as-if-synchronous)}
+Let $E$ be an execution of an implementation that maintains I1--I4. Then there is an execution $E'$ of
+$\mathcal{S}$ in which every core executes the same instructions with the same operand values, every
+far location and device receives the same values in the same per-core order, and every core ends in
+the same state, except for values derived from timing-visible state (\csr{cycle}, \csr{stalls},
+\insn{tpoll}, \insn{tany}, \insn{cpoll}, \cause{pend} traps), from the values of the timer and from
+the arrival times of external events (console input, Ctrl-C, deadlines, display refreshes) and stop
+requests.
+\end{rule*}
+
+\textit{Proof sketch.} Order the instructions of $E$ by the time they retire, and place each
+transfer's whole effect at its issue point. We show that every value read in $E$ equals the value
+$E'$ reads at the same point.
+
+\emph{Local Store reads.} Let $T$ be a transfer of core $k$ issued at point $p$. By I1, no later
+instruction of $k$ loads from $T$'s \insn{tget} destination before $T$ has written it, so it reads $T$'s
+data, as in $E'$; no later store reaches $T$'s \insn{tput} source before $T$ has read it, so $T$ reads
+the values present at $p$; no later store to a \insn{tget} destination can be overwritten by $T$. By I2,
+later transfers of $k$ touching the same Local Store bytes act after $T$. Fetches are covered by I1 for
+\insn{tgetx}. The Local Stores are private, so no other core interferes.
+
+\emph{Far reads.} Suppose $T$ reads far bytes $B$ through capability $C$. By I3 either (i) $C$ is the
+unique live writable capability for $B$, so only core $k$'s own transfers can change $B$ while $k$ holds
+$C$, and by I2 they act in issue order; or (ii) no live writable capability for $B$ exists, so $B$ is
+immutable and the time of the read is irrelevant. In case (i), a hand-over of $C$ by $k$ takes effect only
+after $T$ has completed (I4), so no write by the next holder precedes $T$'s read; a revocation of $C$'s
+domain is ordered after $T$ as described for writes below. Either way $T$ reads what it
+would at $p$.
+
+\emph{Far writes become visible only through hand-over.} If $T$ writes $B$, core $k$ holds the unique
+writable capability for $B$ (I3). Another core can access $B$ only after obtaining a capability for it,
+which requires $k$ to give away, share or convert $C$ (or a capability containing $B$), or the domain
+owner to revoke it. By I4 a hand-over happens only after $T$ has completed. A revoker runs on another
+core and does not wait for $k$; a supervisor revokes a program's domain only after the program has
+stopped and its core has drained (\insn{halt} waits for every transfer, and the StrataOS dispatcher
+waits for a process's transfers before it reports the process's end), which orders $T$ before the
+revocation. So every other core that reads $B$ does so after $T$'s write, as
+in $E'$ where $T$ precedes the hand-over.
+
+\emph{Atomics} touch only \perm{A}-only segments (I3), which no transfer can reach. They are linearizable
+at the memory; placing each at its linearization point gives an order consistent with $E$. I4 orders
+each atomic after its core's earlier transfers.
+
+\emph{Devices.} Each core's device accesses occur in issue order (I2). Device effects of different
+cores interleave as they did in $E$; that interleaving is one $\mathcal{S}$ also allows.
+
+Combining these, the retirement order of $E$, with transfers moved to their issue points, is a valid
+interleaving of $\mathcal{S}$ that reads and writes the same values. \hfill\qedbox
+
+\begin{rule*}{Corollary 1 (single-core timing independence)}
+The results of a program running on one core, or of one core that accesses only far memory it holds
+exclusively or as immutable shares, are independent of transfer latency and of stalls, except for
+timing-visible state.
+\end{rule*}
+
+\begin{rule*}{Corollary 2 (data-race freedom on T2 and T3)}
+In every execution, two accesses to the same T2/T3 byte by different nodes, at least one of which is a
+transfer write, are ordered by a chain of capability hand-overs (\insn{cgive} $\to$ \insn{ctake}, or
+the device's return of a buffer). Concurrent conflicting accesses can only be far atomics, which are
+indivisible.
+\end{rule*}
+
+Corollary 2 is a property of the instruction set, not a discipline: a racy program cannot be written.
+The \texttt{race} example (Section~\ref{sec:ex-race}) tries the classic races and traps on each.
+
+\section{Multicore determinism}\label{sec:determinism}
+
+Theorem 1 says that an implementation's results are among the results $\mathcal{S}$ allows. It does not
+say that $\mathcal{S}$ allows only one: different interleavings of the cores can produce different
+results, and then real hardware may produce any of them depending on timing. Invariants I1--I4 alone
+guarantee data-race freedom and single-core timing independence; they do \emph{not} make every
+multicore program deterministic. Determinism needs the conditions below.
+
+\begin{rule*}{Theorem 2 (multicore timing independence)}
+A multicore program produces the same results in every execution, and hence on every implementation
+and under every timing, if:
+\begin{enumerate}[label=(\alph*)]
+\item it does not use an any-sender \insn{ctake} where more than one node may give to that core
+  concurrently (it uses \insn{ctake cd, rs} instead), and its results do not depend on \insn{cpoll};
+\item accesses by different cores to one device stream (console output, console input, block-device
+  ports) are serialised by passing a capability or another hand-over;
+\item its results do not depend on timing-visible state (\csr{cycle}, \csr{stalls}, \insn{tpoll},
+  \insn{tany}, \cause{pend} traps), nor on the timer's value, nor on when a stop request, a console
+  break event, a deadline or a display refresh arrives;
+\item its results do not depend on the order in which concurrent far atomics from different cores reach
+  one doubleword (for example, only commutative updates such as \insn{tamo.add} whose returned values
+  are not used, or atomics already ordered by hand-overs).
+\end{enumerate}
+\end{rule*}
+
+\textit{Proof sketch.} Under (a) each core's inbox behaves, for every sender, as a separate FIFO
+channel with blocking reads, because a core always names the channel it reads. By Theorem 1 and (b),
+(c), (d), every core is a deterministic function of the sequence of values it reads from its own Local
+Stores, from far memory it holds exclusively or as immutable shares, and from its channels. Such a
+system is a Kahn process network, whose channel histories and results are independent of scheduling.
+Each channel is bounded (two entries), but its capacity is not shared with any other channel,
+so whether a \insn{cgive} blocks depends only on the history of its own channel, which is itself
+scheduling-independent; bounded Kahn networks with private channel capacity remain determinate.
+\hfill\qedbox
+
+\begin{note}[Condition (d) and the per-sender inboxes]
+Condition (d) follows from the same reasoning as (a)--(c): \texttt{race} and \texttt{parsum} satisfy it
+because they only add and use the final total. No condition on inbox capacity is needed, because
+every sender has its own queue at every receiver: with a single shared queue, gifts from early senders
+could fill the inbox while the receiver waited in \insn{ctake cd, rs} for a slower one, and whether a run
+deadlocked would depend on timing.
+\end{note}
+
+The cross-checking tool \texttt{compare.sh} (Section~\ref{sec:compare}) relies on Theorem 2: it runs
+each example on the emulator and the RTL, which have completely different timing, and requires
+identical console output (ignoring lines beginning with \texttt{@}, which carry cycle counts and
+times),
+identical halt states and identical per-core instruction traces.
+
+\section{What the model does not cover}
+\begin{itemize}
+\item \textbf{Device capabilities} are copyable and writable, so I3 does not apply to device space.
+  Ordering between cores' device accesses is the program's responsibility (condition (b)).
+\item \textbf{Termination.} Theorem 1 relates finished executions; a program can deadlock in
+  $\mathcal{S}$ (all cores waiting in \insn{ctake}/\insn{cgive}) and on hardware alike.
+\item \textbf{Revocation} is an external event for the cores whose capabilities die: a program that
+  uses a capability of a domain while its supervisor revokes the domain traps with \cause{capinv} or
+  not, depending on timing. StrataOS revokes a process's domain only after all of its threads have
+  stopped.
+\item \textbf{Operating systems that preempt.} A time-shared program is stopped and resumed at moments
+  that depend on the timer. Theorem 1 still holds for each program, because a context switch saves and
+  restores exactly the program's architectural state after draining its transfers; Theorem 2 holds for
+  a program whose threads satisfy its conditions, because emulated inbox instructions preserve the
+  per-sender FIFO order.
+\end{itemize}

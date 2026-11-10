@@ -1,0 +1,2 @@
+Strata: memory is explicit I/O, every tier is visible to software,
+and writable memory has exactly one owner at a time.

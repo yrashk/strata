@@ -1,0 +1,279 @@
+\chapter{Capabilities}\label{ch:caps}
+
+A \term{capability} is an unforgeable description of a segment of a far space and of what its holder
+may do with it. Capabilities live only in capability registers, in the save table, in inboxes, and in
+the hands of devices; they never appear in memory.
+
+\section{Format}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[f/.style={draw=accent,fill=accentlight,minimum height=9mm,align=center,font=\small}]
+  \node[f,minimum width=10mm] (v) at (0,0) {valid\\\scriptsize 1};
+  \node[f,minimum width=11mm,right=0pt of v] (s) {space\\\scriptsize 3};
+  \node[f,minimum width=27mm,right=0pt of s] (p) {perms\\\scriptsize\perm{V} \perm{D} \perm{A} \perm{X} \perm{W} \perm{R}};
+  \node[f,minimum width=25mm,right=0pt of p] (b) {base\\\scriptsize 64};
+  \node[f,minimum width=25mm,right=0pt of b] (l) {len\\\scriptsize 64};
+  \node[f,minimum width=10mm,right=0pt of l] (d) {dom\\\scriptsize 4};
+  \node[f,minimum width=12mm,right=0pt of d] (g) {gen\\\scriptsize 16};
+\end{tikzpicture}
+\caption{Logical contents of a capability. The in-register representation is implementation-defined.}
+\label{fig:capfmt}
+\end{figure}
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[valid] Whether the register or slot holds a capability. An empty register has valid = 0 and all
+  other fields zero (\texttt{NULLCAP}).
+\item[space] 2 (T2), 3 (T3), 4 (device), 5 (core control) or 6 (endpoint).
+\item[base, len] The segment is $[\textit{base}, \textit{base} + \textit{len})$. \textit{base} is an
+  absolute address in the space and always a multiple of 8 (Section~\ref{sec:capalign}); for an endpoint
+  it is a node number. \textit{len} is in bytes and need not be a multiple of 8. A segment of length zero
+  is valid: it permits no access but can be split, joined, given and taken like any other.
+\item[perms] A set of the six permissions of Table~\ref{tab:perms}.
+\item[dom] The revocation domain the capability belongs to, 1--15, or 0 for none
+  (Section~\ref{sec:domains}).
+\item[gen] The domain's generation when the capability was made. A capability whose generation is
+  no longer its domain's is dead.
+\end{description}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Capability permissions}\label{tab:perms}
+\begin{tabularx}{\linewidth}{@{}c c X@{}}
+\toprule
+\textbf{Bit} & \textbf{Perm} & \textbf{Allows}\\\midrule
+0 & \perm{R} & \insn{tget}: far $\to$ D-LS; for an endpoint, \insn{crecv}\\
+1 & \perm{W} & \insn{tput}: D-LS $\to$ far; for an endpoint, \insn{csend}. Never combined with \perm{D} in memory spaces\\
+2 & \perm{X} & \insn{tgetx}: far $\to$ I-LS; \insn{xmap}, \insn{xcall}\\
+3 & \perm{A} & far atomics (\insn{tamo}) only\\
+4 & \perm{D} & duplication: the capability is \term{copyable} rather than linear\\
+5 & \perm{V} & revoker: \insn{crevoke} and \insn{cundom} on its domain; grants no access\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\insn{cbase}, \insn{clen} and \insn{cperms} read the fields into integer registers; \insn{cperms}
+returns \texttt{space << 8 | perms}. \insn{cvalid} tests whether a capability is live. The domain and
+generation cannot be read. No instruction converts an integer into a capability that grants access to
+memory: capabilities can be inspected but never forged.
+
+\section{Live capabilities}\label{sec:live}
+
+A capability can be used only while it is \term{live}:
+
+\begin{pseudo}
+func Live(c)
+    if not c.valid or c.dom == 0 then return c.valid; end
+    if c.V then return DOM[c.dom].alive; end        // a revoker outlives revocations
+    return DOM[c.dom].alive and DOM[c.dom].gen == c.gen;
+end
+\end{pseudo}
+
+Every instruction that uses a capability checks \texttt{Live} at the moment it executes and traps with
+\cause{capinv} if the check fails. A capability with a stale generation is \term{dead}: it still
+occupies its register or slot, but it behaves exactly like an empty one. It cannot be used,
+\insn{cvalid} reports 0, and it may be overwritten like an empty register. Revoking a domain therefore
+needs no search for copies: advancing the domain's generation kills every capability made under the
+old one, wherever it is.
+
+\section{Linear and copyable capabilities}\label{sec:linear}
+
+A capability without \perm{D} is \term{linear}. Linear capabilities obey a strict conservation law:
+\begin{itemize}
+\item every instruction that moves a linear capability (\insn{cmov}, \insn{crestrict}, \insn{cshare},
+  \insn{catomic}, \insn{csave}, \insn{crestore}, \insn{cgive}, \insn{csend}) empties its source;
+\item splitting a linear capability produces two linear capabilities for \emph{disjoint} ranges, and
+  joining consumes one of its operands;
+\item no instruction copies one.
+\end{itemize}
+A capability with \perm{D} is \term{copyable}: moving it leaves the source in place.
+
+\begin{rule*}{Writable capabilities are linear}
+No capability for T2 or T3 has both \perm{W} and \perm{D}. Because \perm{W} can never be added to a
+capability (\insn{crestrict} only removes permissions, \insn{cjoin} requires equal permissions,
+\insn{cshare} and \insn{catomic} drop \perm{W}), it follows that for every byte of T2 or T3, at most one
+\emph{live} writable capability covering it exists anywhere in the machine.
+\end{rule*}
+
+Revocation is the one operation that creates a writable capability for memory that already had one,
+and it first kills the old one (Section~\ref{sec:domains}), so the rule holds across revocation.
+
+Device and core-control capabilities are exempt: the device root \reg{c3}, the console capability
+\reg{c2} and the core-control capability \reg{c4} are copyable and writable, so several cores may hold
+the console. Ordering output from several cores to one device is the program's responsibility
+(Section~\ref{sec:determinism}). Endpoints are copyable too.
+
+\section{No silent overwrites}\label{sec:nooverwrite}
+
+\begin{rule*}{Live linear capabilities are never overwritten}
+An instruction that would place a capability in a register or save-table slot that already holds a
+live linear (non-\perm{D}) capability traps with cause \cause{capop} instead.
+\end{rule*}
+
+This applies to the destination of \insn{cmov}, \insn{crestrict}, \insn{cshare} and \insn{catomic}
+(when $\reg{cd} \neq \reg{cs}$), \insn{csplit}, \insn{ctake}, \insn{crecv}, \insn{crestore},
+\insn{cdom}, \insn{crevoke}, \insn{cundom}, \insn{cmkep}, and to the slot of \insn{csave}. A
+destination is \term{replaceable} if it is not live or holds a copyable capability:
+\begin{pseudo}
+func Replaceable(c) = not Live(c) or c.D
+func Linear(c)      = not c.D
+\end{pseudo}
+\insn{cclear} is the one explicit way to discard a capability, linear or not. The rule turns a common
+bug, losing authority by overwriting a register, into a precise trap, and it makes every loss of a
+linear capability visible in the program text.
+
+\section{Deriving capabilities}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Capability operations}\label{tab:capops}
+\begin{tabularx}{\linewidth}{@{}l X l@{}}
+\toprule
+\textbf{Instruction} & \textbf{Result} & \textbf{Source afterwards}\\\midrule
+\insn{cmov cd, cs} & same capability in \reg{cd} & empty if linear\\
+\insn{crestrict cd, cs, rm} & permissions ANDed with \texttt{rm<5:0>} & empty if linear\\
+\insn{csplit cd, cs, rx} & \reg{cs} keeps $[b, b+x)$, \reg{cd} gets $[b+x, b+l)$ & shortened\\
+\insn{cjoin cd, cs} & \reg{cd} extended by \reg{cs}; \reg{cs} must start where \reg{cd} ends & empty\\
+\insn{cshare cd, cs} & perms $(\perm{R}\cup\perm{X})\cap p$, plus \perm{D} & empty if linear\\
+\insn{catomic cd, cs} & perms exactly \perm{A}\perm{D}; source must be writable T2/T3 & empty\\
+\insn{cclear cd} & empty & ---\\
+\insn{cdom cd, cs} & \reg{cd}: working capability in a new domain & revoker (\perm{V})\\
+\insn{crevoke cd, cs} & \reg{cd}: fresh working capability; all older ones dead & revoker kept\\
+\insn{cundom cd, cs} & \reg{cd}: untagged capability for the region; domain freed & empty\\
+\insn{cmkep cd, rx} & \reg{cd}: endpoint for node \reg{rx} & ---\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Every derived capability keeps the domain and generation of its source, so everything cut from a
+domain's working capability dies with it.
+
+\subsection{Sharing}
+\insn{cshare} turns a capability into a non-writable, copyable one, keeping \perm{R} and \perm{X}. The
+usual use is to publish data that will never change again: write it through a linear \perm{RW}
+capability, then \insn{cshare} it and hand copies to every core. The boot ROM does exactly this with the
+OS image (Section~\ref{sec:boot}). \insn{cshare} first waits until none of the core's memory
+transfers is in flight, so every write through the writable capability has landed before any copy exists.
+
+For memory outside any revocation domain, sharing is \emph{irrevocable}: the writable capability is
+consumed and can never be reconstructed, because no operation adds \perm{W}. For memory in a domain,
+the domain's owner ends the sharing with \insn{crevoke} or \insn{cundom}, which kills every share and
+returns a writable capability.
+
+\subsection{Atomic segments}
+\insn{catomic} turns a writable memory capability into an atomic-only, copyable one. Any number of
+cores may hold it, and they can access the segment only with \insn{tamo}, which is indivisible. This
+is how shared mutable state, such as a counter, a lock word or a mailbox, is created. The conversion
+first waits for the core's in-flight memory transfers. Like sharing, it is irrevocable outside a
+domain and ends with the domain inside one.
+
+\subsection{Splitting and joining}
+\insn{csplit} at offset $x$ requires $0 \le x \le \textit{len}$ and $x$ a multiple of 8; either piece may
+be empty. \insn{cjoin}
+is its inverse and checks that the two pieces are adjacent \emph{in order}, in the same space, with
+identical permissions, in the same revocation domain (or both in none); the result keeps the domain
+and generation of \reg{cd}. Together with
+\insn{cgive} and \insn{ctake}, these express data-parallel work division: split an array into one piece
+per core, give the pieces away, take them back in core order and join them (the \texttt{parsum} and
+\texttt{mandel} examples).
+
+\subsection{Alignment}\label{sec:capalign}
+
+\begin{rule*}{Capabilities are 8-byte aligned}
+The base of every capability is a multiple of 8. \insn{csplit} traps with \cause{capop} (\csr{tval} =
+the offset) unless the split offset is a multiple of 8, and no other instruction makes a base.
+\end{rule*}
+
+The reset capabilities start at 0; \insn{cjoin}, \insn{crestrict}, \insn{cshare}, \insn{catomic},
+\insn{cdom}, \insn{crevoke} and \insn{cundom} keep a base; \insn{cmkep} makes an endpoint, whose base is a
+node number. The rule is the same in every space. In memory it guarantees that an aligned offset
+reaches exactly the doubleword at \texttt{base + offset}: a transfer at offset $o$ of a capability
+touches the bytes from $\textit{base} + o$ and no others. In device space, ports, registers and
+windows are 8-byte aligned (Chapter~\ref{ch:platform}), so a capability can be cut to exactly one
+register, and transfers still reach single device bytes by offset. Lengths are not constrained: a
+capability for the one-byte console output port has length 1.
+
+\section{Revocation domains}\label{sec:domains}
+
+A \term{revocation domain} lets the holder of a region of memory lend it out, in any number of pieces,
+shares and atomic segments, to any number of cores, and take all of it back with one instruction. The
+machine has one domain table shared by all cores, with entries 1--15 (Table~\ref{tab:domtab}).
+
+\begin{table}[htbp]
+\centering\small
+\caption{A revocation-domain table entry \texttt{DOM[d]}}\label{tab:domtab}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{Field} & \textbf{Size} & \textbf{Meaning}\\\midrule
+alive & 1 bit & the domain is allocated\\
+gen & 16 bits & the current generation; capabilities of the domain made under another generation are dead\\
+region & & space, permissions, base and length of the capability the domain was created from\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[\insref{cdom} \texttt{cd, cs}] takes a writable, linear T2 or T3 capability that belongs to no
+  domain, allocates the lowest free domain, advances its generation and records the region. \reg{cd}
+  receives the \term{working capability} (the same segment and permissions, tagged with the domain and
+  generation); \reg{cs} becomes the \term{revoker}, a linear capability for the same segment with
+  permission \perm{V} only. The revoker grants no access to memory.
+\item[\insref{crevoke} \texttt{cd, cs}] advances the generation of the revoker's domain. Every
+  capability of the domain made before, in any register, save table, inbox or device, is dead from this
+  instruction on. \reg{cd} receives a fresh working capability for the whole region with its original
+  permissions, and the revoker remains.
+\item[\insref{cundom} \texttt{cd, cs}] advances the generation, frees the domain and consumes the revoker;
+  \reg{cd} receives an untagged capability for the whole region. The memory is back to ordinary,
+  undomained use.
+\end{description}
+
+The three are privileged. A supervisor that runs a program in a domain lends it the working capability
+and keeps the revoker in its save table; whatever the program does with the memory (split it, share it,
+make parts atomic, give pieces to other cores), \insn{cundom} recovers all of it when the program ends.
+A revoker is itself live as long as its domain is allocated, whatever the generation. Because a
+generation is 16 bits wide, it repeats after 65,536 revocations of one domain.
+
+\section{Endpoints}\label{sec:endpoints}
+
+An \term{endpoint} is a capability in space 6 that names a node: its \textit{base} is the physical node
+number. It grants no access to memory, and every transfer through it traps with \cause{perm}. It is used
+with two instructions:
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[\insref{csend} \texttt{cs, ce}] gives \reg{cs} to the node the endpoint names, exactly like
+  \insn{cgive} (same queues, same publication rule), but the node is not relative to the core window
+  and not limited by it. Requires \perm{W} on the endpoint.
+\item[\insref{crecv} \texttt{cd, ce}] takes the oldest gift from the node the endpoint names, like
+  \insn{ctake cd, rs}. Requires \perm{R} on the endpoint; without it the instruction traps with
+  \cause{capinv} (\csr{tval} = the endpoint's register number).
+\end{description}
+
+Both execute in user mode. \insn{ctake}, \insn{cpoll} and the inbox bit of \insn{tany} do not
+(Section~\ref{sec:userinbox}): a user program receives only through an endpoint with \perm{R}, from
+exactly the node that endpoint names, and only if its supervisor chose to give it one.
+
+Only the supervisor can make an endpoint (\insref{cmkep}), with permissions \perm{R}\perm{W}\perm{D}.
+\insn{crestrict} can reduce it to send-only or receive-only. Endpoints are how a supervisor lets a user
+program, confined to its core window, talk to exactly the nodes it chooses. StrataOS gives every
+process send-only endpoints to the cores of its servers and no receive rights at all: a request is a
+message buffer sent through such an endpoint, and the reply is delivered by the kernel of the
+process's core (Section~\ref{sec:os-msg}).
+
+\section{Where capabilities live}
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{Location} & \textbf{Entries} & \textbf{Accessed by}\\\midrule
+capability registers & 16 per core & all capability instructions\\
+save table & 64 per core & \insn{csave}, \insn{crestore} (supervisor only)\\
+inbox & 2 per sender per core; 4 at the block device & \insn{cgive}, \insn{csend} (append); \insn{ctake}, \insn{crecv} (remove); \insn{cpoll}, \insn{tany} (inspect)\\
+block device & while it performs a command & returned to a core's inbox on completion\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+A capability disappears for good when it is cleared, when the core holding it halts, or when it is
+overwritten as a copyable or dead capability. It becomes dead, wherever it is, when its domain is
+revoked or dissolved. Memory whose only linear capability disappears is unreachable for the rest of the
+run, unless it belongs to a domain whose revoker survives.

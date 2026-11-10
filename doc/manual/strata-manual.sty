@@ -1,0 +1,184 @@
+% strata-manual.sty: house style for the Strata Architecture Reference Manual
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{strata-manual}[2026/11/09 Strata manual style]
+
+% ---------------------------------------------------------------- page and fonts
+\RequirePackage[a4paper,top=25mm,bottom=27mm,inner=27mm,outer=23mm,headheight=14pt]{geometry}
+\RequirePackage{libertinus}
+\setmonofont{Inconsolatazi4}[Extension=.otf,UprightFont=*-Regular,BoldFont=*-Bold,
+  ItalicFont=*-Regular,ItalicFeatures={FakeSlant=0.15},BoldItalicFont=*-Bold,
+  BoldItalicFeatures={FakeSlant=0.15},Scale=0.94]
+\RequirePackage{amsmath}
+\RequirePackage[dvipsnames,table]{xcolor}
+\RequirePackage{microtype}
+\RequirePackage{needspace}
+\RequirePackage{emptypage}
+\RequirePackage{array,tabularx,longtable,xltabular,booktabs,multirow,makecell}
+\RequirePackage{enumitem}
+\RequirePackage{bytefield}
+\RequirePackage{listings}
+\RequirePackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,calc,fit,shapes.geometric,backgrounds}
+\RequirePackage{fancyhdr}
+\RequirePackage{titlesec}
+\RequirePackage{titletoc}
+\RequirePackage[font=small,labelfont={bf,color=accent},skip=6pt]{caption}
+\RequirePackage{etoolbox}
+\RequirePackage{xspace}
+\RequirePackage[hidelinks,bookmarksnumbered,bookmarksopen,pdfusetitle]{hyperref}
+\hypersetup{colorlinks=true,linkcolor=accent,urlcolor=accent,citecolor=accent}
+
+% ---------------------------------------------------------------- colours
+\definecolor{accent}{RGB}{0,72,120}
+\definecolor{accentlight}{RGB}{226,236,244}
+\definecolor{rulegrey}{RGB}{150,150,150}
+\definecolor{codebg}{RGB}{246,247,249}
+\definecolor{fixedfield}{RGB}{232,238,244}
+\definecolor{notebg}{RGB}{250,246,232}
+\definecolor{noteborder}{RGB}{214,170,40}
+\definecolor{commentgrey}{RGB}{105,105,105}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em plus 0.1em}
+\setlist{nosep,leftmargin=1.4em,topsep=0.3em}
+\renewcommand{\arraystretch}{1.12}
+\setcounter{tocdepth}{1}
+\setcounter{secnumdepth}{2}
+
+% ---------------------------------------------------------------- headings
+\titleformat{\part}[display]{\centering\Huge\bfseries\color{accent}}
+  {\large\scshape Part \thepart}{1em}{}
+\titleformat{\chapter}[display]{\bfseries\color{accent}}
+  {\Large\scshape \chaptertitlename\ \thechapter}{0.4em}{\Huge}[\vspace{0.4em}{\color{accent}\titlerule[1.5pt]}]
+\titlespacing*{\chapter}{0pt}{0pt}{2.2em}
+\titleformat{\section}{\Large\bfseries\color{accent}}{\thesection}{0.8em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{0.8em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries}{}{0em}{}
+\titlespacing*{\section}{0pt}{1.6em}{0.6em}
+\titlespacing*{\subsection}{0pt}{1.2em}{0.4em}
+\titlespacing*{\subsubsection}{0pt}{0.9em}{0.2em}
+
+% ---------------------------------------------------------------- header / footer
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+\fancyhead[LE]{\small\scshape Strata Architecture Reference Manual}
+\fancyhead[RO]{\small\nouppercase{\rightmark}}
+\fancyhead[RE]{\small\nouppercase{\leftmark}}
+\fancyhead[LO]{\small Prototype edition 0.1}
+\fancyfoot[LE,RO]{\small\thepage}
+\fancyfoot[C]{\scriptsize\color{rulegrey}Strata prototype architecture, November 2026}
+\fancypagestyle{plain}{\fancyhf{}\renewcommand{\headrulewidth}{0pt}\fancyfoot[LE,RO]{\small\thepage}}
+\renewcommand{\chaptermark}[1]{\markboth{\thechapter\quad #1}{}}
+\renewcommand{\sectionmark}[1]{\markright{\thesection\quad #1}}
+
+% ---------------------------------------------------------------- inline markup
+\newcommand{\IS}{Strata\xspace}
+\newcommand{\qedbox}{\tikz[baseline]\draw[line width=0.5pt] (0,0) rectangle (0.62em,0.62em);}
+\newcommand{\insn}[1]{\texttt{#1}}          % mnemonic or assembly fragment
+\newcommand{\reg}[1]{\texttt{#1}}           % register name
+\newcommand{\csr}[1]{\texttt{#1}}           % CSR name
+\newcommand{\cause}[1]{\textsf{#1}}         % trap cause name
+\newcommand{\perm}[1]{\textsf{#1}}          % permission letter
+\newcommand{\field}[1]{\textit{#1}}         % encoding field
+\newcommand{\term}[1]{\textbf{#1}}          % defined term
+\newcommand{\hex}[1]{\texttt{0x#1}}
+\newcommand{\insref}[1]{\hyperref[insn:#1]{\texttt{#1}}}
+\newcommand{\planned}{\textsf{\small\color{BrickRed}[planned]}\xspace}
+\newcommand{\estimate}{\textsf{\small\color{BrickRed}[estimate]}\xspace}
+
+% ---------------------------------------------------------------- boxes
+\newenvironment{note}[1][Note]{%
+  \par\smallskip\noindent
+  \begin{tikzpicture}\node[draw=noteborder,fill=notebg,line width=0.6pt,inner sep=6pt,
+    text width=\dimexpr\linewidth-12pt-1.2pt\relax](n)\bgroup\small\textbf{#1.}\ }%
+  {\egroup;\end{tikzpicture}\par\smallskip}
+\newenvironment{rule*}[1]{%
+  \par\smallskip\noindent
+  \begin{tikzpicture}\node[draw=accent,fill=accentlight,line width=0.6pt,inner sep=6pt,
+    text width=\dimexpr\linewidth-12pt-1.2pt\relax](n)\bgroup\small\textbf{\color{accent}#1}\par}%
+  {\egroup;\end{tikzpicture}\par\smallskip}
+
+% ---------------------------------------------------------------- listings
+\lstdefinelanguage{sasm}{
+  morekeywords={add,sub,and,or,xor,sll,srl,sra,slt,sltu,mul,mulhu,divu,remu,div,rem,
+    addi,slti,sltiu,andi,ori,xori,slli,srli,srai,lui,ld,lw,lwu,lh,lhu,lb,lbu,sd,sw,sh,sb,
+    beq,bne,blt,bge,bltu,bgeu,jal,jalr,tget,tput,tgetx,twait,tpoll,
+    tamo.add,tamo.swap,tamo.cas,tamo.and,tamo.or,
+    cmov,csplit,cjoin,cshare,catomic,crestrict,cbase,clen,cperms,cvalid,cgive,ctake,cpoll,
+    cclear,csave,crestore,csrr,csrw,halt,eret,svc,ltag,linst,xmap,xunmap,xcall,xret,
+    tany,csend,crecv,cdom,crevoke,cundom,cmkep,
+    nop,mv,li,la,neg,j,call,ret,jr,tfence,beqz,bnez,bltz,bgez,bgtz,blez,bgt,ble,bgtu,bleu},
+  morekeywords=[2]{.text,.data,.far,.cluster,.org,.align,.byte,.half,.word,.dword,.ascii,
+    .asciz,.string,.space,.zero,.equ,.set,.include,.global,.globl},
+  alsoletter={.},
+  sensitive=true,
+  morecomment=[l]{;},
+  morecomment=[l]{//},
+  morestring=[b]",
+}
+\lstdefinelanguage{pseudo}{
+  morekeywords={if,then,else,elsif,end,for,to,while,do,return,and,or,not,TRUE,FALSE,
+    func,case,of,when,otherwise,repeat,until,in},
+  morekeywords=[2]{Trap,Stall,Block,DrainTransfers,SignExtend,ZeroExtend,UInt,SInt,
+    CheckTransfer,Replaceable,Linear,NULLCAP,DLS,ILS,Far,Device,BusyTags,Retire,Halt,
+    WaitPendingReads,WaitMemory,
+    PhysicalNode,Inbox,Deliver},
+  sensitive=true,
+  morecomment=[l]{//},
+}
+\lstset{
+  basicstyle=\ttfamily\small,
+  columns=fullflexible,
+  keepspaces=true,
+  keywordstyle=\bfseries\color{accent},
+  keywordstyle=[2]\color{accent!80!black},
+  commentstyle=\itshape\color{commentgrey},
+  stringstyle=\color{OliveGreen!70!black},
+  showstringspaces=false,
+  upquote=true,
+  tabsize=8,
+  aboveskip=0.5em,
+  belowskip=0.5em,
+  xleftmargin=0.8em,
+  framexleftmargin=0.4em,
+  backgroundcolor=\color{codebg},
+  frame=l,
+  framerule=1.5pt,
+  rulecolor=\color{accent!50},
+}
+\lstnewenvironment{asm}[1][]{\lstset{language=sasm,#1}}{}
+\lstnewenvironment{pseudo}[1][]{\lstset{language=pseudo,basicstyle=\ttfamily\small,#1}}{}
+\lstnewenvironment{syntax}[1][]{\lstset{language=sasm,basicstyle=\ttfamily\normalsize,
+  backgroundcolor=,frame=none,aboveskip=0.2em,belowskip=0.2em,#1}}{}
+\lstnewenvironment{shell}[1][]{\lstset{language=,basicstyle=\ttfamily\small,#1}}{}
+
+% ---------------------------------------------------------------- encodings
+\newcommand{\colorbitbox}[3]{\bitbox{#1}{\colorbox{#2}{\makebox[\dimexpr#1\dimexpr\bfwidth\relax-0.8em\relax]{\strut#3}}}}
+\newlength{\bfwidth}
+\setlength{\bfwidth}{0.46cm}
+\newenvironment{encoding}{\par\smallskip\noindent\begin{center}\begin{bytefield}[bitwidth=\bfwidth,
+  endianness=big,bitheight=2.4ex,boxformatting={\centering\footnotesize\ttfamily}]{32}}%
+  {\end{bytefield}\end{center}\vspace{-0.6em}}
+\newcommand{\fx}[2]{\bitbox{#1}{\color{accent}\bfseries #2}}   % fixed field
+\newcommand{\fv}[2]{\bitbox{#1}{#2}}                           % variable field
+\newcommand{\fz}[2]{\bitbox{#1}[bgcolor=black!6]{#2}}          % should-be-zero / ignored
+
+% ---------------------------------------------------------------- instruction entries
+\newcommand{\insthead}[1]{\par\vspace{0.35em}\noindent{\small\bfseries\scshape\color{accent}#1}\par\nobreak\vspace{0.1em}}
+\newenvironment{instruction}[3]{%  #1 mnemonic, #2 title, #3 label key
+  \Needspace{16\baselineskip}\par\vspace{1.4em}%
+  \refstepcounter{section}\label{insn:#3}%
+  \addcontentsline{toc}{section}{\protect\numberline{\thesection}\texttt{#1}\enspace #2}%
+  \markright{\thesection\quad\texttt{#1}}%
+  \noindent{\color{accent}\rule{\linewidth}{1.4pt}}\par\nobreak\vspace{-0.15em}%
+  \noindent{\Large\bfseries\ttfamily #1}\hfill{\large\bfseries #2}\hspace{1em}{\small\color{rulegrey}\thesection}\par\nobreak
+  \vspace{-0.3em}\noindent{\color{accent}\rule{\linewidth}{0.4pt}}\par\nobreak}%
+  {\par}
+\newenvironment{exctable}{\par\noindent\small
+  \tabularx{\linewidth}{@{}>{\sffamily}p{5.2em}X>{\raggedright\arraybackslash}p{9.5em}@{}}
+  \toprule \textrm{\bfseries Cause} & \textbf{Condition (checked in this order)} & \textbf{\texttt{tval}}\\\midrule}%
+  {\bottomrule\endtabularx\par}
+
+\endinput

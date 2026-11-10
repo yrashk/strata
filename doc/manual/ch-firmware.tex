@@ -1,0 +1,178 @@
+\chapter{Firmware interface and boot}\label{ch:firmware}
+
+\section{The Strata Firmware Interface (SFI v1)}\label{sec:sfi}
+
+The firmware is a \emph{library}, not a resident runtime. There is no firmware call table and no
+firmware code running beneath the OS: the boot ROM includes the library (\texttt{firmware/fw.s}) in its
+own image, and an OS that wants the same services includes it too, or replaces any routine with its
+own. The contract consists of the API below and two platform facts: the machine describes itself in the
+platform table, and devices are reached only through capabilities derived from the device root \reg{c3}.
+
+\subsection{Conventions}
+The firmware follows the calling convention of Appendix~\ref{app:abi}, with these additions:
+
+\begin{table}[htbp]
+\centering\small
+\caption{SFI register, capability and tag conventions}\label{tab:sficonv}
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+\textbf{Resource} & \textbf{Use}\\\midrule
+\reg{gp} & must hold the address of label \texttt{GPBASE}, which the including program defines at the
+  start of its \texttt{.data}; firmware state is addressed relative to it\\
+\reg{c0} & memory root, owned by the caller\\
+\reg{c2} & console output (copyable)\\
+\reg{c3} & device root (copyable)\\
+\reg{c9} & buffer argument for block I/O\\
+\reg{c10}, \reg{c11} & OS code and data shares, used by \texttt{fw\_start\_core}\\
+\reg{c12}--\reg{c15} & clobbered by firmware routines; must not hold linear capabilities on entry
+  (the routines write them, and would trap with \cause{capop})\\
+save slots 62, 63 & block-device window, console window\\
+\reg{tg12}--\reg{tg15} & used by firmware transfers\\
+\reg{a0}--\reg{a7}, \reg{t0}--\reg{t6} & arguments, results and scratch; clobbered unless stated\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{API}
+
+\begin{table}[htbp]
+\centering\small
+\caption{SFI v1 routines}\label{tab:sfiapi}
+\begin{tabularx}{\linewidth}{@{}>{\ttfamily}l X@{}}
+\toprule
+\textrm{\bfseries Routine} & \textbf{Description (result in \reg{a0})}\\\midrule
+fw\_init() & read and verify the platform table (magic and checksum), save the console window; 0 or $-1$\\
+fw\_cores() & number of cores, from the platform table\\
+fw\_ndev() & number of platform table entries\\
+fw\_dev(i) & D-LS address of entry $i$, or 0\\
+fw\_find(type, n) & D-LS address of the $n$-th entry of a type (1 memory, 2 console, 3 platform table, 4 block device, 5 framebuffer, 6 timer), or 0\\
+fw\_mem(space) & bytes of memory in a space (2 = T2, 3 = T3)\\
+fw\_describe() & print the platform inventory, one line per entry\\
+fw\_window(base, size) & \reg{c13} = a capability for device window $[\textit{base}, \textit{base}+\textit{size})$, cut from a copy of \reg{c3}\\
+fw\_blk\_open(entry) & open a block device given its platform entry; 0 or $-1$\\
+fw\_blk\_blocks() & capacity of the open block device, in blocks\\
+fw\_blk\_read(lba, n, off) & read $n$ blocks into \reg{c9} at byte offset \textit{off}; status (Table~\ref{tab:blkstatus})\\
+fw\_blk\_write(lba, n, off) & write $n$ blocks from \reg{c9} at byte offset \textit{off}; status\\
+fw\_getc() & next console input byte; waits; 4 at end of input\\
+fw\_puts(addr, len) & print \textit{len} bytes from D-LS address \textit{addr}\\
+fw\_putc(ch), fw\_putnl() & print a character, a newline\\
+fw\_putdec(v), fw\_puthex(v) & print unsigned decimal, or \texttt{0x} and 16 hex digits\\
+fw\_start\_core(core) & give a secondary core the OS code share (\reg{c10}), data share (\reg{c11}) and the device root (\reg{c3}), in that order\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\texttt{fw\_init}, \texttt{fw\_blk\_open}, the block routines and \texttt{fw\_getc} use the
+capability save table, and the block routines take the buffer back with \insn{ctake}; they therefore run
+only in supervisor mode, and a user-mode program that calls them traps with \cause{priv}. The printing
+routines need only \reg{c2} and work in either mode. The firmware has no timer or framebuffer routines:
+a program finds those devices with \texttt{fw\_find}, cuts a capability with \texttt{fw\_window} (or
+with \insn{csplit} from its memory root, for the framebuffer) and uses plain transfers, as the
+\texttt{clock} and \texttt{gfx} examples do (Chapter~\ref{ch:examples}).
+
+The block routines follow the protocol of Section~\ref{sec:blkdev}: they build the command, submit it,
+\insn{cgive} \reg{c9} to the device and take it back with \insn{ctake c9, t1}, accepting it only from
+the device's node, then read the completion. Gifts other cores send meanwhile stay in their own queues. While the device
+holds the buffer the caller cannot touch it, and when \insn{ctake} returns the data is in memory. The
+printing routines return as soon as their \insn{tput} has issued; a later store into the same buffer
+waits for it.
+
+\section{Boot protocol}\label{sec:boot}
+
+At reset every core runs the boot ROM image at I-LS address 0, in supervisor mode. The ROM's code and
+data occupy the bottom of the Local Stores. The ROM never leaves supervisor mode, and it enters the OS in
+supervisor mode.
+
+\begin{enumerate}
+\item Core 0 prints a banner, calls \texttt{fw\_init} and \texttt{fw\_describe}, finds block device 0 in
+  the platform table and opens it.
+\item It cuts its memory root into four pieces (Table~\ref{tab:memmap}): \reg{c0} keeps
+  $[0, 15~\text{MiB})$; the load area $[15~\text{MiB}, 16~\text{MiB})$ goes to \reg{c9}; the memory above
+  it, $[16~\text{MiB}, 48~\text{MiB})$, to \reg{c13}; and the framebuffer window
+  $[48~\text{MiB}, 64~\text{MiB})$ to \reg{c14}. It reads block 0 into the load area and checks the boot
+  header magic.
+\item It reads the OS code and data images from disk into the load area (at offsets \hex{10000} and
+  \hex{20000}) and, if the header names one, the kernel's \term{far image} at offset \hex{30000} (at
+  most \hex{D0000} bytes). It then \insn{csplit}s the load area into capabilities of exactly the images'
+  sizes and \insn{cclear}s the rest.
+\item It turns the images into read-only shares with \insn{cshare} (code in \reg{c10}, data in
+  \reg{c11}, the far image, readable and executable, in \reg{c12}) and gives each secondary core a copy
+  of the code and data shares, plus the device root, with \texttt{fw\_start\_core}. Secondary cores wait
+  for these three gifts with \insn{ctake}. The far image share stays on core 0.
+\item Every core copies the code into its own I-LS at \hex{4000} with \insn{tgetx} and the data into its
+  D-LS at \hex{A000} with \insn{tget}, sets \reg{a0} = its core number, and jumps to \hex{4000} without
+  waiting: fetching or loading bytes still in flight stalls.
+\end{enumerate}
+
+\begin{table}[htbp]
+\centering\small
+\caption{What the boot ROM hands to the OS}\label{tab:boothand}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{Register} & \textbf{Cores} & \textbf{Capability}\\\midrule
+\reg{c0} & core 0 & system memory $[0, 15~\text{MiB})$, \perm{RWX}\\
+\reg{c1} & core 0 & the cluster store (untouched since reset)\\
+\reg{c2} & every core & console output\\
+\reg{c3} & every core & the device root\\
+\reg{c4} & core 0 & core control (untouched since reset)\\
+\reg{c10}, \reg{c11} & every core & read-only shares of the OS code and data images\\
+\reg{c12} & core 0 & a read and execute share of the far image, exactly
+  $[\hex{F30000}, \hex{F30000} + \textit{its length})$\\
+\reg{c13} & core 0 & system memory $[16~\text{MiB}, 48~\text{MiB})$, \perm{RWX}\\
+\reg{c14} & core 0 & the framebuffer window $[48~\text{MiB}, 64~\text{MiB})$, \perm{RWX}\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The 1~MiB load area is never returned: it holds the OS images, now immutable. The far image holds code
+the OS does not keep resident: its labels are far addresses relative to the start of \reg{c12}, and the
+OS runs it with \insn{xcall} through \reg{c12} (Section~\ref{sec:os-kpaging}).
+
+\subsection{Boot header}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Boot header (block 0, little-endian)}\label{tab:boothdr}
+\begin{tabular}{@{}r l l@{}}
+\toprule
+\textbf{Offset} & \textbf{Type} & \textbf{Field}\\\midrule
+0 & char[8] & magic \texttt{"STBOOT01"}\\
+8 & u32 & code LBA\\
+12 & u32 & code blocks\\
+16 & u32 & code I-LS address (\hex{4000})\\
+20 & u32 & data LBA\\
+24 & u32 & data blocks\\
+28 & u32 & data D-LS address (\hex{A000})\\
+32 & u32 & entry I-LS address (\hex{4000})\\
+36 & u32 & directory LBA (1; used by the OS)\\
+40 & u32 & first free LBA (used by the OS)\\
+44 & u32 & far image LBA (0 if there is none)\\
+48 & u32 & far image length in blocks\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The boot ROM uses the LBA and block-count fields. The address fields document the layout; the
+prototype ROM uses the fixed addresses \hex{4000} and \hex{A000} rather than reading them.
+
+\subsection{Disk layout}
+
+\texttt{tools/mkdisk -o disk.img -k kernel.stx [-b blocks] [file \ldots]} builds a bootable disk image
+(default 8192 blocks, 4~MiB) from the kernel image and up to 128 files:
+
+\begin{center}\small
+\begin{tabular}{@{}l l@{}}
+\toprule
+\textbf{Blocks} & \textbf{Contents}\\\midrule
+0 & boot header\\
+1--8 & directory: 128 entries of \{ char name[24], u32 first LBA, u32 size in bytes \}\\
+9\ldots & OS code image (I-LS bytes \hex{4000}--\hex{7FFF}), then OS data image (D-LS bytes \hex{A000}--\hex{DFFF})\\
+then & the far image: the kernel image's T3 section (\texttt{.far}), whose offset 0 is far address 0 of \reg{c12}\\
+then & each file given on the command line, block-aligned, under its base name\\
+rest & free space for files the OS creates\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A name shorter than 24 bytes is zero-padded. The code and data images are limited to 16~KiB each and
+the far image to \hex{D0000} bytes (832~KiB). A file is a contiguous run of blocks.

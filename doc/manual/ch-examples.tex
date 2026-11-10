@@ -1,0 +1,259 @@
+\chapter{Example programs}\label{ch:examples}
+
+The \texttt{examples/} directory contains eleven programs, each commented line by line. They all run on
+the bare machine, in supervisor mode, share the console helpers in \texttt{examples/lib/print.s}, and are
+cross-checked between the emulator and the RTL by \texttt{make test}. This chapter explains what each one
+demonstrates and shows its central code.
+
+Nine of them also run unmodified under StrataOS (Chapter~\ref{ch:os}), in user mode, as bare-metal
+programs: the disk carries each one assembled for I-LS \hex{8000}, and \texttt{-n N prog} runs it as $N$
+time-shared threads on $N$ contiguous worker cores, which it sees as cores $0 \ldots N-1$ through
+\csr{corebase} and \csr{corecount}; their \insn{ctake}, \insn{cpoll} and inbox \insn{tany} are emulated
+by the dispatcher. \texttt{clock} (Section~\ref{sec:ex-clock}) and \texttt{gfx}
+(Section~\ref{sec:ex-gfx}) are bare-metal only: they cut their device capabilities from the device
+root \reg{c3}, which under StrataOS only the \texttt{dev} server holds.
+
+\section{Conventions shared by the examples}
+\begin{itemize}
+\item Every core starts at \texttt{\_start}; cores not needed by an example \insn{halt} at once.
+\item Output goes through \reg{c2} with \insn{tput} on tag \reg{tg15} (\texttt{print\_str},
+  \texttt{print\_dec}, \texttt{print\_hex}, \texttt{print\_nl}, \texttt{print\_kv}). The helpers do not
+  wait: reusing their buffer stalls until the previous \insn{tput} has read it.
+\item Lines starting with \texttt{@} carry cycle counts or times; they differ between the emulator and the RTL and
+  are ignored by \texttt{compare.sh}.
+\end{itemize}
+
+\section{\texttt{hello}: Local Stores, output, and a token}\label{sec:ex-hello}
+Each core prints one line, in core order. Core $k$ waits with \insn{ctake c3, t0} for a token from core
+$k-1$ only, prints, and passes a copy of its console capability on with \insn{cgive}. Because
+\insn{cgive} waits for the giver's memory transfers, each line is completely out before the next core starts,
+so the output is deterministic on any timing. The program is shown in Chapter~\ref{ch:intro}.
+
+\begin{shell}
+Hello from Strata core 0 of 4
+Hello from Strata core 1 of 4
+...
+\end{shell}
+
+\section{\texttt{stream\_sum}: streaming and double buffering}\label{sec:ex-stream}
+Sums a 128~KiB array in T3 twice, in 8~KiB chunks. The plain version issues a \insn{tget} and immediately sums the buffer;
+each load stalls until its bytes arrive. The double-buffered version prefetches chunk $k+1$ into one
+buffer while summing chunk $k$ in the other. Both are correct by the as-if-synchronous rule; only the
+cycle counts differ.
+
+\begin{asm}
+dbl_loop:
+        addi  s4, s4, -1                ; this iteration consumes one chunk
+        beqz  s4, dbl_sum               ; nothing left to prefetch
+        tget  tg1, s8, c0, s2, s6       ; prefetch the next chunk into the other buffer
+        add   s2, s2, s6
+dbl_sum:
+        mv    a0, s7                    ; sum the current chunk while the prefetch runs
+        call  sum_chunk
+        mv    t0, s7                    ; swap the two buffers
+        mv    s7, s8
+        mv    s8, t0
+        bnez  s4, dbl_loop
+\end{asm}
+
+\section{\texttt{swcache}: a software-managed cache}\label{sec:ex-swcache}
+Builds a 4-way, 32-set cache of 64-byte lines in the D-LS, describes it with \csr{ttag}, \csr{tdata} and
+\csr{tgeom}, and reads 4000 pseudo-random entries of a 64~Ki-entry table in T3 through it, checking every
+value. The lookup routine is shown in Section~\ref{sec:swcache}. Hit and miss counts are deterministic,
+because the replacement policy is software-visible state, not timing.
+
+\section{\texttt{overlay}: code loaded on demand}\label{sec:ex-overlay}
+Three routines live in T3 (\texttt{.far}) and are called with \insn{xcall} through two 64-byte I-LS
+slots. On a miss the handler loads the routine with \insn{tgetx}, maps it with \insn{xmap} and returns
+with \insn{eret} to retry the call. It saves its temporaries to a D-LS area addressed from \reg{x0}
+because a handler has no free register. It uses exact mapping (\csr{xslot} = 0); the StrataOS
+\texttt{units} program shows slot mapping, far links and demand paging (Section~\ref{sec:os-paging}).
+Under StrataOS the handler is the program's own user-mode handler: its \insn{csrw tvec} sets
+\csr{utvec}, and its misses never reach the kernel.
+
+\begin{asm}
+handler:
+        sd    t0, hsave+0(zero)         ; save temporaries without a base register
+        ...
+        csrr  t0, cause
+        li    t1, 8                     ; 8 = xmiss
+        bne   t0, t1, fatal
+        csrr  t0, tval                  ; far address of the code
+        cbase t1, c0
+        sub   t0, t0, t1                ; its offset within c0
+        ...
+        tgetx tg2, t2, c0, t0, t3       ; copy the code into slot 0
+        xmap  0, t2, c0, t0             ; map far address -> slot 0
+        ...                             ; restore temporaries
+        eret                            ; re-execute the xcall, which now hits
+\end{asm}
+
+\section{\texttt{faults}: the protection model, one trap at a time}\label{sec:ex-faults}
+Installs a handler that records the cause and skips the trapping instruction, then commits ten
+violations in turn: reading past a segment (\cause{bounds}), a misaligned transfer (\cause{xalign}),
+using a capability after moving it (\cause{capinv}), writing through a share (\cause{perm}), a load
+outside the D-LS (\cause{lsfault}), an atomic on ordinary memory (\cause{perm}), an undefined instruction
+(\cause{illegal}), splitting beyond the end (\cause{capop}), overwriting a live capability
+(\cause{capop}) and giving to a halted core (\cause{capop}).
+
+\section{\texttt{pipeline}: zero-copy producer and consumer}\label{sec:ex-pipeline}
+Core 0 fills 4~KiB buffers in T3 and gives each to core 1, which sums it and gives it back. Two buffers
+circulate, so filling block $k+1$ overlaps summing block $k$. The data never moves between cores;
+only capabilities do, and each \insn{cgive} both transfers ownership and guarantees the data is in
+memory.
+
+\begin{asm}
+        tput  tg0, s5, c4, zero, s6     ; copy the block into the buffer c4 names
+        li    t0, 1
+        cgive c4, t0                    ; hand it over (waits for the tput; c4 becomes empty)
+        ...
+consumer:
+        ctake c4                        ; wait for the next block's capability
+        tget  tg0, s5, c4, zero, s6     ; bring it into our own Local Store
+        li    t0, 0
+        cgive c4, t0                    ; return the buffer at once (waits for the tget)
+\end{asm}
+
+\section{\texttt{parsum}: parallel reduction}\label{sec:ex-parsum}
+Core 0 makes an 8-byte accumulator atomic with \insn{catomic}, gives every core a copy, splits the array
+capability into one piece per core and gives each piece away. Every core sums its piece and adds the
+partial sum with \insn{tamo.add}. Core 0 takes the pieces back \emph{in core order} with
+\insn{ctake c5, s3} and \insn{cjoin}s them, so it ends owning the whole array again, regardless of the
+order in which the cores finished.
+
+\begin{asm}
+par_take:
+        bge   s3, s7, par_done          ; all pieces are back
+        ctake c5, s3                    ; take a piece back from core s3 only
+        cjoin c4, c5                    ; append it: c4 grows back to the whole array
+        addi  s3, s3, 1
+        j     par_take
+par_done:
+        tamo.add s8, c6, zero, zero     ; atomic add of 0 = atomic read of the total
+\end{asm}
+
+\section{\texttt{mandel}: one frame, many owners}\label{sec:ex-mandel}
+The frame buffer in T3 is split into one band of rows per core. Each core renders into its own band
+(a stray write into another band would trap) and gives the band back; core 0 rejoins the bands in core
+order and prints the whole frame with one transfer. Arithmetic is fixed point with 24 fractional bits.
+Each row is rendered into one D-LS buffer and sent with \insn{tput}; the next row's stores into that
+buffer simply wait for the previous \insn{tput}.
+
+\section{\texttt{race}: the races that cannot be written}\label{sec:ex-race}
+Attempts the three classic races. A lost update is impossible because the shared counter is an atomic
+segment, reachable only through \insn{tamo}; a plain \insn{tput} to it traps with \cause{perm}, and two
+cores adding 1000 each always leave 2000. Use-after-give is impossible because giving empties the
+register; the attempt traps with \cause{capinv}. A stale read is impossible because a \insn{cgive}
+completes only after the giver's writes have landed.
+
+\begin{shell}
+core 0 writes a buffer it gave away   -> capinv
+shared counter after 2 x 1000 adds    = 2000
+core 1 plain store to the counter     -> perm
+message from core 1: core 1 says hi through owned T3
+\end{shell}
+
+\section{\texttt{clock}: the timer, and events without interrupts}\label{sec:ex-clock}
+Core 0 finds the timer in the platform table (entry type 6), cuts a capability for exactly its 32
+bytes of device space out of the device root, and reads FREQ and NOW with 8-byte \insn{tget}s
+(Section~\ref{sec:timer}). It then gives core 1 an 8-byte mailbox of system memory; core 1 sums the
+squares of 1 to 300, writes the result into the mailbox and gives it back. Meanwhile core 0 waits for
+four ticks 5~ms apart. Each tick is armed by writing DEADLINE and starting a read of WAIT, which stays
+in flight until the timer reaches the deadline:
+
+\begin{asm}
+arm:
+        add   s10, s5, t0               ; s10 = absolute deadline: no drift from late wakeups
+        la    t2, dlbuf
+        sd    s10, 0(t2)
+        li    t3, R_DL                  ; DEADLINE
+        li    t4, 8                     ; 8 bytes; the value takes effect when byte 7 lands
+        tput  tg2, t2, c5, t3, t4       ; DEADLINE = s10
+        la    t2, wbuf                  ; where NOW goes when the wait is over
+        li    t3, R_WAIT
+        tget  tg1, t2, c5, t3, t4       ; start waiting: tg1 stays busy until NOW >= DEADLINE
+        ret                             ; return at once
+\end{asm}
+
+The event loop waits for whichever comes first, the WAIT completing (tag 1 idle) or a capability
+arriving from core 1 (bit 16), with one \insn{tany}:
+
+\begin{asm}
+events:
+        tany  t0, s7                    ; s7 = bit 1 (tag 1) | bit 16 (a gift)
+        srli  t1, t0, 16
+        andi  t1, t1, 1
+        beqz  t1, no_gift
+        li    t0, 1
+        ctake c7, t0                    ; the mailbox, from core 1 only
+        ...
+no_gift:
+        andi  t1, s8, 2                 ; tag 1: the WAIT completed, NOW is in wbuf
+\end{asm}
+
+There is no interrupt and no handler: a device event is a transfer completing, and waiting for several
+events is waiting for several tags. Depending on timing, core 1's line comes before or after the first
+tick; the program checks that every WAIT ended at or after its deadline. Times are printed on
+\texttt{@} lines.
+
+\begin{shell}
+timer at device offset 12288, 1000000 ticks per second
+FREQ register says 1000000
+core 1 finished while we waited: 1^2 + ... + 300^2 = 9045050
+tick 1
+...
+every WAIT ended at or after its DEADLINE: yes
+\end{shell}
+
+\section{\texttt{gfx}: a picture in the framebuffer, one band per core}\label{sec:ex-gfx}
+Renders the Mandelbrot set in colour into the framebuffer, on every core. Nothing about the display is
+built in: core 0 cuts a window onto the platform table out of the device root, removes its write
+permission with \insn{crestrict}, and gives each core a copy, so every core reads the framebuffer entry
+(type 5) itself: the base address in system memory, and width, height, stride and pixel format from
+its info word (Section~\ref{sec:fbctl}). The program draws whatever size it is told, for example with
+\texttt{strata-emu -r 640x480}.
+
+Core 0 cuts the visible part of the framebuffer, height $\times$ stride bytes, out of its memory
+capability and deals it out in bands of rows:
+
+\begin{asm}
+        csplit c6, c0, s2               ; c6 = system memory from the framebuffer on
+        csplit c7, c6, s3               ; c6 = exactly the visible framebuffer
+        csplit c5, c6, s9               ; c6 = band 0, c5 = the rest
+give:
+        ...
+        csplit c8, c5, t2               ; c5 = core s8's band, c8 = the rest
+        cgive c5, s8                    ; core s8 owns it now
+        cmov  c5, c8
+\end{asm}
+
+Each core computes rows of points at half resolution in fixed point (24 fraction bits), stores two
+pixels per point as one doubleword into one of two D-LS row buffers, and sends the row twice with
+\insn{tput}, a 2\,x\,2 block per point, while the next row is computed into the other buffer. A core can
+write only its own band. When it is done it gives the band back; \insn{cgive} completes only after the
+core's transfers into it have landed, so once core 0 has taken every band back, in core order, and
+rejoined them with \insn{cjoin}, the picture in memory is complete. The display scans memory out
+live, so the bands appear as they are drawn.
+
+Core 0 then cuts a capability for the framebuffer controller's two ports and writes PRESENT, ``this
+frame is complete''; the simulators capture this frame for \texttt{-F}. Waiting for the display is
+waiting for a transfer: a read of VSYNC completes at the next 60~Hz refresh with the frame number.
+
+\begin{asm}
+        tput  tg0, s1, c9, zero, t1     ; PRESENT (the value written is ignored)
+        ...
+vsync:
+        li    t0, R_VSYNC
+        li    t1, 8
+        tget  tg1, s1, c9, t0, t1       ; completes at the next refresh
+        ...
+        ld    a0, 0(s1)                 ; the frame number: this load waits for the refresh
+\end{asm}
+
+\begin{shell}
+framebuffer: 1280 x 800, 5120 bytes per row, format 1, at 0x0000000003000000
+rendered by 8 cores; presented, waited for 3 refreshes
+\end{shell}
+
+\texttt{tools/test-fb.sh} runs \texttt{gfx} on the emulator and the RTL and requires the two presented
+frames to be byte-identical; \texttt{make show-gfx} keeps its window open after it halts.
