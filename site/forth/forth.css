@@ -83,6 +83,45 @@ details.wsrc pre.lst { margin: 6px 0 4px; font-size: 12.5px; line-height: 1.55; 
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 .pg-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* the editor: a transparent textarea laid exactly over a <pre> that hl.js
+   colours (same font, padding, no wrapping), both inside one box that
+   scrolls them together; the font is 16 px where iOS would zoom into a
+   smaller one */
+.pg-edbar {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+  padding: 7px 10px 6px 12px; border-bottom: 1px solid rgba(31, 111, 139, 0.3);
+}
+.pg .small.pg-run { color: var(--bg); background: var(--cyan); box-shadow: none; }
+.pg .small.pg-run:hover { background: var(--amber); color: var(--bg); }
+.pg-key { margin-left: auto; font: 11px var(--mono); color: var(--dim); box-shadow: none; padding: 0; }
+.pg-ed {
+  --ed-font: 13px/1.55 var(--mono);
+  flex: none; height: 34%; min-height: 96px; max-height: 70%; resize: vertical;
+  position: relative; overflow: auto; background: rgba(12, 22, 38, 0.6);
+  border-bottom: 1px solid rgba(31, 111, 139, 0.45);
+  scrollbar-width: thin; scrollbar-color: var(--edge) transparent;
+}
+.pg-ed:focus-within { box-shadow: inset 2px 0 0 var(--amber); }
+.pg-ed > pre, .pg-ed > textarea {
+  box-sizing: border-box; margin: 0; padding: 8px 12px 10px; border: 0; border-radius: 0; box-shadow: none;
+  font: var(--ed-font); letter-spacing: 0; tab-size: 2; font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0;
+  white-space: pre; overflow-wrap: normal; word-break: normal; background: transparent; clip-path: none; max-width: none;
+}
+.pg-ed > pre {
+  display: inline-block; vertical-align: top; min-width: 100%; min-height: 100%;
+  color: var(--text); pointer-events: none;
+}
+.pg-ed > pre code { font: inherit; color: inherit; }
+/* forth.js sizes the textarea to the <pre> */
+.pg-ed > textarea {
+  position: absolute; left: 0; top: 0; width: 100%; height: 100%; resize: none; overflow: hidden; outline: none;
+  color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--amber);
+}
+.pg-ed > textarea::selection { background: rgba(77, 225, 255, 0.28); color: transparent; }
+@media (max-width: 820px), (pointer: coarse) {
+  .pg-ed { --ed-font: 16px/1.5 var(--mono); }
+}
 .pg-term { flex: 1 1 auto; min-height: 120px; padding: 8px 6px 8px 12px; }
 #pg-term { height: 100%; overflow: hidden; }
 #pg-term .xterm { height: 100%; }
@@ -111,7 +150,7 @@ details.wsrc pre.lst { margin: 6px 0 4px; font-size: 12.5px; line-height: 1.55; 
 @media (max-width: 1279.98px) {
   body.doc-forth { padding-bottom: var(--pg-bar); }
   .pg { position: fixed; left: 0; right: 0; bottom: 0; border-top: 1px solid var(--edge); box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5); }
-  .pg-body { display: none; height: min(62vh, 560px); }
+  .pg-body { display: none; flex: none; height: min(66vh, 600px); }  /* a definite height: the editor is a share of it */
   .pg.open .pg-body { display: flex; }
   body.doc-forth .doc-side { height: calc(100vh - var(--nav-h) - var(--pg-bar)); }
 }
@@ -124,8 +163,10 @@ details.wsrc pre.lst { margin: 6px 0 4px; font-size: 12.5px; line-height: 1.55; 
   .pg-ctl { gap: 6px; }
   .pg-demos select { max-width: 6.5em; }
   .pg .small { padding: 5px 8px; }
-  .pg-body { height: 64vh; }
+  .pg-body { height: 66vh; }
   .pg-screen canvas { max-height: 34vh; }
+  .pg-ed { height: 38%; }
+  .pg-key { display: none; }
   .try { gap: 10px; }
   article.word { padding: 12px 14px 6px; margin-left: -6px; margin-right: -6px; }
 }

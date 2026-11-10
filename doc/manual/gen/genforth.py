@@ -765,7 +765,7 @@ def word_html(w, ex):
     try_html = ""
     if ex:
         try_html = ('<div class="try"><button type="button" class="try-b" data-try="%s" '
-                    'title="Type this into the playground">Try</button>'
+                    'title="Put this in the playground editor and run it">Try</button>'
                     '<code class="language-forth">%s</code></div>\n' % (esc(ex), esc(ex)))
     hay = " ".join([w["name"], eff, desc, kind_text(w), os.path.basename(w["file"]),
                     re.sub(r"<[^>]+>", "", w["avail"][1]), " ".join(w["flags"])]).lower()

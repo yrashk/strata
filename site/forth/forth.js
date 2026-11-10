@@ -15,6 +15,11 @@
   const PLAY = "../play/";
   const params = new URLSearchParams(location.search);
   const ARGS = [params.get("jit") === "0" ? "-j" : "-J", "-c", "8", "-r", "640x400", "forth.stx"];
+  // Safari on iOS crashes the page when the WebAssembly JIT compiles too many
+  // modules: there the worker gets a budget (as play.js does; worker.js reads it)
+  const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+              (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const JIT_LIMITS = IOS ? { jitBudget: 256, jitHot: 200 } : {};
 
   const $ = (id) => document.getElementById(id);
   const pg = $("pg"), toggle = $("pg-toggle"), statusEl = $("pg-status");
@@ -136,7 +141,7 @@
       stopped = false;
       w.onmessage = (e) => onWorker(w, e.data);
       w.onerror = (e) => { if (w === W) { stopped = true; setStatus("error: " + (e.message || "the worker failed"), true); } };
-      w.postMessage({ t: "start", wasm, files: [{ name: "forth.stx", data: img }], args: ARGS });
+      w.postMessage(Object.assign({ t: "start", wasm, files: [{ name: "forth.stx", data: img }], args: ARGS }, JIT_LIMITS));
       if (pending) { post(pending); pending = ""; }
     } catch (e) {
       booted = false;
@@ -191,12 +196,113 @@
   term.onData((d) => { term.scrollToBottom(); send(d); });
   $("pg-reset").addEventListener("click", () => { reset(); if (!touch()) term.focus(); });
 
-  // Try: type the entry's example in, as if typed, followed by Enter
+  // -------------------------------------------------------------- the editor
+  // A textarea over a <pre> that site/hl.js colours: both sit in one grid
+  // cell with the same font and padding, the textarea's text is transparent
+  // (its caret and selection are not), and the box around them scrolls both
+  // together. The text is kept per browser (localStorage).
+  const src = $("pg-src"), hlEl = $("pg-ed-hl");
+  const KEY = "strata-forth-editor";
+  const SAMPLE = "\\ Edit, then Run (Ctrl+Enter). Definitions stay in the session.\n" +
+    ": sq ( n -- n*n ) dup * ;\n" +
+    ": sum-sq ( n -- sum ) 0 swap 0 do i sq + loop ;\n" +
+    "10 sum-sq .\n" +
+    "see sq\n";
+  const norm = (s) => s.replace(/\r\n?/g, "\n");
+  let hlQueued = false, saveTimer = 0;
+  function highlight() {
+    hlQueued = false;
+    const lines = src.value.split("\n");
+    const html = window.StrataHL ? StrataHL.forthLines(lines).join("\n")
+                                 : src.value.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+    hlEl.innerHTML = html + "\n ";   // room for an empty last line
+    fitSource();
+  }
+  // the textarea covers the <pre> exactly (the box around them scrolls)
+  const pre = hlEl.parentElement;
+  function fitSource() {
+    const r = pre.getBoundingClientRect();
+    src.style.width = r.width + "px";
+    src.style.height = r.height + "px";
+  }
+  new ResizeObserver(fitSource).observe($("pg-ed"));
+  function changed() {
+    if (!hlQueued) { hlQueued = true; requestAnimationFrame(highlight); }
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, src.value); } catch (e) { /* no storage */ } }, 300);
+  }
+  // Replaces the text; where the browser can, as an edit (Ctrl+Z brings the old text back)
+  function load(text) {
+    text = norm(text);
+    let done = false;
+    if (!touch() && document.queryCommandSupported && document.queryCommandSupported("insertText")) {
+      const had = document.activeElement;
+      src.focus({ preventScroll: true });
+      src.select();
+      try { done = document.execCommand("insertText", false, text); } catch (e) { done = false; }
+      if (had && had !== src && had.focus) had.focus({ preventScroll: true });
+    }
+    if (!done || src.value !== text) src.value = text;
+    src.setSelectionRange(0, 0);
+    src.scrollTop = 0;
+    $("pg-ed").scrollTop = 0;
+    $("pg-ed").scrollLeft = 0;
+    changed();
+  }
+  try { const t = localStorage.getItem(KEY); src.value = t === null ? SAMPLE : t; } catch (e) { src.value = SAMPLE; }
+  highlight();
+  src.addEventListener("input", changed);
+
+  // Run: the text goes to the console as typed lines (like a pasted demo),
+  // so what it defines stays in the session
+  function run(text) {
+    text = norm(text);
+    if (!text.trim()) return;
+    if (!isOpen()) setOpen(true);
+    send(text.endsWith("\n") ? text : text + "\n");
+    term.scrollToBottom();
+  }
+  // the selection, whole lines; without one, the line with the cursor
+  function selectedLines() {
+    const v = src.value;
+    let a = src.selectionStart, b = src.selectionEnd;
+    if (b > a && v[b - 1] === "\n") b--;
+    a = v.lastIndexOf("\n", a - 1) + 1;
+    const e = v.indexOf("\n", b);
+    return v.slice(a, e < 0 ? v.length : e);
+  }
+  $("pg-run").addEventListener("click", () => run(src.value));
+  $("pg-runsel").addEventListener("click", () => run(selectedLines()));
+  $("pg-rerun").addEventListener("click", () => { reset(); run(src.value); });
+  const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  $("pg-key").textContent = (mac ? "⌘" : "Ctrl+") + "Enter";
+  let tabFree = false;    // after Esc, Tab leaves the editor instead of indenting
+  src.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      run(src.selectionEnd > src.selectionStart ? selectedLines() : src.value);
+    } else if (e.key === "Escape") {
+      tabFree = true;
+    } else if (e.key === "Tab" && !tabFree && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      const col = src.selectionStart - (src.value.lastIndexOf("\n", src.selectionStart - 1) + 1);
+      const pad = " ".repeat(2 - (col % 2));
+      if (!document.execCommand || !document.execCommand("insertText", false, pad))
+        src.setRangeText(pad, src.selectionStart, src.selectionEnd, "end");
+      changed();
+    } else if (e.key !== "Tab" && e.key !== "Shift") {
+      tabFree = false;
+    }
+  });
+  src.addEventListener("blur", () => { tabFree = false; });
+
+  // Try: the entry's example goes into the editor and runs
   document.addEventListener("click", (e) => {
     const b = e.target.closest(".try-b");
     if (!b) return;
     if (!isOpen()) setOpen(true);
-    send(b.dataset.try.replace(/\r\n?/g, "\n") + "\n");
+    load(b.dataset.try + "\n");
+    run(src.value);
     b.classList.add("sent");
     setTimeout(() => b.classList.remove("sent"), 600);
     if (!touch()) term.focus({ preventScroll: true });
@@ -218,7 +324,8 @@
     if (!name) return;
     if (!isOpen()) setOpen(true);
     const text = await (await fetch(PLAY + "demos/" + name + ".fs" + V)).text();
-    send(text.replace(/\r\n?/g, "\n"));
+    load(text);                              // into the editor, to tweak and run again
+    run(src.value);
     if (!touch()) term.focus({ preventScroll: true });
   });
 })();

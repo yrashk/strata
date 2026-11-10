@@ -17,6 +17,17 @@
     </div>
   </div>
   <div class="pg-body" id="pg-body">
+    <div class="pg-edbar" role="group" aria-label="Editor">
+      <button type="button" class="small pg-run" id="pg-run" title="Send the editor's text to Forth, line by line">Run</button>
+      <button type="button" class="small" id="pg-runsel" title="Send the selected lines (or the cursor's line)">Run selection</button>
+      <button type="button" class="small" id="pg-rerun" title="Boot a fresh machine, then run the editor's text">Reset + Run</button>
+      <kbd class="pg-key" id="pg-key" title="Runs the selection if there is one, else everything">Ctrl+Enter</kbd>
+    </div>
+    <div class="pg-ed" id="pg-ed">
+      <pre class="pg-ed-hl hl" aria-hidden="true"><code id="pg-ed-hl"></code></pre>
+      <textarea id="pg-src" rows="1" cols="1" wrap="off" spellcheck="false" autocomplete="off" autocorrect="off"
+        autocapitalize="off" aria-label="Forth source: edit, then Run"></textarea>
+    </div>
     <div class="pg-term"><div id="pg-term"></div></div>
     <div class="pg-screen" id="pg-screen" hidden>
       <canvas id="pg-canvas" width="640" height="400" aria-label="The Strata framebuffer"></canvas>

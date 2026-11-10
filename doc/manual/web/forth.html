@@ -132,10 +132,14 @@ true jit-trace  : cube dup dup * * ; [jit: tput+tgetx 64 bytes -> I-LS 0x8160]  
   window, which opens it) is the Strata reference emulator compiled to
   WebAssembly, running the real Strata Forth image (<code>forth.stx</code>, bare metal, 8 cores, a
   640×400 framebuffer), the same as <code>make forth</code> on the desktop and the
-  <a href="../play/?run=forth">play page</a>'s Forth. Click the terminal and type; each line you
-  enter is echoed and answered with <code>ok</code>. <b>Try</b> on a word types its example in
-  (most come from the regression test, <code>lang/forth/tests/test.fs</code>; words it does not use
-  show their machine code with <code>see</code>). The demo menu pastes one of
+  <a href="../play/?run=forth">play page</a>'s Forth. Write in the editor and press <b>Run</b>
+  (Ctrl+Enter, ⌘Enter on a Mac): the text goes to the console line by line, as if typed, so what it
+  defines stays in the session; <b>Run selection</b> sends only the selected lines (or the line with
+  the cursor), <b>Reset + Run</b> starts from a fresh machine. The editor keeps its text in your
+  browser. The terminal is for typing too: each line you enter is echoed and answered with
+  <code>ok</code>. <b>Try</b> on a word puts its example in the editor and runs it (most come from
+  the regression test, <code>lang/forth/tests/test.fs</code>; words it does not use show their
+  machine code with <code>see</code>). The demo menu does the same with one of
   <code>lang/forth/demos/</code>: <code>gfx</code> renders a Mandelbrot set on every worker core into
   the screen, which opens under the terminal when something is drawn. <b>Reset</b> boots a fresh
   machine.</p>
