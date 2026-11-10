@@ -183,14 +183,11 @@ $(BUILD)/prog/as: os/progs/as.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
 
-# The library follows each program without its comments: every source on the
-# disk carries a copy, and with comments they would not fit the 4 MiB disk
-# (the RTL's). This needs sys.s to have no ";" inside a string or character.
+# Every source on the disk carries a copy of the library after the program.
 $(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s
 	@mkdir -p $(BUILD)/src
 	grep -v '^[[:space:]]*\.include' $< > $@
-	echo '; ---- os/lib/sys.s, the program library (comments left out on the disk)' >> $@
-	sed -e 's/[[:space:]]*;.*$$//' -e '/^[[:space:]]*$$/d' os/lib/sys.s >> $@
+	cat os/lib/sys.s >> $@
 
 $(BUILD)/src/units.s: os/progs/units.s examples/lib/print.s
 	@mkdir -p $(BUILD)/src

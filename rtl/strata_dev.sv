@@ -56,7 +56,7 @@ module strata_dev
   import strata_pkg::*;
 #(
   parameter int    NCORES      = 4,
-  parameter int    DISK_WORDS  = 524288,     // 4 MiB
+  parameter int    DISK_WORDS  = 2097152,    // 16 MiB
   parameter string DISK_INIT   = "",
   parameter string PLAT_INIT   = "",
   parameter int    UART_DIV    = 868,

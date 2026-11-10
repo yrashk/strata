@@ -23,10 +23,10 @@ strata$ tcpecho 7 2 &
 strata$ echo hello strata | nc 10.0.0.1 7
 hello strata
 strata$ cat sh.s | nc 127.0.0.1 7 | wc
-6240 31066 250546
+6653 39370 317171
 [1] done  tcpecho 7 2
 strata$ cat sh.s | wc
-6240 31066 250546
+6653 39370 317171
 strata$ netstat
 proto local                 remote                state        recv  send  rexmit  pid
 tcp   127.0.0.1:49153       127.0.0.1:7           TIME-WAIT       0     0       0   17
@@ -43,7 +43,7 @@ nc: failed: -1
 [exit 1]
 [1] strata$ ifconfig 10.0.0.5
 net0  inet 10.0.0.5  mtu 1500  link up
-      packets in 1222  out 1222  dropped 0
+      packets in 1482  out 1482  dropped 0
       device: queued 0  lost 0
 strata$ ping -c 1 10.0.0.5
 PING 10.0.0.5: 56 data bytes

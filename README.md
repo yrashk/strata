@@ -222,8 +222,8 @@ strata$ ws                          # the window server takes the screen
   uptime devs hexdump cores sched seq grep wc upper spin`, `units` (a program
   that pages its own code), and `as`.
   The sources of the programs and examples are on the disk, so they can be
-  rebuilt on the machine (each utility's with the library appended, without
-  its comments, to fit the 4 MiB disk).
+  rebuilt on the machine (each utility's with the library appended). The
+  disk is 16 MiB.
 - **Cores.** `make boot` boots 12 cores: the system core, five servers and
   six cores free for threads. The minimum is 6 (the shell then shares a
   server's core). A worker core holds up to three threads.
