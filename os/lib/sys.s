@@ -1691,7 +1691,7 @@ sl_done:
 ; work on TCP connections as on files and pipes; READ blocks until data
 ; arrives and returns 0 when the peer has closed. Addresses are IPv4 in a
 ; register as a.b.c.d = a << 24 | b << 16 | c << 8 | d; ports are numbers.
-;   net_init() -> 0, or -4 (no network server)
+;   net_init() -> 0, or -4 (no network server; one is started if none runs)
 ;   net_connect(ip, port) -> handle (TCP; -1 refused, -8 timed out)
 ;   net_listen(port) -> handle;  net_accept(listen handle, nb) -> handle (-3: none yet, nb = 1)
 ;   net_shutdown(handle): no more sending (FIN); reading goes on until the peer closes
@@ -1718,22 +1718,36 @@ NET_EP     = 6                          ; the register of the endpoint to net
         .data                           ; net names
         .align 8                        ; ...
 net_name:  .ascii "net"                 ; the network server's name
+net_cmd:   .ascii "net 10.0.0.1"        ; how net_init starts one
+net_cmd_e:                              ; ...
         .align 8                        ; ...
         .text                           ; back to code
 
-; net_init() -> a0 = 0 (the endpoint in c6), -4 if no network server. Tries
-; for a second: a server started in the background may not be registered yet.
+; net_init() -> a0 = 0 (the endpoint in c6), -4 if no network server. One
+; just started in the background may not be registered yet: it looks for
+; half a second; then, if none runs, it starts one (`net 10.0.0.1`, its
+; output on the console) and waits up to a second more for it.
 net_init:
-        addi  sp, sp, -16               ; frame
+        addi  sp, sp, -24               ; frame
         sd    ra, 0(sp)                 ; save ra
-        li    t0, 20                    ; tries
+        li    t0, 30                    ; tries, 50 ms apart
         sd    t0, 8(sp)                 ; ...
+        sd    zero, 16(sp)              ; not started one yet
 ni_try:
         la    a0, net_name              ; LOOKUP "net" into c6
         li    a1, 3                     ; ...
         li    a2, NET_EP                ; ...
         call  sys_lookup                ; a0 = 0 or -4
         beqz  a0, ni_ret                ; found
+        ld    t0, 8(sp)                 ; (only after half a second)
+        li    t1, 20                    ; ...
+        bgt   t0, t1, ni_wait           ; ...
+        ld    t0, 16(sp)                ; none: start one, once
+        bnez  t0, ni_wait               ; ...
+        li    t0, 1                     ; ...
+        sd    t0, 16(sp)                ; ...
+        call  net_start                 ; ...
+ni_wait:
         ld    t0, 8(sp)                 ; tries left?
         addi  t0, t0, -1                ; ...
         sd    t0, 8(sp)                 ; ...
@@ -1742,6 +1756,32 @@ ni_try:
         call  sys_sleep                 ; ...
         j     ni_try                    ; again
 ni_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 24                ; release the frame
+        ret                             ; done
+
+; net_start(): spawn the network server with the default address, its standard
+; output and error on the console (not ours: that may be a pipe it would keep open)
+net_start:
+        addi  sp, sp, -16               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        li    a0, 3                     ; a handle on the console (tty id 0)
+        li    a1, 0                     ; ...
+        call  sys_hnew                  ; ...
+        sd    a0, 8(sp)                 ; ...
+        bltz  a0, nsr_ret               ; (no handle free)
+        li    a0, 0                     ; one thread, no pinning
+        li    a1, 0                     ; ...
+        la    a2, net_cmd               ; "net 10.0.0.1"
+        li    a3, net_cmd_e - net_cmd   ; ...
+        li    a4, -1                    ; no input
+        ld    a5, 8(sp)                 ; output, errors: the console
+        mv    a6, a5                    ; ...
+        call  sys_spawn                 ; (not waited for)
+        ld    a0, 8(sp)                 ; the handle is not needed any more
+        li    a1, -1                    ; (dropped from the table only: the console stays open)
+        call  sys_hset                  ; ...
+nsr_ret:
         ld    ra, 0(sp)                 ; restore ra
         addi  sp, sp, 16                ; release the frame
         ret                             ; done

@@ -45,12 +45,14 @@ register and window starts at a multiple of 8, so a capability can be cut to exa
 \textbf{Offset} & \textbf{Length} & \textbf{Device} & \textbf{Ports, registers and windows}\\\midrule
 \hex{0000} & \hex{100} & console & \hex{0000} output stream; \hex{0008} input stream; \hex{0010} break
                                      port; \hex{0018} break release\\
-\hex{1000} & 288 & platform table & read-only window (\texttt{STPD})\\
+\hex{1000} & 320 & platform table & read-only window (\texttt{STPD})\\
 \hex{2000} & \hex{300} & block device 0 & \hex{2000} identify window (64 B); \hex{2100} submission port;
                                           \hex{2200} completion port\\
 \hex{3000} & \hex{20} & timer & \hex{3000} NOW; \hex{3008} FREQ; \hex{3010} DEADLINE; \hex{3018} WAIT\\
 \hex{4000} & \hex{10} & framebuffer controller & \hex{4000} PRESENT; \hex{4008} VSYNC\\
 \hex{4100} & \hex{10} & pointer & \hex{4100} EVENT; \hex{4108} STATE\\
+\hex{4200} & \hex{20} & network interface & \hex{4200} TX; \hex{4208} RX; \hex{4210} STATUS;
+                                            \hex{4218} CANCEL\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -58,9 +60,9 @@ register and window starts at a multiple of 8, so a capability can be cut to exa
 Device transfers follow the rules of Section~\ref{sec:devxfer}: one byte per beat to consecutive
 offsets; registers are 8 bytes, little-endian, latched when byte 0 is read and committed when byte 7 is
 written; a transfer that starts at a stream port belongs to that stream. Reads from unassigned device
-offsets return zero; writes to them are ignored. Five ports are \term{event ports}, whose reads stay
+offsets return zero; writes to them are ignored. Six ports are \term{event ports}, whose reads stay
 pending until the device has something to deliver (Section~\ref{sec:pendread}): console input, console
-break, the timer's WAIT, the controller's VSYNC and the pointer's EVENT.
+break, the timer's WAIT, the controller's VSYNC, the pointer's EVENT and the network interface's RX.
 
 \section{Console}\label{sec:console}
 
@@ -107,9 +109,9 @@ little-endian.
 0 & char[4] & magic \texttt{"STPD"}\\
 4 & u16 & version (1)\\
 6 & u16 & entry size in bytes (32)\\
-8 & u16 & number of entries (7)\\
+8 & u16 & number of entries (9)\\
 10 & u16 & number of cores $N$\\
-12 & u32 & total length of the table in bytes (256)\\
+12 & u32 & total length of the table in bytes (320)\\
 16 & u32 & checksum: sum of all bytes of the table, with this field taken as zero, mod $2^{32}$\\
 20 & u8[12] & reserved, zero\\
 \bottomrule
@@ -122,7 +124,8 @@ little-endian.
 \begin{tabularx}{\linewidth}{@{}r l l X@{}}
 \toprule
 \textbf{Offset} & \textbf{Type} & \textbf{Field} & \textbf{Meaning}\\\midrule
-0 & u16 & type & 1 memory, 2 console, 3 platform table, 4 block device, 5 framebuffer, 6 timer\\
+0 & u16 & type & 1 memory, 2 console, 3 platform table, 4 block device, 5 framebuffer, 6 timer,
+  7 pointer, 8 network interface\\
 2 & u16 & index & instance number among entries of the same type\\
 4 & u16 & space & far space of the resource (2, 3 or 4)\\
 6 & u16 & node & \insn{cgive} node number, or \hex{ffff} if the device takes no capabilities\\
@@ -148,11 +151,12 @@ little-endian.
 6 & timer & ticks per second (1000000)\\
 7 & pointer & bits 7:0 buttons present (bit 0 left, 1 right, 2 middle); bits 15:8 wheels present
   (bit 8 vertical, bit 9 horizontal): \hex{0307}\\
+8 & network interface & the MTU in bytes (1500)\\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-The prototype publishes eight entries:
+The prototype publishes nine entries:
 
 \begin{center}\small
 \begin{tabular}{@{}l l l l l l l@{}}
@@ -161,11 +165,12 @@ The prototype publishes eight entries:
 0 & memory & 0 & 3 & --- & 0 & 64 MiB\\
 1 & memory & 1 & 2 & --- & 0 & 256 KiB\\
 2 & console & 0 & 4 & --- & \hex{0000} & \hex{100}\\
-3 & platform & 0 & 4 & --- & \hex{1000} & 288\\
+3 & platform & 0 & 4 & --- & \hex{1000} & 320\\
 4 & block & 0 & 4 & $N$ & \hex{2000} & \hex{300}\\
 5 & framebuffer & 0 & 3 & --- & \hex{3000000} & 16 MiB\\
 6 & timer & 0 & 4 & --- & \hex{3000} & \hex{20}\\
 7 & pointer & 0 & 4 & --- & \hex{4100} & \hex{10}\\
+8 & network & 0 & 4 & --- & \hex{4200} & \hex{20}\\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -342,6 +347,43 @@ The simulators feed the pointer from their window's mouse and hide the host curs
 read the device, since software that uses it draws its own. For tests, \texttt{-P}~\textit{file} on both
 simulators scripts it (Section~\ref{sec:emu}). The FPGA builds have no pointer: STATE reads 0 and an
 EVENT read waits for a release.
+
+\section{Network interface}\label{sec:netif}
+
+The network interface carries raw IPv4 packets: there is no link-layer framing and there are no
+hardware addresses below IP. It is four 8-byte ports at device offset \hex{4200}.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Network interface ports}\label{tab:netif}
+\begin{tabularx}{\linewidth}{@{}l l l X@{}}
+\toprule
+\textbf{Offset} & \textbf{Name} & \textbf{Access} & \textbf{Function}\\\midrule
+\hex{4200} & TX & write (stream) & one transfer is one packet: the bytes of a \insn{tput} that starts here
+  are sent as one packet when the transfer ends\\
+\hex{4208} & RX & read (event port) & completes when a packet is queued, with that packet\\
+\hex{4210} & STATUS & read & bits 15:0 the length of the next queued packet (0: none); bits 23:16
+  packets queued; bit 24 link up; bits 63:32 packets dropped\\
+\hex{4218} & CANCEL & write & completes every RX read pending at that moment, on every core, with
+  zeros (the value written is ignored)\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+A transfer to TX longer than the MTU (1500 bytes, the platform entry's \textit{info}) is dropped and
+counted. An RX read takes the oldest queued packet: byte $i$ of the read is byte $i$ of the packet, the
+bytes past the packet's end are zero, and the part of a packet past the read's length is lost; software
+learns the length from the IPv4 header. The device queues 16 received packets, and one that finds the
+queue full is dropped and counted. A CANCEL takes no packet; like the console's break release, it lets
+software that is stopping complete the read it left waiting (StrataOS's kernel writes it when it halts
+the machine).
+
+What is at the other end of the link is chosen with the simulators' \texttt{-N} option
+(Section~\ref{sec:emu}): nothing (the default: packets sent are dropped, nothing arrives, STATUS says
+the link is down), a loopback plug (every packet sent is received back at once), a built-in test peer
+that answers pings and echoes UDP datagrams to port~7, or a ``cable'' to another simulator made of host
+UDP datagrams, one per packet, so that two simulated machines can talk TCP to each other. The FPGA
+builds have no PHY yet: TX is dropped, RX waits for a CANCEL and STATUS reads 0.
 
 \section{Block device}\label{sec:blkdev}
 

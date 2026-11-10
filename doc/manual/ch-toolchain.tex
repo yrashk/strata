@@ -116,7 +116,7 @@ every core, and the T2 and T3 contents to the shared memories.
 \begin{shell}
 strata-emu [-c ncores] [-t trace.txt] [-m max_steps] [-d disk.img] [-i input.txt]
            [-b steps] [-T real|virtual] [-g none] [-F frame.ppm] [-z scale]
-           [-r WxH] [-H] [-J|-j] image.stx
+           [-r WxH] [-H] [-P pointer.txt] [-N mode] [-J|-j] image.stx
 \end{shell}
 
 The emulator executes the sequential semantics $\mathcal{S}$ (Chapter~\ref{ch:model}): every memory
@@ -146,6 +146,13 @@ console input or Ctrl-C from an interactive terminal or the window.
   [$dx$] $|$ \texttt{enter} $|$ \texttt{leave}, where $b$ is \texttt{left}, \texttt{right} or
   \texttt{middle}. \textit{when} is an instruction count (on \texttt{strata-rtl}, a cycle count), or
   \texttt{k}$n$: once the program has taken $n$ bytes of console input. Lines happen in order.
+\item[\texttt{-N mode}] the network interface's link (Section~\ref{sec:netif}; \texttt{common/net.h}):
+  \texttt{none} (default), \texttt{loop} (packets come straight back; deterministic),
+  \texttt{peer} (a built-in host at every address but the sender's own: it answers ICMP echo and
+  echoes UDP datagrams sent to port~7), or \texttt{udp:}\textit{lport}\texttt{:}\textit{host}\texttt{:}%
+  \textit{rport}: one packet per host UDP datagram, sent from \textit{lport} to
+  \textit{host}:\textit{rport} and received only from there. Two simulators with mirrored ports are
+  two machines on one link; no privileges are needed.
 \item[\texttt{-b n}] press Ctrl-C once, after $n$ instructions: it completes the oldest pending break
   read, or is remembered for the next one. Used by \texttt{tools/test-break.sh}.
 \item[\texttt{-T real|virtual}] the timer's time base (Section~\ref{sec:timer}). \texttt{real}
@@ -208,7 +215,7 @@ test-jit} checks this on every example and on the Forth regression test.
 
 \begin{shell}
 strata-rtl [-t trace.txt] [-m max_cycles] [-d disk.img] [-i input.txt] [-b cycles]
-           [-T real|virtual] [-g none] [-F frame.ppm] [-z scale] [-r WxH] [-H] image.stx
+           [-T real|virtual] [-g none] [-F frame.ppm] [-z scale] [-r WxH] [-H] [-N mode] image.stx
 \end{shell}
 
 The SystemVerilog implementation (Chapter~\ref{ch:impl}) compiled with Verilator 5 and the harness

@@ -167,7 +167,7 @@ static void usage() {
           "  -z N        window scale (default 1)\n"
           "  -r WxH      framebuffer size (default 1280x800; width a multiple of 8, 320x200..2560x1600)\n"
           "  -H          when every core has halted, keep the window open until it is closed\n"
-          "  -N MODE     network link: none (default), loop, or udp:LPORT:HOST:RPORT (common/net.h)\n"
+          "  -N MODE     network: none (default), loop, peer, udp:LPORT:HOST:RPORT (common/net.h)\n"
           "(%d cores in this build)\n", NCORES);
   exit(2);
 }

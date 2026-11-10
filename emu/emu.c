@@ -1518,7 +1518,7 @@ static int machine_round(void) {
   "  -z N        window scale (default 1)\n"                                                         \
   "  -r WxH      framebuffer size (default 1280x800; width a multiple of 8, 320x200..2560x1600)\n"   \
   "  -H          when every core has halted, keep the window open until it is closed\n"         \
-  "  -N MODE     network link: none (default), loop, or udp:LPORT:HOST:RPORT (common/net.h)\n" \
+  "  -N MODE     network: none (default), loop, peer, udp:LPORT:HOST:RPORT (common/net.h)\n" \
   "  -J / -j     run with the JIT / only interpret (default: the JIT, except with -t or\n"     \
   "              -T virtual, which keep the exact one-instruction interleaving)\n"
 

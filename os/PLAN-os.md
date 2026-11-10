@@ -215,3 +215,20 @@ tools/test-break.sh, tools/test-preempt.sh, tools/test-as.sh (StrataOS part), Ma
   900 SEND calls from 3 clients (2 on ws's core) without a wrong attachment; -1 for a
   parked call when ws quits; ws run again after quit and after kill gets the framebuffer
   again; clients killed in mid-call do no harm. (Scratch programs deleted.)
+
+## Networking (net server)
+- Device: DEV_NET 0x4200 (TX, RX, STATUS, CANCEL), platform entry 8 (PT_NET), host side common/net.h
+  (-N none | loop | peer | udp:LPORT:HOST:RPORT). Conformance test conformance/tests/net.s (-N loop).
+- os/servers/net.s: SPAWN makes a program named exactly `net` a server alone on the lowest empty core
+  (proc netname: KF_SERVER | KF_SOLO), like tty because the RX read stays in flight. dev op 59 GETNET
+  (only for the pid registered as "net"). Kernel u_halt writes the CANCEL port (0x4218) with the
+  console and pointer releases.
+- proc sends CLEANUP only to fs/tty/pipe: net polls PS every 2 s while sockets are open instead.
+- net_init (sys.s) starts `net 10.0.0.1` if no server is registered after 0.5 s; its stdout/stderr go
+  to a console handle made for the purpose (a pipe would be kept open for ever).
+- Loopback (127/8 and the own address) never reaches the device: a local queue in the arena (c0 at
+  0x10000, 16 x 1504 bytes) handled from the main loop.
+- Tests: tools/test-net.sh (one machine + -N peer, compared with tools/test-net.out; two emulators over
+  host UDP). `echod` was renamed `tcpecho`: a program starting with "ech" broke test-sh completion.
+- Open: no IP fragments, no routing/ARP, in-order receive only, 4 sockets, no socket passing to
+  children, no CANCEL of a blocked read on Ctrl-C for non-catching programs (they are killed anyway).

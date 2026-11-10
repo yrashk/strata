@@ -28,6 +28,7 @@ them apart.
 | 0x3000 | **timer** | 0x00 NOW, 0x08 FREQ, 0x10 DEADLINE, 0x18 WAIT |
 | 0x4000 | **framebuffer controller** | 0x00 PRESENT, 0x08 VSYNC |
 | 0x4100 | **pointer** | 0x00 EVENT, 0x08 STATE |
+| 0x4200 | **network interface** | 0x00 TX, 0x08 RX, 0x10 STATUS, 0x18 CANCEL |
 
 `DEV_SPACE_LEN` becomes 0x5000.
 
@@ -46,7 +47,7 @@ window's keyboard); in the RTL it is the existing retry. At the end of a
 `-i` file the port returns 0x04 forever, as now.
 
 **Device reads that wait** (console input, the break port, timer WAIT,
-VSYNC, the pointer's EVENT) follow three rules, the same on the emulator and the RTL (conformance
+VSYNC, the pointer's EVENT, the network's RX) follow three rules, the same on the emulator and the RTL (conformance
 tests `brkrel`, `pendxfer`, `haltdrain`):
 - **One release completes every break read.** A write to the release port
   (0x18) completes, with 0, every break read waiting at that moment, on
@@ -136,15 +137,51 @@ A mouse (or touchpad) with three buttons and a wheel, over the display.
   or `kN` = once N bytes of console input have been taken). On FPGA there
   is no pointer yet: STATE reads 0 and EVENT waits for a release.
 
+#### Network interface (0x4200)
+
+A network interface that carries raw **IPv4 packets**: no link-layer
+framing, no hardware addresses (so no ARP). It is a stream device like the
+console, with one waiting read:
+
+- **TX** (0x4200, write): **one transfer is one packet**: the bytes of a
+  `tput` that starts at TX are sent as one packet when the transfer ends.
+  A transfer longer than the MTU (1500 bytes, the platform entry's info) is
+  dropped and counted.
+- **RX** (0x4208, read): waits, like the other device reads, until a packet
+  is queued, then completes with it: byte i of the transfer is byte i of
+  the packet, bytes past the packet's end are zero, and the packet leaves
+  the queue (a part of it past the transfer's length is lost). Software
+  reads the IPv4 header's total length. Oldest read first.
+- **STATUS** (0x4210, read, latched at byte 0): u16 length of the next
+  queued packet (0: none), u8 packets queued, u8 bit 0 = link up, u32
+  packets dropped (queue full, or too long to send).
+- **CANCEL** (0x4218, write, any value): completes every RX read waiting at
+  that moment, on every core, with zeros, and takes no packet (the release
+  rule of the break port). The kernel writes it when halting.
+- The device queues 16 received packets; one that finds the queue full is
+  dropped and counted.
+- What is on the other end is the simulators' `-N MODE` (both simulators,
+  host side in `common/net.h`): `none` (the default: no link, packets sent
+  are dropped, nothing arrives), `loop` (every packet sent is received back
+  at once: deterministic, used by the conformance test `net`), `peer` (a
+  built-in test host at every address but the sender's own: it answers
+  ICMP echo requests and echoes UDP datagrams sent to port 7, at once), or
+  `udp:LPORT:HOST:RPORT` (a cable to another simulator: one packet per host
+  UDP datagram, sent from LPORT to HOST:RPORT, received only from that
+  peer; two instances with mirrored ports are two machines on one link;
+  needs no privileges). On FPGA there is no PHY yet: TX is dropped, RX
+  waits for a CANCEL, STATUS reads 0. The browser build has no link.
+
 ### 1.3 Platform table
 
-Three new entry types; `PLAT_ENTRIES` grows by three (to 8, 288 bytes).
+Four new entry types; `PLAT_ENTRIES` grows by four (to 9, 320 bytes).
 
 | Type | Name | space | base | size | info |
 |---|---|---|---|---|---|
 | 5 | PT_FB | SP_T3 (3) | 0x3000000 | 0x1000000 | width \| height<<16 \| stride<<32 \| format<<48 (format 1 = XRGB8888) |
 | 6 | PT_TIMER | SP_DEV (4) | 0x3000 | 0x20 | ticks per second (1000000) |
 | 7 | PT_POINTER | SP_DEV (4) | 0x4100 | 0x10 | buttons (bits 0..7: left, right, middle) \| wheels << 8 (bit 8 y, bit 9 x): 0x0307 |
+| 8 | PT_NET | SP_DEV (4) | 0x4200 | 0x20 | the MTU (1500) |
 
 All have node = 0xffff (nothing to `cgive` to). The framebuffer
 controller's ports are at the fixed device address 0x4000.
@@ -278,6 +315,9 @@ greater length.
   - `pipe` — pipes.
   - `ws` — the window server (2.8), started on demand from a shell. Owns
     the framebuffer and, while it runs, the keyboard.
+  - `net` — the network server (2.10), started on demand (`net ADDRESS`,
+    or by the first program that uses the network). Owns the network
+    interface; alone on its core, like `tty`.
 - **Boot order.** The kernel itself loads `proc`, `dev` and `fs` from the
   disk (with the firmware's block routines: `fs` must exist before anything
   can be loaded through it) and creates them on cores 1, 2 and 3. `proc`
@@ -517,6 +557,7 @@ CLEANUP to the servers and completes the parent's WAIT.
 | 30 | GETDISK | (for `fs`) a window on the block device's ports (c6) and a send-only endpoint to the device's node (c7) |
 | 31 | GETCON | (for `tty`) a window on the console's ports 0x0000..0x00FF (c6) |
 | 21 | GETPTR | (for `tty`) a window on the pointer's ports 0x4100..0x410F (c6); -1 if the machine has none |
+| 59 | GETNET | (for `net`) a window on the network interface's ports 0x4200..0x421F (c6); -5 unless the caller is the process registered as "net" (WHOIS); -1 if the machine has none |
 
 The framebuffer memory is the kernel's: at boot it puts the window in a
 revocation domain of its own and **lends** it through FBLEND; the
@@ -528,7 +569,8 @@ and wakes every worker; each dispatcher stops its threads and counts
 itself in before its own `halt`; the system core waits (bounded) for all
 of them, so that no process can start another read, then writes the
 console's release port (completing every break read), the pointer's EVENT
-port (completing `tty`'s EVENT read) and DEADLINE 0 (completing its own
+port (completing `tty`'s EVENT read), the network interface's CANCEL
+(completing `net`'s RX read) and DEADLINE 0 (completing its own
 timer WAIT), and halts. `tty` arms its break read
 again only after a real Ctrl-C, not after a release. Console *input*
 cannot be cancelled: if a reader was waiting for a key at that moment,
@@ -876,6 +918,86 @@ in `os/ws/`).
   The workers become dispatchers and wait in `tany`. Then the servers, as
   in 2.1.
 
+
+### 2.10 The network server (`net`) and its programs
+
+TCP/IP is a server, `os/servers/net.s`, like `fs`, `tty` and `pipe`:
+
+- **Starting it.** `net ADDRESS` (e.g. `net 10.0.0.1 &`) runs it: `proc`
+  creates a program named exactly `net` as the server of the lowest empty
+  core, **alone on it** (it keeps the RX read in flight, like `tty`'s break
+  read; flag "alone on its core" of CREATE). It registers "net", gets the
+  interface's ports from `dev` (GETNET: only for the process registered as
+  "net") and prints `net: 10.0.0.1, link up` (or `no link`). The first
+  program that needs the network starts one with the address 10.0.0.1 if
+  none runs (`net_init`, below), so `ping 127.0.0.1` works on a fresh boot.
+  It needs a free core: with 8 cores it takes core 6 (multi-threaded
+  programs then have one server-free core fewer).
+- **The loop.** RECEIVE with a tag mask (the RX read) and a timeout (the
+  next TCP or ping timer, from the clock in c7): a request, a packet or a
+  timer, never a busy wait. Halting: the kernel's CANCEL completes the RX
+  read with zeros (an all-zero header); `net` then stops reading.
+- **IPv4**: one interface, static address (SETIP changes it), no routing
+  (every address is on the link), no fragments, header checksums made and
+  checked. Packets to 127.0.0.0/8 and to the interface's own address never
+  reach the device: they go through a local queue (16 packets in the
+  server's arena) and are handled as if received, so a machine can talk to
+  itself with no link at all.
+- **ICMP**: echo requests are answered; echo replies complete PINGs.
+- **UDP**: sockets bound to a port; datagrams up to 1472 bytes, queued in
+  the socket's 2 KiB ring with their sender.
+- **TCP**: 4 sockets in all (TCP or UDP); each has a 2 KiB receive ring
+  (the window it advertises) and a 2 KiB send buffer; segments of at most
+  1024 bytes (MSS option); in-order receive (out-of-order segments are
+  dropped and acknowledged); the oldest unacknowledged segment is sent
+  again after 250 ms, doubling up to 8 s, at most 8 times, then the
+  connection is reset; a closed window is probed by the same timer;
+  TIME-WAIT 500 ms; FIN-WAIT-2 gives up after 10 s; listen/accept,
+  connect, half-close (CLOSE mode bit 0).
+- **Ownership.** A socket belongs to the process that made it (ACCEPT: the
+  one that accepted it); others get -1. `proc` does not send CLEANUP to
+  `net`, so every 2 s while sockets are open `net` asks `proc` for the
+  process list (PS) and closes the sockets of processes that have ended.
+- D-LS: 37,216 bytes of data with the library, measured (rings, send buffers and
+  packet buffers), under the 40 KiB data extent.
+
+**Requests** (endpoint from LOOKUP "net"; handle = socket id unless said
+otherwise):
+
+| op | name | in | out |
+|---|---|---|---|
+| 1 | READ | TCP: length = most bytes, mode bit 0 = do not block | bytes; 0 once the peer has closed and all was read; waits while nothing is there; -3 (mode bit 0); -1 after a reset |
+| 2 | WRITE | TCP: the data | bytes taken (at least 1; the library writes the rest); waits while the send buffer is full; -1 if closed |
+| 4 | CLOSE | mode bit 0 = only stop sending | 0. TCP: buffered data is sent, then FIN; the connection finishes on its own |
+| 50 | STAT | | sockets in use; data: u64 address, u64 device STATUS, u64 packets in, out, dropped, u64 socket slots, 2 reserved, then 32 bytes per socket (u8 id, state, protocol, flags; u16 local, remote port; u32 remote address, owner pid, bytes received not read, bytes not acknowledged, peer window, retransmissions) |
+| 51 | SETIP | handle = address | 0 |
+| 52 | PING | handle = address, length = payload bytes (<= 1400), mode = timeout (0: 1 s) | round trip in ticks; -8 |
+| 53 | CONNECT | handle = address, length = port | socket id once established; -1 refused, -8 no answer, -6 no free socket |
+| 54 | LISTEN | handle = port | socket id; -7 port in use |
+| 55 | ACCEPT | handle = listening socket, mode bit 0 = do not block | the next established connection's id (now the caller's) |
+| 56 | UDP | handle = port (0: any) | socket id; -7 |
+| 57 | SENDTO | data: u64 address, u64 port, payload (length = 16 + payload, <= 1488) | payload bytes |
+| 58 | RECVFROM | length = most bytes, mode bit 0 = do not block | bytes; data: u64 address, u64 port, payload; waits while none |
+
+Addresses are u32 (a.b.c.d = a << 24 | ... | d). 36–38 from `proc` as for
+the other servers (CLEANUP closes the pid's sockets, CANCEL answers its
+waiting requests with -2). Op 59 is `dev`'s GETNET.
+
+**The library** (`os/lib/sys.s`): `net_init` (LOOKUP "net" into **c6**,
+starting the server if none runs), `net_connect`, `net_listen`,
+`net_accept`, `net_shutdown`, `net_udp`, `net_sendto`, `net_recvfrom`,
+`net_ping`, `net_stat`, `net_setip`, `net_aton`, `out_ip`. TCP sockets are
+**handles** (server register 6), so `sys_read`, `sys_write` and `sys_close`
+work on them as on files and pipes; they are not passed to children.
+
+**Programs**: `ping [-c N] [-s BYTES] ADDRESS` (a line per reply with its
+round trip in ms, a summary; until Ctrl-C or N requests), `nc ADDRESS
+PORT` (send standard input, then print what comes back until the peer
+closes; a refused connection is tried again for 10 s), `nc -l PORT`
+(receive one connection), `nc -u ADDRESS PORT` / `nc -u -l PORT` (UDP),
+`tcpecho [PORT [COUNT]]` (a TCP echo server, port 7), `ifconfig [ADDRESS]`
+and `netstat`.
+
 ## 3. Tests
 
 - `make test` compares every example on the emulator and the RTL
@@ -895,7 +1017,13 @@ in `os/ws/`).
 - `tools/test-fb.sh`: frames written with `-F` are byte-identical on the
   emulator and the RTL. `tools/test-jit.sh`: the JIT against the
   interpreter. `conformance/run.sh`: the conformance suite on the
-  interpreter, the JIT and the RTL.
+  interpreter, the JIT and the RTL (`net`: the network interface on the
+  loopback link).
+- `tools/test-net.sh`: TCP/IP. One machine with the test peer (`-N peer`,
+  `-j -T virtual`): ping over loopback and to the peer, TCP through
+  `tcpecho` (a 300 KB file compared with itself), UDP, a refused connection,
+  `netstat`, compared with `tools/test-net.out`; then two emulators linked
+  over host UDP: ping, TCP both ways, UDP.
 - `tools/test-as.sh` (run on its own, not by `make test`): the self-hosted
   assembler against `sasm`, including a StrataOS boot that assembles and
   runs a program.

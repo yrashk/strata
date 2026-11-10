@@ -11,6 +11,10 @@
  *   -N loop   a loopback plug: every transmitted packet is queued for
  *             receive on the same machine at once. Deterministic, so runs
  *             that compare machines (conformance, -T virtual) can use it.
+ *   -N peer   a built-in test peer on the other end, at every address but
+ *             the sender's own: it answers ICMP echo requests (ping) and
+ *             echoes UDP datagrams sent to port 7, at once (deterministic
+ *             too); everything else it ignores (TCP needs a second machine).
  *   -N udp:LPORT:HOST:RPORT
  *             a cable to another simulator over host UDP: each packet is one
  *             datagram, sent from local port LPORT to HOST:RPORT; datagrams
@@ -47,7 +51,7 @@
 #include <unistd.h>
 #endif
 
-enum { NET_NONE, NET_LOOP, NET_UDP };
+enum { NET_NONE, NET_LOOP, NET_UDP, NET_PEER };
 static int net_mode = NET_NONE;
 static int net_fd = -1;                         /* the UDP socket (NET_UDP) */
 static uint8_t net_q[NET_QLEN][NET_MTU];        /* received packets */
@@ -61,6 +65,7 @@ static uint64_t net_txn;                        /* its bytes so far */
 static inline bool net_host_open(const char *mode) {
   if (!strcmp(mode, "none")) { net_mode = NET_NONE; return true; }
   if (!strcmp(mode, "loop")) { net_mode = NET_LOOP; return true; }
+  if (!strcmp(mode, "peer")) { net_mode = NET_PEER; return true; }
 #ifndef __EMSCRIPTEN__
   if (!strncmp(mode, "udp:", 4)) {
     char host[256];
@@ -97,7 +102,7 @@ static inline bool net_host_open(const char *mode) {
     return true;
   }
 #endif
-  fprintf(stderr, "bad -N (none, loop or udp:LPORT:HOST:RPORT)\n");
+  fprintf(stderr, "bad -N (none, loop, peer or udp:LPORT:HOST:RPORT)\n");
   return false;
 }
 
@@ -108,6 +113,48 @@ static inline void net_rx_push(const uint8_t *p, unsigned n) {
   memcpy(net_q[i], p, n);
   net_qlen[i] = n;
   net_qcnt++;
+}
+
+/* The Internet checksum (ones' complement sum, folded) of n bytes, plus s. */
+static inline uint16_t net_csum(const uint8_t *p, unsigned n, uint32_t s) {
+  for (unsigned i = 0; i + 1 < n; i += 2) s += (uint32_t)p[i] << 8 | p[i + 1];
+  if (n & 1) s += (uint32_t)p[n - 1] << 8;
+  while (s >> 16) s = (s & 0xffff) + (s >> 16);
+  return (uint16_t)s;
+}
+
+/* The built-in peer (-N peer) sees a packet: an ICMP echo request comes back
+ * as a reply, a UDP datagram to port 7 comes back to its sender. */
+static inline void net_peer(const uint8_t *p, unsigned n) {
+  static uint8_t r[NET_MTU];
+  if (n < 20 || (p[0] >> 4) != 4) return;
+  unsigned hl = (p[0] & 15) * 4u, tl = (unsigned)p[2] << 8 | p[3];
+  if (hl < 20 || tl > n || tl < hl + 8 || !memcmp(p + 12, p + 16, 4)) return;
+  memcpy(r, p, tl);
+  memcpy(r + 12, p + 16, 4); /* from the address it was sent to */
+  memcpy(r + 16, p + 12, 4);
+  r[8] = 64;
+  uint8_t *l = r + hl;
+  unsigned ll = tl - hl;
+  if (p[9] == 1 && l[0] == 8) {                       /* echo request -> echo reply */
+    l[0] = 0;
+    l[2] = l[3] = 0;
+    uint16_t c = (uint16_t)~net_csum(l, ll, 0);
+    l[2] = (uint8_t)(c >> 8);
+    l[3] = (uint8_t)c;
+  } else if (p[9] == 17 && ((unsigned)l[2] << 8 | l[3]) == 7) { /* UDP echo */
+    uint8_t a = l[0], b = l[1];
+    l[0] = l[2];
+    l[1] = l[3];
+    l[2] = a;
+    l[3] = b;
+    l[6] = l[7] = 0;                                  /* (no checksum) */
+  } else return;
+  r[10] = r[11] = 0;
+  uint16_t c = (uint16_t)~net_csum(r, hl, 0);
+  r[10] = (uint8_t)(c >> 8);
+  r[11] = (uint8_t)c;
+  net_rx_push(r, tl);
 }
 
 /* Byte i of the packet being transmitted. */
@@ -121,6 +168,7 @@ static inline void net_tx_done(uint64_t n) {
   net_txn = 0;
   if (n == 0 || n > NET_MTU) { net_drops++; return; }
   if (net_mode == NET_LOOP) net_rx_push(net_txb, (unsigned)n);
+  else if (net_mode == NET_PEER) net_peer(net_txb, (unsigned)n);
 #ifndef __EMSCRIPTEN__
   else if (net_mode == NET_UDP) (void)!send(net_fd, net_txb, (size_t)n, 0);
 #endif
