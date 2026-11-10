@@ -1125,14 +1125,15 @@ host opens `http://localhost:8080/`.
   looks like text, else `application/octet-stream`) and `Content-Length`
   for files; generated pages end with the connection (no
   `Content-Length`). Files of any size go out in chunks of 4032 bytes, one
-  `sys_read` and one `sys_write` each (the socket's 2 KiB send buffer paces
+  `sys_read` and one `sys_write` each (the socket's 1 KiB send buffer paces
   them). Errors are small HTML pages: 400 (a malformed request line, a bad
   `%XX`, a path over 256 bytes), 404, 405 (other methods; `Allow: GET,
   HEAD`).
 - **Connections.** No connection open: `httpd` blocks in ACCEPT. Some
   open: it polls them (non-blocking READ and ACCEPT, a 5 ms sleep when
-  nothing happened), up to CONNS at a time (1..3, default 3; `net` has 4
-  sockets and the listener takes one). A request is complete at the blank
+  nothing happened), up to CONNS at a time (1..3, default 3; `net` has 8
+  sockets in all, the listener takes one, and a socket in TIME-WAIT is
+  reused when none is free). A request is complete at the blank
   line after its headers (or when the client half-closes); only the
   request line and the last bytes are kept once 1 KiB has arrived, so
   headers of any length are fine. A connection that sends no complete

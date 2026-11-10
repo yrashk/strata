@@ -3,6 +3,7 @@ net: 10.0.0.1, link up
 net0  inet 10.0.0.1  mtu 1500  link up
       packets in 0  out 0  dropped 0
       device: queued 0  lost 0
+      dns 8.8.8.8 1.1.1.1
 strata$ httpd & sleep 1
 httpd: listening on port 80
 [1] PID
@@ -58,7 +59,7 @@ HTTP/1.0 200 OK
 Server: StrataOS/0.1 httpd
 Connection: close
 Content-Type: text/plain; charset=utf-8
-Content-Length: 317171
+Content-Length: 321774
 
 strata$ echo GET /www/nosuch.html HTTP/1.0 | nc 127.0.0.1 80 > r7
 GET /www/nosuch.html 404 106
@@ -111,19 +112,21 @@ GET /www/style.css 200 1312
 two seconds later
 strata$ wait %2
 [2] done  sh -c "cat /test/browser.req; sleep 3" | nc 127.0.0.1 80 > r13
+strata$ grep HTTP/ < r13
+HTTP/1.0 200 OK
 strata$ echo GET /~ps HTTP/1.0 | nc 127.0.0.1 80 > r11
-GET /~ps 200 3113
+GET /~ps 200 3114
 strata$ grep "<h2>" < r11
 <h2>Cores</h2>
 <h2>Processes</h2>
 strata$ echo GET /src/sh.s HTTP/1.0 | nc 127.0.0.1 80 | wc
-GET /src/sh.s 200 317171
-6659 39384 317302
+GET /src/sh.s 200 321774
+6758 39932 321905
 strata$ cat sh.s | wc
-6653 39370 317171
+6752 39918 321774
 strata$ rm index.html
 strata$ echo GET / HTTP/1.0 | nc 127.0.0.1 80 > r12
-GET / 200 12324
+GET / 200 12553
 strata$ grep title < r12
 <html><head><meta charset="utf-8"><title>every file</title><link rel="stylesheet" href="/style.css"></head><body>
 strata$ rm r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15

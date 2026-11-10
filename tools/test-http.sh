@@ -11,9 +11,9 @@
 #     the test disk, $(BUILD)/http-test/disk.img, since the console turns CR
 #     into LF), and the first of them again from a client that keeps the
 #     connection open for 3 s: its log line must come before "two seconds later" (answered at the
-#     blank line, not at the client's close). That response is not looked
-#     at: nc loses data that arrives before its own input ends (net frees a
-#     half-closed socket in LAST-ACK with its data unread). Responses go to
+#     blank line, not at the client's close), and its response must reach nc
+#     although it arrives before nc's own input ends (net keeps the data of a
+#     socket that was only shut down, in LAST-ACK, readable). Responses go to
 #     files and are shown with cat/grep, so httpd's log lines and the
 #     responses never interleave. The console from the first prompt on is
 #     compared with tools/test-http.out; `tools/test-http.sh -u ...`
@@ -72,6 +72,7 @@ grep HTTP/ < r15
 grep Content-Length < r15
 sh -c "cat /test/browser.req; sleep 3" | nc 127.0.0.1 80 > r13 & sleep 2; echo two seconds later
 wait %2
+grep HTTP/ < r13
 echo GET /~ps HTTP/1.0 | nc 127.0.0.1 80 > r11
 grep "<h2>" < r11
 echo GET /src/sh.s HTTP/1.0 | nc 127.0.0.1 80 | wc
