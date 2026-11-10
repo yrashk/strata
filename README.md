@@ -218,8 +218,9 @@ strata$ ws                          # the window server takes the screen
   commands and file names, quoting and variables, `;` `&&` `||`, pipelines
   of up to four stages, redirection, background jobs (`jobs`, `fg`, `wait`,
   `kill`), scripts and an `rc` file. Type `help`.
-- **Utilities**: `ls cat rm df ps free uptime devs hexdump cores sched seq
-  grep wc upper spin`, `units` (a program that pages its own code), and `as`.
+- **Utilities**: `ls cat cp mv rm touch df tag untag retag tags ps free
+  uptime devs hexdump cores sched seq grep wc upper spin`, `units` (a program
+  that pages its own code), and `as`.
   The sources of the programs and examples are on the disk, so they can be
   rebuilt on the machine.
 - **Cores.** `make boot` boots 12 cores: the system core, five servers and
@@ -385,7 +386,8 @@ the main points:
 - A console read cannot be cancelled, so `halt` may wait for one more key
   when a program was waiting for input.
 - The file system has tags instead of directories (`ls /src/demo` lists
-  the files tagged both `src` and `demo`), but files are contiguous runs of
+  the files tagged both `src` and `demo`, `ls /src/-demo` those tagged `src`
+  but not `demo`; subdirectories are facets: `ls /src` ends with `demo/`), but files are contiguous runs of
   blocks, a deleted file's space comes back only if it was the last one, and
   a disk holds at most 128 files and 64 tags.
 - The shell has no globbing and no `2>`.

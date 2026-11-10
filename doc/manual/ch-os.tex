@@ -549,14 +549,18 @@ handles (CLEANUP) and completes the parent's WAIT.
 3 & OPEN & data = a path (Section~\ref{sec:os-tags}); mode 0 read, 1 write (truncate), 2 append. Writing
   gives the file the path's tags. Reply: a file id; $-4$\\
 4 & CLOSE & handle. A file that was written is saved to disk when its last reference closes\\
-10 & DIR & data = a path of tags (none: every file). Reply: the count of files carrying them all, and
-  32-byte records: 24 bytes of name, u64 size; $-4$ no such tag\\
+10 & DIR & data = a path of tags (none: every file; \texttt{-tag} excludes). Reply: the count of
+  files carrying them all, and 32-byte records: 24 bytes of name, u64 size (126 at most); the mode
+  word holds the facets, a tag set of the other tags those files carry; $-4$ no such tag\\
 11 & UNLINK & data = a path; $-4$\\
 12 & TAG & data = a path, a zero byte, a tag name (created if new). $-4$; $-6$ all 64 tags in use;
   $-1$ a bad tag name\\
 13 & UNTAG & data = a path, a zero byte, a tag name. $-4$\\
 14 & TAGS & data = a path (none: every tag). Reply: the count, and 32-byte records: 16 bytes of name,
   u64 files carrying it, u64 tag number: every tag, or the tags of that file\\
+15 & RENAME & data = a path, a zero byte, a new path. The file takes the new name and gains the new
+  path's tags (created if new); it keeps its tags, blocks and directory entry, and another file of
+  that name is deleted. $-4$; $-6$; $-1$ a bad new name\\
 27 & STAT & data = a path. Reply: the size; $-4$\\
 28 & LOADIMG & data = a path, mode = arena offset, handle = the most bytes; the arena as
   attachment. Reply: the image's size; the arena comes back with the reply\\
@@ -635,6 +639,18 @@ component is not a tag but names a file that carries the others, it lists that o
 through a path deletes the file; UNTAG takes it out of a directory. A tag no file carries any more
 disappears. Programs that only open a file by name work unchanged, and can be given paths.
 
+A component \texttt{-tag} excludes: the file must not carry that tag, so \texttt{ls /src/-demo} lists
+the sources that are not demos (excluding a tag that does not exist excludes nothing). A path that
+creates a file or tags (writing, RENAME's new path) cannot exclude, and no tag name starts with
+\texttt{-}.
+
+\paragraph{Subdirectories are facets.} With its files DIR answers the other tags that at least one of
+them carries: the OR of their tag sets, without the path's own tags, computed in the same loop. These
+are the ways to narrow the listing further, as subdirectories would be: \texttt{ls /src} shows the
+files tagged \texttt{src} and then \texttt{demo/}, \texttt{ls /src/demo} narrows to both, and
+\texttt{ls /} ends with every tag in use. Nothing on the disk changes. The shell's Tab completes facets
+in a path like folders (\texttt{cat /sr} gives \texttt{/src/}).
+
 On the disk the directory keeps its 128 entries of 32 bytes (the kernel reads it at boot to load the
 first servers), and the tag table follows it: four blocks, at the LBA in boot-header offset 52, of 64
 tag names of 16 bytes (zero-padded; a zero first byte is a free slot), then 128 64-bit tag sets, one
@@ -686,7 +702,10 @@ Processes & sys\_spawn(n, mode, cmd, len, h0, h1, h2), sys\_wait(pid, nb), sys\_
   sys\_signal(pid), sys\_catch(on), sys\_ps(buf), sys\_info(buf), sys\_cores(buf),
   sys\_sched(op, arg), sys\_lookup(name, len, reg), sys\_register(name, len)\\
 Console & sys\_conmode(mode), sys\_setfg(pid)\\
-Files & sys\_dir(buf), sys\_unlink, sys\_stat(name, len), sys\_statfs(buf), sys\_readblk(n, buf)\\
+Files & sys\_dir(buf), sys\_unlink, sys\_stat(name, len), sys\_statfs(buf), sys\_readblk(n, buf),
+  sys\_rename(path, len, new, len)\\
+Tags & sys\_query(buf, path, len), sys\_facets (of the last query), sys\_tags(buf, path, len),
+  sys\_tag(path, len, tag, len), sys\_untag(path, len, tag, len)\\
 Devices & sys\_devs(buf), sys\_halt, sys\_grantfb\\
 Time & sys\_now, sys\_sleep(ticks), sys\_notify\_wait(timeout), sys\_yield, sys\_clock\\
 Switch cost & sys\_mirror(offset, len), sys\_scratch(start, len)\\
@@ -819,7 +838,7 @@ cause after a fault; a non-zero status shows in the prompt, as in \texttt{[130] 
   Home, End and Ctrl-B/F/A/E move; Backspace and Delete erase; Ctrl-K, Ctrl-U and Ctrl-W erase to the
   end, to the start, and the word before the cursor; Up, Down and Ctrl-P/N walk a history of 32 lines;
   Ctrl-L clears the screen; Tab completes a command (builtins and the programs on the disk) or a file
-  name, also behind a tag path (\texttt{cat /doc/mo}), and a second Tab lists the candidates; Ctrl-D on an empty line ends the input; Ctrl-C abandons
+  name, also behind a tag path (\texttt{cat /doc/mo}; a tag completes as \texttt{tag/}), and a second Tab lists the candidates; Ctrl-D on an empty line ends the input; Ctrl-C abandons
   the line.
 \item[Running a command] Each stage's command text goes to \texttt{proc} with SPAWN, together with the
   three handles that become the child's 0, 1 and 2: the shell's own, pipe ends from \texttt{pipe}, or
@@ -842,11 +861,18 @@ At boot the login shell runs the script \texttt{rc} if the disk has one; the sup
 \toprule
 \textrm{\bfseries Program} & \textbf{Action}\\\midrule
 ls [-t] [PATH] & list the files with their sizes: every file, or those carrying the tags of PATH
-  (\texttt{ls /src/demo}); \texttt{-t} adds each file's tags\\
-tag FILE TAG \ldots & give a file tags; \texttt{untag FILE TAG \ldots} takes them away\\
+  (\texttt{ls /src/demo}, \texttt{ls /src/-demo}), then its facets as \texttt{tag/};
+  \texttt{-t} adds each file's tags\\
+tag FILE TAG \ldots & give a file tags; \texttt{untag FILE TAG \ldots} takes them away;
+  \texttt{retag FILE [TAG \ldots]} leaves it exactly these\\
 tags [FILE \ldots] & every tag with the number of files carrying it, or the tags of each FILE\\
 cat [NAME \ldots] & copy the named files, or standard input, to standard output\\
 rm NAME \ldots & delete files\\
+cp [-t] SRC DST & copy a file; DST's path gives the copy tags, \texttt{-t} also SRC's (DST must have
+  another name: names are unique)\\
+mv SRC DST & rename (RENAME): the file keeps its tags and gains DST's; \texttt{mv f /todo/} keeps the
+  name\\
+touch FILE \ldots & create empty files; a file the path does not name yet gets the path's tags\\
 df & disk blocks: total, used, free; the number of files\\
 hexdump BLOCK & the first 256 bytes of a raw disk block\\
 ps & the processes: pid, parent, state, core, threads, context switches, KiB moved, name\\

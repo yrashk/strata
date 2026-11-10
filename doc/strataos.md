@@ -557,11 +557,16 @@ reference counts per process).
 → id; 1 READ (0 at the end of the file), 2 WRITE, 4 CLOSE (a written file is
 saved to disk when its last reference closes; files being written are held
 in a 128 KiB region); 10 DIR (data = a tag path, none = every file) → count
-+ 32-byte records (24 bytes name, u64 size), -4 no such tag; 11 UNLINK;
++ 32-byte records (24 bytes name, u64 size; 126 at most), and in the reply's
+mode word the *facets*: a tag set (bit t = tag number t) of the other tags
+the matching files carry; -4 no such tag; 11 UNLINK;
 12 TAG / 13 UNTAG (data = path, a zero byte, a tag name) → 0, -4, -6 (64
 tags in use), -1 (bad tag name); 14 TAGS (data = a path, none = every tag)
 → count + 32-byte records (16 bytes name, u64 files carrying it, u64 tag
-number); 27 STAT (data = path) → size; 28 LOADIMG (from `proc` when
+number); 15 RENAME (data = path, a zero byte, a new path) → 0, -4, -6, -1
+(bad new name): the file takes the new path's name and gains its tags
+(created if new), keeping its own tags, its blocks and its directory entry;
+another file of the new name is deleted; 27 STAT (data = path) → size; 28 LOADIMG (from `proc` when
 spawning: data = path, handle = most bytes, mode = arena offset, the arena
 as attachment: fs copies the program image into it and the arena goes back
 with the reply) → size; 32 STATFS → data: u64 total blocks, used blocks,
@@ -586,9 +591,31 @@ a write keeps its tags. DIR takes a path of tags and lists the files that
 carry all of them (`/` or nothing: every file); when its last component is
 not a tag but names a file carrying the others, it lists that file. UNLINK
 through a path deletes the file (to take it out of a directory, untag it).
-A tag that no file carries any more disappears. Utilities: `ls [-t] [PATH]`,
-`tag FILE TAG...`, `untag FILE TAG...`, `tags [FILE...]`; the shell completes
-file names behind a tag path (`cat /doc/mo` Tab).
+A tag that no file carries any more disappears. A component `-tag` (before
+the name; in DIR also last) *excludes*: the file must not carry that tag, so
+`ls /src/-demo` lists the sources that are not demos and `ls /-bin` every
+file not tagged bin (excluding a tag that does not exist excludes nothing).
+A path that creates (opening for writing, RENAME's new path) cannot exclude
+(-1), and a tag name cannot start with `-`.
+
+**Subdirectories are facets.** DIR also answers the other tags that at least
+one matching file carries: the OR of their tag sets, without the path's own
+tags (one loop over the 128 sets; nothing on the disk changes). These are
+the ways to narrow the listing further, as subdirectories would be: `ls /src`
+shows the files tagged src, then `demo/`; `ls /src/demo` narrows to both;
+`ls /` shows every file, then every tag in use. A path naming one file has
+no facets. The shell's Tab completes facets in a path like folders (`cat
+/sr` Tab gives `/src/`, with no space after it).
+
+Utilities: `ls [-t] [PATH]` (files, then facets as `tag/`; `-t` adds each
+file's tags), `cat`, `cp [-t] SRC DST` (a copy; DST's path gives it tags,
+`-t` also copies SRC's; names are unique, so DST must name another file),
+`mv SRC DST` (RENAME; `mv notes /todo/notes` or `mv notes /todo/` keeps the
+name and adds the tag), `rm FILE...`, `touch FILE...` (creates empty files;
+an existing file the path does not name gets the path's tags), `tag FILE
+TAG...`, `untag FILE TAG...`, `retag FILE [TAG...]` (exactly these tags),
+`tags [FILE...]`, `df`; the shell completes file names and facets behind a
+tag path (`cat /doc/mo` Tab).
 
 **Bare-metal programs and redirection.** A program without the marker has
 no library, so `prog < in > out` uses 34/35: `proc` has `fs` copy the
@@ -675,7 +702,8 @@ ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47.
 - Builtins: help, echo, set, unset, history, jobs, fg, wait, kill, sleep
   (decimal seconds), time, clear, source, exit, halt, run, true, false.
   A builtin in a pipeline or in the background runs in a child shell.
-- Programs on disk: ls, cat, rm, df, tag, untag, tags, ps, free, uptime,
+- Programs on disk: ls, cat, cp, mv, rm, touch, df, tag, untag, retag,
+  tags, ps, free, uptime,
   devs, hexdump, cores,
   sched (`sched` shows the slice and switch rates; `sched 500us` / `sched 5ms`
   sets it; `rc` may set it at boot),
@@ -861,7 +889,8 @@ in `os/ws/`).
   of the tag table (4 blocks, right after the directory; 0 = none): 64 tag
   names of 16 bytes (zero-padded; a zero first byte = a free slot), then 128
   u64 tag sets, one per directory entry (bit t of set f = entry f carries
-  tag t). `mkdisk -t tag,tag...` tags the files named after it.
+  tag t). `mkdisk -t tag,tag...` tags the files named after it (a tag name
+  has no `/` and does not start with `-`).
 - Memory handed over by the boot ROM: c0 = [0, 15 MiB), and **c13 =
   [16 MiB, 48 MiB)**: system memory above the load area and below the
   framebuffer window; and core 0 also gets **c14 = the framebuffer window

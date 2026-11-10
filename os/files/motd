@@ -9,6 +9,9 @@ Local Store a program uses (ps shows the switches and the KiB they moved).
 Try:
   ls                         programs, their sources and files
   tags, ls /src/demo         files carry tags instead of living in directories
+  ls /src, ls /src/-demo     tags work as folders (demo/); -tag leaves one out
+  cp, mv, touch, rm          copy, rename (mv f /todo/ adds a tag), create
+  tag, untag, retag f t...   give a file tags, take them, replace them
   seq 30 | grep 2 | wc       a pipeline through the pipe server
   -n 3 mandel                a bare-metal program as 3 threads on 3 cores
   spin 20 a & spin 20 b &    time sharing (add -c 6 to put both on core 6)

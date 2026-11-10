@@ -1678,3 +1678,22 @@ sl_loop:
 sl_done:
         mv    a0, t0                    ; length
         ret                             ; done
+
+; ---- files: rename and facets (fs RENAME, DIR's facet set) ------------------
+OP_RENAME  = 15                         ; fs: rename a file (it gains the new path's tags)
+
+; sys_rename(a0 = path, a1 = length, a2 = new path, a3 = its length) -> a0 = 0,
+; -4 no such file, -1 bad new name, -6 no room for another tag. The file keeps
+; its tags, blocks and directory entry and gains the new path's tags; another
+; file of the new name is deleted.
+sys_rename:
+        li    a4, OP_RENAME             ; the request
+        j     sys_tagop                 ; (the same data as TAG: path, 0, path)
+
+; sys_facets() -> a0 = the facets of the last sys_query: a tag set (bit t =
+; tag number t) of every other tag that a listed file carries, the ways to
+; narrow the listing further; sys_tags(buf, 0, 0) gives the numbers' names
+sys_facets:
+        la    t0, sys_hdr               ; the reply's mode word
+        ld    a0, 24(t0)                ; ...
+        ret                             ; done

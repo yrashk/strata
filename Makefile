@@ -138,7 +138,7 @@ OS_EXCLUDE := clock gfx
 OS_EXAMPLES := $(filter-out $(OS_EXCLUDE),$(patsubst examples/%.s,%,$(EXAMPLES)))
 PROGS   := $(patsubst %,$(BUILD)/prog/%,$(OS_EXAMPLES))
 SERVERS := proc dev fs tty pipe
-UTILS   := sh ls cat rm df ps free uptime devs hexdump cores sched seq grep wc upper spin tag tags
+UTILS   := sh ls cat rm df ps free uptime devs hexdump cores sched seq grep wc upper spin tag tags cp mv touch
 SPROGS  := $(patsubst %,$(BUILD)/prog/%,$(SERVERS))
 UPROGS  := $(patsubst %,$(BUILD)/prog/%,$(UTILS))
 USRCS   := $(patsubst %,$(BUILD)/src/%.s,$(UTILS))
@@ -159,6 +159,10 @@ $(UPROGS): $(BUILD)/prog/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
 
 # untag is tag under another name (it looks at the name it was started by)
 $(BUILD)/prog/untag: $(BUILD)/prog/tag
+	cp $< $@
+
+# retag too (it replaces a file's tags)
+$(BUILD)/prog/retag: $(BUILD)/prog/tag
 	cp $< $@
 
 # the window server and its clients (os/ws/, os/lib/gfx.s, os/lib/wsclient.s)
@@ -199,14 +203,14 @@ $(BUILD)/src/as.s: os/progs/as.s
 FORTH_DISK := $(BUILD)/prog/forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
               $(wildcard lang/forth/demos/*.fs)
 
-DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(BUILD)/prog/untag $(WSPROGS) $(PROGS) $(BUILD)/prog/as \
+DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as \
               $(BUILD)/prog/units $(SRCS) $(USRCS) $(FORTH_DISK)
 
 # The same files with their tags (mkdisk -t TAGS applies to the files after it).
 # The file system has no directories: `ls /bin` lists the files tagged bin,
 # `ls /src/demo` those tagged both src and demo.
 DISK_ARGS := -t doc $(filter-out %/rc,$(OS_FILES)) -t etc $(filter %/rc,$(OS_FILES)) \
-             -t sys $(SPROGS) -t bin $(UPROGS) $(BUILD)/prog/untag -t bin,ws $(WSPROGS) \
+             -t sys $(SPROGS) -t bin $(UPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag -t bin,ws $(WSPROGS) \
              -t demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units \
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) \
              -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \

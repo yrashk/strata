@@ -3,7 +3,8 @@
  *   mkdisk -o disk.img -k kernel.stx [-b blocks] [[-t tag,tag...] file...]
  *
  * -t sets the tags of the files that follow it (comma-separated, at most 64
- * tags of at most 16 bytes on the disk; -t "" for none).
+ * tags of at most 16 bytes on the disk, no "/", not starting with "-";
+ * -t "" for none).
  *
  * Layout (512-byte blocks):
  *   0      boot header (see firmware/bootrom.s; offset 52: u32 tag table LBA)
@@ -40,7 +41,7 @@ static int ntags;
 
 /* The number of a tag, added if new. */
 static int tag_num(const char *t, size_t len) {
-  if (len == 0 || len > TAGLEN || memchr(t, '/', len)) {
+  if (len == 0 || len > TAGLEN || memchr(t, '/', len) || t[0] == '-') {
     fprintf(stderr, "mkdisk: bad tag name: %.*s\n", (int)len, t);
     exit(1);
   }
