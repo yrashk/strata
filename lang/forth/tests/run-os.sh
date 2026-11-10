@@ -2,7 +2,7 @@
 # Strata Forth as a StrataOS 0.1 program: boots StrataOS on the emulator with
 # scripted console input (12 cores, interpreter, virtual timer: deterministic)
 # from the test disk (build/forth-test/disk.img: the standard disk plus
-# tests/*.fs, and tests/www/* tagged www) and checks four things:
+# tests/*.fs, and tests/http/* tagged httptest) and checks four things:
 #   1. tests/test.fs through `-n 6 forth < test.fs` gives tests/test.out, the
 #      output of the bare-metal Forth (first line and the lines marked as
 #      platform-specific aside);
@@ -80,21 +80,24 @@ else
 fi
 # ---- 4. the network words and httpd.fs, over loopback (127.0.0.1: no link needed)
 # tests/nettest.fs uses the words at the prompt (on demand) and for good, TCP
-# and UDP within one process; then httpd.fs answers 8 requests sent with nc
-# (a file, an index, a listing, HEAD, 404, 405, 400, a binary's type) and
-# its log is shown. HTTP's CRs are dropped before the comparison.
+# and UDP within one process; then httpd.fs answers 9 requests sent with nc
+# for the files of tests/http/ (tagged httptest): two files, a listing with
+# and without a trailing /, HEAD, 404, 405, 400, a binary's type, and the
+# type of / (the disk's index.html, from os/www/); its log is shown last.
+# HTTP's CRs are dropped before the comparison.
 {
   printf 'forth < nettest.fs\n'
   printf -- '-n 2 forth -e 80 tcp-listen\n'
-  printf 'forth httpd.fs 8000 8 > hlog &\n'
-  printf 'echo "GET /www/note.txt HTTP/1.0" | nc 127.0.0.1 8000\n'
-  printf 'echo "GET /www/ HTTP/1.0" | nc 127.0.0.1 8000\n'
-  printf 'echo "GET /www HTTP/1.0" | nc 127.0.0.1 8000\n'
-  printf 'echo "HEAD /www/note.txt HTTP/1.0" | nc 127.0.0.1 8000\n'
-  printf 'echo "GET /www/nosuch HTTP/1.0" | nc 127.0.0.1 8000\n'
-  printf 'echo "DELETE /www/note.txt HTTP/1.0" | nc 127.0.0.1 8000\n'
+  printf 'forth httpd.fs 8000 9 > hlog &\n'
+  printf 'echo "GET /httptest/note.txt HTTP/1.0" | nc 127.0.0.1 8000\n'
+  printf 'echo "GET /httptest/page.html HTTP/1.0" | nc 127.0.0.1 8000\n'
+  printf 'echo "GET /httptest HTTP/1.0" | nc 127.0.0.1 8000\n'
+  printf 'echo "HEAD /httptest/ HTTP/1.0" | nc 127.0.0.1 8000\n'
+  printf 'echo "GET /httptest/nosuch HTTP/1.0" | nc 127.0.0.1 8000\n'
+  printf 'echo "DELETE /httptest/note.txt HTTP/1.0" | nc 127.0.0.1 8000\n'
   printf 'echo "nonsense" | nc 127.0.0.1 8000\n'
-  printf 'echo "GET /www/blob.bin HTTP/1.0" | nc 127.0.0.1 8000 | grep Type\n'
+  printf 'echo "GET /httptest/blob.bin HTTP/1.0" | nc 127.0.0.1 8000 | grep Type\n'
+  printf 'echo "HEAD / HTTP/1.0" | nc 127.0.0.1 8000 | grep Type\n'
   printf 'wait\ncat hlog\nhalt\n'
 } > "$OUT/os4.in"
 boot os4

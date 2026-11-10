@@ -221,9 +221,14 @@ strata$ ws                          # the window server takes the screen
 - **Utilities**: `ls cat cp mv rm touch df tag untag retag tags ps free
   uptime devs hexdump cores sched seq grep wc upper spin`, `units` (a program
   that pages its own code), and `as`.
+- **Networking**: the `net` server (IPv4, ICMP, UDP, TCP) and `ping nc
+  tcpecho ifconfig netstat httpd`. `httpd &` serves the disk over HTTP:
+  URLs are tag paths (`/src/demo/hello.s`, `/src/` lists the files tagged
+  `src`), `/` is the small site tagged `www`, `/~ps` shows what the machine
+  is doing (doc/strataos.md 2.11).
   The sources of the programs and examples are on the disk, so they can be
-  rebuilt on the machine (each utility's with the library appended, without
-  its comments, to fit the 4 MiB disk).
+  rebuilt on the machine (each utility's with the library appended). The
+  disk is 16 MiB.
 - **Cores.** `make boot` boots 12 cores: the system core, five servers and
   six cores free for threads. The minimum is 6 (the shell then shares a
   server's core). A worker core holds up to three threads.

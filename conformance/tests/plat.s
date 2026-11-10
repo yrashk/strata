@@ -11,7 +11,7 @@
 ;   * The nine entries (u16 type, u16 index, u16 space, u16 node, u64 info,
 ;     u64 base, u64 size): system memory (T3, 64 MiB), cluster store (T2,
 ;     256 KiB), console (info 3 = output | input), the platform table itself,
-;     block device 0 (node = ncores, info = 8192 blocks), the framebuffer
+;     block device 0 (node = ncores, info = 32768 blocks), the framebuffer
 ;     (1280 x 800, stride 5120, format 1 = XRGB8888, at 0x3000000 in T3,
 ;     16 MiB), the timer (info = 1000000 ticks per second), the pointer
 ;     (window 0x4100, 16 bytes; info 0x0307 = buttons left | right | middle,
@@ -31,7 +31,7 @@ expect: .dword 1 | 0 << 16 | 3 << 32 | 0xffff << 48, 0, 0, 0x4000000            
         .dword 1 | 1 << 16 | 2 << 32 | 0xffff << 48, 0, 0, 0x40000               ; memory: T2
         .dword 2 | 0 << 16 | 4 << 32 | 0xffff << 48, 3, 0, 0x100                 ; console
         .dword 3 | 0 << 16 | 4 << 32 | 0xffff << 48, 1, 0x1000, 320             ; platform table
-        .dword 4 | 0 << 16 | 4 << 32, 8192, 0x2000, 0x300                        ; block device (node patched in: ncores)
+        .dword 4 | 0 << 16 | 4 << 32, 32768, 0x2000, 0x300                        ; block device (node patched in: ncores)
         .dword 5 | 0 << 16 | 3 << 32 | 0xffff << 48, 1280 | 800 << 16 | 5120 << 32 | 1 << 48, 0x3000000, 0x1000000 ; framebuffer
         .dword 6 | 0 << 16 | 4 << 32 | 0xffff << 48, 1000000, 0x3000, 0x20      ; timer
         .dword 7 | 0 << 16 | 4 << 32 | 0xffff << 48, 0x0307, 0x4100, 0x10       ; pointer

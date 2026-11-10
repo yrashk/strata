@@ -254,8 +254,9 @@ pl_hcall:                               ; leaf (tail-calls pl_call)
         li    a0, -1                    ; closed
         ret                             ; done
 
-; (MSG) ( handle len mode op reg -- result ): one request to a server, from
-; Forth (net.fs is built on it). The header op, handle, length, mode goes to
+; plat_msg: the Forth word (MSG) ( handle len mode op reg -- result ), one
+; request to a server (net.fs is built on it; forth.s's p_msg jumps here,
+; with the data stack as it was). The header op, handle, length, mode goes to
 ; the server behind endpoint register reg (1, 2 fs, 3 tty, 4 pipe; anything
 ; else is fs) and the word sleeps until the answer is back. Request and
 ; reply data are the buffer's bytes from 64 on: Forth moves them itself with
@@ -265,7 +266,7 @@ pl_hcall:                               ; leaf (tail-calls pl_call)
 ; heap waits in the scratch register c7 meanwhile; the endpoint then
 ; replaces proc's in c1, and register 1 is that server for good (a later
 ; LOOKUP answers 0 at once). With threads (-n N) c1 is the job board: -1.
-p_msg:                                  ; Forth word
+plat_msg:                               ; a Forth word's body
         addi  sp, sp, -8                ; frame
         sd    ra, 0(sp)                 ; save the return address
         mv    a0, s1                    ; a0 = the register

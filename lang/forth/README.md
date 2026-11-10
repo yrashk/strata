@@ -364,7 +364,7 @@ constant value to defer is s" ." abort" catch throw evaluate`...):
 | `demos/gfx.fs` | a parallel Mandelbrot: the framebuffer is cut into bands, one per worker, then joined and presented (bare metal only) |
 | `tests/test.fs`, `tests/test.out`, `tests/run.sh` | the regression test, bare metal on the emulator and the RTL |
 | `tests/run-os.sh`, `tests/ostest.fs`, `tests/os.out`, `tests/inc*.fs`, `tests/preempt.fs` | the same test under StrataOS, files and tools, command lines and pipes, preemption |
-| `tests/nettest.fs`, `tests/www/`, `tests/net.out` | under StrataOS: the network words and httpd.fs over loopback (the files of `tests/www/` are tagged www on the test disk) |
+| `tests/nettest.fs`, `tests/http/`, `tests/net.out` | under StrataOS: the network words and httpd.fs over loopback (the files of `tests/http/` are tagged httptest on the test disk) |
 
 The images are built by
 `build/sasm -I lang/forth/bare -I build/forth -o build/forth.stx lang/forth/forth.s`
@@ -481,7 +481,9 @@ Welcome to StrataOS 0.1 ...
 ```
 
 An HTTP/1.0 server written in Forth on net.fs (and on `(msg)` to the file
-server), one connection at a time, until Ctrl-C or COUNT requests. URL
+server), one connection at a time, until Ctrl-C or COUNT requests (its
+port is 8000 so that it can run next to the assembly `httpd` on 80,
+doc/strataos.md 2.11). URL
 paths are tag paths: `/doc/motd` is motd, which carries the tag `doc`; a
 path of tags is an HTML listing of the files carrying them (`/forth/net`);
 a path ending in `/` serves its `index.html`, or else the listing (`/`

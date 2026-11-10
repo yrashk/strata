@@ -15,7 +15,7 @@ module strata_top
   parameter int    T3_LAT     = 20,
   parameter int    T2_W       = T2_WORDS,
   parameter int    T2_LAT     = 4,
-  parameter int    DISK_WORDS = 524288,
+  parameter int    DISK_WORDS = 2097152,
   parameter string ILS_INIT   = "",
   parameter string DLS_INIT   = "",
   parameter string DISK_INIT  = "",

@@ -35,7 +35,7 @@
 #define FAR_MAX 0xD0000u
 
 static uint8_t *disk;
-static uint32_t nblocks = 8192, next_lba = 1 + DIRBLOCKS + TAGBLOCKS;
+static uint32_t nblocks = STX_DISK_BLOCKS, next_lba = 1 + DIRBLOCKS + TAGBLOCKS;
 static char tagnames[NTAGS][TAGLEN + 1];
 static int ntags;
 
@@ -170,7 +170,7 @@ int main(int argc, char **argv) {
 
   FILE *o = fopen(out, "wb");
   if (!o) { perror(out); return 1; }
-  fwrite(disk, BLK, nblocks, o);
+  fwrite(disk, BLK, next_lba, o); /* only the blocks in use: the rest of the disk reads zero */
   fclose(o);
   fprintf(stderr, "mkdisk: %s: %u blocks, OS code %u + data %u + far %u blocks, %d files, %d tags, %u blocks free\n",
           out, nblocks, tblocks, dblocks, fblocks, nfiles, ntags, nblocks - next_lba);

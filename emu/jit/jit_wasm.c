@@ -79,6 +79,11 @@
 #define HOT 24       /* visits before a pc is translated (jit_wasm_set_hot) */
 #define HOT_NEVER 255
 #define MAXREGIONS 2048 /* per core; more and the core's cache is flushed */
+/* Regions alive across all cores (jit_wasm_set_budget): past it, every
+ * core's translations are dropped. Each region is a WebAssembly module the
+ * browser compiles to machine code, and some browsers (Safari on iOS) have
+ * a small pool for that: the page sets a small budget there. */
+static int budget = MAXREGIONS * MAXJCORES;
 
 typedef struct {
   uint8_t *core;
@@ -117,6 +122,11 @@ EM_JS(int, jw_js_tailcalls, (void), {
  * exported on Module by the build.) */
 EM_JS(int, jw_js_grow, (int n), {
   try { return (typeof wasmTable != "undefined" ? wasmTable : Module["wasmTable"]).grow(n); } catch (e) { return -1; }
+});
+
+/* Empties table slot idx, so the module that was there can be collected. */
+EM_JS(void, jw_js_clear, (int idx), {
+  try { (typeof wasmTable != "undefined" ? wasmTable : Module["wasmTable"]).set(idx, null); } catch (e) { }
 });
 
 /* Compiles the module at [p, p + n) and puts its function "f" into table
@@ -524,6 +534,7 @@ static uint32_t slot_alloc(void) {
   return slot_next++;
 }
 static void slot_free(uint32_t s) {
+  jw_js_clear((int)s);
   if (nfree == capfree) {
     capfree = capfree ? capfree * 2 : 256;
     freeslots = realloc(freeslots, (size_t)capfree * sizeof *freeslots);
@@ -548,6 +559,10 @@ static void flush(JCore *j) {
 static bool translate(JCore *j, uint64_t pc0) {
   static Buf mod, body;
   if (j->nslots == MAXREGIONS) flush(j);
+  int live = 0;
+  for (int i = 0; i < njcores; i++) live += jcs[i].nslots;
+  if (live >= budget)
+    for (int i = 0; i < njcores; i++) flush(&jcs[i]);
   find_blocks(j, pc0);
   bool ok = false;
   if (!nrb) goto done;
@@ -709,6 +724,9 @@ EMSCRIPTEN_KEEPALIVE int jit_wasm_stat(int what) {
 
 /* For the tests: translate after n visits (1: everything, at once); 0
  * also turns the tail calls off. */
+/* At most n regions alive across all cores (see `budget`). */
+EMSCRIPTEN_KEEPALIVE void jit_wasm_set_budget(int n) { budget = n < 16 ? 16 : n; }
+
 EMSCRIPTEN_KEEPALIVE void jit_wasm_set_hot(int n) {
   if (n <= 0) tailcalls = false;
   hot_at = n < 1 ? 1 : n > 200 ? 200 : (unsigned)n;

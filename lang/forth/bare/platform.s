@@ -136,9 +136,10 @@ plat_load:                              ; leaf
         li    a0, -306                  ; not available on this platform
         ret                             ; done
 
-; (MSG) ( handle len mode op reg -- result ): a request to a server
-; (lang/forth/os/platform.s). Bare metal has no servers.
-p_msg:                                  ; Forth word
+; plat_msg: the body of (MSG), a request to a server (lang/forth/os/
+; platform.s). Bare metal has no servers.
+plat_msg:                               ; a Forth word's body
+
         li    a0, -306                  ; not available on this platform
         j     throw_a0                  ; error
 

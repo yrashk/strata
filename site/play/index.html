@@ -19,7 +19,10 @@
   <div class="links">
     <a href="../#idea">Idea</a>
     <a href="../#os">StrataOS</a>
-    <a href="../#forth">Forth</a>
+    <a href="../arch/">Architecture</a>
+    <a href="../isa/">Instructions</a>
+    <a href="../forth/">Forth</a>
+    <a href="./" aria-current="page">Play</a>
     <a href="../code/">Source</a>
     <a class="pill" href="../Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
     <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
@@ -71,6 +74,23 @@
     <div id="screen-box" class="screen-box">
       <canvas id="screen" width="1280" height="800" tabindex="0" aria-label="The Strata framebuffer; focus it to type"></canvas>
     </div>
+    <div id="touchkeys" class="touchkeys" hidden>
+      <button data-tk="kbd" class="tk-wide" title="Show the keyboard">⌨ Keyboard</button>
+      <button data-tk="ctrl" class="tk-mod" title="Ctrl for the next key">Ctrl</button>
+      <button data-tk="alt" class="tk-mod" title="Alt for the next key">Alt</button>
+      <button data-send="\x1b">Esc</button>
+      <button data-send="\t">Tab</button>
+      <button data-send="\x1b[D" aria-label="Left">←</button>
+      <button data-send="\x1b[A" aria-label="Up">↑</button>
+      <button data-send="\x1b[B" aria-label="Down">↓</button>
+      <button data-send="\x1b[C" aria-label="Right">→</button>
+      <button data-send="\n" aria-label="Enter">⏎</button>
+      <button data-send="\x03" title="Ctrl-C">^C</button>
+      <button data-send="\x1b\n" class="tk-wide" title="Alt+Enter">New terminal</button>
+      <button data-send="\x1bp" class="tk-wide" title="Alt+P">Launch</button>
+      <button data-send="\x1b?" title="Alt+?">Keys</button>
+      <textarea id="tkin" class="tk-in" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Keyboard input for the screen"></textarea>
+    </div>
   </section>
 
   <section class="panel term" aria-label="Console">
@@ -104,9 +124,29 @@
     <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
 </footer>
 
+<script>
+// Errors show in the status line, so a phone without a console still says
+// why (this runs first: a script that fails to load or parse is reported too).
+(function () {
+  function show(m) {
+    var s = document.getElementById("status");
+    if (!s) return;
+    s.classList.add("stopped");
+    s.textContent = "page error: " + m + " · " + navigator.userAgent;
+  }
+  addEventListener("error", function (e) {
+    var t = e.target;
+    if (t && t !== window && (t.src || t.href)) show("could not load " + (t.src || t.href));
+    else show((e.message || "script error") + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : ""));
+  }, true);
+  addEventListener("unhandledrejection", function (e) {
+    show(String(e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
-<script src="strata-emu.js"></script>
+<script src="strata-emu.js?v=__BUILD__"></script>
 <script src="play.js?v=__BUILD__"></script>
 </body>
 </html>

@@ -2083,6 +2083,13 @@ tr_copy:                                ; copy them back
         bnez  t2, tr_copy               ; continue
         ret                             ; done
 
+; (MSG) ( handle len mode op reg -- result ): one request to a server through
+; endpoint register reg (StrataOS: 1 proc, or the server a LOOKUP through it
+; found; 2 fs, 3 tty, 4 pipe), waiting for the answer; data moves with
+; `5 tput` / `5 tget` at offset 64 of the message buffer. Bare metal: -306.
+p_msg:                                  ; Forth word
+        j     plat_msg                  ; tail call: the platform sends it
+
 ; (TOOL) ( i*x fa fu na nu -- j*x ): include the file fa fu, run the word
 ; na nu it defines, and forget the file again: a tool that costs no code
 ; space while it is not running (the interpreter calls this for a word the
