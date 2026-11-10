@@ -4,7 +4,9 @@
 // page hands it to its emulator worker, which opens a connection to the
 // guest's PORT through web/web.c's web_http_* calls) and comes back as the
 // guest's raw response, parsed here into a Response. Nothing leaves the
-// browser.
+// browser. The guest's pages link with root-relative URLs (/style.css,
+// /src/): in HTML and CSS those are rebased under vm/PORT/, so the site works
+// inside the panel.
 //   page <- sw   {t: "vmhttp", port, request: Uint8Array}  (a MessagePort to answer on)
 //   page -> sw   {response: Uint8Array} | {error: 502 | 503 | 504, text}
 "use strict";
@@ -22,8 +24,22 @@ self.addEventListener("fetch", (e) => {
   let port = 80;
   const m = /^(\d{1,5})(\/.*)?$/.exec(rest);
   if (m) { port = +m[1]; rest = m[2] || "/"; } else rest = "/" + rest;
-  e.respondWith(relay(e.request, port, rest + url.search));
+  const base = url.pathname.slice(0, at + 4) + port + "/";
+  e.respondWith(relay(e.request, port, rest + url.search).then((r) => rebase(r, base)));
 });
+
+// root-relative href/src/action/url(...) in an HTML or CSS response -> under base
+async function rebase(r, base) {
+  const ct = r.headers.get("content-type") || "";
+  if (!/text\/(html|css)/i.test(ct) || r.status === 204 || r.status === 304) return r;
+  let t = await r.text();
+  t = t.replace(/((?:href|src|action)\s*=\s*["'])\/(?!\/)/gi, `$1${base}`)
+       .replace(/(url\(\s*["']?)\/(?!\/)/gi, `$1${base}`);
+  const h = new Headers(r.headers);
+  const loc = h.get("location");
+  if (loc && loc.startsWith("/") && !loc.startsWith("//")) h.set("location", base + loc.slice(1));
+  return new Response(t, { status: r.status, statusText: r.statusText, headers: h });
+}
 
 function page(status, title, text) {
   const html = `<!doctype html><meta charset="utf-8"><title>${title}</title>` +

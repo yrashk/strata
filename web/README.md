@@ -70,6 +70,39 @@ worker and the node tests):
 `make test-wasm` checks the first with a stubbed fetch and the third
 against a local `netrelay`; the tab link was checked by hand in a browser.
 
+## The guest's web server in the page
+
+Run `httpd &` in StrataOS on the play page and a panel opens with its site
+(ports 80 and 8000 are watched while StrataOS runs). There is no backend:
+
+- **`web/web.c`** exports `web_http_open(port)` (a connection from 10.0.2.2
+  to the guest's port: one of `common/netnat.h`'s virtual connections, the
+  same TCP relay as `-N nat,fwd=` with buffers instead of a host socket),
+  `web_http_send`, `web_http_recv` (bytes, 0 = closed, -1 = not yet),
+  `web_http_close` and `web_port_listening(port)` (1 / 0 / -1; a SYN probe
+  every 2 s at most, answered with a RST at the SYN-ACK, so the guest's
+  server never sees a connection). They work in every network mode; the
+  guest's replies to them never leave the machine.
+- **`site/play/worker.js`** takes `{t:"http", id, port, request}` and
+  answers `{t:"http", id, response}` (or `error` 503: nothing listening,
+  504: no answer in 30 s) once the guest closes or Content-Length is
+  complete; `{t:"ports"}` answers which ports listen.
+- **`site/play/sw.js`**, a Service Worker with scope `play/vm/`: a fetch of
+  `vm/PORT/PATH` (`vm/PATH`: port 80) becomes a raw HTTP/1.0 request,
+  posted to the play tab that runs the machine (clients.matchAll; the page
+  relays it to its worker); the raw response is parsed into a Response.
+  Root-relative URLs in HTML and CSS (and Location) are rebased under
+  `vm/PORT/`. No play tab running a machine: 502; nothing listening: 503.
+- **`site/play/play.js`** asks the worker every 3 s, opens the panel when a
+  port starts listening (floating, draggable, resizable; a bottom sheet on
+  a phone; reload / open in a new tab / close, which leaves a chip), and
+  never takes the focus. The panel's URL opens in another tab of the same
+  browser (the Service Worker serves it there too).
+
+`make test-wasm` (web-http) fetches `/` from `httpd` through these calls
+under node; the panel, the Service Worker, the rebased style sheet and links,
+`/~ps`, a 320 KB file and the 503 for port 8000 were checked in Chrome.
+
 ## Speed
 
 The emulator has three gears, all exact (the reference interleaving is kept
