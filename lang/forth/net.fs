@@ -49,13 +49,14 @@ create mbuf /mbuf 8 + allot                     \ staging: transfers want 8-alig
 \ ---- the network server -------------------------------------------------------------
 \ Found by name (LOOKUP "net" through proc, register 1); its endpoint then
 \ takes proc's place in c1. If none runs, one is started the way os/lib/sys.s
-\ does it: `net 10.0.0.1`, its output on the console.
+\ does it: `net` (its address comes from the link: 10.0.2.15 under -N nat,
+\ else 10.0.0.1), its output on the console.
 variable net-ready                              \ register 1 is the network server
 create net-spawn                                \ SPAWN's data: ncores, handles 0..2, the command line
   0 , -1 , $300000000 , $300000000 ,            \ (one thread; no input; output and errors: tty 0)
-  char " parse net 10.0.0.1" s, align           \ (not S": its buffer may hold the caller's string)
+  char " parse net" s, align          \ (not S": its buffer may hold the caller's string)
 : lookup-net ( -- result ) s" net" >msg  0 3 0 25 1 (msg) ; \ 0: register 1 is the server now; -4 none
-: start-net ( -- ) net-spawn 44 >msg  0 12 0 5 1 (msg) drop ; \ have proc start one
+: start-net ( -- ) net-spawn 35 >msg  0 3 0 5 1 (msg) drop ; \ have proc start one
 : net-init ( -- )                               \ find the network server; start one if none runs
   net-ready @ if exit then
   cores 1 > abort" net: one thread only (start Forth without -n)"
