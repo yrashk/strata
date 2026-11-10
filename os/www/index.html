@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StrataOS 0.1</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<h1>StrataOS 0.1</h1>
+<p class="lead">This page comes from <code>httpd</code>, a program in Strata
+assembly running under StrataOS on an emulated Strata machine: a 64-bit
+ISA where memory is explicit I/O, every tier is visible to software, and
+writable memory has exactly one owner at a time.</p>
+
+<h2>The machine</h2>
+<ul>
+<li>Core 0 runs only the kernel. Files, the console, pipes, processes,
+devices and TCP/IP are <em>servers</em>: user processes that get requests
+as lent 4&nbsp;KiB message buffers. Nothing is copied between address
+spaces, because there are none.</li>
+<li>Programs share the worker cores, switched every 2&nbsp;ms. A switch
+copies out the part of the Local Store a program uses: the cost other
+machines hide. <a href="/~ps">See what the machine is doing</a>.</li>
+<li>This request went through the network server <code>net</code> (IPv4,
+TCP, UDP: <a href="/bin/net/">its programs</a>) and the file server
+<code>fs</code>, which reads the disk from user mode.</li>
+</ul>
+
+<h2>Files have tags, not directories</h2>
+<p>A file has one name and any number of tags. A URL path is a set of
+tags: <code>/src/demo/</code> lists the files tagged both <code>src</code>
+and <code>demo</code>, and <code>/src/demo/hello.s</code> is
+<code>hello.s</code>, if it carries both. <code>-tag</code> leaves a tag
+out: <a href="/src/-demo/">/src/-demo/</a>.</p>
+<ul class="tags">
+<li><a href="/~/">every file</a></li>
+<li><a href="/bin/">/bin/</a> programs</li>
+<li><a href="/sys/">/sys/</a> the servers</li>
+<li><a href="/src/">/src/</a> sources, assembled on the machine by <code>as</code></li>
+<li><a href="/src/demo/">/src/demo/</a> the bare-metal examples</li>
+<li><a href="/forth/">/forth/</a> Strata Forth</li>
+<li><a href="/doc/">/doc/</a> and <a href="/etc/">/etc/</a></li>
+<li><a href="/www/">/www/</a> this site</li>
+</ul>
+
+<h2>Some sources</h2>
+<ul>
+<li><a href="/src/demo/hello.s">hello.s</a>: the first example, every line commented</li>
+<li><a href="/src/sh.s">sh.s</a>: the shell, with the program library appended</li>
+<li><a href="/src/as.s">as.s</a>: the assembler, written in Strata assembly</li>
+<li><a href="/forth/core.fs">core.fs</a>: the Forth that Strata Forth builds on</li>
+<li><a href="/doc/motd">motd</a>, <a href="/etc/rc">rc</a></li>
+</ul>
+
+<h2>Try</h2>
+<pre>strata$ httpd &amp;          # this server (port 80; -p PORT)
+strata$ ls /www           # its files: index.html, style.css
+strata$ echo hi &gt; /www/note.txt   # a new page, at /www/note.txt</pre>
+<p class="foot">StrataOS 0.1 httpd &middot; MIT OR Apache-2.0</p>
+</body>
+</html>

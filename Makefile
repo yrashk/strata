@@ -83,6 +83,7 @@ test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-break.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-sh.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-net.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-http.sh $(BUILD)/bootrom.stx $(BUILD)/http-test/disk.img
 	BUILD=$(BUILD) ./tools/test-ws.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-preempt.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-boot-jit.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/demo.txt
@@ -143,7 +144,7 @@ UTILS   := sh ls cat rm df ps free uptime devs hexdump cores sched seq grep wc u
 SPROGS  := $(patsubst %,$(BUILD)/prog/%,$(SERVERS))
 UPROGS  := $(patsubst %,$(BUILD)/prog/%,$(UTILS))
 # the network programs (os/servers/net.s is the server): no sources on the disk
-NETUTILS := ping nc tcpecho ifconfig netstat
+NETUTILS := ping nc tcpecho ifconfig netstat httpd
 NPROGS  := $(patsubst %,$(BUILD)/prog/%,$(NETUTILS))
 USRCS   := $(patsubst %,$(BUILD)/src/%.s,$(UTILS))
 EXSRCS  := $(patsubst %,$(BUILD)/src/%.s,$(OS_EXAMPLES))
@@ -223,6 +224,10 @@ DISK_ARGS := -t doc $(filter-out %/rc,$(OS_FILES)) -t etc $(filter %/rc,$(OS_FIL
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) \
              -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
              -t forth,demo $(wildcard lang/forth/demos/*.fs)
+# the web site httpd serves (index.html at /, the stylesheet of every page)
+WWW_FILES  := $(wildcard os/www/*)
+DISK_FILES += $(WWW_FILES)
+DISK_ARGS  += -t www $(WWW_FILES)
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS)
@@ -298,6 +303,16 @@ $(BUILD)/forth-os/corefs.s: $(FORTH_OS_FS)
 $(BUILD)/prog/forth: $(FORTH_OS_SRC) $(BUILD)/forth-os/corefs.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -I lang/forth/os -I $(BUILD)/forth-os -o $@ lang/forth/forth.s
+
+# the disk of tools/test-http.sh: the standard one plus two requests as a
+# browser sends them (CR LF; a 3 KB Cookie header), which the console cannot type
+$(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
+	@mkdir -p $(BUILD)/http-test
+	printf 'GET /www/style.css HTTP/1.1\r\nHost: localhost:8080\r\nUser-Agent: Mozilla/5.0 (test)\r\nAccept: text/css,*/*;q=0.1\r\nAccept-Language: en\r\nConnection: keep-alive\r\n\r\n' >$(BUILD)/http-test/browser.req
+	{ printf 'GET /doc/about?x=1 HTTP/1.1\r\nHost: localhost:8080\r\nCookie: '; for i in $$(seq 1 80); do printf 'c%s=0123456789abcdef0123456789abcdef; ' $$i; done; \
+	  printf '\r\nAccept: */*\r\n\r\n'; } >$(BUILD)/http-test/cookie.req
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
+test: $(BUILD)/http-test/disk.img
 
 # the disk of `make test-forth`: the standard one plus the test files
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs)

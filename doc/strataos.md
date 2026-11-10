@@ -1028,8 +1028,57 @@ round trip in ms, a summary; until Ctrl-C or N requests), `nc ADDRESS
 PORT` (send standard input, then print what comes back until the peer
 closes; a refused connection is tried again for 10 s), `nc -l PORT`
 (receive one connection), `nc -u ADDRESS PORT` / `nc -u -l PORT` (UDP),
-`tcpecho [PORT [COUNT]]` (a TCP echo server, port 7), `ifconfig [ADDRESS]`
-and `netstat`.
+`tcpecho [PORT [COUNT]]` (a TCP echo server, port 7), `ifconfig [ADDRESS]`,
+`netstat` and `httpd` (2.11).
+
+### 2.11 The HTTP server (`httpd`)
+
+`httpd [-p PORT] [-c CONNS]` (`os/progs/httpd.s`, tagged `bin,net`) serves
+the file system over HTTP/1.0 and 1.1: GET and HEAD, one response per
+connection (`Connection: close`, no keep-alive). `httpd &` at the shell;
+with the emulator's port forwarding (`-N nat,fwd=8080:80`) a browser on the
+host opens `http://localhost:8080/`.
+
+- **URLs are tag paths.** `/TAG/TAG/NAME` opens NAME through that path (the
+  file must carry the tags, as `cat /TAG/TAG/NAME` would); `/TAG/TAG/` (a
+  trailing slash) is a generated listing of the files carrying every tag
+  (DIR; `-TAG` excludes, as in `ls`): name, size and the file's tags as
+  links to `/TAG/`, and DIR's facets as links that narrow the listing
+  (`/src/` links `/src/demo/`). `/` is the file named `index.html` (any
+  tags) if there is one, else the listing of every file, which is always at
+  `/~/`. `/TAG` without the slash, when no file has that name but the path
+  is a tag path, is a 301 to `/TAG/`. `/~ps` is generated from `proc`'s
+  INFO, CORES and PS: uptime, cores, processes, context switches and the
+  KiB they moved. `%XX` is decoded; a query (`?...`) is ignored.
+- **Responses.** `Content-Type` from the extension (`html`/`htm`, `txt`,
+  `css`, `js`, `json`, `png`, `jpg`, `gif`, `svg`, `ico`; `s`, `fs`, `md`,
+  `c`, `h` as `text/plain`; no extension: `text/plain` if the first chunk
+  looks like text, else `application/octet-stream`) and `Content-Length`
+  for files; generated pages end with the connection (no
+  `Content-Length`). Files of any size go out in chunks of 4032 bytes, one
+  `sys_read` and one `sys_write` each (the socket's 2 KiB send buffer paces
+  them). Errors are small HTML pages: 400 (a malformed request line, a bad
+  `%XX`, a path over 256 bytes), 404, 405 (other methods; `Allow: GET,
+  HEAD`).
+- **Connections.** No connection open: `httpd` blocks in ACCEPT. Some
+  open: it polls them (non-blocking READ and ACCEPT, a 5 ms sleep when
+  nothing happened), up to CONNS at a time (1..3, default 3; `net` has 4
+  sockets and the listener takes one). A request is complete at the blank
+  line after its headers (or when the client half-closes); only the
+  request line and the last bytes are kept once 1 KiB has arrived, so
+  headers of any length are fine. A connection that sends no complete
+  request in 10 s is closed. A response is written to the end before
+  other connections are read again; after it `httpd` closes, so its side
+  of each connection spends `net`'s 500 ms TIME-WAIT on a socket.
+- **Log**: a line per request on standard output, `METHOD TARGET STATUS
+  BYTES` (BYTES: the body sent), before the connection is closed.
+- **The site** on the disk is tagged `www`: `index.html` (about the
+  machine, with links to the tag listings, some sources and `/~ps`) and
+  `style.css`, which the generated pages use too. A file written under
+  `/www/` is at that URL at once.
+- D-LS: 31,280 bytes of data with the library (the response buffer, a
+  4 KiB buffer shared by DIR records, file chunks and PS records, the tag
+  tables, 3 KiB of requests); code: 12.3 KiB of the 32 KiB I-LS.
 
 ## 3. Tests
 
@@ -1057,6 +1106,14 @@ and `netstat`.
   `tcpecho` (a 300 KB file compared with itself), UDP, a refused connection,
   `netstat`, compared with `tools/test-net.out`; then two emulators linked
   over host UDP: ping, TCP both ways, UDP.
+- `tools/test-http.sh`: `httpd`. One machine (`-j -T virtual`) fetches
+  pages over loopback with `echo REQUEST | nc 127.0.0.1 80`: the index, a
+  listing and its facets, files by tag path, `%XX` and a query, HEAD, 301,
+  400, 404, 405, `/~ps`, a 250 KB file (sizes against `wc` and the host),
+  `/` without `index.html`, and browser-style requests (CR LF, a 3 KB
+  Cookie header) from the test disk `build/http-test/disk.img`, compared
+  with `tools/test-http.out`; then two emulators over host UDP: a quick
+  request is answered while a slow connection waits.
 - `tools/test-as.sh` (run on its own, not by `make test`): the self-hosted
   assembler against `sasm`, including a StrataOS boot that assembles and
   runs a program.
