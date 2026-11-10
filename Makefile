@@ -21,7 +21,7 @@
 #   make test-wasm  that build under node against the native interpreter (node, emcc)
 
 CC      ?= cc
-CFLAGS  ?= -std=c11 -O2 -Wall -Wextra
+CFLAGS  ?= -std=gnu11 -O2 -Wall -Wextra
 NCORES  ?= 8
 
 # SDL2 for the framebuffer window, when pkg-config finds it (else -DNO_SDL:

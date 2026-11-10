@@ -111,48 +111,67 @@ The RTL is synthesizable. Its FPGA-specific elements are:
 
 \texttt{fpga/arty/} contains a top level for the Digilent Arty A7-100T: two cores, a 64~KiB cluster
 store and a 128~KiB disk in block RAM, the console on the USB UART, and T3 in the board's DDR3 through a
-LiteDRAM controller. It is synthesizable but has not yet run on hardware. \texttt{fpga/synth.sh}
+LiteDRAM controller. It is synthesizable but has not yet run on hardware, and as the next section shows
+two cores are more than that board holds. \texttt{fpga/synth.sh}
 synthesizes the system with Yosys (through \texttt{sv2v}) for Xilinx 7-series or Lattice ECP5.
 
 \subsection{Synthesis results}
 
-Yosys \texttt{synth\_xilinx} for 7-series, one core:
-
-\begin{center}\small
-\begin{tabular}{@{}l r l@{}}
-\toprule
-\textbf{Resource} & \textbf{Count} & \textbf{Notes}\\\midrule
-LUTs & $\approx$26,400 & \\
-Flip-flops & $\approx$16,600 & with the save table still in flip-flops; moving it to LUT-RAM removes $\approx$8,800\\
-RAMB36 & 32 & the two 64~KiB Local Stores\\
-DSP48E1 & 24 & the $64 \times 64$ multiplier\\
-\bottomrule
-\end{tabular}
-\end{center}
-
-These are pre-placement figures for one core and will be updated with final results. Whole-system figures
-in Table~\ref{tab:fpga} are extrapolations from them.
+Table~\ref{tab:synth} gives the Yosys results (\texttt{synth\_xilinx} and \texttt{synth\_ecp5}, Yosys
+0.70) for systems of one and two cores with a 64~KiB cluster store, a 128~KiB block-RAM disk and a
+32~KiB block-RAM stand-in for system memory. They are for the RTL before the pointer device was added.
 
 \begin{table}[htbp]
 \centering\small
-\caption{Candidate FPGA boards and projected configurations \estimate}\label{tab:fpga}
+\caption{Synthesis results (Yosys, before placement)}\label{tab:synth}
+\begin{tabular}{@{}l r r r r@{}}
+\toprule
+\textbf{System} & \textbf{Logic} & \textbf{Flip-flops} & \textbf{Block RAM} & \textbf{Multipliers}\\\midrule
+7-series, 1 core & 47,449 LUTs & 12,675 & 88 RAMB36 & 30 DSP48E1\\
+7-series, 2 cores & 94,658 LUTs & 23,624 & 120 RAMB36 & 60 DSP48E1\\
+ECP5, 1 core & 73,757 LUT4 sites & 12,866 & 181 DP16KD & 30 MULT18X18D\\
+ECP5, 2 cores & 142,522 LUT4 sites & 24,028 & 250 DP16KD & 60 MULT18X18D\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+These are pre-placement figures: nothing has been placed and routed, and no clock frequency is known.
+The ECP5 column counts LUT4 sites, that is LUT4 cells plus two for each carry cell. One more core costs
+about 47,000 LUTs, 11,000 flip-flops, 32 RAMB36 (its two 64~KiB Local Stores) and 30 DSP slices on
+7-series. No latches are inferred, and every large memory is block RAM on both families. The Local
+Stores are written through both ports, and the ECP5's block RAM does not define what one port reads
+from a byte that the other is writing; the hazard stalls of invariant I1 guarantee that nobody reads
+such a byte, and the RAM is marked accordingly so that it maps to block RAM on both families.
+
+The cores are 93\% of the logic of the 2-core system. Within a core (about 44,000 LUTs), the decoder,
+ALU, divider and Transfer Unit together take 4,600. The largest consumers are the overlay map (about
+12,000 LUTs: each of the sixteen entries has two 64-bit range matches, two 64-bit translation paths and
+an invalidation compare), the capability registers with their bounds checks (about 5,400) and the
+multi-cycle execute logic with the flip-flop register file and the banked CSRs (the rest).
+\texttt{fpga/README.md} has the breakdown by module and ways to shrink each of them.
+
+\begin{table}[htbp]
+\centering\small
+\caption{FPGA boards and what fits them, from the synthesis results}\label{tab:fpga}
 \begin{tabularx}{\linewidth}{@{}l X X X@{}}
 \toprule
- & \textbf{Digilent Arty A7-100T} & \textbf{Radiona ULX3S (ECP5-85F)} & \textbf{AMD Kria KV260}\\\midrule
-Device & XC7A100T & LFE5U-85F & XCK26 (Zynq UltraScale+)\\
-Logic & 63,400 LUTs & 84k LUTs & 117k LUTs\\
-On-chip RAM & 4.86 Mb BRAM (135 $\times$ 36 Kb) & $\approx$3.7 Mb EBR (208 $\times$ 18 Kb) & 5.1 Mb BRAM + 18 Mb UltraRAM\\
-External memory & 256 MB DDR3 & 32 MB SDRAM & 4 GB DDR4 (attached to the processing system)\\
-Toolchain & Vivado or yosys & open: yosys + nextpnr & Vivado\\
-Cores & 2 (logic-limited) & 2 & 3--4 (logic-limited)\\
-T2 & 64 KiB (board design) & 64 KiB & 256 KiB\\
-T3 & DDR3 via LiteDRAM (in RTL) & SDRAM via LiteDRAM & DDR4 through PS AXI ports\\
+ & \textbf{Digilent Arty A7-100T} & \textbf{Radiona ULX3S (ECP5-85F)} & \textbf{Digilent Nexys Video}\\\midrule
+Device & XC7A100T & LFE5U-85F & XC7A200T\\
+Logic & 63,400 LUTs & 83,640 LUT4s & 134,600 LUTs\\
+On-chip RAM & 4.86 Mb BRAM (135 $\times$ 36 Kb) & $\approx$3.7 Mb EBR (208 $\times$ 18 Kb) & 13.1 Mb BRAM (365 $\times$ 36 Kb)\\
+External memory & 256 MB DDR3 & 32 MB SDRAM & 512 MB DDR3\\
+Toolchain & Vivado or yosys & open: yosys + nextpnr & Vivado or yosys\\
+Cores & 1 (75\% of the LUTs) & 1 (88\% of the LUT4s; not placed and routed) & 2 (71\% of the LUTs)\\
+T2 & 64 KiB & 64 KiB & 64 KiB\\
+T3 & DDR3 via LiteDRAM (in RTL) & SDRAM (no adapter yet) & DDR3 via LiteDRAM\\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-At roughly 26k LUTs per core, logic rather than RAM limits the core count on all three boards; each
-core also needs 1~Mb of block RAM for its Local Stores.
+At about 47,000 LUTs per core, logic rather than RAM limits the core count on all three boards; each
+core also needs 1~Mb of block RAM for its Local Stores. StrataOS needs six cores, @TEX-6@ The systems
+of one and two cores run bare-metal programs. The FPGA builds have no video output: the framebuffer
+window is memory that nothing scans out, and the console is the UART.
 
 \subsection{Schematics}
 

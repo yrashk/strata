@@ -335,10 +335,14 @@ in [`conformance/FINDINGS.md`](conformance/FINDINGS.md).
 ## FPGA
 
 The RTL is synthesizable (Yosys via `sv2v`; `fpga/synth.sh xc7|ecp5`).
-The 2-core system synthesizes to about 90k LUTs on Xilinx 7-series, so it
-needs an XC7A200T board such as the Digilent Nexys Video; `fpga/arty/` is the
-board top (written for the Arty, which is now too small), with LiteDRAM for
-the DDR3. See `fpga/README.md`. It has not yet run on hardware.
+A core is about 47k LUTs on Xilinx 7-series: one core fits an Arty A7-100T,
+and the 2-core system (about 95k LUTs) needs an XC7A200T board such as the
+Digilent Nexys Video. On Lattice ECP5 one core takes about 74k of an
+85F's 84k LUT4s, and two cores do not fit. `fpga/arty/` is the board top
+(written for the Arty with two cores, which is too many for it), with
+LiteDRAM for the DDR3. StrataOS needs six cores, @README-6@ See
+`fpga/README.md` for the numbers and where the logic goes. Nothing has been
+placed and routed, and it has not yet run on hardware.
 
 There is no video output on FPGA yet: the framebuffer is memory only, and
 the console is a UART.

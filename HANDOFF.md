@@ -29,13 +29,12 @@ Verified just before the push (on an arm64 Mac, NCORES=8):
 - `make test-forth`: bare metal (emulator = RTL), under StrataOS, and the
   preemption test pass.
 - `tools/test-sh.sh`, `tools/test-ws.sh`: pass.
-- A full `make test` was **started but had not finished** when this was
-  written (the examples had all matched; the long RTL boot comparison was
-  running). Its log is `build/test-final.log` on the machine that ran it.
-  **First thing to do: run `make test` and fix anything red.**
+- The full `make test` finished green (exit 0) right after the first push.
 
 Not verified:
-- The Pages workflow has never run. It pins Emscripten 3.1.74 while all
+- The Pages workflow's first run failed on Linux: the emulator did not
+  compile with `-std=c11` (`clock_gettime`, `usleep`); `CFLAGS` now uses
+  `-std=gnu11`. Whether the rest of the workflow passes is not yet known. It pins Emscripten 3.1.74 while all
   local builds used a much newer emcc; if the wasm build fails in CI, bump
   the pin in `pages.yml`.
 - `ws` was only driven with scripted input (`-i`), never by hand in the SDL
