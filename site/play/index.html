@@ -58,8 +58,18 @@
   <p id="about" class="about"></p>
 
   <section id="screen-panel" class="panel screen collapsed" aria-label="Framebuffer">
-    <div class="tag"><span>▸ SCREEN</span><em id="geom">no framebuffer output yet</em></div>
-    <canvas id="screen" width="1280" height="800" tabindex="0" aria-label="The Strata framebuffer; focus it to type"></canvas>
+    <div class="tag"><span>▸ SCREEN</span><em id="geom">no framebuffer output yet</em>
+      <div class="view" role="group" aria-label="Screen scale">
+        <button class="seg" data-scale="auto" title="Whole screen pixels per framebuffer pixel, as large as fits (sharp)">Auto</button>
+        <button class="seg" data-scale="fill" title="Fill the panel (any scale: may be uneven or soft)">Fill</button>
+        <button class="seg" data-scale="1" title="One framebuffer pixel per CSS pixel, rounded to whole screen pixels">1×</button>
+        <button class="seg" data-scale="2" title="Twice 1×">2×</button>
+        <button id="full" class="seg" title="Full screen (Esc leaves)" aria-label="Full screen"><svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M1 4.5V1h3.5M7.5 1H11v3.5M11 7.5V11H7.5M4.5 11H1V7.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
+      </div>
+    </div>
+    <div id="screen-box" class="screen-box">
+      <canvas id="screen" width="1280" height="800" tabindex="0" aria-label="The Strata framebuffer; focus it to type"></canvas>
+    </div>
   </section>
 
   <section class="panel term" aria-label="Console">
