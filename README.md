@@ -340,7 +340,8 @@ and the 2-core system (about 95k LUTs) needs an XC7A200T board such as the
 Digilent Nexys Video. On Lattice ECP5 one core takes about 74k of an
 85F's 84k LUT4s, and two cores do not fit. `fpga/arty/` is the board top
 (written for the Arty with two cores, which is too many for it), with
-LiteDRAM for the DDR3. StrataOS needs six cores, @README-6@ See
+LiteDRAM for the DDR3. StrataOS needs six cores, which is about 293k LUTs: more than any Artix-7
+or the common Kintex-7 boards hold. See
 `fpga/README.md` for the numbers and where the logic goes. Nothing has been
 placed and routed, and it has not yet run on hardware.
 

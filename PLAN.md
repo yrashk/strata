@@ -435,17 +435,17 @@ conformance` (called by `make test`).
 - [ ] README: 8 cores default / 12 for boot; the flags `-T -g -F -z -H -r`;
   `show-NAME`; StrataOS 0.2 overview; ws; Forth; link to the site and the
   PDF.
-- [ ] `fpga/README.md`:
-  - [ ] ECP5 run (pre-device RTL) gave 3.3M LUT4 / 1.07M FF / 186 DP16KD: a large memory (likely the 128 KiB BRAM disk or a Local Store) was not inferred as block RAM on ECP5 — fix the RAM coding for synth_ecp5 before quoting numbers; xc7 (pre-device RTL): ~90.4k LUT, 22.9k FF, 120 RAMB36, 60 DSP
-  - [ ] fill `@ECP5@` (rerun `fpga/synth.sh ecp5 2`; rerun xc7 since the
-    RTL changed);
-  - [ ] note that there is no video output on FPGA yet.
+- [x] `fpga/README.md`:
+  - [x] ECP5: the D-LS (`strata_ram`, written through both ports) was not inferred as block RAM, because ECP5 EBR does not define a cross-port read-during-write and Yosys kept the simulated "old data" behaviour by building it from flip-flops (2 × 524k). Fixed with `(* no_rw_check *)` on the array; the hazard stalls make the collision data unobservable (checked with a simulator build that poisons collided bytes: examples, conformance and the OS boot unchanged). ILS, T2, T3 stand-in and disk were already block RAM;
+  - [x] numbers for both families, 1 and 2 cores (xc7: 47.4k / 94.7k LUTs; ecp5: 73.8k / 142.5k LUT4 sites), per-module breakdown and the top consumers; `fpga/synth.sh` now prints a summary and the latch / FF-memory checks;
+  - [x] boards: 1 core fits the Arty A7-100T (and, on paper, an ECP5-85F); 2 cores need the XC7A200T; StrataOS needs 6 cores, which no board named here holds;
+  - [x] note that there is no video output on FPGA yet.
 - [ ] Update `doc/strataos-0.2.md` wherever the implementation deviated.
 - [x] Manual updated for the release (179 pages, builds clean): svc, inbox rule, capability alignment, device-read rules, timer, framebuffer, 64 MiB map, a rewritten StrataOS chapter (op tables 18.x), a Forth chapter.
 - [ ] Reconcile after the OS and ws agents finish (found by the manual pass):
   - [ ] the manual's op tables 18.x vs the final kernel/servers (kernel op 10 FBLEND, dev 30/31, proc 39 WHOIS, fs 32–35, ws 46 TITLE);
   - [ ] the window-surface model: the spec says ws allocates surfaces in its own revocation domain, but `cdom` is privileged, so clients lend drawing bands instead. Fix spec 2.8 and the manual to what ws really does;
-  - [ ] the FPGA numbers in `doc/manual/ch-impl.tex` (still ~26k LUTs/core, Arty) vs the README (~90k for 2 cores, XC7A200T), after the synthesis rerun;
+  - [x] the FPGA numbers in `doc/manual/ch-impl.tex` now match `fpga/README.md` (47k LUTs per core; rerun after the pointer device lands if its logic matters);
   - [ ] `lang/forth/README.md` still says "StrataOS 0.2" and "exclusive process";
   - [ ] `os/lib/sys.s` header: c0 is 832 KiB for one thread, not 768;
   - [ ] wire `tools/test-sh.sh` into `make test`;
@@ -583,7 +583,6 @@ up before step 8.
 | F (Forth) | `lang/forth/PLAN-forth.md` | detailed working plan of the Forth agent | fold into lang/forth/README.md, then delete |
 | JIT | `emu/jit/PLAN-jit.md` | the JIT agent's detailed working plan | fold into docs, then delete |
 | Shell (step 5) | `os/progs/PLAN-sh.md` (scratch dir deleted) | the shell agent's working plan | fold into docs, then delete |
-| FPGA synthesis | `/private/tmp/claude-501/-Users-yrashk--claude-spares-spare-bGJEvr/e68fc47f-3893-447c-8c69-38177da41a1b/scratchpad/fpga/` (yosys experiments, hierarchical and ablation runs, a collision-poisoning strata_ram), `build-fpga/` (Verilated simulator built with that RAM), `fpga/build/{xc7,ecp5}-{1,2}/` | synthesis numbers and the RAM-inference check | `rm -rf build-fpga` and the scratch dir when done; `fpga/build/` is gitignored |
 | X (fast browser emulator) | `web/PLAN-fast.md` (scratch `build-fast/` removed) | the detailed working plan of section X | fold into docs, then delete |
 
 ## Agent history (for takeovers)
@@ -625,8 +624,14 @@ Transcripts are in
 
 ## Known limitations / notes
 
-- The 2-core RTL is ~90k LUTs on Xilinx 7-series (yosys), so it needs an
-  XC7A200T (Nexys Video).
+- The RTL is ~47k LUTs per core on Xilinx 7-series (yosys): one core fits
+  an Arty A7-100T, two need an XC7A200T (Nexys Video), and the six that
+  StrataOS needs fit none of the boards considered. The overlay map is 30%
+  of a core (fpga/README.md, "Where the LUTs go").
+- `strata_ram` carries `(* no_rw_check *)`: FPGA block RAM does not define
+  a read of a byte written in the same cycle through the other port, and
+  the hazard stalls are what make that unobservable. Keep it that way when
+  changing the TU or the core's Local Store accesses.
 - The emulator-vs-RTL OS boot comparison can't stay exact with
   timer-driven preemption: emulator rounds and RTL cycles are different
   time bases.

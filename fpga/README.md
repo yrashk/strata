@@ -32,7 +32,7 @@ These are for the RTL of 2026-11-10, before the pointer device was added:
 |---|---|---|---|---|
 | Xilinx 7-series, 1 core | 47,449 LUTs | 12,675 | 88 RAMB36 | 30 DSP48E1 |
 | Xilinx 7-series, 2 cores | 94,658 LUTs | 23,624 | 120 RAMB36 | 60 DSP48E1 |
-| Xilinx 7-series, 6 cores | @XC7-6@ |
+| Xilinx 7-series, 6 cores | 292,670 LUTs | 73,737 | 248 RAMB36 | 180 DSP48E1 |
 | Lattice ECP5, 1 core | 54,947 LUT4 + 9,405 carry cells = 73,757 LUT4 sites | 12,866 | 181 DP16KD | 30 MULT18X18D |
 | Lattice ECP5, 2 cores | 106,472 LUT4 + 18,025 carry cells = 142,522 LUT4 sites | 24,028 | 250 DP16KD | 60 MULT18X18D |
 
@@ -129,7 +129,10 @@ only.
 Two limits apply to every row:
 
 - **StrataOS does not boot on one or two cores.** It needs at least six
-  (the system core and five servers). @XC7-6-TEXT@ The 1- and 2-core
+  (the system core and five servers). A 6-core system is 292,670 LUTs:
+  more than twice an XC7A200T, more than the Kintex-7 325T (203,800) and
+  410T (254,200), and 98% of a 480T; it needs a Virtex-7 or UltraScale
+  part of 350,000 LUTs or more, or a smaller core. The 1- and 2-core
   systems run bare-metal programs and the boot ROM; `make fpga-images`
   still writes a StrataOS disk image for the 2-core Arty top, which that
   machine cannot run.

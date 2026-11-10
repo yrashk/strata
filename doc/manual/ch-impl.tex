@@ -169,7 +169,9 @@ T3 & DDR3 via LiteDRAM (in RTL) & SDRAM (no adapter yet) & DDR3 via LiteDRAM\\
 \end{table}
 
 At about 47,000 LUTs per core, logic rather than RAM limits the core count on all three boards; each
-core also needs 1~Mb of block RAM for its Local Stores. StrataOS needs six cores, @TEX-6@ The systems
+core also needs 1~Mb of block RAM for its Local Stores. StrataOS needs six cores, and a
+6-core system synthesizes to 292,670 LUTs, 73,737 flip-flops, 248 RAMB36 and 180 DSP48E1: more than any
+Artix-7 and more than the Kintex-7 325T and 410T hold. The systems
 of one and two cores run bare-metal programs. The FPGA builds have no video output: the framebuffer
 window is memory that nothing scans out, and the console is the UART.
 

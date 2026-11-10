@@ -75,14 +75,19 @@ Not verified:
 - Not started: the device in `emu/emu.c` and `rtl/strata_dev.sv`, the `-P`
   flag, `dev` server, `ws`, clients, tests, docs.
 
-### FPGA numbers — unknown state
-- An agent was fixing block-RAM inference for ECP5 and re-running
-  `fpga/synth.sh xc7|ecp5`; it was cut off. `rtl/strata_ram.sv` and
-  `fpga/synth.sh` were touched (conformance and lint pass with them).
-- `fpga/README.md` still has an `@ECP5@` placeholder and numbers from
-  before the timer/framebuffer/later changes (2 cores ≈ 90k LUTs on xc7).
-  `doc/manual/ch-impl.tex` still quotes older, smaller numbers and the
-  Arty A7-100T. Re-run both syntheses, fix the tables.
+### FPGA — numbers are real now; the design is big
+- Both families synthesize with every large memory in block RAM
+  (`fpga/README.md` has the tables and a per-module breakdown; the ECP5
+  problem was the D-LS: fixed with `(* no_rw_check *)` in
+  `rtl/strata_ram.sv`). No place-and-route, so no timing.
+- About 47k LUTs per core on xc7. One core fits the Arty A7-100T, two need
+  an XC7A200T (Nexys Video). **StrataOS needs 6 cores (~293k LUTs): more
+  than any Artix-7.** `make fpga-images` still builds a StrataOS disk for
+  the 2-core Arty top, which cannot boot it.
+- Where to cut (measured): the overlay map is ~30% of a core (16 entries of
+  64-bit range compares), the capability registers ~14%.
+- The numbers predate the pointer device; rerun `fpga/synth.sh` after it
+  lands (2-core runs ~12 min, 6-core ~55 min).
 
 ### Forth under StrataOS — works; docs/cleanup open
 - `forth`, `forth file.fs`, `forth -n N` run under the OS; tests pass.
