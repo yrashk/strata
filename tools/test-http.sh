@@ -5,7 +5,7 @@
 #     requests over loopback with `echo REQUEST | nc 127.0.0.1 80`: the index
 #     page, a tag listing (and its facets), a file by tag path, a %XX escape
 #     and a query, a HEAD, a 404, a 301 (a tag without its slash), a 405, a
-#     400, /~ps, a 250 KB file (its size against `cat FILE | wc` and the
+#     400, /~ps, a 300 KB file (its size against `cat FILE | wc` and the
 #     host's copy), / without index.html (the listing of every file), two
 #     requests as browsers send them (CR LF, a 3 KB Cookie header: files on
 #     the test disk, $(BUILD)/http-test/disk.img, since the console turns CR
@@ -100,7 +100,7 @@ size=$(wc -c <"$b/src/sh.s" | tr -d ' ')
 grep -q "^Content-Length: $size" "$tmp/one.out" || { echo "  HEAD: no Content-Length $size"; one=1; }
 grep -q "^GET /src/sh.s 200 $size\$" "$tmp/one.out" || { echo "  GET: not $size bytes sent"; one=1; }
 if [ $one -eq 0 ]; then
-  printf '%-14s OK    httpd over loopback: index, listings, files, HEAD, 301/400/404/405, 250 KB\n' http-one
+  printf '%-14s OK    httpd over loopback: index, listings, files, HEAD, 301/400/404/405, 300 KB\n' http-one
 else
   printf '%-14s FAIL\n' http-one; ok=1
 fi

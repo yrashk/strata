@@ -1109,7 +1109,7 @@ host opens `http://localhost:8080/`.
 - `tools/test-http.sh`: `httpd`. One machine (`-j -T virtual`) fetches
   pages over loopback with `echo REQUEST | nc 127.0.0.1 80`: the index, a
   listing and its facets, files by tag path, `%XX` and a query, HEAD, 301,
-  400, 404, 405, `/~ps`, a 250 KB file (sizes against `wc` and the host),
+  400, 404, 405, `/~ps`, a 300 KB file (sizes against `wc` and the host),
   `/` without `index.html`, and browser-style requests (CR LF, a 3 KB
   Cookie header) from the test disk `build/http-test/disk.img`, compared
   with `tools/test-http.out`; then two emulators over host UDP: a quick
