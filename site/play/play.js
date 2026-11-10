@@ -506,55 +506,131 @@ function vmPorts(listening) {
   vmChips();
 }
 
-// The panel: floating, draggable and resizable (a bottom sheet on a phone); it
-// never takes the focus from the terminal or the screen.
-const vm = { el: null, port: 80 };
-function vmUrl(p) { return new URL(`vm/${p}/`, location.href).href; }
+// The panel: a small browser window for the guest's web server, floating,
+// moved by its title bar and resized by its edges and corner (a bottom sheet
+// on a phone), with back / forward over its own history (the iframe's
+// history.back() could take the play page itself back), an address field,
+// reload, open-in-a-tab and close. It never takes the focus from the
+// terminal or the screen; its place and size are remembered.
+const vm = { el: null, port: 80, hist: [], at: -1, nav: false };
+const VM_GEOM = "strata-play-vm";
+function vmUrl(p, path = "/") { return new URL(`vm/${p}${path}`, location.href).href; }
+function vmPathOf(href) { // the guest path of a vm/PORT/... URL
+  const m = /\/vm\/(\d+)(\/.*)?$/.exec(new URL(href, location.href).pathname);
+  return m ? (m[2] || "/") : null;
+}
+function vmGo(path, push = true) {
+  const f = vm.el.querySelector("iframe");
+  vm.nav = !push;
+  f.src = vmUrl(vm.port, path.startsWith("/") ? path : "/" + path);
+}
+function vmButtons() {
+  vm.el.querySelector(".vmback").disabled = vm.at <= 0;
+  vm.el.querySelector(".vmfwd").disabled = vm.at >= vm.hist.length - 1;
+}
+function vmSaveGeom() {
+  if (matchMedia("(max-width: 700px)").matches) return;
+  const r = vm.el.getBoundingClientRect();
+  try { localStorage.setItem(VM_GEOM, JSON.stringify({ l: r.left, t: r.top, w: r.width, h: r.height })); } catch (e) { /* no storage */ }
+}
 function vmBuild() {
   const el = document.createElement("section");
   el.className = "vmpanel";
   el.hidden = true;
-  el.innerHTML = `<div class="vmbar"><span class="vmtitle"></span><a class="vmurl" target="_blank" rel="noopener"></a>` +
-    `<span class="vmbtns"><button class="small vmreload" title="Reload">↻</button>` +
-    `<button class="small vmopen" title="Open in a new tab">↗</button>` +
+  el.innerHTML = `<div class="vmbar"><span class="vmtitle"></span>` +
+    `<span class="vmbtns"><button class="small vmback" title="Back">←</button>` +
+    `<button class="small vmfwd" title="Forward">→</button>` +
+    `<button class="small vmreload" title="Reload">↻</button></span>` +
+    `<input class="vmaddr" spellcheck="false" autocomplete="off" aria-label="Path on the guest's server">` +
+    `<span class="vmbtns"><button class="small vmopen" title="Open in a new tab">↗</button>` +
     `<button class="small vmclose" title="Close (a chip stays)">✕</button></span></div>` +
-    `<iframe class="vmframe" title="The guest's web page" tabindex="-1"></iframe>`;
+    `<iframe class="vmframe" title="The guest's web page" tabindex="-1"></iframe>` +
+    `<div class="vmgrip" data-e="e"></div><div class="vmgrip" data-e="s"></div><div class="vmgrip" data-e="w"></div>` +
+    `<div class="vmgrip" data-e="se"></div><div class="vmgrip" data-e="sw"></div>`;
   document.body.appendChild(el);
   const chips = document.createElement("div");
   chips.className = "vmchips";
   document.body.appendChild(chips);
-  el.querySelector(".vmreload").addEventListener("click", () => { el.querySelector("iframe").src = vmUrl(vm.port); });
-  el.querySelector(".vmopen").addEventListener("click", () => window.open(vmUrl(vm.port), "_blank", "noopener"));
-  el.querySelector(".vmclose").addEventListener("click", () => { el.hidden = true; vmChips(); });
-  for (const b of el.querySelectorAll("button")) b.addEventListener("mousedown", (e) => e.preventDefault()); // (no focus)
-  // dragging by the bar
-  const bar = el.querySelector(".vmbar");
-  bar.addEventListener("pointerdown", (e) => {
-    if (e.target.closest("button, a") || matchMedia("(max-width: 700px)").matches) return;
-    e.preventDefault();
-    const r = el.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
-    el.querySelector("iframe").style.pointerEvents = "none";
-    const move = (ev) => {
-      el.style.left = Math.max(0, Math.min(innerWidth - 80, ev.clientX - dx)) + "px";
-      el.style.top = Math.max(0, Math.min(innerHeight - 40, ev.clientY - dy)) + "px";
-      el.style.right = el.style.bottom = "auto";
-    };
-    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); el.querySelector("iframe").style.pointerEvents = ""; };
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", up);
-  });
   vm.el = el;
   vm.chips = chips;
+  const frame = el.querySelector("iframe"), addr = el.querySelector(".vmaddr");
+  // the panel's own history: every page the iframe shows, back / forward move in it
+  frame.addEventListener("load", () => {
+    let path = null;
+    try { path = vmPathOf(frame.contentWindow.location.href); } catch (e) { /* not ours */ }
+    if (path === null) return;
+    if (vm.nav) vm.nav = false;
+    else if (vm.hist[vm.at] !== path) { vm.hist.splice(vm.at + 1); vm.hist.push(path); vm.at = vm.hist.length - 1; }
+    addr.value = path;
+    vmButtons();
+  });
+  el.querySelector(".vmback").addEventListener("click", () => { if (vm.at > 0) vmGo(vm.hist[--vm.at], false); vmButtons(); });
+  el.querySelector(".vmfwd").addEventListener("click", () => { if (vm.at < vm.hist.length - 1) vmGo(vm.hist[++vm.at], false); vmButtons(); });
+  el.querySelector(".vmreload").addEventListener("click", () => { if (vm.at >= 0) vmGo(vm.hist[vm.at], false); else vmGo("/"); });
+  el.querySelector(".vmopen").addEventListener("click", () => window.open(vmUrl(vm.port, vm.hist[vm.at] || "/"), "_blank", "noopener"));
+  el.querySelector(".vmclose").addEventListener("click", () => { el.hidden = true; vmChips(); });
+  addr.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); vmGo(addr.value.trim() || "/"); addr.blur(); }
+    else if (e.key === "Escape") { addr.value = vm.hist[vm.at] || "/"; addr.blur(); }
+  });
+  for (const b of el.querySelectorAll("button")) b.addEventListener("mousedown", (e) => e.preventDefault()); // (no focus)
+  // moving (by the bar) and resizing (by the grips): the pointer is captured,
+  // and the iframe ignores it meanwhile so it cannot swallow the moves
+  const track = (e, onMove) => {
+    e.preventDefault();
+    const t = e.currentTarget;
+    t.setPointerCapture(e.pointerId);
+    frame.style.pointerEvents = "none";
+    const r0 = el.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
+    const mv = (ev) => onMove(r0, ev.clientX - x0, ev.clientY - y0);
+    const up = () => {
+      t.removeEventListener("pointermove", mv);
+      t.removeEventListener("pointerup", up);
+      t.removeEventListener("pointercancel", up);
+      frame.style.pointerEvents = "";
+      vmSaveGeom();
+    };
+    t.addEventListener("pointermove", mv);
+    t.addEventListener("pointerup", up);
+    t.addEventListener("pointercancel", up);
+  };
+  const place = (l, t, w, h) => {
+    w = Math.max(280, Math.min(w, innerWidth));
+    h = Math.max(180, Math.min(h, innerHeight));
+    l = Math.max(0, Math.min(l, innerWidth - 80));
+    t = Math.max(0, Math.min(t, innerHeight - 40));
+    Object.assign(el.style, { left: l + "px", top: t + "px", width: w + "px", height: h + "px", right: "auto", bottom: "auto" });
+  };
+  el.querySelector(".vmbar").addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button, a, input") || matchMedia("(max-width: 700px)").matches) return;
+    track(e, (r, dx, dy) => place(r.left + dx, r.top + dy, r.width, r.height));
+  });
+  for (const g of el.querySelectorAll(".vmgrip")) g.addEventListener("pointerdown", (e) => {
+    if (matchMedia("(max-width: 700px)").matches) return;
+    const edge = g.dataset.e;
+    track(e, (r, dx, dy) => {
+      let l = r.left, w = r.width, h = r.height;
+      if (edge.includes("e")) w = r.width + dx;
+      if (edge.includes("w")) { w = r.width - dx; l = r.left + dx; if (w < 280) { l -= 280 - w; } }
+      if (edge.includes("s")) h = r.height + dy;
+      place(l, r.top, w, h);
+    });
+  });
+  try { // where it was last time
+    const g = JSON.parse(localStorage.getItem(VM_GEOM) || "null");
+    if (g && !matchMedia("(max-width: 700px)").matches) place(g.l, g.t, g.w, g.h);
+  } catch (e) { /* no storage */ }
+  addEventListener("resize", () => { if (!el.hidden && el.style.left) { const r = el.getBoundingClientRect(); place(r.left, r.top, r.width, r.height); } });
 }
 function vmShow(p, open) {
   if (!vm.el) vmBuild();
   vmSeen[p].shown = true;
   if (!open && !vm.el.hidden) return;
+  if (vm.port !== p) { vm.hist = []; vm.at = -1; } // another server: a history of its own
   vm.port = p;
-  vm.el.querySelector(".vmtitle").textContent = `Guest web server :${p}`;
-  const a = vm.el.querySelector(".vmurl");
-  a.href = a.textContent = vmUrl(p);
-  vm.el.querySelector("iframe").src = vmUrl(p);
+  vm.el.querySelector(".vmtitle").textContent = `:${p}`;
+  vm.el.querySelector(".vmtitle").title = `The guest's web server on port ${p}: ${vmUrl(p)}`;
+  vmGo(vm.at >= 0 ? vm.hist[vm.at] : "/", vm.at < 0);
   if (open) vm.el.hidden = false;
   vmChips();
 }
