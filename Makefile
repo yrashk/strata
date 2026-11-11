@@ -79,7 +79,7 @@ lint:
 
 $(BUILD)/examples/%.stx: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/examples
-	$(BUILD)/sasm -o $@ $<
+	$(BUILD)/sasm -g $(@:.stx=.map) -o $@ $<
 
 examples: $(IMAGES)
 
@@ -130,10 +130,10 @@ $(BUILD)/mkdisk: tools/mkdisk.c common/stx.h asm/isa.h
 	$(CC) $(CFLAGS) -o $@ tools/mkdisk.c
 
 $(BUILD)/bootrom.stx: firmware/bootrom.s firmware/fw.s $(BUILD)/sasm
-	$(BUILD)/sasm -o $@ firmware/bootrom.s
+	$(BUILD)/sasm -g $(BUILD)/bootrom.map -o $@ firmware/bootrom.s
 
 $(BUILD)/kernel.stx: os/kernel.s $(wildcard os/kunits/*.s) firmware/fw.s $(BUILD)/sasm
-	$(BUILD)/sasm -o $@ os/kernel.s
+	$(BUILD)/sasm -g $(BUILD)/kernel.map -o $@ os/kernel.s
 
 # StrataOS 0.1 disk contents:
 #   servers (os/servers/*.s): proc dev fs tty pipe
@@ -157,39 +157,42 @@ USRCS   := $(patsubst %,$(BUILD)/src/%.s,$(UTILS))
 EXSRCS  := $(patsubst %,$(BUILD)/src/%.s,$(OS_EXAMPLES))
 SRCS    := $(EXSRCS) $(BUILD)/src/as.s $(BUILD)/src/units.s
 
+# (every program also gets a debug map, PROG.map next to it: strata-dbg --os)
 $(BUILD)/prog/%: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
 $(SPROGS): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
 $(UPROGS) $(NPROGS): $(BUILD)/prog/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
 # untag is tag under another name (it looks at the name it was started by)
 $(BUILD)/prog/untag: $(BUILD)/prog/tag
 	cp $< $@
+	cp $<.map $@.map
 
 # retag too (it replaces a file's tags)
 $(BUILD)/prog/retag: $(BUILD)/prog/tag
 	cp $< $@
+	cp $<.map $@.map
 
 # the window server and its clients (os/ws/, os/lib/gfx.s, os/lib/wsclient.s)
 WSPROGS := $(patsubst %,$(BUILD)/prog/%,ws term wmandel wclock)
 $(WSPROGS): $(BUILD)/prog/%: os/progs/%.s $(wildcard os/ws/*.s) os/lib/gfx.s os/lib/font/font.s os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -I os/ws -I os/lib -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -I os/ws -I os/lib -g $@.map -o $@ $<
 
 $(BUILD)/prog/units: os/progs/units.s examples/lib/print.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
 $(BUILD)/prog/as: os/progs/as.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
 # Every source on the disk carries a copy of the library after the program.
 $(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s
@@ -308,7 +311,7 @@ $(BUILD)/forth/corefs.s: $(FORTH_FS)
 	$(FORTH_EMBED) $(FORTH_FS) > $@
 
 $(BUILD)/forth.stx: $(FORTH_SRC) $(BUILD)/forth/corefs.s $(BUILD)/sasm
-	$(BUILD)/sasm -I lang/forth/bare -I $(BUILD)/forth -o $@ lang/forth/forth.s
+	$(BUILD)/sasm -I lang/forth/bare -I $(BUILD)/forth -g $(BUILD)/forth.map -o $@ lang/forth/forth.s
 
 # the StrataOS program (lang/forth/os/: the platform layer on messages)
 $(BUILD)/forth-os/corefs.s: $(FORTH_OS_FS)
@@ -317,7 +320,7 @@ $(BUILD)/forth-os/corefs.s: $(FORTH_OS_FS)
 
 $(BUILD)/prog/forth: $(FORTH_OS_SRC) $(BUILD)/forth-os/corefs.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -I lang/forth/os -I $(BUILD)/forth-os -o $@ lang/forth/forth.s
+	$(BUILD)/sasm -T 0x8000 -I lang/forth/os -I $(BUILD)/forth-os -g $@.map -o $@ lang/forth/forth.s
 
 # the disk of tools/test-http.sh: the standard one plus two requests as a
 # browser sends them (CR LF; a 3 KB Cookie header), which the console cannot type
