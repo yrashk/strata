@@ -64,6 +64,7 @@ pl_save:  .dword 0                      ; (msg) to the network server: the 8 byt
 pl_netnm: .ascii "net"                  ; LOOKUP's data for it (8 bytes: the name and zeros)
           .byte 0, 0, 0, 0, 0           ; ...
 pl_wh:    .dword 0, 0                   ; a worker page's header: mirror arena offset, code end
+plat_handles:                           ; KVAR 38: the standard handles, pl_hreg then pl_hid
 pl_hreg:  .dword 0, 0, 0                ; handles 0..2: the server's endpoint register (2 fs, 3 tty, 4 pipe; 0 closed)
 pl_hid:   .dword 0, 0, 0                ; handles 0..2: the server's id for the handle
 pl_inc:   .ascii "include "             ; put in front of a file name on the command line
