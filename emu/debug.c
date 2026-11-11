@@ -1583,10 +1583,10 @@ static void dbg_request(const char *line, size_t len, JW *w) {
       int tg = json_int(json_get(rq, "tag"), 0) & 15;
       if (c >= 0 && tt_reverse(SK_TAG, c, tg, 1, err, sizeof err)) ev_stopped();
     } else if (!strcmp(cmd, "reverse-step-round")) {
-      /* back to the start of this round (if it has started), then of earlier ones */
+      /* back to the start of this round (if a core has had its turn in it), then of earlier ones */
       uint64_t n = json_u64(json_get(rq, "n"), 1), t = dbg_tick - (uint64_t)dbg_ci;
       if (!n) n = 1;
-      uint64_t back = (dbg_ci || dbg_rs ? n - 1 : n) * (uint64_t)ncores;
+      uint64_t back = (dbg_ci ? n - 1 : n) * (uint64_t)ncores;
       t = t > back ? t - back : 0;
       if (tt_goto(t, err, sizeof err)) { stop.hit = false; stop_req(-1, 0, "reverse round"); ev_stopped(); }
     }

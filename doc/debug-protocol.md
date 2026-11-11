@@ -108,7 +108,7 @@ by a `stopped` event).
 | `goto {tick}` | any tick of the history (`status`: `history.from` .. `history.to`) |
 | `reverse-stepi {core, n}` | in front of the core's n-th last step |
 | `reverse-continue` | the last tick before now at which a breakpoint or watchpoint would have stopped |
-| `reverse-step-round {n}` | the start of the round (if it has started), or of n rounds before |
+| `reverse-step-round {n}` | the start of the current round (if a core has had its turn in it), or of the round before, n times |
 | `reverse-tag {core, tag}` | in front of the last issue of that tag of that core |
 
 The engine keeps a snapshot of the machine every `history.every` ticks
