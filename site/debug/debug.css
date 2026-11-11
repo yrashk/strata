@@ -77,6 +77,18 @@ input:focus, select:focus { outline: none; border-color: var(--cyan); }
 .dis .bp::before { content: "●"; color: #ff5370; margin-right: 2px; }
 .dis .nb::before { content: " "; margin-right: 2px; }
 .dis .src { color: var(--dim); }
+.dis .mn { cursor: help; }
+.dis .mn:hover { color: var(--cyan); text-decoration: underline dotted; text-underline-offset: 3px; }
+/* the instruction help (debug.js itipShow): a line under the mnemonic, ↗ to its entry */
+.itip {
+  position: fixed; z-index: 30; max-width: 460px; padding: 5px 10px;
+  font: 12px/1.45 var(--mono); color: var(--text); background: rgba(9, 14, 26, 0.98);
+  box-shadow: 0 0 0 1px var(--cyan), 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+.itip[hidden] { display: none; }
+.itip code { color: var(--cyan); margin-right: 4px; }
+.itip a { color: var(--amber); text-decoration: none; margin-left: 6px; font-weight: 600; }
+.itip a:hover { color: #fff; }
 .regs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 10px; margin: 0 0 6px; }
 .regs div { white-space: pre; overflow: hidden; }
 .regs b { color: var(--dim); font-weight: 400; display: inline-block; width: 3.6ch; }

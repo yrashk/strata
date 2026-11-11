@@ -318,7 +318,7 @@ async function refreshCores() {
       if (l.label) html += `<div class="lab">${esc(l.label)}:</div>`;
       const src = l.file ? `${base(l.file).replace(/\.s$/, "")}:${l.line}` : "";
       html += `<div class="${l.pc ? "pc " : ""}${l.bp ? "bp" : "nb"}" data-addr="${l.addr}" data-bp="${l.bp || ""}" title="${esc(src)}">` +
-        `${hex(l.addr).toString(16).padStart(4, "0")}  ${esc(l.text.padEnd(28))} <span class="src">${esc(src)}</span></div>`;
+        `${hex(l.addr).toString(16).padStart(4, "0")}  ${insnHtml(l.text.padEnd(28))} <span class="src">${esc(src)}</span></div>`;
     }
     html += "</div>";
     if (r.ok) {
@@ -370,6 +370,48 @@ $("cores").addEventListener("click", async (e) => {
 function markCur() {
   for (const el of document.querySelectorAll(".core")) el.classList.toggle("cur", el.querySelector("h4").dataset.core == cur);
 }
+
+// ---------------------------------------------------------------- instruction help
+// Hovering a mnemonic in the disassembly: what it is, in one line, and ↗ to
+// its entry in the instruction pages (a new tab). isa/insns.json is written
+// by doc/manual/gen/genweb.py with the site; a page served from site/ by a
+// desktop engine has no generated pages, so it uses the published site's.
+const DOCS_SITE = "https://yrashk.com/strata/";
+let insns = null, docsBase = "../";
+(async () => {
+  for (const base of ["../", DOCS_SITE]) {
+    try {
+      const r = await fetch(base + "isa/insns.json" + (base === "../" ? V : ""));
+      if (r.ok) { insns = await r.json(); docsBase = base; return; }
+    } catch (e) { /* the next one */ }
+  }
+})();
+function insnHtml(text) {
+  const m = /^(\s*)(\S+)(.*)$/s.exec(text);
+  if (!m) return esc(text);
+  return `${m[1]}<span class="mn" data-mn="${esc(m[2].toLowerCase())}">${esc(m[2])}</span>${esc(m[3])}`;
+}
+const itip = document.createElement("div");
+itip.className = "itip";
+itip.hidden = true;
+document.body.appendChild(itip);
+let itipHide = 0;
+function itipShow(el) {
+  const e = insns && insns[el.dataset.mn];
+  if (!e) return;
+  clearTimeout(itipHide);
+  itip.innerHTML = `<code>${esc(el.dataset.mn)}</code> ${esc(e.t)} <a href="${esc(docsBase + e.u)}" target="_blank" rel="noopener" title="Its entry in the documentation (a new tab)">↗</a>`;
+  itip.hidden = false;
+  const r = el.getBoundingClientRect();
+  itip.style.left = Math.max(4, Math.min(r.left, innerWidth - itip.offsetWidth - 8)) + "px";
+  itip.style.top = (r.bottom + 2) + "px";
+}
+function itipLater() { clearTimeout(itipHide); itipHide = setTimeout(() => { itip.hidden = true; }, 350); }
+$("cores").addEventListener("mouseover", (e) => { const el = e.target.closest(".mn"); if (el) itipShow(el); });
+$("cores").addEventListener("mouseout", (e) => { if (e.target.closest(".mn")) itipLater(); });
+itip.addEventListener("mouseenter", () => clearTimeout(itipHide));
+itip.addEventListener("mouseleave", itipLater);
+addEventListener("scroll", () => { itip.hidden = true; }, { passive: true });
 
 // ---------------------------------------------------------------- the event log
 async function fetchLog() {
