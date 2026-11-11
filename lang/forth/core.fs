@@ -219,13 +219,12 @@ variable hld                                    \ the next free place
 : [: ( -- orig old-xt quot-xt )                 \ start a quotation inside a definition
   ahead,  19 kvar @  mark dup 19 kvar !  prologue, ; immediate
 : ;] ( orig old-xt quot-xt -- )                 \ end it: its xt becomes a literal
-  epilogue,  swap 19 kvar !  swap mark resolve  postpone literal ; immediate
+  epilogue,  swap 19 kvar !  swap mark resolve  xtliteral ; immediate \ (one that moves with a paged definition)
 
 \ ---- the dictionary ------------------------------------------------------------------------
 \ Header layout (forth.s): +0 link, +2 hash link, +4 xt, +6 code size (u16),
 \ +8 flags, +9 fold kind, +10 name length (u8), +11 the name.
 : name>string ( nt -- addr u ) dup 11 + swap 10 + c@ ; \ the name
-: name>xt ( nt -- xt ) 4 + w@ ;                 \ the code address
 : name>size ( nt -- u ) 6 + w@ ;                \ code bytes (inline body for primitives)
 : name>flags ( nt -- f ) 8 + c@ ;               \ flags
 : name>link ( nt -- nt' ) w@ ;                  \ the next older word

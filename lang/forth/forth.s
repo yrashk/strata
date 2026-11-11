@@ -81,7 +81,8 @@ F_HIDDEN  = 4                           ; not found (a definition in progress)
 F_CREATE  = 8                           ; compiles as a literal: its data field address
 F_CONST   = 16                          ; compiles as a literal: the cell in its data field
 F_VALUE   = 32                          ; compiles as a load of its data field
-F_OVL     = 64                          ; lives in a code overlay (H_FOLD = its number): see overlay.fs
+F_PAGER   = 64                          ; may run paged code (EXECUTE, CATCH, ...: see "Code paging"); a
+                                        ;   resident one's H_FOLD is its entry in the gateway unit
 FD_ADD    = 1                           ; lit +      -> addi s1, s1, v
 FD_SUB    = 2                           ; lit -      -> addi s1, s1, -v
 FD_AND    = 3                           ; lit and    -> andi s1, s1, v
@@ -142,13 +143,19 @@ OP_SD     = 0x18                        ; store doubleword
 OP_SB     = 0x1B                        ; store byte
 OP_BEQ    = 0x20                        ; branch if equal
 OP_JAL    = 0x28                        ; jump and link
+OP_JALR   = 0x29                        ; jump and link through a register
+OP_XCALL  = 0x3E                        ; xcall / xret (the overlay map)
+OP_XMAP   = 0x3D                        ; xmap / xunmap
 R_ZERO    = 0                           ; register numbers
 R_RA      = 1                           ; return address
 R_SP      = 2                           ; return stack
+R_GP      = 3                           ; paged code: 0x10000, the base of its calls of resident code
+R_TP      = 4                           ; paged code: TPV, the base of its calls of other units
 R_T0      = 5                           ; scratch
 R_S0      = 8                           ; data stack pointer
 R_S1      = 9                           ; top of stack
 R_S4      = 20                          ; locals frame
+R_T5      = 30                          ; scratch (paged code: the far address of a call)
 NEG32     = 0x100000000                 ; subtracted to make a 32-bit pattern negative
 I_NOP     = OP_ADDI << 26               ; addi zero, zero, 0
 I_PUSH1   = OP_ADDI << 26 | R_S0 << 21 | R_S0 << 16 | 0xFFF8 ; addi s0, s0, -8
@@ -159,7 +166,9 @@ I_PRO1    = OP_ADDI << 26 | R_SP << 21 | R_SP << 16 | 0xFFF8 ; addi sp, sp, -8
 I_PRO2    = OP_SD << 26 | R_RA << 21 | R_SP << 16 ; sd ra, 0(sp)
 I_EPI1    = OP_LD << 26 | R_RA << 21 | R_SP << 16 ; ld ra, 0(sp)
 I_EPI2    = OP_ADDI << 26 | R_SP << 21 | R_SP << 16 | 8 ; addi sp, sp, 8
-I_RET     = (0x29 << 26 | R_RA << 16) - NEG32 ; jalr zero, ra, 0
+I_PRET    = (OP_JALR << 26 | R_RA << 16) - NEG32 ; jalr zero, ra, 0 (ret)
+I_XRET    = (OP_XCALL << 26 | R_RA << 16 | 16) - NEG32 ; xret ra (a far link too: see "Code paging")
+I_RET     = I_PRET + PLAT_PAGE * (I_XRET - I_PRET) ; the return of a word (xret ra under StrataOS)
 I_CALL    = (OP_JAL << 26 | R_RA << 21) - NEG32 ; jal ra, <offset>
 I_JMP     = (OP_JAL << 26) - NEG32      ; jal zero, <offset>
 I_JALT0   = (OP_JAL << 26 | R_T0 << 21) - NEG32 ; jal t0, <offset> (the compact prologue)
@@ -181,6 +190,16 @@ I_LT_LD   = OP_LD << 26 | R_S4 << 21 | R_T0 << 16 ; ld s4, <8n>(t0) (locals tear
 I_LT_SP   = OP_ADDI << 26 | R_SP << 21 | R_T0 << 16 ; addi sp, t0, <8n+8> (locals teardown 3)
 I_FOLDI   = R_S1 << 21 | R_S1 << 16     ; rd = rs1 = s1, for the folded ALU forms
 I_FOLDM   = R_S1 << 21                  ; rd = s1, base zero, for the folded memory forms
+I_GCALL   = (OP_JALR << 26 | R_RA << 21 | R_GP << 16) - NEG32 ; jalr ra, gp, <a - 0x10000>: paged code calls resident a
+I_GJUMP   = (OP_JALR << 26 | R_GP << 16) - NEG32 ; jalr zero, gp, <a - 0x10000>: ... jumps to it
+I_GPRO    = (OP_JALR << 26 | R_T0 << 21 | R_GP << 16) - NEG32 ; jalr t0, gp, <k_enter - 0x10000>: the prologue
+I_TPT5    = OP_ADDI << 26 | R_T5 << 21 | R_TP << 16 ; addi t5, tp, <a - TPV>: a unit's far address, near TPV
+I_LUIT5   = OP_LUI << 26 | R_T5 << 21   ; lui t5, <a >> 16>: ... anywhere
+I_ORIT5   = OP_ORI << 26 | R_T5 << 21 | R_T5 << 16 ; ori t5, t5, <a & 0xFFFF>
+I_XCALL   = (OP_XCALL << 26 | R_RA << 21 | R_T5 << 16) - NEG32 ; xcall ra, c0, t5: call a unit
+I_XJUMP   = (OP_XCALL << 26 | R_T5 << 16) - NEG32 ; xcall zero, c0, t5: jump into a unit
+I_XUNMAP  = (OP_XMAP << 26 | 16) - NEG32 ; xunmap <idx << 21>
+MAXFIX    = 16                          ; self-references a definition may hold (relocated at `;`)
 
 ; =============================================================================
 ; Data Local Store
@@ -225,9 +244,15 @@ v_fdepth: .dword 0                      ; INCLUDED: nesting depth
 v_nofile: .dword 0                      ; INCLUDED: an xt ( a u -- ) for a name that is no file (KVAR 39; os.fs: the pack of ports)
 v_tooling: .dword 0                     ; 1 while a tool file is loaded for one command
 v_inlmax: .dword PLAT_INLINE            ; primitives whose bodies have at most this many bytes are copied inline
-v_ovl:    .dword 0                      ; code overlays (overlay.fs; KVAR 37): +0 the overlay being compiled (0: resident code),
-          .dword 0, 0                   ;   +8 the xt that calls an overlay word from an overlay, +16 from resident code,
-          .dword CODE_LIMIT             ;   +24 where code space ends now (an overlay region starts below the I-LS's end)
+v_paged:  .dword 0                      ; KVAR 37, code paging: +0 1 once new code goes into units (StrataOS, one thread),
+v_climit: .dword CODE_LIMIT             ;   +8 where code space ends (the I-LS's end, or the unit store's),
+v_nxmap:  .dword 0                      ;   +16 the overlay map's entries (NXMAP), +24 the gateway's entries
+v_ngw:    .dword 0                      ;   (resident words that may page, called from units through it)
+v_noname: .dword 0                      ; paged: the :NONAME being compiled pushes its xt at `;`
+v_callst: .dword 0                      ; chere where the last call began (with v_callend, v_callxt)
+v_callkd: .dword 0                      ; its kind: 0 jal, 1 jalr gp (never a tail call), 2 xcall
+v_nfix:   .dword 0                      ; self-references in the definition (relocated at `;`)
+v_fix:    .space MAXFIX * 8             ; their staging offsets (each a lui, ori pair)
 msave:    .space 24 + NBUCKETS * 2      ; the dictionary before a tool file: here, chere, latest, bucket heads
 fnames:   .space 4 * 32                 ; names of the files being included, by depth (zero-terminated)
 v_epoch:  .dword 1                      ; bumped for every word the interpreter runs
@@ -250,6 +275,8 @@ v_tcause: .dword 0                      ; last hardware fault: cause
 v_tepc:   .dword 0                      ; its pc
 v_ttval:  .dword 0                      ; its tval
 v_kbuf:   .dword 0                      ; console input byte lands here
+v_tsave:  .space 32                     ; trap_entry: registers a unit's miss (plat_miss) keeps
+h_plain:  .space 16                     ; a header with no flags: cg_target of a kernel helper
 v_tbuf:   .dword 0                      ; a trampoline being installed: insn, ret
 v_tick:   .dword 0                      ; timer reads land here
 v_wgen:   .space 16 * 8                 ; per worker: image generation it holds
@@ -348,6 +375,8 @@ errtab:                                 ; u16 -code, message
           .asciz "no such file"         ; ...
           .half 310                     ; -310
           .asciz "file too large"       ; ...
+          .half 311                     ; -311
+          .asciz "definition longer than a code unit" ; ...
           .half 0                       ; end
           .align 2                      ; u16 entries follow
 kvars:                                  ; KVAR n -> address (for core.fs)
@@ -388,7 +417,7 @@ kvars:                                  ; KVAR n -> address (for core.fs)
           .half v_tooling               ; 34 nonzero while a tool file is loaded for one command
           .half msave                   ; 35 the dictionary before that file: here, chere, latest
           .half v_inlmax                ; 36 inline bodies of up to this many bytes (INLINE-LIMIT)
-          .half v_ovl                   ; 37 code overlays: the block above (overlay.fs)
+          .half v_paged                 ; 37 code paging: on, the code limit, NXMAP, gateway entries
           .half plat_handles            ; 38 standard handles 0..2: the server's endpoint register (3 cells), its id (3)
           .half v_nofile                ; 39 INCLUDED: the xt ( a u -- ) run for a name that is no file (0: "no such file")
           .half v_ftop                  ; 40 INCLUDED: c0 offset where the next file's text goes (sys.fs puts a pack member there)
@@ -427,14 +456,17 @@ cold:                                   ; entered from the boot stub
         li    sp, RS_TOP                ; return stack at the top of D-LS
         li    s0, DS_TOP                ; empty data stack
         li    s1, 0                     ; a tidy top-of-stack register
+        li    gp, 0x10000               ; the bases of paged code's calls: resident code
+        li    tp, TPV                   ;   below gp, units around tp ("Code paging")
         la    t0, trap_entry            ; t0 = our trap handler
         csrw  tvec, t0                  ; faults become THROWs (see trap_entry)
         call  plat_init                 ; the platform: capabilities, other cores, v_ncores
         call  core_reset                ; per-core state: trampolines, far cache
-        la    t0, kend                  ; compiled code starts right after the kernel
+        la    t0, kpage                 ; compiled code starts at kpage (over the code only paging and start-up run: see there)
         sd    t0, v_chere(zero)         ; next free I-LS address
         sd    t0, v_cbase(zero)         ; nothing staged yet
         call  build_dict                ; headers for every kernel word
+        call  p_paging                  ; StrataOS, one thread: core.fs on goes into units
         call  plat_source               ; a0 = c0 offset of core.fs, a1 = its length
         mv    t1, a0                    ; t1 = offset
         mv    t0, a1                    ; t0 = length
@@ -864,8 +896,9 @@ make_header:                            ; clobbers t0..t3, a0..a5
         ld    t1, v_latest(zero)        ; t1 = previous newest word
         sh    t1, H_LINK(a5)            ; link to it
         sd    a5, v_latest(zero)        ; we are the newest
-        ld    t1, v_chere(zero)         ; t1 = next code address
-        sh    t1, H_XT(a5)              ; our xt (callers may change it)
+        ld    a0, v_chere(zero)         ; our xt: the next code address (callers may change it)
+        call  xt_enc                    ; (a unit's code: encoded, see hxt)
+        sh    a0, H_XT(a5)              ; ...
         sh    zero, H_SIZE(a5)          ; no code yet
         sb    zero, H_FLAGS(a5)         ; no flags
         sb    zero, H_FOLD(a5)          ; no folding
@@ -906,44 +939,47 @@ nt_dfa:                                 ; leaf; clobbers t0
         slli  a0, a0, 3                 ; of 8
         ret                             ; done
 
-; build_dict: make a header for every entry of the kernel word table
-build_dict:                             ; clobbers t0..t3, a0..a7
-        addi  sp, sp, -8                ; frame
-        sd    ra, 0(sp)                 ; save the return address
-        la    a6, ktable                ; a6 = cursor in the table
-bd_loop:                                ; one entry per iteration
-        lbu   a7, 0(a6)                 ; xt, low byte
-        lbu   t0, 1(a6)                 ; xt, high byte
-        slli  t0, t0, 8                 ; ...
-        or    a7, a7, t0                ; a7 = xt
-        beqz  a7, bd_done               ; xt 0 ends the table
-        addi  a0, a6, 6                 ; a0 = the name (zero-terminated)
-        mv    a1, a0                    ; a1 = cursor to find its end
-bd_len:                                 ; find the terminating zero
-        lbu   t0, 0(a1)                 ; character
-        beqz  t0, bd_got                ; end
-        addi  a1, a1, 1                 ; next
-        j     bd_len                    ; continue
-bd_got:                                 ; a1 = address of the zero
-        sub   a1, a1, a0                ; a1 = length
-        call  make_header               ; a0 = header (a6, a7 survive)
-        sh    a7, H_XT(a0)              ; the xt
-        lbu   t0, 2(a6)                 ; size, low byte
-        lbu   t1, 3(a6)                 ; size, high byte
-        slli  t1, t1, 8                 ; ...
-        or    t0, t0, t1                ; t0 = size
-        sh    t0, H_SIZE(a0)            ; code bytes
-        lbu   t0, 4(a6)                 ; flags
-        sb    t0, H_FLAGS(a0)           ; ...
-        lbu   t0, 5(a6)                 ; fold kind
-        sb    t0, H_FOLD(a0)            ; ...
-        lbu   t0, H_NLEN(a0)            ; name length
-        add   a6, a6, t0                ; skip the entry: 6 + name + 1
-        addi  a6, a6, 7                 ; ...
-        j     bd_loop                   ; next entry
-bd_done:                                ; all made
-        ld    ra, 0(sp)                 ; restore
-        addi  sp, sp, 8                 ; pop
+; hxt(a0 = header) -> a0 = its xt. Resident code is at its I-LS address (under
+; StrataOS 0x8000..0xFFFF); code in a unit (see "Code paging") is at a far
+; offset in c0, UBASE and up, which H_XT holds as (xt - UBASE) / 8: below 0x8000.
+hxt:                                    ; leaf; clobbers t0
+        lhu   a0, H_XT(a0)              ; ...
+xt_dec:                                 ; (a0 = an H_XT value)
+        li    t0, PLAT_PAGE * 0x8000    ; (0 on bare metal: nothing is paged there)
+        bgeu  a0, t0, hx_r              ; resident
+        slli  a0, a0, 3                 ; a unit's
+        li    t0, UBASE                 ; ...
+        add   a0, a0, t0                ; ...
+hx_r:                                   ; ...
+        ret                             ; done
+; xt_enc(a0 = xt) -> a0 = what H_XT holds for it
+xt_enc:                                 ; leaf; clobbers t0
+        srli  t0, a0, 16                ; resident (below 64 KiB): itself
+        beqz  t0, xe_r                  ; ...
+        li    t0, UBASE                 ; a unit's
+        sub   a0, a0, t0                ; ...
+        srli  a0, a0, 3                 ; ...
+xe_r:                                   ; ...
+        ret                             ; done
+; xt_name(a0 = xt) -> a0 = the header with that xt, or 0
+xt_name:                                ; leaf; clobbers t0..t2
+        ld    t0, v_latest(zero)        ; walk every word, newest first
+xn_loop:                                ; ...
+        beqz  t0, xn_none               ; not found
+        lhu   t1, H_XT(t0)              ; its xt
+        li    t2, PLAT_PAGE * 0x8000    ; (decoded as hxt does)
+        bgeu  t1, t2, xn_cmp            ; ...
+        slli  t1, t1, 3                 ; ...
+        li    t2, UBASE                 ; ...
+        add   t1, t1, t2                ; ...
+xn_cmp:                                 ; ...
+        beq   t1, a0, xn_hit            ; this one
+        lhu   t0, H_LINK(t0)            ; older
+        j     xn_loop                   ; on to xn_loop
+xn_none:                                ; no such word
+        li    t0, 0                     ; ...
+xn_hit:                                 ; found
+        mv    a0, t0                    ; header
         ret                             ; done
 
 ; -----------------------------------------------------------------------------
@@ -1076,7 +1112,7 @@ lf_none:                                ; not a local
 ; cg(a0 = instruction): append one instruction at chere (in the staging buffer)
 cg:                                     ; leaf; clobbers t0..t2
         ld    t0, v_chere(zero)         ; t0 = its I-LS address
-        ld    t1, v_ovl+24(zero)        ; the end of code space (64 KiB, or where overlays start)
+        ld    t1, v_climit(zero)        ; the end of code space (64 KiB, or the unit store's)
         addi  t1, t1, -8                ; ...
         bgeu  t0, t1, cg_full           ; out of code space
         ld    t1, v_cbase(zero)         ; t1 = I-LS address of staging byte 0
@@ -1215,22 +1251,41 @@ cg_call:                                ; clobbers t0..t2, a0, a1
         addi  sp, sp, 16                ; pop
         ret                             ; done
 
-; cg_ovcall(a0 = overlay xt n << 16 | address): compile a call of a word in
-; code overlay n: push the xt, call the manager's word for it (overlay.fs puts
-; their xts in v_ovl: one for calls from resident code, one that also brings
-; the caller's overlay back, for calls from an overlay)
-cg_ovcall:                              ; clobbers t0..t3, t6, a0, a1
-        addi  sp, sp, -8                ; frame
-        sd    ra, 0(sp)                 ; save the return address
-        call  cg_lit                    ; the xt
-        ld    a0, v_ovl+16(zero)        ; from resident code
-        ld    t0, v_ovl(zero)           ; from an overlay?
-        beqz  t0, co_call               ; ...
-        ld    a0, v_ovl+8(zero)         ; then its overlay comes back after
-co_call:                                ; ...
-        ld    ra, 0(sp)                 ; restore
-        addi  sp, sp, 8                 ; pop
-        j     cg_call                   ; tail call
+; -----------------------------------------------------------------------------
+; Code paging (StrataOS, one thread: PAGING turned it on at the end of start-up).
+; Code compiled from then on goes into CODE UNITS: 2^XSLOT-byte, slot-aligned
+; pieces of a store in far memory (c0 [UBASE, UEND)), each holding whole
+; definitions. StrataOS pages them: a call of a unit that is not in the I-LS
+; misses (xmiss), and the dispatcher copies the unit into a slot of the code
+; cache (the I-LS after the resident code, which the code mirror covers),
+; maps it and retries. So a unit's code runs at whatever slot it got, and
+; must not depend on where that is:
+;   * a call of a unit (or of a word in the same unit) is an xcall by far
+;     address: addi t5, tp, a - TPV (or lui, ori); xcall ra, c0, t5. It leaves
+;     a far link, which xret follows into the caller's unit wherever it is
+;     now, paging it back in if it was evicted meanwhile;
+;   * a call of resident code is jalr ra, gp, a - 0x10000 (gp = 0x10000): a
+;     plain link into the slot, safe because that code never pages, unless it
+;     is marked F_PAGER (it may run paged code: EXECUTE, CATCH, EVALUATE ...,
+;     and every word that calls one of those): such a word is called through
+;     its entry in the GATEWAY (unit 0 of the store: jalr zero, gp, a - 0x10000
+;     per word), by an xcall like a unit, and returns with xret;
+;   * the prologue and the return are jalr t0, gp, k_enter / jalr zero, gp,
+;     k_exit; a variable's stub jalr zero, gp, k_var: k_exit, k_var and k_val
+;     return with xret ra, which follows a far link and, for a plain one, is jr.
+; A definition is staged as before and placed at `;`: where the last one ended,
+; or, if it does not fit there, at the start of the next unit (its few
+; absolute references to itself, RECURSE, a quotation's xt, the DOES> code's
+; address, are lui/ori pairs recorded in v_fix and moved with it). Installing
+; it is a tput to its unit's far copy: since that unit may be in the cache,
+; the overlay map is cleared (xunmap): what is needed comes back on demand.
+; -----------------------------------------------------------------------------
+; cg_target(a0 = xt, a1 = its header or 0): compile a call of a word, as the
+; code being compiled needs it (see above)
+cg_target:                              ; clobbers t0..t6, a0..a2
+        ld    t0, v_paged(zero)         ; compiling into units?
+        beqz  t0, cg_call               ; no: resident code calls with jal (a tail call)
+        j     ct_unit                   ; yes: see the paging part (kpage)
 
 ; cg_fold(a0 = FD_ kind) -> a0 = 1 if the last literal was folded into the operation
 cg_fold:                                ; clobbers t0..t3, t6, a0, a1
@@ -1375,8 +1430,8 @@ compile_nt:                             ; clobbers t0..t6, a0..a2
         bnez  t1, cn_const              ; ... is its value
         andi  t1, t0, F_VALUE           ; a VALUE ...
         bnez  t1, cn_value              ; ... is a load
-        andi  t1, t0, F_OVL             ; a word in a code overlay ...
-        bnez  t1, cn_ovl                ; ... is called through the overlay manager
+        andi  t1, t0, F_PAGER           ; a word that may page is called (its fold byte
+        bnez  t1, cn_call               ;   is its entry in the gateway)
         lbu   a0, H_FOLD(a0)            ; folding kind
         beqz  a0, cn_plain              ; none
         call  cg_fold                   ; try to fold the last literal into it
@@ -1389,26 +1444,20 @@ cn_plain:                               ; inline or call
         lhu   a1, H_SIZE(a0)            ; body size
         ld    t1, v_inlmax(zero)        ; bodies of up to 4 instructions (16 bytes, INLINE-LIMIT) are
         bgtu  a1, t1, cn_long           ; copied; longer ones are called (the I-LS is small)
-        lhu   a0, H_XT(a0)              ; body address
+        call  hxt                       ; body address (a1 survives)
         call  cg_inline                 ; copy it
         j     cn_ret                    ; done
 cn_long:                                ; a long primitive: call it, but never as a tail call:
-        lhu   a0, H_XT(a0)              ; 2>r, 2r> and 2r@ work on the return stack, and the
-        call  cg_call                   ; epilogue before a jump would pop the wrong cell
+        mv    a1, a0                    ; 2>r, 2r> and 2r@ work on the return stack, and the
+        call  hxt                       ; epilogue before a jump would pop the wrong cell
+        call  cg_target                 ; ...
         sd    zero, v_callend(zero)     ; (`;` right here must not turn it into a jump)
         j     cn_ret                    ; done
 cn_call:                                ; a call
-        lhu   a0, H_XT(a0)              ; target
-        call  cg_call                   ; emit
-        j     cn_ret                    ; done
-cn_ovl:                                 ; an overlay word (H_FOLD = its overlay)
-        lbu   t1, H_FOLD(a0)            ; from a definition in the same overlay:
-        ld    t2, v_ovl(zero)           ; ...
-        beq   t1, t2, cn_call           ; a plain call (both are there together)
-        lhu   a0, H_XT(a0)              ; else its overlay xt, n << 16 | address
-        slli  t1, t1, 16                ; ...
-        or    a0, a0, t1                ; ...
-        call  cg_ovcall                 ; through the manager
+        ld    a1, 8(sp)                 ; the header
+        mv    a0, a1                    ; target
+        call  hxt                       ; ...
+        call  cg_target                 ; emit
         j     cn_ret                    ; done
 cn_create:                              ; push the data field address
         call  nt_dfa                    ; a0 = data field
@@ -1444,7 +1493,25 @@ cg_exit:                                ; clobbers t0..t6, a0, a1
         ld    t0, v_callend(zero)       ; was the last thing compiled a call?
         ld    t1, v_chere(zero)         ; t1 = v_chere
         bne   t0, t1, ce_locals         ; no
+        ld    t2, v_paged(zero)         ; paged code: only an xcall becomes a jump
+        beqz  t2, ce_back               ; (a resident word may return with ret, which
+        ld    t2, v_callkd(zero)        ;   cannot follow its caller's far link)
+        li    t3, 2                     ; ...
+        bne   t2, t3, ce_locals         ; ...
+        ld    t1, v_callst(zero)        ; take the whole call back (1 to 3 instructions)
+        ld    t2, v_nfix(zero)          ; and its recorded pair, if it had one
+        beqz  t2, ce_tail               ; ...
+        slli  t3, t2, 3                 ; ...
+        ld    t3, v_fix-8(t3)           ; ...
+        ld    t4, v_cbase(zero)         ; ...
+        sub   t4, t1, t4                ; ...
+        bltu  t3, t4, ce_tail           ; ...
+        addi  t2, t2, -1                ; ...
+        sd    t2, v_nfix(zero)          ; ...
+        j     ce_tail                   ; ...
+ce_back:                                ; a jal
         addi  t1, t1, -4                ; take the call back
+ce_tail:                                ; ...
         sd    t1, v_chere(zero)         ; v_chere = t1
         ld    t0, v_callxt(zero)        ; its target
         sd    t0, 8(sp)                 ; becomes a jump target
@@ -1468,6 +1535,15 @@ ce_epi:                                 ; the epilogue
         li    a1, I_EPI2                ; addi sp, sp, 8
         call  cg2                       ; call cg2
         ld    a1, 8(sp)                 ; the target again
+        ld    t0, v_paged(zero)         ; paged: a jump into another unit is an xcall
+        beqz  t0, ce_jal                ; ...
+        ld    t0, v_cbase(zero)         ; (one into this definition, a recursion, a jal:
+        bgeu  a1, t0, ce_jal            ;   it moves with it)
+        mv    a0, a1                    ; xcall zero, c0, target
+        li    a1, R_ZERO                ; ...
+        call  cg_far                    ; ...
+        j     ce_done                   ; ...
+ce_jal:                                 ; ...
         li    a0, I_JMP                 ; jal zero, target
         call  jal_to                    ; call jal_to
         call  cg                        ; call cg
@@ -1494,6 +1570,7 @@ begin_def:                              ; clobbers t0..t2, t6, a0, a1
         sd    zero, v_nloc(zero)        ; no locals yet
         sd    zero, v_litend(zero)      ; no literal to fold
         sd    zero, v_callend(zero)     ; no call to turn into a jump
+        sd    zero, v_nfix(zero)        ; no pairs to move
         j     cg_pro                    ; tail call: the prologue
 
 ; cg_pro: compile a definition's prologue: save ra on the return stack. With
@@ -1501,6 +1578,12 @@ begin_def:                              ; clobbers t0..t2, t6, a0, a1
 ; kernel once), and a plain return is `j k_exit`: 12 bytes less per word, two
 ; jumps more per call. StrataOS programs have 32 KiB of code space.
 cg_pro:                                 ; clobbers t0..t2, t6, a0, a1
+        ld    t0, v_paged(zero)         ; paged: jalr t0, gp, k_enter
+        beqz  t0, cp_res                ; ...
+        li    a0, I_GPRO                ; ...
+        la    a1, k_enter               ; ...
+        j     cg_gp                     ; ...
+cp_res:                                 ; ...
         li    t0, PLAT_COMPACT          ; compact code?
         bnez  t0, cp_short              ; yes
         li    a0, I_PRO1                ; addi sp, sp, -8
@@ -1520,10 +1603,16 @@ k_enter:                                ; the shared prologue (entered with jal 
 k_exit:                                 ; the shared return (entered with j)
         ld    ra, 0(sp)                 ; the word's return address
         addi  sp, sp, 8                 ; pop it
-        ret                             ; return to the word's caller
+        xret  ra                        ; return to the word's caller (a far link too)
 
 ; cg_ret: compile "restore ra and return" (no tail call, no locals)
 cg_ret:                                 ; clobbers t0..t6, a0, a1
+        ld    t0, v_paged(zero)         ; paged: jalr zero, gp, k_exit
+        beqz  t0, cr_res                ; ...
+        li    a0, I_GJUMP               ; ...
+        la    a1, k_exit                ; ...
+        j     cg_gp                     ; ...
+cr_res:                                 ; ...
         li    t0, PLAT_COMPACT          ; compact code?
         bnez  t0, cr_short              ; yes
 cg_retf:                                ; the full form: three instructions
@@ -1545,11 +1634,15 @@ cr_short:                               ; one instruction
         mv    ra, t1                    ; ...
         j     cg                        ; tail call
 
-; end_def: pad, record the size, reveal, install
+; end_def: pad, place (paged code), record the size, reveal, install
 end_def:                                ; clobbers t0..t6, a0..a5
         addi  sp, sp, -8                ; frame
         sd    ra, 0(sp)                 ; save the return address
         call  cg_align                  ; whole doublewords
+        ld    t0, v_paged(zero)         ; paged code: in one unit
+        beqz  t0, ed_rec                ; ...
+        j     ed_place                  ; (see kpage)
+ed_rec:                                 ; ...
         ld    t0, v_curnt(zero)         ; the header (0 for :noname)
         beqz  t0, ed_anon               ; nothing to record
         ld    t1, v_chere(zero)         ; end
@@ -1563,10 +1656,20 @@ ed_anon:                                ; close
         sd    zero, v_open(zero)        ; no definition open
         sd    zero, v_state(zero)       ; interpreting
         sd    zero, v_nloc(zero)        ; locals are gone
+        ld    t0, v_noname(zero)        ; paged :NONAME: its xt now that it is placed
+        beqz  t0, ed_inst               ; ...
+        sd    zero, v_noname(zero)      ; ...
+        addi  s0, s0, -8                ; ...
+        sd    s1, 0(s0)                 ; ...
+        ld    s1, v_curxt(zero)         ; ...
+ed_inst:                                ; ...
         call  flush_code                ; install it
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, 8                 ; pop
         ret                             ; done
+ed_long:                                ; it fits no unit
+        li    a0, -311                  ; definition longer than a code unit
+        j     throw_a0                  ; error
 
 ; flush_code: install everything staged: tput to the far mirror, tgetx into
 ; the I-LS. Pads to 8 bytes first.
@@ -1582,8 +1685,15 @@ flush_code:                             ; clobbers t0..t6, a0..a5
         ld    t2, v_chere(zero)         ; end
         sub   t2, t2, t1                ; bytes
         la    t3, stage                 ; the staged instructions
-        tput  tg13, t3, c0, t1, t2      ; D-LS -> far mirror
+        tput  tg13, t3, c0, t1, t2      ; D-LS -> far mirror (or its unit)
+        srli  t3, t1, 16                ; a unit?
+        bnez  t3, fl_unit               ; ...
         tgetx tg13, t1, c0, t1, t2      ; far mirror -> I-LS: the code is live
+        j     fl_count                  ; ...
+fl_unit:                                ; a unit: StrataOS pages it in when it is called
+        twait 1 << 13                   ; (from far memory: the tput must be there)
+        call  f_unmap                   ; and a stale copy of it may be in the cache
+fl_count:                               ; ...
         ld    t3, v_jitn(zero)          ; count installs
         addi  t3, t3, 1                 ; one more
         sd    t3, v_jitn(zero)          ; v_jitn = t3
@@ -1634,8 +1744,15 @@ code_patch:                             ; clobbers t0..t6, a0, a1
         andi  t3, a1, 4                 ; which half
         add   t3, t1, t3                ; ...
         sw    a0, 0(t3)                 ; patch (waits for the tget)
-        tput  tg13, t1, c0, t0, t2      ; D-LS -> mirror
+        tput  tg13, t1, c0, t0, t2      ; D-LS -> mirror (or its unit)
+        srli  t3, t0, 16                ; a unit?
+        bnez  t3, cp_unit               ; ...
         tgetx tg13, t0, c0, t0, t2      ; mirror -> I-LS
+        j     cp_done                   ; ...
+cp_unit:                                ; a unit: its far copy changed
+        twait 1 << 13                   ; ...
+        call  f_unmap                   ; ...
+cp_done:                                ; ...
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, 24                ; pop
         ret                             ; done
@@ -1681,13 +1798,7 @@ in_find:                                ; a dictionary word?
         call  compile_nt                ; compile it
         j     in_loop                   ; next word
 in_exec:                                ; run the word
-        lbu   t1, H_FLAGS(a0)           ; in a code overlay?
-        andi  t1, t1, F_OVL             ; ...
-        lbu   t2, H_FOLD(a0)            ; (its number)
-        lhu   a0, H_XT(a0)              ; a0 = its code
-        beqz  t1, in_xt                 ; no
-        slli  t2, t2, 16                ; yes: its overlay xt, n << 16 | address
-        or    a0, a0, t2                ; (EXECUTE has the manager load it)
+        call  hxt                       ; a0 = its xt (EXECUTE runs a unit's code too)
 in_xt:                                  ; a0 = the xt
         addi  sp, sp, -8                ; save it
         sd    a0, 0(sp)                 ; ...
@@ -1728,7 +1839,7 @@ in_lit:                                 ; compile a literal
 in_done:                                ; the buffer is used up
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, 8                 ; pop
-        ret                             ; done
+        xret  ra                        ; done (a word that may page: see "Code paging")
 in_undef:                               ; unknown: maybe a tool the platform loads on demand
         ld    t0, v_state(zero)         ; only when interpreting (a definition cannot
         bnez  t0, in_u13                ; call a word that is forgotten again)
@@ -1802,7 +1913,7 @@ p_evaluate:                             ; Forth word
         call  spec_restore              ; call spec_restore
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, 64                ; pop
-        ret                             ; done
+        xret  ra                        ; done (it may page)
 
 ; refill_far -> a0 = 1 if a line of far text is now the input buffer, 0 at
 ; its end. One tget of up to 256 bytes per line: lines are at most 248 bytes.
@@ -1913,7 +2024,7 @@ ef_back:                                ; copy it back
         call  spec_restore              ; call spec_restore
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, EF_FRAME          ; pop
-        ret                             ; done
+        xret  ra                        ; done (it may page)
 
 ; -----------------------------------------------------------------------------
 ; CATCH and THROW. A frame on the return stack: ra, s0..s4, the previous
@@ -1947,7 +2058,7 @@ p_catch:                                ; CATCH ( i*x xt -- j*x 0 | i*x n )
         addi  s0, s0, -8                ; push 0
         sd    s1, 0(s0)                 ; the old top goes to memory
         li    s1, 0                     ; s1 = 0
-        ret                             ; done
+        xret  ra                        ; done (it may page: a far link)
 p_throw:                                ; THROW ( k*x n -- k*x | i*x n )
         bnez  s1, th_go                 ; 0 THROW does nothing
         ld    s1, 0(s0)                 ; drop the 0
@@ -1981,7 +2092,7 @@ rethrow_a0:                             ; pass a caught error on: where it happe
         mv    s1, t3                    ; t3 is the new top
         ld    ra, 0(sp)                 ; CATCH's return address
         addi  sp, sp, CF_SIZE           ; drop the frame
-        ret                             ; CATCH returns n
+        xret  ra                        ; CATCH returns n
 th_none:                                ; no handler at all
         call  report_error              ; say so
         ld    t0, v_worker(zero)        ; a worker goes back to waiting for jobs
@@ -1992,6 +2103,11 @@ th_none:                                ; no handler at all
 
 ; trap_entry: a hardware fault becomes THROW -(256 + cause)
 trap_entry:                             ; tvec points here
+        sd    t0, v_tsave(zero)         ; (a code unit's miss goes on: keep what we use)
+        csrr  t0, cause                 ; why
+        addi  t0, t0, -8                ; xmiss: the platform pages the unit in (StrataOS)
+        beqz  t0, plat_miss             ;   and retries, or comes back to te_fault
+te_fault:                               ; a fault
         csrr  t0, cause                 ; why
         sd    t0, v_tcause(zero)        ; remember for the message
         csrr  t1, epc                   ; where
@@ -2058,8 +2174,11 @@ ic_load:                                ; read the file into far memory
         bne   a0, t3, throw_a0          ; ...
         sd    zero, v_nofile(zero)      ; yes: once (it sets KVAR 39 again if it wants to)
         addi  s0, s0, -16               ; it gets the name back (still in memory there,
-        mv    s1, t1                    ; its length cut to 31) and runs instead (a tail call:
-        jr    t2                        ; it returns to INCLUDED's caller)
+        mv    s1, t1                    ; its length cut to 31) and runs instead (a tail call
+        addi  s0, s0, -8                ; through EXECUTE: it returns to INCLUDED's caller)
+        sd    s1, 0(s0)                 ; ...
+        mv    s1, t2                    ; ...
+        j     p_execute                 ; ...
 ic_run:                                 ; a0 = length of the text
         ld    t0, v_fname(zero)         ; keep the outer file's name
         sd    t0, 16(sp)                ; ...
@@ -2094,7 +2213,7 @@ ic_run:                                 ; a0 = length of the text
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, 32                ; pop
         bnez  a0, rethrow_a0            ; pass an error on (it knows where it happened)
-        ret                             ; done
+        xret  ra                        ; done (it may page)
 
 ; tool_mark: remember the dictionary: data space, code space, the newest
 ; word, the hash buckets. tool_release forgets everything defined since.
@@ -2182,9 +2301,11 @@ tl_load:                                ; include the file
         mv    t0, a0                    ; ...
         li    a0, -13                   ; undefined word, if the file did not define it
         beqz  t0, tl_end                ; ...
-        addi  s0, s0, -8                ; push its xt
+        mv    a0, t0                    ; push its xt
+        call  hxt                       ; ...
+        addi  s0, s0, -8                ; ...
         sd    s1, 0(s0)                 ; the old top goes to memory
-        lhu   s1, H_XT(t0)              ; ...
+        mv    s1, a0                    ; ...
         call  p_catch                   ; run it (it parses its own arguments), catching errors
         mv    a0, s1                    ; a0 = the throw code
         ld    s1, 0(s0)                 ; pop it
@@ -2203,7 +2324,7 @@ tl_out:                                 ; pass an error on
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, 40                ; pop
         bnez  a0, rethrow_a0            ; (it knows where it happened)
-        ret                             ; done
+        xret  ra                        ; done (it may page)
 
 ; -----------------------------------------------------------------------------
 ; QUIT: the read-interpret loop on the console
@@ -2261,9 +2382,9 @@ rollback:                               ; clobbers t0..t3, a0, a1
         sd    t1, v_latest(zero)        ; v_latest = t1
         sd    t0, v_here(zero)          ; give its space back
 rb_code:                                ; give the code space back
-        ld    t0, v_curxt(zero)         ; where it started
-        sd    t0, v_chere(zero)         ; (it was never installed)
-        sd    t0, v_cbase(zero)         ; v_cbase = t0
+        ld    t0, v_cbase(zero)         ; where it started (staged alone: `:` installed the
+        sd    t0, v_chere(zero)         ;   rest; v_curxt may be a quotation's)
+        sd    zero, v_noname(zero)      ; (a paged :NONAME's xt is not pushed)
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, 8                 ; drop the frame
 rb_state:                               ; back to interpreting
@@ -2871,6 +2992,8 @@ cg_stub:                                ; clobbers t0..t3, t6, a0..a2
         beqz  t0, cs_j                  ; ...
         la    a1, k_val                 ; ... or j k_val (CONSTANT, VALUE: push the cell at t1)
 cs_j:                                   ; a1 = the target
+        ld    t0, v_paged(zero)         ; in a unit: jalr zero, gp, target
+        bnez  t0, cs_unit               ; ...
         li    a0, I_JMP                 ; jal zero, target (DOES> patches this one)
         call  jal_to                    ; a0 = the instruction
         call  cg                        ; call cg
@@ -2879,14 +3002,14 @@ k_var:                                  ; the shared body of a CREATEd word: pus
         addi  s0, s0, -8                ; push
         sd    s1, 0(s0)                 ; the old top goes to memory
         mv    s1, t1                    ; the address
-        ret                             ; done
+        xret  ra                        ; done (a unit's stub was called by xcall)
 k_val:                                  ; the shared body of a CONSTANT or VALUE
         addi  s0, s0, -8                ; push
         sd    s1, 0(s0)                 ; the old top goes to memory
         ld    s1, 0(t1)                 ; the cell
-        ret                             ; done
+        xret  ra                        ; done
 k_does:                                 ; the shared start of does-code (entered with jal t0
-        addi  s0, s0, -8                ; from the does-code, which the stub jumped to with
+        addi  s0, s0, -8                ; (jalr t0, gp: paged) from the does-code, which the stub jumped to with
         sd    s1, 0(s0)                 ; t1 = the word's address): push the address,
         mv    s1, t1                    ; ...
         addi  sp, sp, -8                ; then the prologue
@@ -2933,6 +3056,10 @@ new_word:                               ; clobbers t0..t6, a0..a5
         addi  sp, sp, -8                ; frame
         sd    ra, 0(sp)                 ; save the return address
         call  cg_align                  ; xts are 8-aligned
+        ld    t0, v_paged(zero)         ; paged: a 16-byte stub must not cross into the
+        beqz  t0, nw_name               ;   next unit (a definition moves at `;` instead)
+        j     nw_unit                   ; (see kpage)
+nw_name:                                ; ...
         call  parse_name                ; the name
         sd    a0, v_ename(zero)         ; (for error messages)
         sd    a1, v_elen(zero)          ; v_elen = a1
@@ -2949,7 +3076,10 @@ p_create:                               ; Forth word
         sd    a0, 8(sp)                 ; ...
         li    t0, F_CREATE              ; compiles as a literal
         sb    t0, H_FLAGS(a0)           ; ...
-        li    t0, 24 - 16 * PLAT_COMPACT ; code size (the compact stub has 8 bytes)
+        li    t0, 24 - 16 * PLAT_COMPACT ; code size (the compact stub has 8 bytes, 16 in a unit)
+        ld    t1, v_paged(zero)         ; ...
+        slli  t1, t1, 3                 ; ...
+        add   t0, t0, t1                ; ...
         sh    t0, H_SIZE(a0)            ; ...
         ld    a1, v_here(zero)          ; data field = HERE
         li    a2, 0                     ; push the address
@@ -2995,7 +3125,7 @@ p_colon:                                ; Forth word
         ori   t0, t0, F_HIDDEN          ; ...
         sb    t0, H_FLAGS(a0)           ; ...
         sd    a0, v_curnt(zero)         ; being defined
-        lhu   t0, H_XT(a0)              ; its code
+        ld    t0, v_chere(zero)         ; its code
         sd    t0, v_curxt(zero)         ; v_curxt = t0
         call  begin_def                 ; compile state, prologue
         ld    ra, 0(sp)                 ; restore
@@ -3010,9 +3140,13 @@ p_noname:                               ; Forth word
         ld    t0, v_chere(zero)         ; the xt
         sd    t0, v_curxt(zero)         ; v_curxt = t0
         sd    zero, v_curnt(zero)       ; no header
+        ld    t1, v_paged(zero)         ; paged: `;` pushes it, where it put the definition
+        sd    t1, v_noname(zero)        ; ...
+        bnez  t1, nn_def                ; ...
         addi  s0, s0, -8                ; push it
         sd    s1, 0(s0)                 ; the old top goes to memory
         mv    s1, t0                    ; t0 is the new top
+nn_def:                                 ; ...
         call  begin_def                 ; compile state, prologue
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, 8                 ; pop
@@ -3041,8 +3175,10 @@ p_exit:                                 ; Forth word
 
 ; DOES> ( -- ): compile (does>), end this part, start the does-code (immediate)
 p_does:                                 ; Forth word
-        addi  sp, sp, -8                ; frame
+        addi  sp, sp, -16               ; frame
         sd    ra, 0(sp)                 ; save the return address
+        ld    t0, v_paged(zero)         ; paged: the does-code's address is a literal,
+        bnez  t0, ds_unit               ;   for (does>x)
         la    a0, p_pdoes               ; call (does>)
         call  cg_call                   ; call cg_call
         li    a0, 2                     ; then return, always in full (12 bytes: ld, addi, ret)
@@ -3061,9 +3197,8 @@ ds_pro:                                 ; the does-code proper follows
         sd    zero, v_litend(zero)      ; nothing to fold across
         sd    zero, v_callend(zero)     ; clear v_callend
         ld    ra, 0(sp)                 ; restore
-        addi  sp, sp, 8                 ; pop
+        addi  sp, sp, 16                ; pop
         ret                             ; done
-
 ; (does>): at run time of a defining word, make the newest word jump to the
 ; does-code (12 bytes past our return address) instead of returning
 p_pdoes:                                ; Forth word
@@ -3073,6 +3208,22 @@ p_pdoes:                                ; Forth word
         andi  t1, t1, 0xFF ^ (F_CREATE | F_INL) ; ...
         sb    t1, H_FLAGS(t0)           ; ...
         lhu   t2, H_XT(t0)              ; its stub
+        srli  t3, t2, 15                ; in a unit (H_XT < 0x8000 under StrataOS)?
+        li    t4, PLAT_PAGE             ; ...
+        bgeu  t3, t4, pd_res            ; no
+        mv    a1, a0                    ; yes: jalr zero, gp, does-code at stub + 4
+        mv    a0, t2                    ; ...
+        mv    t6, ra                    ; ...
+        call  xt_dec                    ; ...
+        mv    ra, t6                    ; ...
+        addi  t2, a0, 4                 ; ...
+        li    t3, 0x10000               ; ...
+        sub   t3, a1, t3                ; ...
+        andi  t3, t3, 0xFFFF            ; ...
+        li    t4, I_GJUMP               ; ...
+        or    t3, t3, t4                ; ...
+        j     pd_put                    ; ...
+pd_res:                                 ; resident
         addi  t2, t2, 16 - 12 * PLAT_COMPACT ; the stub's ret (compact: its jump, 4 bytes in)
         sub   t3, a0, t2                ; jal zero, does-code
         srai  t3, t3, 2                 ; ...
@@ -3080,6 +3231,7 @@ p_pdoes:                                ; Forth word
         srli  t3, t3, 43                ; ...
         li    t4, I_JMP                 ; t4 = I_JMP
         or    t3, t3, t4                ; ...
+pd_put:                                 ; t3 = the instruction for address t2
         ld    t4, v_cbase(zero)         ; still staged?
         bltu  t2, t4, pd_far            ; no: patch the installed code
         sub   t5, t2, t4                ; staging offset
@@ -3111,11 +3263,13 @@ p_postpone:                             ; Forth word
         bnez  t0, pp_imm                ; yes: compile a call to it
         call  cg_lit                    ; no: compile "header compile-name"
         la    a0, p_compname            ; a0 = address of p_compname
-        call  cg_call                   ; call cg_call
+        la    a1, h_plain               ; (a word that does not page)
+        call  cg_target                 ; call it
         j     pp_ret                    ; on to pp_ret
 pp_imm:                                 ; an immediate word
-        lhu   a0, H_XT(a0)              ; ...
-        call  cg_call                   ; call cg_call
+        mv    a1, a0                    ; ...
+        call  hxt                       ; ...
+        call  cg_target                 ; call it
 pp_ret:                                 ; done
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, 8                 ; pop
@@ -3137,14 +3291,8 @@ p_tick:                                 ; Forth word
         sd    a1, v_elen(zero)          ; v_elen = a1
         call  find_name                 ; a0 = header
         beqz  a0, in_u13                ; unknown
-        lbu   t1, H_FLAGS(a0)           ; in a code overlay?
-        andi  t1, t1, F_OVL             ; ...
-        lbu   t2, H_FOLD(a0)            ; (its number)
-        lhu   t0, H_XT(a0)              ; xt
-        beqz  t1, tk_push               ; no
-        slli  t2, t2, 16                ; yes: its overlay xt, n << 16 | address
-        or    t0, t0, t2                ; ...
-tk_push:                                ; t0 = the xt
+        call  hxt                       ; its xt
+        mv    t0, a0                    ; ...
         addi  s0, s0, -8                ; push it
         sd    s1, 0(s0)                 ; the old top goes to memory
         mv    s1, t0                    ; t0 is the new top
@@ -3168,12 +3316,33 @@ p_literal:                              ; LITERAL ( x -- ) (immediate)
         addi  s0, s0, 8                 ; one cell off the data stack
         j     cg_lit                    ; tail call: compile it
 p_compile:                              ; COMPILE, ( xt -- ): compile a call
-        mv    a0, s1                    ; the xt
+        addi  sp, sp, -16               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s1, 8(sp)                 ; the xt
         ld    s1, 0(s0)                 ; pop
         addi  s0, s0, 8                 ; one cell off the data stack
-        srli  t0, a0, 16                ; an overlay xt (n << 16 | address)?
-        bnez  t0, cg_ovcall             ; tail call: through the overlay manager
-        j     cg_call                   ; tail call
+        ld    a0, 8(sp)                 ; its header, for how to call it (0: none)
+        call  xt_name                   ; ...
+        mv    a1, a0                    ; ...
+        ld    a0, 8(sp)                 ; ...
+        call  cg_target                 ; ...
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 16                ; pop
+        ret                             ; done
+p_xtlit:                                ; XTLITERAL ( xt -- ): compile it as a literal (immediate
+        ld    t0, v_paged(zero)         ;   use: ;] ); paged, an xt in this definition is a
+        beqz  t0, p_literal             ;   lui, ori pair that moves with it at `;`
+        ld    t0, v_cbase(zero)         ; ...
+        bltu  s1, t0, p_literal         ; ...
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; ...
+        call  p_literal                 ; (a code address is >= 0x10000: lui, ori)
+        ld    t0, v_chere(zero)         ; ...
+        addi  t0, t0, -8                ; ...
+        call  fix_add                   ; ...
+        ld    ra, 0(sp)                 ; ...
+        addi  sp, sp, 8                 ; ...
+        ret                             ; ...
 p_insn:                                 ; INSN, ( u -- ): compile one instruction
         mv    a0, s1                    ; the instruction
         ld    s1, 0(s0)                 ; pop
@@ -3181,7 +3350,8 @@ p_insn:                                 ; INSN, ( u -- ): compile one instructio
         j     cg                        ; tail call
 p_recurse:                              ; RECURSE ( -- ) (immediate)
         ld    a0, v_curxt(zero)         ; the definition being compiled
-        j     cg_call                   ; tail call
+        ld    a1, v_curnt(zero)         ; (its header: 0 for :NONAME)
+        j     cg_target                 ; tail call
 p_immediate:                            ; IMMEDIATE ( -- )
         ld    t0, v_latest(zero)        ; newest word
         lbu   t1, H_FLAGS(t0)           ; ...
@@ -3458,19 +3628,19 @@ nq_no:                                  ; not a number
         addi  s0, s0, 8                 ; drop the address
         li    s1, 0                     ; false
         ret                             ; done
-p_xtname:                               ; XT>NAME ( xt -- nt | 0 )
-        ld    t0, v_latest(zero)        ; walk every word, newest first
-xn_loop:                                ; ...
-        beqz  t0, xn_none               ; not found
-        lhu   t1, H_XT(t0)              ; its xt
-        beq   t1, s1, xn_hit            ; this one
-        lhu   t0, H_LINK(t0)            ; older
-        j     xn_loop                   ; on to xn_loop
-xn_hit:                                 ; found
-        mv    s1, t0                    ; header
+p_namext:                               ; NAME>XT ( nt -- xt ): its code (a unit's: a far offset)
+        mv    a0, s1                    ; ...
+        mv    t6, ra                    ; (hxt is a leaf)
+        call  hxt                       ; ...
+        mv    ra, t6                    ; ...
+        mv    s1, a0                    ; ...
         ret                             ; done
-xn_none:                                ; no such word
-        li    s1, 0                     ; 0
+p_xtname:                               ; XT>NAME ( xt -- nt | 0 )
+        mv    a0, s1                    ; ...
+        mv    t6, ra                    ; (xt_name is a leaf)
+        call  xt_name                   ; ...
+        mv    ra, t6                    ; ...
+        mv    s1, a0                    ; ...
         ret                             ; done
 
 ; -----------------------------------------------------------------------------
@@ -3515,8 +3685,9 @@ sl_common:                              ; a2 = the helper
         ld    s1, 8(s0)                 ; pop both
         addi  s0, s0, 16                ; two cells off the data stack
         call  cg2                       ; compile the two
-        ld    a0, 8(sp)                 ; and the call
-        call  cg_call                   ; (a `;` right after it makes it a jump)
+        ld    a0, 8(sp)                 ; and the call (resident: jal, and a `;` right
+        la    a1, h_plain               ;   after it makes it a jump; paged: jalr gp)
+        call  cg_target                 ; ...
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, 16                ; pop
         ret                             ; done
@@ -3762,6 +3933,20 @@ p_publish:                              ; PUBLISH ( -- ): publish the image for 
         ld    ra, 0(sp)                 ; restore the return address
         addi  sp, sp, 8                 ; drop the frame
         ret                             ; done
+; pg_mirror: the end of p_paging. SET_MIRROR: the code mirror is the resident
+; code, up to kboot; the code cache follows it (StrataOS rounds up to a slot).
+; After this svc (a switch may come with it) nothing in kboot..kend may run: it
+; is not reloaded on a switch-in, so this is in resident code.
+pg_mirror:                              ; (p_paging's frame: ra)
+        li    a0, 7                     ; SET_MIRROR
+        li    a1, ORIGIN                ; ...
+        la    a2, kboot                 ; ...
+        sub   a2, a2, a1                ; ...
+        svc                             ; a1 = NXMAP
+        sd    a1, v_nxmap(zero)         ; (f_unmap clears that many entries)
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 8                 ; pop
+        ret                             ; back to cold
 p_kvar:                                 ; KVAR ( n -- addr ): kernel variables for core.fs
         slli  s1, s1, 1                 ; 2 bytes per entry
         la    t0, kvars                 ; table of addresses
@@ -4126,14 +4311,23 @@ p_unloop: ld  s2, 0(sp)                 ; UNLOOP: restore the outer loop registe
 p_unloop_e: ret                         ; return
         .align 8                        ; ...
 p_execute: mv t0, s1                    ; EXECUTE ( i*x xt -- j*x )
-        srli  t1, t0, 16                ; an overlay xt (n << 16 | address)?
-        bnez  t1, ex_ovl                ; ...
         ld    s1, 0(s0)                 ; pop
         addi  s0, s0, 8                 ; one cell off the data stack
-        jr    t0                        ; tail jump: it returns to our caller
-ex_ovl:                                 ; the overlay manager's word ( xt -- ) runs it
-        ld    t0, v_ovl+8(zero)         ; (it brings back the overlay that was in)
-        jr    t0                        ; ...
+        srli  t1, t0, 16                ; a unit's code (a far offset)?
+        bnez  t1, ex_unit               ; ...
+        bltz  ra, ex_far                ; called with a far link (from a unit, by the gateway)?
+        jr    t0                        ; no: a tail jump, it returns to our caller
+ex_far:                                 ; yes: call it from here (a primitive returns with
+        addi  sp, sp, -8                ;   ret, which cannot follow a far link), then xret
+        sd    ra, 0(sp)                 ; ...
+        jalr  ra, t0, 0                 ; ...
+        ld    ra, 0(sp)                 ; ...
+        addi  sp, sp, 8                 ; ...
+        xret  ra                        ; ...
+ex_unit:                                ; a unit: jump into it (StrataOS pages it in); it
+        srli  t0, t0, 2                 ;   returns with xret to our caller (the low bits
+        slli  t0, t0, 2                 ;   go, as jr ignores them)
+        xcall zero, c0, t0              ;   ...
 p_execute_e:                            ; ...
         .align 8                        ; ...
 p_depth: li   t0, DS_TOP                ; DEPTH ( -- n )
@@ -4156,6 +4350,435 @@ p_rpat: addi  s0, s0, -8                ; RP@ ( -- addr )
 p_rpat_e: ret                           ; return
 
         .include "platform.s"           ; key/emit, timer, far cache backing, capabilities, bye
+
+; =============================================================================
+; The paging part (kpage..kboot) and the start-up part (kboot..kend). Code only
+; paged mode runs: with threads (forth -n N) and on bare metal compiled code
+; starts at kpage and overwrites it (cold puts chere there). Code only start-up
+; runs, before core.fs: in paged mode the code mirror ends at kboot, and the
+; code cache that follows it overwrites this part. (So nothing here may run
+; once core.fs is being compiled; PAGING ends in resident code, pg_mirror.)
+; =============================================================================
+        .align 8                        ; ...
+kpage:                                  ; ...
+ct_unit:                                ; cg_target, paged
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    a0, 8(sp)                 ; the xt
+        sd    a1, 16(sp)                ; the header
+        srli  t2, a0, 16                ; a unit's code: xcall
+        bnez  t2, ct_x                  ; ...
+        beqz  a1, ct_anon               ; resident: may it page?
+        lbu   t1, H_FLAGS(a1)           ; ...
+        andi  t1, t1, F_PAGER           ; ...
+        beqz  t1, ct_res                ; no: jalr gp
+        lbu   t2, H_FOLD(a1)            ; yes: through its gateway entry
+        slli  t2, t2, 2                 ; ...
+        li    a0, UBASE                 ; ...
+        add   a0, a0, t2                ; ...
+ct_x:                                   ; an xcall of a0
+        li    a1, R_RA                  ; ...
+        call  cg_far                    ; ...
+        j     ct_ret                    ; ...
+ct_anon:                                ; resident with no name (a quotation): EXECUTE runs it
+        call  cg_lit                    ; push the xt
+        ld    a0, v_ngw(zero)           ; EXECUTE's entry is the gateway's last
+        addi  a0, a0, -1                ; ...
+        slli  a0, a0, 2                 ; ...
+        li    t0, UBASE                 ; ...
+        add   a0, a0, t0                ; ...
+        j     ct_x                      ; ...
+ct_res:                                 ; jalr ra, gp, xt - 0x10000
+        ld    t0, v_chere(zero)         ; it starts here
+        sd    t0, v_callst(zero)        ; ...
+        li    a0, I_GCALL               ; ...
+        ld    a1, 8(sp)                 ; ...
+        call  cg_gp                     ; ...
+        ld    t0, v_chere(zero)         ; never a tail call (a primitive returns with ret)
+        sd    t0, v_callend(zero)       ; ...
+        ld    t0, 8(sp)                 ; ...
+        sd    t0, v_callxt(zero)        ; ...
+        li    t0, 1                     ; ...
+        sd    t0, v_callkd(zero)        ; ...
+ct_ret:                                 ; ...
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 24                ; pop
+        ret                             ; done
+
+; cg_gp(a0 = instruction, a1 = resident address): emit a0 | (a1 - 0x10000): an
+; access through gp from paged code
+cg_gp:                                  ; clobbers t0..t2, a0
+        li    t0, 0x10000               ; ...
+        sub   t0, a1, t0                ; ...
+        andi  t0, t0, 0xFFFF            ; ...
+        or    a0, a0, t0                ; ...
+        j     cg                        ; tail call
+
+; cg_far(a0 = far address in c0, a1 = R_RA to call, R_ZERO to jump): t5 = a0
+; (addi t5, tp, a0 - TPV, or lui, ori), then xcall a1, c0, t5. An address in
+; the definition being compiled (staged: at or after cbase) is a lui, ori pair
+; recorded in v_fix, since the definition may move at `;`.
+cg_far:                                 ; clobbers t0..t2, t6, a0, a1
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    a0, 8(sp)                 ; the address
+        sd    a1, 16(sp)                ; the link register
+        ld    t0, v_chere(zero)         ; the call starts here
+        sd    t0, v_callst(zero)        ; ...
+        ld    t1, v_cbase(zero)         ; in this definition?
+        bltu  a0, t1, cf_out            ; ...
+        call  fix_add                   ; yes: a pair to move with it (t0 = chere)
+        j     cf_long                   ; ...
+cf_out:                                 ; near tp: one addi
+        li    t0, TPV                   ; ...
+        sub   t1, a0, t0                ; ...
+        slli  t2, t1, 48                ; a 16-bit signed difference?
+        srai  t2, t2, 48                ; ...
+        bne   t2, t1, cf_long           ; no
+        andi  t1, t1, 0xFFFF            ; ...
+        li    a0, I_TPT5                ; addi t5, tp, d
+        or    a0, a0, t1                ; ...
+        call  cg                        ; ...
+        j     cf_x                      ; ...
+cf_long:                                ; lui t5, a >> 16; ori t5, t5, a & 0xFFFF
+        ld    a0, 8(sp)                 ; ...
+        srli  a1, a0, 16                ; ...
+        li    a0, I_LUIT5               ; ...
+        or    a0, a0, a1                ; ...
+        ld    a1, 8(sp)                 ; ...
+        andi  a1, a1, 0xFFFF            ; ...
+        li    t1, I_ORIT5               ; ...
+        or    a1, a1, t1                ; ...
+        call  cg2                       ; ...
+cf_x:                                   ; xcall ra / zero, c0, t5
+        li    a0, I_XCALL               ; ...
+        ld    t0, 16(sp)                ; ...
+        bnez  t0, cf_e                  ; ...
+        li    a0, I_XJUMP               ; ...
+cf_e:                                   ; ...
+        call  cg                        ; ...
+        ld    t0, v_chere(zero)         ; `;` right after it makes it a jump
+        sd    t0, v_callend(zero)       ; ...
+        ld    t0, 8(sp)                 ; ...
+        sd    t0, v_callxt(zero)        ; ...
+        li    t0, 2                     ; ...
+        sd    t0, v_callkd(zero)        ; ...
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 24                ; pop
+        ret                             ; done
+
+; fix_add(t0 = the code address where a lui, ori pair holding an address in
+; this definition starts): record it (its staging offset)
+fix_add:                                ; leaf; clobbers t1, t2
+        ld    t1, v_nfix(zero)          ; ...
+        li    t2, MAXFIX                ; ...
+        bgeu  t1, t2, cg_long           ; too many: "definition too long"
+        slli  t2, t1, 3                 ; ...
+        addi  t1, t1, 1                 ; ...
+        sd    t1, v_nfix(zero)          ; ...
+        ld    t1, v_cbase(zero)         ; ...
+        sub   t1, t0, t1                ; ...
+        sd    t1, v_fix(t2)             ; ...
+        ret                             ; done
+; fix_get(a0 = staging offset of a lui, ori pair) -> a1 = the 32-bit value it loads
+fix_get:                                ; leaf; clobbers t0, t1
+        la    t0, stage                 ; ...
+        add   t0, t0, a0                ; ...
+        lwu   a1, 0(t0)                 ; the lui's immediate
+        slli  a1, a1, 48                ; ...
+        srli  a1, a1, 32                ; ...
+        lwu   t1, 4(t0)                 ; the ori's
+        andi  t1, t1, 0xFFFF            ; ...
+        or    a1, a1, t1                ; ...
+        ret                             ; done
+; fix_put(a0 = staging offset of a lui, ori pair, a1 = value): make it load a1
+fix_put:                                ; leaf; clobbers t0..t2
+        la    t0, stage                 ; ...
+        add   t0, t0, a0                ; ...
+        lwu   t1, 0(t0)                 ; the lui: its immediate is a1 >> 16
+        srli  t1, t1, 16                ; ...
+        slli  t1, t1, 16                ; ...
+        srli  t2, a1, 16                ; ...
+        andi  t2, t2, 0xFFFF            ; ...
+        or    t1, t1, t2                ; ...
+        sw    t1, 0(t0)                 ; ...
+        lwu   t1, 4(t0)                 ; the ori: a1 & 0xFFFF
+        srli  t1, t1, 16                ; ...
+        slli  t1, t1, 16                ; ...
+        andi  t2, a1, 0xFFFF            ; ...
+        or    t1, t1, t2                ; ...
+        sw    t1, 4(t0)                 ; ...
+        ret                             ; done
+
+; f_unmap: clear the overlay map, entries v_nxmap-1 .. 0 (none before PAGING):
+; a unit whose far copy changed may be in the cache
+f_unmap:                                ; leaf; clobbers t0, t1
+        ld    t0, v_nxmap(zero)         ; (an index past the platform's map is illegal:
+        li    t1, 16                    ;   jump into the run of xunmaps)
+        sub   t1, t1, t0                ; ...
+        slli  t1, t1, 2                 ; ...
+        la    t0, fu_run                ; ...
+        add   t0, t0, t1                ; ...
+        jr    t0                        ; ...
+fu_run:                                 ; ...
+        xunmap 15                       ; .
+        xunmap 14                       ; .
+        xunmap 13                       ; .
+        xunmap 12                       ; .
+        xunmap 11                       ; .
+        xunmap 10                       ; .
+        xunmap 9                        ; .
+        xunmap 8                        ; .
+        xunmap 7                        ; .
+        xunmap 6                        ; .
+        xunmap 5                        ; .
+        xunmap 4                        ; .
+        xunmap 3                        ; .
+        xunmap 2                        ; .
+        xunmap 1                        ; .
+        xunmap 0                        ; .
+        ret                             ; done
+
+cs_unit:                                ; ...
+        li    a0, I_GJUMP               ; ...
+        call  cg_gp                     ; ...
+        ld    t0, 16(sp)                ; a CREATEd word's has room for what DOES> puts
+        bnez  t0, cs_done               ;   there (lui, ori, xcall): 16 bytes
+        li    a0, I_NOP                 ; ...
+        li    a1, I_NOP                 ; ...
+        call  cg2                       ; ...
+        j     cs_done                   ; ...
+nw_unit:                                ; new_word, paged: a stub that would cross a unit
+        ld    t0, v_chere(zero)         ; ...
+        addi  t1, t0, 15                ; ...
+        xor   t1, t1, t0                ; ...
+        srli  t1, t1, XSLOT             ; ...
+        beqz  t1, nw_name               ; ...
+        call  flush_code                ; (what is staged stays where it is)
+        ld    t0, v_chere(zero)         ; the next unit
+        addi  t0, t0, (1 << XSLOT) - 1  ; ...
+        srli  t0, t0, XSLOT             ; ...
+        slli  t0, t0, XSLOT             ; ...
+        sd    t0, v_chere(zero)         ; ...
+        sd    t0, v_cbase(zero)         ; ...
+        j     nw_name                   ; ...
+ds_unit:                                ; in a unit: lit <does-code> (does>x) ; then the does-code
+        li    a0, UBASE                 ; (a lui, ori pair: set below, moved with the definition)
+        call  cg_lit                    ; ...
+        ld    t0, v_chere(zero)         ; ...
+        addi  t0, t0, -8                ; ...
+        sd    t0, 8(sp)                 ; ...
+        li    a0, I_GCALL               ; jalr ra, gp, (does>x)
+        la    a1, p_pdoesx              ; ...
+        call  cg_gp                     ; ...
+        li    a0, 0                     ; return
+        call  cg_exit                   ; ...
+        sd    zero, v_nloc(zero)        ; the does-code has no locals
+        ld    t0, 8(sp)                 ; the literal: the does-code starts here
+        call  fix_add                   ; ...
+        ld    a0, 8(sp)                 ; ...
+        ld    t0, v_cbase(zero)         ; ...
+        sub   a0, a0, t0                ; ...
+        ld    a1, v_chere(zero)         ; ...
+        call  fix_put                   ; ...
+        li    a0, I_GPRO                ; jalr t0, gp, k_does: push the address, save ra
+        la    a1, k_does                ; ...
+        call  cg_gp                     ; ...
+        j     ds_pro                    ; ...
+
+; (DOES>X) ( a -- ): (does>) for a defining word in a unit: the newest word,
+; which CREATE made in a unit, jumps to the does-code at far address a
+; (lui t5, ori t5, xcall zero, c0, t5 in its stub after the ori t1)
+p_pdoesx:                               ; Forth word
+        addi  sp, sp, -32               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s1, 8(sp)                 ; a
+        ld    s1, 0(s0)                 ; pop
+        addi  s0, s0, 8                 ; ...
+        ld    t0, v_latest(zero)        ; the word CREATE just made: not a plain address
+        lbu   t1, H_FLAGS(t0)           ; any more
+        andi  t1, t1, 0xFF ^ (F_CREATE | F_INL) ; ...
+        sb    t1, H_FLAGS(t0)           ; ...
+        mv    a0, t0                    ; its stub + 4, +8, +12
+        call  hxt                       ; ...
+        addi  a0, a0, 4                 ; ...
+        sd    a0, 16(sp)                ; ...
+        ld    t0, 8(sp)                 ; lui t5, a >> 16
+        srli  t0, t0, 16                ; ...
+        li    t1, I_LUIT5               ; ...
+        or    a0, t0, t1                ; ...
+        ld    a1, 16(sp)                ; ...
+        call  pd_one                    ; ...
+        ld    t0, 8(sp)                 ; ori t5, t5, a & 0xFFFF
+        andi  t0, t0, 0xFFFF            ; ...
+        li    t1, I_ORIT5               ; ...
+        or    a0, t0, t1                ; ...
+        ld    a1, 16(sp)                ; ...
+        addi  a1, a1, 4                 ; ...
+        call  pd_one                    ; ...
+        li    a0, I_XJUMP               ; xcall zero, c0, t5
+        ld    a1, 16(sp)                ; ...
+        addi  a1, a1, 8                 ; ...
+        call  pd_one                    ; ...
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 32                ; ...
+        ret                             ; back into the defining word
+pd_one:                                 ; (a0 = instruction, a1 = address): staged or installed
+        ld    t0, v_cbase(zero)         ; still staged?
+        bltu  a1, t0, code_patch        ; no: through far memory (a tail call)
+        sub   t1, a1, t0                ; staging offset
+        la    t2, stage                 ; ...
+        add   t2, t2, t1                ; ...
+        sw    a0, 0(t2)                 ; patch
+        ret                             ; ...
+
+ed_place:                               ; end_def, paged: the definition in one unit
+        ld    t1, v_cbase(zero)         ; its start (only it is staged: `:` installed the rest)
+        ld    t2, v_chere(zero)         ; its end
+        sub   t3, t2, t1                ; its size
+        li    t4, 1 << XSLOT            ; at most a unit
+        bgtu  t3, t4, ed_long           ; ...
+        addi  t5, t2, -1                ; the last byte in the same unit as the first?
+        xor   t5, t5, t1                ; ...
+        srli  t5, t5, XSLOT             ; ...
+        beqz  t5, ed_rec                ; yes: it stays
+        addi  t5, t1, (1 << XSLOT) - 1  ; no: it goes to the start of the next unit
+        srli  t5, t5, XSLOT             ; ...
+        slli  t5, t5, XSLOT             ; ...
+        add   t6, t5, t3                ; (which must be in the store)
+        ld    t0, v_climit(zero)        ; ...
+        bgtu  t6, t0, cg_full           ; ...
+        sub   a3, t5, t1                ; a3 = how far it moves
+        sd    t5, v_cbase(zero)         ; ...
+        sd    t6, v_chere(zero)         ; ...
+        ld    t0, v_curxt(zero)         ; ...
+        add   t0, t0, a3                ; ...
+        sd    t0, v_curxt(zero)         ; ...
+        li    a4, 0                     ; a4 = its recorded pairs: they move too
+ed_fix:                                 ; ...
+        ld    t0, v_nfix(zero)          ; ...
+        bgeu  a4, t0, ed_hdr            ; ...
+        slli  t0, a4, 3                 ; ...
+        ld    a0, v_fix(t0)             ; ...
+        call  fix_get                   ; a1 = the address
+        add   a1, a1, a3                ; moved
+        call  fix_put                   ; ...
+        addi  a4, a4, 1                 ; ...
+        j     ed_fix                    ; ...
+ed_hdr:                                 ; and the header's xt
+        ld    t0, v_curnt(zero)         ; ...
+        beqz  t0, ed_rec                ; ...
+        ld    a0, v_curxt(zero)         ; ...
+        call  xt_enc                    ; ...
+        ld    t0, v_curnt(zero)         ; ...
+        sh    a0, H_XT(t0)              ; ...
+        j     ed_rec                    ; ...
+        .align 8                        ; ...
+kboot:                                  ; ...
+; p_paging: from now on code goes into units, paged by StrataOS (see "Code
+; paging"; cold calls this before it compiles core.fs). Not on bare metal, nor
+; with threads (forth -n N: a worker installs the code from the parcel, where
+; the store would be; every word stays resident there, as before).
+p_paging:                               ; (start-up)
+        li    t0, PLAT_PAGE             ; a platform that pages?
+        beqz  t0, pg_ret                ; ...
+        ld    t0, v_ncores(zero)        ; one thread?
+        addi  t0, t0, -1                ; ...
+        bnez  t0, pg_ret                ; ...
+        ld    t0, v_paged(zero)         ; once
+        bnez  t0, pg_ret                ; ...
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        li    t0, XSLOT                 ; slot mapping: units of 2^XSLOT bytes
+        csrw  xslot, t0                 ; ...
+        ld    t0, v_latest(zero)        ; the gateway (unit 0): jalr zero, gp, xt for every
+        la    t1, stage                 ;   resident word that may page; H_FOLD = its entry
+        li    t2, 0                     ; t2 = entries
+pg_w:                                   ; ...
+        beqz  t0, pg_wd                 ; ...
+        lbu   t3, H_FLAGS(t0)           ; ...
+        andi  t3, t3, F_PAGER           ; ...
+        beqz  t3, pg_n                  ; ...
+        li    t3, 255                   ; (room for 255 of them, and EXECUTE's)
+        bgeu  t2, t3, pg_n              ; ...
+        sb    t2, H_FOLD(t0)            ; ...
+        lhu   a0, H_XT(t0)              ; ...
+        call  pg_ent                    ; ...
+pg_n:                                   ; ...
+        lhu   t0, H_LINK(t0)            ; ...
+        j     pg_w                      ; ...
+pg_wd:                                  ; and last, EXECUTE's (for an xt with no name)
+        la    a0, p_execute             ; ...
+        call  pg_ent                    ; ...
+        sd    t2, v_ngw(zero)           ; ...
+        slli  t2, t2, 2                 ; stage -> unit 0
+        addi  t2, t2, 7                 ; ...
+        srli  t2, t2, 3                 ; ...
+        slli  t2, t2, 3                 ; ...
+        la    t1, stage                 ; ...
+        li    t3, UBASE                 ; ...
+        tput  tg13, t1, c0, t3, t2      ; ...
+        twait 1 << 13                   ; ...
+        li    t0, UBASE + (1 << XSLOT)  ; code goes on in unit 1
+        sd    t0, v_chere(zero)         ; ...
+        sd    t0, v_cbase(zero)         ; ...
+        li    t0, UEND                  ; up to the end of the store
+        sd    t0, v_climit(zero)        ; ...
+        li    t0, 1                     ; paging
+        sd    t0, v_paged(zero)         ; ...
+        j     pg_mirror                 ; the code mirror ends at kboot (resident: see there)
+pg_ret:                                 ; ...
+        ret                             ; done
+pg_ent:                                 ; (a0 = xt, t1 = where, t2 = count): one entry
+        li    t3, 0x10000               ; jalr zero, gp, xt - 0x10000
+        sub   t3, a0, t3                ; ...
+        andi  t3, t3, 0xFFFF            ; ...
+        li    t4, I_GJUMP               ; ...
+        or    t3, t3, t4                ; ...
+        sw    t3, 0(t1)                 ; ...
+        addi  t1, t1, 4                 ; ...
+        addi  t2, t2, 1                 ; ...
+        ret                             ; ...
+; build_dict: make a header for every entry of the kernel word table
+build_dict:                             ; clobbers t0..t3, a0..a7
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        la    a6, ktable                ; a6 = cursor in the table
+bd_loop:                                ; one entry per iteration
+        lbu   a7, 0(a6)                 ; xt, low byte
+        lbu   t0, 1(a6)                 ; xt, high byte
+        slli  t0, t0, 8                 ; ...
+        or    a7, a7, t0                ; a7 = xt
+        beqz  a7, bd_done               ; xt 0 ends the table
+        addi  a0, a6, 6                 ; a0 = the name (zero-terminated)
+        mv    a1, a0                    ; a1 = cursor to find its end
+bd_len:                                 ; find the terminating zero
+        lbu   t0, 0(a1)                 ; character
+        beqz  t0, bd_got                ; end
+        addi  a1, a1, 1                 ; next
+        j     bd_len                    ; continue
+bd_got:                                 ; a1 = address of the zero
+        sub   a1, a1, a0                ; a1 = length
+        call  make_header               ; a0 = header (a6, a7 survive)
+        sh    a7, H_XT(a0)              ; the xt
+        lbu   t0, 2(a6)                 ; size, low byte
+        lbu   t1, 3(a6)                 ; size, high byte
+        slli  t1, t1, 8                 ; ...
+        or    t0, t0, t1                ; t0 = size
+        sh    t0, H_SIZE(a0)            ; code bytes
+        lbu   t0, 4(a6)                 ; flags
+        sb    t0, H_FLAGS(a0)           ; ...
+        lbu   t0, 5(a6)                 ; fold kind
+        sb    t0, H_FOLD(a0)            ; ...
+        lbu   t0, H_NLEN(a0)            ; name length
+        add   a6, a6, t0                ; skip the entry: 6 + name + 1
+        addi  a6, a6, 7                 ; ...
+        j     bd_loop                   ; next entry
+bd_done:                                ; all made
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 8                 ; pop
+        ret                             ; done
+
         .align 8                        ; compiled code starts on a doubleword
 kend:                                   ; end of the kernel image
 
@@ -4409,7 +5032,7 @@ ktable:                                 ; the table
         .byte F_INL, 0                  ; inline
         .asciz "instret"                ; name
         .half p_execute, 0              ; execute: xt (called, not inlined)
-        .byte 0, 0                      ; ordinary
+        .byte F_PAGER, 0                ; it may run paged code
         .asciz "execute"                ; name
         .half p_emit, 0                 ; emit: xt (called, not inlined)
         .byte 0, 0                      ; ordinary
@@ -4436,16 +5059,16 @@ ktable:                                 ; the table
         .byte 0, 0                      ; ordinary
         .asciz "bye"                    ; name
         .half p_evaluate, 0             ; evaluate: xt (called, not inlined)
-        .byte 0, 0                      ; ordinary
+        .byte F_PAGER, 0                ; it may run paged code
         .asciz "evaluate"               ; name
         .half p_evalfar, 0              ; evaluate-far: xt (called, not inlined)
-        .byte 0, 0                      ; ordinary
+        .byte F_PAGER, 0                ; it may run paged code
         .asciz "evaluate-far"           ; name
         .half p_interpret, 0            ; interpret: xt (called, not inlined)
-        .byte 0, 0                      ; ordinary
+        .byte F_PAGER, 0                ; it may run paged code
         .asciz "interpret"              ; name
         .half p_catch, 0                ; catch: xt (called, not inlined)
-        .byte 0, 0                      ; ordinary
+        .byte F_PAGER, 0                ; it may run paged code
         .asciz "catch"                  ; name
         .half p_throw, 0                ; throw: xt (called, not inlined)
         .byte 0, 0                      ; ordinary
@@ -4634,13 +5257,13 @@ ktable:                                 ; the table
         .byte 0, 0                      ; ordinary
         .asciz "?threads"               ; name
         .half p_included, 0             ; included: xt (called, not inlined)
-        .byte 0, 0                      ; ordinary
+        .byte F_PAGER, 0                ; it may run paged code
         .asciz "included"               ; name
         .half p_msg, 0                  ; (msg): xt (called, not inlined)
         .byte 0, 0                      ; ordinary
         .asciz "(msg)"                  ; name
         .half p_tool, 0                 ; (tool): xt (called, not inlined)
-        .byte 0, 0                      ; ordinary
+        .byte F_PAGER, 0                ; it may run paged code
         .asciz "(tool)"                 ; name
         .half tool_mark, 0              ; (mark): xt (called, not inlined)
         .byte 0, 0                      ; ordinary
@@ -4648,6 +5271,12 @@ ktable:                                 ; the table
         .half tool_release, 0           ; (release): xt (called, not inlined)
         .byte 0, 0                      ; ordinary
         .asciz "(release)"              ; name
+        .half p_namext, 0               ; name>xt: xt (called, not inlined)
+        .byte 0, 0                      ; ordinary
+        .asciz "name>xt"                ; name
+        .half p_xtlit, 0                ; xtliteral: xt (called, not inlined)
+        .byte 0, 0                      ; ordinary
+        .asciz "xtliteral"              ; name
         .half 0                         ; end of the table
         .org  DS_TOP - 8                ; extend the D-LS image to the top of the data stack: a
         .dword 0                        ; StrataOS context switch saves the image's data extent

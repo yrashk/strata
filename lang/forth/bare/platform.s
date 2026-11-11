@@ -120,6 +120,10 @@ plat_source:                            ; leaf
         sub   a1, a1, a0                ; length
         ret                             ; done
 
+; plat_miss: trap_entry got an xmiss: nothing is paged on bare metal, a fault
+plat_miss:                              ; ...
+        j     te_fault                  ; ...
+
 ; plat_bye(a0 = exit code): stop (the workers were told already)
 plat_bye:                               ; never returns
         halt                            ; halting drains our transfers first

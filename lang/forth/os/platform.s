@@ -479,6 +479,28 @@ plat_source:                            ; leaf
         sub   a1, a1, a0                ; length
         ret                             ; done
 
+; plat_miss: trap_entry got an xmiss (v_tsave = t0): Forth has its own trap handler
+; (faults become THROWs), so a code unit's miss comes here, not to the dispatcher.
+; svc PAGE hands it over: the dispatcher pages the unit in, and eret retries the
+; xcall / xret, every register as it was. A miss it cannot serve is a fault.
+SVC_PAGE  = 14                          ; svc PAGE: a1 = the missed far address, a2 = the pc
+plat_miss:                              ; in the trap handler
+        sd    a0, v_tsave+8(zero)       ; keep what the svc uses
+        sd    a1, v_tsave+16(zero)      ; ...
+        sd    a2, v_tsave+24(zero)      ; ...
+        li    a0, SVC_PAGE              ; PAGE
+        csrr  a1, tval                  ; (bit 63: a return)
+        csrr  a2, epc                   ; ...
+        svc                             ; a0 = 0: it is in
+        bnez  a0, pm_nopage             ; ...
+        ld    a0, v_tsave+8(zero)       ; ...
+        ld    a1, v_tsave+16(zero)      ; ...
+        ld    a2, v_tsave+24(zero)      ; ...
+        ld    t0, v_tsave(zero)         ; ...
+        eret                            ; retry it
+pm_nopage:                              ; not a unit: a fault after all
+        j     te_fault                  ; ...
+
 ; plat_bye(a0 = exit code): end the process (the workers were told already)
 plat_bye:                               ; never returns
         mv    a1, a0                    ; the code
@@ -627,7 +649,7 @@ pl_nofile:                              ; fs does not know it
 ; starts at the last 1 KiB boundary below the end of the kernel, which every
 ; worker already has.
 plat_publish:                           ; clobbers t0..t6
-        li    t3, (kend >> 10) << 10    ; t3 = cursor
+        li    t3, (kpage >> 10) << 10   ; t3 = cursor
         ld    t4, v_chere(zero)         ; t4 = end of the code
 pp_loop:                                ; a chunk per iteration, through the bounce buffer
         bgeu  t3, t4, pp_done           ; all copied
@@ -671,7 +693,7 @@ w_loop:                                 ; wait for thread 0
         beqz  t0, w_job                 ; no: the doorbell
         li    t1, B_CEND                ; board offset of the published code end
         tamo.add t1, c1, t1, zero       ; t1 = code end (an atomic add of 0 is a read)
-        li    t3, (kend >> 10) << 10    ; t3 = cursor: where the parcel's copy starts
+        li    t3, (kpage >> 10) << 10   ; t3 = cursor: where the parcel's copy starts
 wl_code:                                ; a chunk per iteration: parcel -> our page -> I-LS
         bgeu  t3, t1, wl_snap           ; all installed
         li    t5, DS_BOTTOM             ; bounce through the (empty) data stack area
