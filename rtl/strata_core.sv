@@ -1,9 +1,11 @@
 // Strata: one core (synthesizable).
 //
 // A multi-cycle implementation over block-RAM Local Stores:
+//   RST clear the integer registers and the save table after reset
 //   F0  present the instruction address to the I-LS (stall on an in-flight tgetx)
 //   F1  latch the instruction word
 //   EX  execute; stay here while stalled
+//   CT  save-table instructions: the slot read in EX is here
 //   LD  load data returns from the D-LS
 //   LT  tag-lookup sequencer (one table word per two cycles)
 //   LW  second write of `linst`
@@ -87,24 +89,29 @@ module strata_core
   output logic        halted
 );
   // ================================================================ state
-  typedef enum logic [3:0] {S_F0, S_F1, S_EX, S_LD, S_LT, S_LW, S_DV, S_AM, S_HALT} state_t;
+  typedef enum logic [3:0] {S_RST, S_F0, S_F1, S_EX, S_CT, S_LD, S_LT, S_LW, S_DV, S_AM, S_HALT} state_t;
 
   state_t      state;
   logic [63:0] pc;
   logic [31:0] ir;
-  logic [63:0] x [32];
+  logic [63:0] x [32];          // LUT-RAM: one write port, three read ports; cleared by S_RST
 
   cap_t        caps [NCAPS];
   cap_t        cap_a;           // read port A (see the capability helpers)
-  // the capability save table: contents in LUT-RAM (no reset), validity in flip-flops.
-  // The slot is csave / crestore's immediate (0..63) or, for csavex / crestorex,
-  // x[rx] (rb), which must be below CTAB (ct_oor: capop)
+  // the capability save table: a block RAM with a registered read, its word
+  // a capability (an empty slot is CAP_NULL), cleared by S_RST. The slot is
+  // csave / crestore's immediate (0..63) or, for csavex / crestorex, x[rx]
+  // (rb), which must be below CTAB (ct_oor: capop). EX reads it; the
+  // instruction finishes in S_CT with the entry.
   cap_t        ctab [CTAB];
-  logic [CTAB-1:0] ctab_v;
-  cap_t        ct_rd, ct_entry;
-  logic        ct_we, ct_x, ct_oor;
-  logic [CTW-1:0] ct_i;
+  cap_t        ct_entry;
+  logic        ct_we, ct_x, ct_oor, ct_save;
+  logic [CTW-1:0] ct_i, ct_wa;
   cap_t        ct_wd;
+  // the reset sequencer's slot / register number
+  localparam int RSW = CTW > 5 ? CTW : 5;
+  localparam int RSN = CTAB > 32 ? CTAB : 32;
+  logic [RSW-1:0] rs_i;
 
   // the overlay map: a far address (below its space's size: xmap checks the
   // bounds first) and an I-LS address (below ILS_BYTES) per entry
@@ -154,7 +161,7 @@ module strata_core
   function automatic logic g_live(input cap_t k, input logic [16:0] g);
     return k.valid && (!k.rv || (g_in(k) && g[15:0] == k.gen));
   endfunction
-  logic        live_a, live_cd, live_ct;   // ports A, D, C: the capability is live
+  logic        live_a, live_cd, live_ct;   // the operand, the destination, the slot: live
   logic [16:0] g_a;                        // port A's entry (its head bit: cjoin)
 
   // tag-lookup sequencer
@@ -214,11 +221,14 @@ module strata_core
   assign rb = x[d.pb];
   // the save table's read port and write (declared above)
   assign ct_x     = d.kind == K_CAP2 && (d.cap_fn == C2_SAVEX || d.cap_fn == C2_RESTOREX);
+  assign ct_save  = (d.kind == K_CAP && d.cap_fn == CF_SAVE) || (d.kind == K_CAP2 && d.cap_fn == C2_SAVEX);
   assign ct_i     = ct_x ? rb[CTW-1:0] : CTW'(d.slot);
   assign ct_oor   = ct_x && rb >= 64'(CTAB);
-  assign ct_rd    = ctab[ct_i];
-  assign ct_entry = ctab_v[ct_i] ? ct_rd : CAP_NULL;
-  always_ff @(posedge clk) if (ct_we) ctab[ct_i] <= ct_wd;
+  assign ct_wa    = state == S_RST ? CTW'(rs_i) : ct_i;
+  always_ff @(posedge clk) begin
+    if (ct_we) ctab[ct_wa] <= ct_wd;
+    if (state == S_EX) ct_entry <= ctab[ct_i];       // S_CT's entry
+  end
   assign rc = x[d.pc];
 
   // ================================================================ ALU, divider
@@ -375,18 +385,21 @@ module strata_core
   // a destination may be overwritten only when it is empty or copyable
   assign cd_ok     = !live_cd || cd_cap.perms[P_D];
 
-  // the three granule-table lookups
-  cap_t        ka;
-  logic [16:0] g_d, g_c;
-  assign ka      = cap_a;
+  // the two granule-table lookups, A and D: the operand and the destination;
+  // in S_CT the slot's entry takes the one its instruction does not need
+  // (csave: D, crestore: A), so all three are checked in the same cycle
+  cap_t        ka, kd;
+  logic [16:0] g_d;
+  logic        live_ka, live_kd;
+  assign ka      = state == S_CT && !ct_save ? ct_entry : cap_a;
+  assign kd      = state == S_CT && ct_save ? ct_entry : cd_cap;
   assign g_a     = ka.space == SP_T2 ? gt2[G2W'(ka.base >> GRAN_SHIFT)] : gt3[G3W'(ka.base >> GRAN_SHIFT)];
-  assign g_d     = cd_cap.space == SP_T2 ? gt2[G2W'(cd_cap.base >> GRAN_SHIFT)]
-                                         : gt3[G3W'(cd_cap.base >> GRAN_SHIFT)];
-  assign g_c     = ct_entry.space == SP_T2 ? gt2[G2W'(ct_entry.base >> GRAN_SHIFT)]
-                                           : gt3[G3W'(ct_entry.base >> GRAN_SHIFT)];
-  assign live_a  = g_live(ka, g_a);
-  assign live_cd = g_live(cd_cap, g_d);
-  assign live_ct = g_live(ct_entry, g_c);
+  assign g_d     = kd.space == SP_T2 ? gt2[G2W'(kd.base >> GRAN_SHIFT)] : gt3[G3W'(kd.base >> GRAN_SHIFT)];
+  assign live_ka = g_live(ka, g_a);
+  assign live_kd = g_live(kd, g_d);
+  assign live_a  = live_ka;                  // (csave in S_CT: the operand)
+  assign live_cd = live_kd;                  // (crestore in S_CT: the destination)
+  assign live_ct = ct_save ? live_kd : live_ka;
 
   logic [63:0] give_node;
   logic        give_bad;
@@ -589,20 +602,19 @@ module strata_core
   end
   assign div_start = state == S_EX && is_div;
   // capability-table write: csave stores the source capability
-  assign ct_we = state == S_EX && ((d.kind == K_CAP && d.cap_fn == CF_SAVE) ||
-                                   (d.kind == K_CAP2 && d.cap_fn == C2_SAVEX && !ct_oor))
-                 && !user && live_a && !(live_ct && !ct_entry.perms[P_D]);
-  assign ct_wd = cs_cap;
+  // save-table write: csave stores the source capability, crestore of a
+  // linear entry empties the slot; S_RST empties every slot
+  assign ct_we = state == S_RST ||
+                 (state == S_CT && !user && !ct_oor &&
+                  (ct_save ? live_a && !(live_ct && !ct_entry.perms[P_D])
+                           : live_ct && cd_ok && !ct_entry.perms[P_D]));
+  assign ct_wd = state == S_CT && ct_save ? cs_cap : CAP_NULL;
 
   // ================================================================ sequential
   task automatic retire(input logic [63:0] next_pc);
     pc          <= next_pc;
     csr_instret <= csr_instret + 1;
     state       <= S_F0;
-  endtask
-
-  task automatic wr(input logic [4:0] r, input logic [63:0] v);
-    if (r != 0) x[r] <= v;
   endtask
 
   // A trap in user mode goes to the program's own handler when it installed
@@ -649,17 +661,23 @@ module strata_core
     // (an instruction that writes both has cd != cs), done at the end
     logic cdw, csw;
     cap_t cdn, csn;
+    // and the integer register write: x[xa] = xv
+    logic        xw;
+    logic [4:0]  xa;
+    logic [63:0] xv;
     cdw = 0;
     csw = 0;
     cdn = CAP_NULL;
     csn = CAP_NULL;
+    xw  = 0;
+    xa  = d.rd;
+    xv  = '0;
     if (rst) begin
-      state <= S_F0;
+      state <= S_RST;
+      rs_i  <= '0;
       pc    <= '0;
       ir    <= '0;
-      for (int i = 0; i < 32; i++) x[i] <= '0;
       for (int i = 0; i < NCAPS; i++) caps[i] <= CAP_NULL;
-      ctab_v <= '0;
       for (int i = 0; i < NXMAP; i++) xm_v[i] <= 0;
       // reset capabilities: core 0 owns all memory and the device root;
       // every core may write the console
@@ -701,6 +719,13 @@ module strata_core
       if (stop_req) ipend <= 1;                          // core control asked us to stop
 
       case (state)
+        // ------------------------------------------------------------ reset sequencer
+        S_RST: begin                                     // the save table: ct_we
+          if (rs_i < RSW'(32)) begin xw = 1; xa = rs_i[4:0]; end   // x0..x31 = 0
+          rs_i <= rs_i + 1;
+          if (rs_i == RSW'(RSN - 1)) state <= S_F0;
+        end
+
         // ------------------------------------------------------------ fetch
         S_F0: begin
           if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end
@@ -717,7 +742,8 @@ module strata_core
         end
 
         // ------------------------------------------------------------ execute
-        S_EX: begin
+        // (S_CT: the second cycle of a save-table instruction, in the supervisor)
+        S_EX, S_CT: begin
           // a stop is taken at instruction boundaries, also while an instruction waits
           if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end
           else case (d.kind)
@@ -727,11 +753,11 @@ module strata_core
               if (is_div) begin
                 state <= S_DV;                           // the divider starts this cycle
               end else begin
-                wr(d.rd, alu_y);
+                begin xw = d.rd != 0; xv = alu_y; end
                 retire(pc + 4);
               end
             end
-            K_LUI: begin wr(d.rd, d.imm); retire(pc + 4); end
+            K_LUI: begin begin xw = d.rd != 0; xv = d.imm; end retire(pc + 4); end
 
             K_LOAD: begin
               if (!mok) trap(C_LSFAULT, maddr);
@@ -745,8 +771,8 @@ module strata_core
             end
 
             K_BRANCH: retire(br_taken ? pc + d.imm : pc + 4);
-            K_JAL:    begin wr(d.rd, pc + 4); retire(pc + d.imm); end
-            K_JALR:   begin wr(d.rd, pc + 4); retire((ra + d.imm) & ~64'd3); end
+            K_JAL:    begin begin xw = d.rd != 0; xv = pc + 4; end retire(pc + d.imm); end
+            K_JALR:   begin begin xw = d.rd != 0; xv = pc + 4; end retire((ra + d.imm) & ~64'd3); end
 
             K_XFER: begin
               if (xf_fault != 0) trap(xf_fault, xf_tval);
@@ -760,13 +786,13 @@ module strata_core
             end
 
             K_TWAIT: if ((tag_busy & d.imm16) != 0) stall(); else retire(pc + 4);
-            K_TPOLL: begin wr(d.rd, {48'b0, tag_busy & d.imm16}); retire(pc + 4); end
+            K_TPOLL: begin begin xw = d.rd != 0; xv = {48'b0, tag_busy & d.imm16}; end retire(pc + 4); end
             K_TANY: begin                                // wait for any of: tags idle, a gift
               logic [16:0] ready;
               ready = {ra[16] && poll_mask != 0, ~tag_busy & ra[15:0]};
               if (ra[16] && inbox_priv) trap(C_PRIV, {32'b0, ir});
               else if (ra[16:0] != 0 && ready == 0) stall();
-              else begin wr(d.rd, {47'b0, ready}); retire(pc + 4); end
+              else begin begin xw = d.rd != 0; xv = {47'b0, ready}; end retire(pc + 4); end
             end
 
             K_TAMO: begin
@@ -847,13 +873,13 @@ module strata_core
                 CF_BASE, CF_LEN, CF_PERMS: begin
                   if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   else begin
-                    wr(d.rd, d.cap_fn == CF_BASE ? 64'(cs_cap.base)
+                    begin xw = d.rd != 0; xv = d.cap_fn == CF_BASE ? 64'(cs_cap.base)
                            : d.cap_fn == CF_LEN ? 64'(cs_cap.len)
-                           : {53'b0, cs_cap.space, 2'b0, cs_cap.perms});
+                           : {53'b0, cs_cap.space, 2'b0, cs_cap.perms}; end
                     retire(pc + 4);
                   end
                 end
-                CF_VALID: begin wr(d.rd, {63'b0, live_a}); retire(pc + 4); end
+                CF_VALID: begin begin xw = d.rd != 0; xv = {63'b0, live_a}; end retire(pc + 4); end
                 CF_GIVE: begin
                   if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   // outside the core window: tval = the window-relative number
@@ -878,33 +904,33 @@ module strata_core
                 CF_CLEAR: begin cdw = 1; retire(pc + 4); end
                 CF_SAVE: begin
                   if (user) trap(C_PRIV, {32'b0, ir});     // the save table is the supervisor's
+                  else if (state == S_EX) state <= S_CT;   // the slot is read
                   else if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   else if (live_ct && !ct_entry.perms[P_D]) trap(C_CAPOP, 64'(d.slot));
-                  else begin
-                    ctab_v[ct_i] <= 1;                   // (the data is written by ct_we below)
+                  else begin                             // (ct_we writes the slot)
                     if (cs_linear) csw = 1;
                     retire(pc + 4);
                   end
                 end
                 CF_RESTORE: begin
                   if (user) trap(C_PRIV, {32'b0, ir});
+                  else if (state == S_EX) state <= S_CT;   // the slot is read
                   else if (!live_ct) trap(C_CAPINV, 64'(d.slot));
                   else if (!cd_ok) trap(C_CAPOP, 64'(cd_i));
-                  else begin
+                  else begin                             // (ct_we empties a linear entry's slot)
                     cdw = 1;
                     cdn = ct_entry;
-                    if (!ct_entry.perms[P_D]) ctab_v[ct_i] <= 0;
                     retire(pc + 4);
                   end
                 end
                 CF_POLL: if (inbox_priv) trap(C_PRIV, {32'b0, ir});
-                         else begin wr(d.rd, {48'b0, poll_mask >> csr_corebase[3:0]}); retire(pc + 4); end
+                         else begin begin xw = d.rd != 0; xv = {48'b0, poll_mask >> csr_corebase[3:0]}; end retire(pc + 4); end
                 default: trap(C_ILLEGAL, {32'b0, ir});
               endcase
             end
 
             K_CSRR: if (user && (d.imm16 == CSR_SSCRATCH || d.imm16 == CSR_IPEND)) trap(C_PRIV, {32'b0, ir});
-                    else begin wr(d.rd, csr_rv); retire(pc + 4); end
+                    else begin begin xw = d.rd != 0; xv = csr_rv; end retire(pc + 4); end
             K_CSRW: if (user && (d.imm16 == CSR_STATUS || d.imm16 == CSR_COREBASE || d.imm16 == CSR_CORECOUNT ||
                                  (d.imm16 >= CSR_UCAUSE && d.imm16 <= CSR_IPEND))) trap(C_PRIV, {32'b0, ir});
             else begin
@@ -994,7 +1020,7 @@ module strata_core
               else if (!xcap.perms[P_X]) trap(C_PERM, 64'(d.cs));
               else if (ge_w(ra, xcap.len)) trap(C_BOUNDS, ra);
               else if (!xm_hit) trap(C_XMISS, xc_key);
-              else begin wr(d.rd, xm_link); retire(xm_target); end
+              else begin begin xw = d.rd != 0; xv = xm_link; end retire(xm_target); end
             end
 
             K_CAP2: begin
@@ -1031,10 +1057,10 @@ module strata_core
                 C2_SAVEX: begin                          // csavex cs, rx
                   if (user) trap(C_PRIV, {32'b0, ir});
                   else if (ct_oor) trap(C_CAPOP, rb);
+                  else if (state == S_EX) state <= S_CT;   // the slot is read
                   else if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   else if (live_ct && !ct_entry.perms[P_D]) trap(C_CAPOP, rb);
-                  else begin
-                    ctab_v[ct_i] <= 1;                   // (the data is written by ct_we)
+                  else begin                             // (ct_we writes the slot)
                     if (cs_linear) csw = 1;
                     retire(pc + 4);
                   end
@@ -1042,12 +1068,12 @@ module strata_core
                 C2_RESTOREX: begin                       // crestorex cd, rx
                   if (user) trap(C_PRIV, {32'b0, ir});
                   else if (ct_oor) trap(C_CAPOP, rb);
+                  else if (state == S_EX) state <= S_CT;   // the slot is read
                   else if (!live_ct) trap(C_CAPINV, rb);
                   else if (!cd_ok) trap(C_CAPOP, 64'(cd_i));
-                  else begin
+                  else begin                             // (ct_we empties a linear entry's slot)
                     cdw = 1;
                     cdn = ct_entry;
-                    if (!ct_entry.perms[P_D]) ctab_v[ct_i] <= 0;
                     retire(pc + 4);
                   end
                 end
@@ -1094,16 +1120,16 @@ module strata_core
         end
 
         // ------------------------------------------------------------ load data
-        S_LD: begin wr(d.rd, mload); retire(pc + 4); end
+        S_LD: begin begin xw = d.rd != 0; xv = mload; end retire(pc + 4); end
 
         // ------------------------------------------------------------ division
         S_DV: if (div_done) begin
-          wr(d.rd, (d.alu_op == ALU_REMU || d.alu_op == ALU_REM) ? div_r : div_q);
+          begin xw = d.rd != 0; xv = (d.alu_op == ALU_REMU || d.alu_op == ALU_REM) ? div_r : div_q; end
           retire(pc + 4);
         end
 
         // ------------------------------------------------------------ far atomic
-        S_AM: if (am_done) begin wr(d.rd, bus_rdata); retire(pc + 4); end
+        S_AM: if (am_done) begin begin xw = d.rd != 0; xv = bus_rdata; end retire(pc + 4); end
 
         // ------------------------------------------------------------ tag lookup
         S_LT: begin
@@ -1112,7 +1138,7 @@ module strata_core
             lt_ph <= 0;
             if (d.kind == K_LTAG && lt_k < lt_ways) begin
               if (da_rdata == lt_key) begin
-                wr(d.rd, csr_tdata + ((lt_set * 64'(lt_ways) + 64'(lt_k)) << lt_lsh) + lt_off);
+                begin xw = d.rd != 0; xv = csr_tdata + ((lt_set * 64'(lt_ways) + 64'(lt_k)) << lt_lsh) + lt_off; end
                 retire(pc + 4);
               end else lt_k <= lt_k + 1;
             end else begin
@@ -1120,7 +1146,7 @@ module strata_core
               logic [63:0] victim;
               victim = da_rdata < 64'(lt_ways) ? da_rdata : 64'd0;
               if (d.kind == K_LTAG) begin
-                wr(d.rd, (csr_tdata + ((lt_set * 64'(lt_ways) + victim) << lt_lsh)) | 64'h8000_0000_0000_0000);
+                begin xw = d.rd != 0; xv = (csr_tdata + ((lt_set * 64'(lt_ways) + victim) << lt_lsh)) | 64'h8000_0000_0000_0000; end
                 retire(pc + 4);
               end else begin
                 lt_victim <= victim;
@@ -1140,6 +1166,7 @@ module strata_core
       endcase
       if (cdw) caps[cd_i] <= cdn;
       if (csw) caps[cs_i] <= csn;
+      if (xw)  x[xa] <= xv;
     end
   end
 endmodule
