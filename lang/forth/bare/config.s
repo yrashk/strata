@@ -21,3 +21,4 @@ A_FILES   = 0                           ; (no files on bare metal: INCLUDED fail
         .data                           ; D-LS (before the kernel's data)
         .align 8                        ; ...
 plat_handles: .dword 0, 0, 0, 0, 0, 0   ; KVAR 38: standard handles (none on bare metal: zeros)
+plat_lkname: .dword 0                   ; KVAR 41: the server (msg) register 6 looks up (no servers on bare metal)

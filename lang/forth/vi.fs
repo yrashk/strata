@@ -49,7 +49,7 @@
 
 [defined] overlay.fs 0= [if] include /overlay.fs [then] \ (by /NAME: whatever the current tag path)
 inline-limit @  4 inline-limit !                \ code space: primitives are called, not copied
-19 4224 overlays                                \ nineteen overlays of up to 4.1 KiB of code
+19 4160 overlays                               \ nineteen overlays of up to 4.1 KiB of code
 
 \ The program is in two files (an included file's text must fit in 64 KiB with
 \ the files it includes): vi-text.fs, then vi-edit.fs.

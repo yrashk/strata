@@ -1013,6 +1013,15 @@ whole.
   seq, grep, wc, upper, spin, as, units, vi (the editor, 2.12), and the
   examples (all but `clock` and `gfx`, which need the device root that only
   `dev` holds).
+- **In Forth.** Most of these also exist as Strata Forth programs,
+  `forth NAME.fs ARGS` (`lang/forth/progs/`, README "The ports of
+  os/progs"): seq, cat, upper, wc, grep, hexdump, touch, rm, cp, mv, tag
+  (untag, retag), tags, ls, df, free, uptime, devs, cores, ps, sched, spin
+  and units, with the same arguments, output, errors and exit codes. They
+  share `sys.fs` and are packed into one disk file, `progs.pk` (the
+  directory has room for 128 files), which Forth's `include` looks in for a
+  name that is no file. A start costs about 2.5 M instructions more than the
+  assembly program; long inputs about 1.1 to 1.8 times its instructions.
 - Not there: globbing, `2>`; completion
   assumes an 80-column terminal, and a line longer than the terminal's
   width redraws wrongly.
@@ -1571,6 +1580,11 @@ messages and the `:` and `/` lines take its place.
   `tools/test-vifs.out` and with `tools/test-vi.out` (the assembly vi's:
   they must be the same files), then the highlighting, a Ctrl-C while it
   runs, and `vi FILE` at the Forth prompt after `include vi.fs`.
+- `tools/test-fs-progs.sh`: the Forth ports of the programs (`forth
+  seq.fs 20`, ...) against the assembly programs in one session: 36 cases
+  must give the same bytes on the console, 10 status reports (ps, cores,
+  uptime, ...) are compared with `tools/test-fs-progs.out`, numbers masked;
+  then a Ctrl-C and the ports at the Forth prompt.
 - `tools/test-as.sh` (run on its own, not by `make test`): the self-hosted
   assembler against `sasm`, including a StrataOS boot that assembles and
   runs a program.

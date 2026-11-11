@@ -387,6 +387,11 @@ GROUPS = [
      "into one region at the top of code space, kept in far memory and brought in when a word of theirs is "
      "called. The kernel compiles a call of an overlay word through <code>ovjump</code> or <code>ovcall</code>; "
      "<code>lang/forth/vi.fs</code>, the editor, is nineteen overlays."),
+    ("progs", "The ports of os/progs", "StrataOS: sys.fs, the library of the Forth ports of StrataOS's "
+     "programs (<code>forth seq.fs 20</code>, <code>forth ls.fs -t /src</code>, ...; lang/forth/progs/): "
+     "the command line, standard input by lines, standard error and the exit code, messages to the file server "
+     "and to proc. The ports are kept in one disk file, progs.pk (its head is progs.fs), which "
+     "<code>included</code> reads when it is given a name that is no file."),
     ("files", "Files and the system", "Files are StrataOS's; <code>bye</code> halts every core (bare metal) or "
      "ends the process."),
     ("tools", "Tools", "<code>see</code>, the disassembler, <code>words</code>, <code>dump</code> and the "
@@ -434,7 +439,7 @@ SECTION_GROUP = {
 }
 FILE_GROUP = {FORTH + "/tools.fs": "tools", FORTH + "/see.fs": "tools", FORTH + "/os/os.fs": "files",
               FORTH + "/net.fs": "net", FORTH + "/udp.fs": "net", FORTH + "/overlay.fs": "ovl",
-              FORTH + "/bare/start.fs": "io"}
+              FORTH + "/sys.fs": "progs", FORTH + "/bare/start.fs": "io"}
 
 
 def section_of(w):
@@ -718,6 +723,8 @@ def avail_of(w, tools):
     if f.endswith("/net.fs") or f.endswith("/udp.fs"): # (sockets exist only under StrataOS)
         base = os.path.basename(f)[:-3]
         return "os", "StrataOS only: loaded on demand, or <code>require %s</code>" % base
+    if f.endswith("/sys.fs"):                         # (a disk file: StrataOS's)
+        return "os", "StrataOS: in a port, or after <code>include /sys.fs</code>"
     if f.endswith("/overlay.fs"):                     # (a disk file: StrataOS's)
         return "os", "StrataOS: after <code>require overlay</code>"
     if f.endswith("/bare/start.fs"):
@@ -795,7 +802,8 @@ def collect():
     kernel = kernel_words()
     files = [(FORTH + "/core.fs", "core"), (FORTH + "/tools.fs", "tools"), (FORTH + "/see.fs", "see"),
              (FORTH + "/os/os.fs", "os"), (FORTH + "/bare/start.fs", "bare"),
-             (FORTH + "/net.fs", "net"), (FORTH + "/udp.fs", "udp"), (FORTH + "/overlay.fs", "overlay")]
+             (FORTH + "/net.fs", "net"), (FORTH + "/udp.fs", "udp"), (FORTH + "/overlay.fs", "overlay"),
+             (FORTH + "/sys.fs", "sys")]
     words, by = [], {}
     for w in kernel:
         w["sources"] = [w]
