@@ -1,4 +1,5 @@
-// Strata: integer ALU (division is done by strata_div over many cycles).
+// Strata: integer ALU (multiplication is done by strata_mul over a few
+// cycles, division by strata_div over many).
 
 module strata_alu
   import strata_pkg::*;
@@ -8,10 +9,6 @@ module strata_alu
   input  logic [63:0] b,
   output logic [63:0] y
 );
-  logic [127:0] prod;
-
-  assign prod = {64'b0, a} * {64'b0, b};
-
   always_comb begin
     unique case (op)
       ALU_ADD:   y = a + b;
@@ -24,8 +21,6 @@ module strata_alu
       ALU_SRA:   y = $signed(a) >>> b[5:0];
       ALU_SLT:   y = {63'b0, $signed(a) < $signed(b)};
       ALU_SLTU:  y = {63'b0, a < b};
-      ALU_MUL:   y = prod[63:0];
-      ALU_MULHU: y = prod[127:64];
       default:   y = '0;
     endcase
   end

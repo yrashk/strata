@@ -16,7 +16,7 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 out="$here/fpga/build/$fam-$n"
 mkdir -p "$out"
 cd "$here"
-sv2v rtl/strata_pkg.sv rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv \
+sv2v rtl/strata_pkg.sv rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv rtl/strata_mul.sv \
      rtl/strata_ram.sv rtl/strata_uart.sv rtl/strata_tu.sv rtl/strata_bus.sv \
      rtl/strata_mem.sv rtl/strata_dev.sv rtl/strata_core.sv rtl/strata_top.sv > "$out/strata.v"
 case $fam in

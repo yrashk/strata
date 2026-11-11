@@ -43,6 +43,7 @@ found and how it was decided.
 | `xfer` | transfer hazards, tags, faults and their order, `tamo` |
 | `pendxfer`, `pend` | transfers ordered after an in-flight device read (F5); CCR.PTRAP for loads, stores, `ltag`, `linst` |
 | `haltdrain` | `halt` drains device reads (F3) |
+| `ltag` | ltag/linst: hits, misses, replacement, the counter out of range; lsfault (ways 0, misaligned, past the D-LS) with the 64-bit entry address, entry addresses that wrap around |
 | `xmap` | xmap/xunmap/xcall/xret/xslot, xmiss |
 | `wide` | 64-bit offsets, lengths and split points against capability bounds: bits above the space's size count (transfers, device ports, `tamo`, `csplit`, `xmap`/`xcall`); the last word of system memory |
 | `timer` | FREQ/NOW/DEADLINE/WAIT, latching; VSYNC, PRESENT; device bounds |

@@ -7,9 +7,10 @@
 //   EX  execute; stay here while stalled
 //   CT  save-table instructions: the slot read in EX is here
 //   LD  load data returns from the D-LS
+//   LG  ltag / linst: the set's entry address (one cycle), then its checks
 //   LT  tag-lookup sequencer (one table word per two cycles)
 //   LW  second write of `linst`
-//   DV  iterative division
+//   DV  multiplication (strata_mul, 3-4 cycles) and iterative division
 //   AM  far atomic in flight
 //
 // The core owns both Local Stores: port A is its own, port B belongs to the
@@ -89,7 +90,7 @@ module strata_core
   output logic        halted
 );
   // ================================================================ state
-  typedef enum logic [3:0] {S_RST, S_F0, S_F1, S_EX, S_CT, S_LD, S_LT, S_LW, S_DV, S_AM, S_HALT} state_t;
+  typedef enum logic [3:0] {S_RST, S_F0, S_F1, S_EX, S_CT, S_LD, S_LG, S_LT, S_LW, S_DV, S_AM, S_HALT} state_t;
 
   state_t      state;
   logic [63:0] pc;
@@ -167,7 +168,7 @@ module strata_core
   // tag-lookup sequencer
   logic [3:0]  lt_k;
   logic        lt_ph;
-  logic [63:0] lt_key, lt_set, lt_ebase, lt_off, lt_victim;
+  logic [63:0] lt_key, lt_set, lt_sw, lt_ebase, lt_off, lt_victim;   // lt_sw = lt_set * ways
 
 `ifdef SIMULATION
   logic trace_on;
@@ -238,6 +239,14 @@ module strata_core
   logic        is_div, div_start, div_busy, div_done;
   logic [63:0] div_q, div_r;
   assign is_div = d.kind == K_ALU && d.alu_op inside {ALU_DIVU, ALU_REMU, ALU_DIV, ALU_REM};
+
+  logic         is_mul, mul_start, mul_done_lo, mul_done;
+  logic [127:0] mul_p;
+  assign is_mul    = d.kind == K_ALU && (d.alu_op == ALU_MUL || d.alu_op == ALU_MULHU);
+  assign mul_start = state == S_EX && is_mul;
+  strata_mul u_mul (
+    .clk, .rst, .start(mul_start), .a(ra), .b(rb), .done_lo(mul_done_lo), .done(mul_done), .prod(mul_p)
+  );
   strata_div u_div (
     .clk, .rst, .start(div_start), .is_signed(d.alu_op == ALU_DIV || d.alu_op == ALU_REM),
     .a(ra), .b(rb), .busy(div_busy), .done(div_done), .quo(div_q), .rem(div_r)
@@ -326,10 +335,13 @@ module strata_core
 
   assign tu_iss_valid = state == S_EX && d.kind == K_XFER && xf_fault == 0;
 
-  // tag-lookup geometry (computed from the current instruction's register)
+  // tag-lookup geometry. EX takes the line and set from the register; S_LG
+  // computes set * ways (shift-add: ways < 16) and the set's entry address
+  // ttag + set * (ways + 1) * 8 (full width: it is the lsfault tval) into
+  // registers in its first cycle, and checks them in the next.
   logic [5:0]  lt_lsh, lt_lsets;
   logic [3:0]  lt_ways;
-  logic [63:0] lt_line, lt_set_c, lt_ebase_c, lt_span;
+  logic [63:0] lt_line, lt_set_c, lt_sw_c, lt_ebase_c, lt_span;
   logic        lt_ok;
   assign lt_lsh     = csr_tgeom[5:0];
   assign lt_lsets   = csr_tgeom[11:6];
@@ -337,8 +349,10 @@ module strata_core
   assign lt_line    = ra >> lt_lsh;
   assign lt_set_c   = lt_line & ((64'd1 << lt_lsets) - 1);
   assign lt_span    = (64'(lt_ways) + 1) * 8;
-  assign lt_ebase_c = csr_ttag + lt_set_c * lt_span;
-  assign lt_ok      = lt_ways != 0 && lt_ebase_c[2:0] == 0 && lt_ebase_c <= 64'(DLS_BYTES) - lt_span;
+  assign lt_sw_c    = (lt_ways[0] ? lt_set      : 64'd0) + (lt_ways[1] ? lt_set << 1 : 64'd0) +
+                      (lt_ways[2] ? lt_set << 2 : 64'd0) + (lt_ways[3] ? lt_set << 3 : 64'd0);
+  assign lt_ebase_c = csr_ttag + ((lt_sw_c + lt_set) << 3);
+  assign lt_ok      = lt_ways != 0 && lt_ebase[2:0] == 0 && lt_ebase <= 64'(DLS_BYTES) - lt_span;
 
   always_comb begin
     hz_addr = '0;
@@ -346,8 +360,8 @@ module strata_core
     if (state == S_EX && (d.kind == K_LOAD || d.kind == K_STORE)) begin
       hz_addr = maddr;
       hz_len  = msz;
-    end else if (state == S_EX && (d.kind == K_LTAG || d.kind == K_LINST)) begin
-      hz_addr = lt_ebase_c;
+    end else if (state == S_LG && lt_ph) begin
+      hz_addr = lt_ebase;
       hz_len  = lt_span;
     end
   end
@@ -750,8 +764,8 @@ module strata_core
             K_ILLEGAL: trap(C_ILLEGAL, {32'b0, ir});
 
             K_ALU, K_ALUI: begin
-              if (is_div) begin
-                state <= S_DV;                           // the divider starts this cycle
+              if (is_div || is_mul) begin
+                state <= S_DV;                           // the divider / multiplier starts this cycle
               end else begin
                 begin xw = d.rd != 0; xv = alu_y; end
                 retire(pc + 4);
@@ -981,17 +995,11 @@ module strata_core
             end
 
             K_LTAG, K_LINST: begin
-              if (!lt_ok) trap(C_LSFAULT, lt_ebase_c);
-              else if (d.kind == K_LTAG ? hz_rd_stall : hz_wr_stall) pending(lt_ebase_c);
-              else begin
-                lt_key   <= (lt_line << 1) | 64'd1;
-                lt_set   <= lt_set_c;
-                lt_ebase <= lt_ebase_c;
-                lt_off   <= ra & ((64'd1 << lt_lsh) - 1);
-                lt_k     <= d.kind == K_LTAG ? 4'd0 : lt_ways;
-                lt_ph    <= 0;
-                state    <= S_LT;
-              end
+              lt_key <= (lt_line << 1) | 64'd1;
+              lt_set <= lt_set_c;
+              lt_off <= ra & ((64'd1 << lt_lsh) - 1);
+              lt_ph  <= 0;
+              state  <= S_LG;
             end
 
             K_XMAP: begin
@@ -1123,8 +1131,9 @@ module strata_core
         S_LD: begin begin xw = d.rd != 0; xv = mload; end retire(pc + 4); end
 
         // ------------------------------------------------------------ division
-        S_DV: if (div_done) begin
-          begin xw = d.rd != 0; xv = (d.alu_op == ALU_REMU || d.alu_op == ALU_REM) ? div_r : div_q; end
+        S_DV: if (is_mul ? (d.alu_op == ALU_MUL ? mul_done_lo : mul_done) : div_done) begin
+          begin xw = d.rd != 0; xv = d.alu_op == ALU_MUL ? mul_p[63:0] : d.alu_op == ALU_MULHU ? mul_p[127:64]
+                                    : (d.alu_op == ALU_REMU || d.alu_op == ALU_REM) ? div_r : div_q; end
           retire(pc + 4);
         end
 
@@ -1132,13 +1141,28 @@ module strata_core
         S_AM: if (am_done) begin begin xw = d.rd != 0; xv = bus_rdata; end retire(pc + 4); end
 
         // ------------------------------------------------------------ tag lookup
+        S_LG: begin
+          if (!lt_ph) begin                              // the set's entry address
+            lt_sw    <= lt_sw_c;
+            lt_ebase <= lt_ebase_c;
+            lt_ph    <= 1;
+          end
+          else if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end   // (as in EX)
+          else if (!lt_ok) trap(C_LSFAULT, lt_ebase);
+          else if (d.kind == K_LTAG ? hz_rd_stall : hz_wr_stall) pending(lt_ebase);
+          else begin
+            lt_k  <= d.kind == K_LTAG ? 4'd0 : lt_ways;
+            lt_ph <= 0;
+            state <= S_LT;
+          end
+        end
         S_LT: begin
           if (!lt_ph) lt_ph <= 1;                        // the read was issued; data next cycle
           else begin
             lt_ph <= 0;
             if (d.kind == K_LTAG && lt_k < lt_ways) begin
               if (da_rdata == lt_key) begin
-                begin xw = d.rd != 0; xv = csr_tdata + ((lt_set * 64'(lt_ways) + 64'(lt_k)) << lt_lsh) + lt_off; end
+                begin xw = d.rd != 0; xv = csr_tdata + ((lt_sw + 64'(lt_k)) << lt_lsh) + lt_off; end
                 retire(pc + 4);
               end else lt_k <= lt_k + 1;
             end else begin
@@ -1146,7 +1170,7 @@ module strata_core
               logic [63:0] victim;
               victim = da_rdata < 64'(lt_ways) ? da_rdata : 64'd0;
               if (d.kind == K_LTAG) begin
-                begin xw = d.rd != 0; xv = (csr_tdata + ((lt_set * 64'(lt_ways) + victim) << lt_lsh)) | 64'h8000_0000_0000_0000; end
+                begin xw = d.rd != 0; xv = (csr_tdata + ((lt_sw + victim) << lt_lsh)) | 64'h8000_0000_0000_0000; end
                 retire(pc + 4);
               end else begin
                 lt_victim <= victim;
