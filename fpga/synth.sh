@@ -9,14 +9,25 @@
 # rest of the system can be measured (the 64 MiB default must never reach
 # synthesis as an array). The cluster store (T2) is 64 KiB and the disk a
 # 128 KiB block-RAM disk, as in fpga/arty/strata_arty.sv.
+#
+# NXMAP=N fpga/synth.sh ... builds a smaller variant with N overlay map
+# entries instead of 16 (a constant in strata_pkg.sv, not a parameter: the
+# package is copied and edited under the build directory, rtl/ is not
+# touched); the results go to fpga/build/<family>-<n>-xmapN/.
 set -eu
 fam=$1
 n=${2:-2}
 here=$(cd "$(dirname "$0")/.." && pwd)
-out="$here/fpga/build/$fam-$n"
+out="$here/fpga/build/$fam-$n${NXMAP:+-xmap$NXMAP}"
 mkdir -p "$out"
 cd "$here"
-sv2v rtl/strata_pkg.sv rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv \
+pkg=rtl/strata_pkg.sv
+if [ -n "${NXMAP:-}" ]; then
+  sed "s/localparam int NXMAP     = 16;/localparam int NXMAP     = $NXMAP;/" rtl/strata_pkg.sv > "$out/strata_pkg.sv"
+  grep -q "NXMAP     = $NXMAP;" "$out/strata_pkg.sv"
+  pkg=$out/strata_pkg.sv
+fi
+sv2v "$pkg" rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv \
      rtl/strata_ram.sv rtl/strata_uart.sv rtl/strata_tu.sv rtl/strata_bus.sv \
      rtl/strata_mem.sv rtl/strata_dev.sv rtl/strata_core.sv rtl/strata_top.sv > "$out/strata.v"
 case $fam in

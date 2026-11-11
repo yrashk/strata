@@ -124,7 +124,7 @@ the PC and the current access) cost about 2,700 LUTs.
 | System | Board | Use of the device (synthesis estimate) |
 |---|---|---|
 | 1 core | Digilent Arty A7-100T (XC7A100T: 63,400 LUTs, 135 RAMB36) | 75% of the LUTs, 80 RAMB36 |
-| 1 core | Radiona ULX3S 85F (LFE5U-85F: 83,640 LUT4, 208 DP16KD) | 88% of the LUT4 sites, 165 DP16KD: fits on paper, not placed and routed |
+| 1 core | Radiona ULX3S 85F (LFE5U-85F: 83,640 LUT4, 208 DP16KD) | 97% of the LUT4 sites, 165 DP16KD; after packing 99.6% of the logic cells: nextpnr places it (static placer) but it does not route (see "Place and route") |
 | 2 cores | Digilent Nexys Video (XC7A200T: 134,600 LUTs, 365 RAMB36) | 71% of the LUTs, 112 RAMB36 |
 | 2 cores | any ECP5 | does not fit: 142,522 LUT4 sites, and the largest ECP5 has 83,640 |
 
@@ -185,13 +185,85 @@ Open items before this can work on a board:
   slow. Bursts would help.
 - **Never run on hardware.**
 
-## Pictures
+## Place and route (ECP5, nextpnr)
+
+`fpga/pnr.sh` places and routes the 1-core ECP5 netlist with nextpnr-ecp5 on
+an LFE5U-85F, CABGA381, speed grade 6 (the Radiona ULX3S part; the
+LFE5UM-85F has the same fabric), with the pins in `fpga/ecp5/ulx3s.lpf`:
+clock, reset, the UART and one LED. The external system-memory port
+(`ext_t3_*`, unused with `T3_EXT = 0`) is taken off the netlist first, which
+removes ports and no cells. The clock target is 50 MHz (`CLK_MHZ=10` for
+10 MHz).
+
+Tools: nextpnr-ecp5 `nextpnr-0.11.1-89-g445e2a65` and Yosys 0.70+368 from
+YosysHQ's OSS CAD Suite 2026-11-10 for macOS arm64 (no Homebrew formula has
+nextpnr-ecp5), unpacked under `build/tools/oss-cad-suite/`; `fpga/pnr.sh`
+uses it from there when it is present. The netlists are from Yosys 0.70
+(Homebrew), as in the synthesis table.
+
+What happened (2026-11-10, an arm64 Mac with 18 cores):
+
+| Netlist | Logic cells after packing | Placement | Routing |
+|---|---|---|---|
+| 1 core as synthesized (`ecp5-1`) | 83,345 of 83,640 (99.6%) | HeAP (the default): "unable to find legal placement" after 30 s. SA: stalled at 85,500 of 96,594 cells for 10 minutes. **Static placer: placed** in 5.5 minutes | not attempted to completion (see below) |
+| overlay map 12 entries (`ecp5-1-xmap12`) | 76,462 (91%) | HeAP, 6 minutes | router1: 219,000 of 295,000 arcs still unrouted after 40 minutes; router2: 58,000 wires overused after 3 iterations (25 minutes); stopped |
+| overlay map 8 entries | 78,397 (93%) (Yosys made it larger than the 12-entry one) | HeAP | router1: 196,000 unrouted after 40 minutes; stopped |
+| overlay map 4 entries (`NXMAP=4`) | 65,247 (78%) | HeAP | router1: 141,000 of 255,000 arcs unrouted after 28 minutes; router2: the overuse stopped falling at 9,000 wires and grew; stopped |
+
+The reduced netlists come from `NXMAP=N fpga/synth.sh ecp5 1`: the overlay
+map is a package constant, so the script edits a copy of `strata_pkg.sv`;
+`rtl/` is untouched. Fewer overlay entries is an architectural change (the
+emulator and the manual say 16), so these are size experiments, not a
+Strata that runs the conformance tests.
+
+**How fast:** nextpnr's timing estimate after placement (net delays
+estimated from distance, before routing) is **9.8 MHz** for the full core
+and 10.4 to 11.3 MHz for the reduced ones, against the 50 MHz target: a
+critical path of about 100 ns. Routing usually makes this somewhat worse,
+not better. This is what the README's "Timing closure" note predicted: the
+core executes an instruction's whole datapath in one cycle. (nextpnr names
+the critical path only after routing; from the RTL, the long paths run from
+the register file and the capability file through the operand muxes, a
+64-bit bounds check or address adder, the overlay map's parallel range
+compares and the result muxes into the next state.) Pipelining the execute stage, or splitting the overlay lookup and the
+bounds check into their own cycles, is what would raise the clock; at
+~10 MHz a 1-core system on this part is a functional prototype, not a fast
+one.
+
+**Why it does not route:** routing demand, more than logic. Even at 78% of
+the logic cells the router could not resolve the congestion: the design is
+dominated by 64-bit-wide muxes and compares that all meet in the execute
+state (three 32-way register read ports, the 158-bit capability file, the
+overlay map), and the ECP5's general routing is short (spans of 1, 2 and 6
+tiles). The cuts listed under "Where the LUTs go" (overlay lookup in two
+cycles, one shared bounds adder, LUT-RAM register files) reduce exactly this
+wiring, not only the LUT count.
+
+### Pictures
+
+`fpga/render.py` draws a placed or routed nextpnr design as a die shot: the
+fabric (logic tiles as four slices of two LUTs over two flip-flops, block
+RAM and multiplier rows, I/O pads) with every placed cell coloured by the
+part of the design it belongs to (`fpga/classify.py`: by the RTL signal
+Yosys named the cell after; exact for registers and memories, the nearest
+named signal for logic), and, for a routed design, every routed wire along
+its real span as a glow in its net's colour. The fabric comes from
+`fpga/ecp5/lfe5u-85f-bels.json`, which `fpga/ecp5/bels.py` writes from
+nextpnr's chip database.
+
+```
+python3 -m venv build/venv && build/venv/bin/pip install numpy pillow
+fpga/pnr.sh                         # or: gunzip -k fpga/results/ecp5-1/placed-static.json.gz
+build/venv/bin/python fpga/render.py PLACED_OR_ROUTED.json die.png \
+    --report REPORT.json --web die-1600.webp --note "a line under the title"
+```
+
+The fonts are the site's (Space Grotesk, JetBrains Mono) if they are in
+`build/fonts/`, else the system's. `fpga/results/ecp5-1/die-placed.png` is
+the full 1-core system placed by the static placer (5200×3900; a
+1600-pixel WebP beside it). In it the overlay map takes about 42% of the
+LUT4 sites in use, execute with its registers and CSRs 26%, the capability
+registers, checks and revocation domains 16%, the Transfer Unit 7%.
 
 `doc/figures/` has Yosys schematics: the divider and the UART at gate level,
-and the system top level. A picture of the chip itself, meaning placed and
-routed logic on the FPGA fabric, needs nextpnr. For the ECP5 (ULX3S) that is
-`nextpnr-ecp5 --85k --json fpga/build/ecp5-1/strata.json --placed-svg
-placed.svg --routed-svg routed.svg` (with a pin constraint file), for the
-1-core system only: two cores are larger than the device. nextpnr is not
-installed on the machine these numbers come from, so nothing here has been
-placed or routed, and no maximum clock frequency is known.
+and the system top level.
