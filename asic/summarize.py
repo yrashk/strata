@@ -47,8 +47,10 @@ for c in corners:
     tns = m.get(f"timing__setup__tns__corner:{c}", 0)
     hws = m.get(f"timing__hold__ws__corner:{c}", 0)
     p = period - ws
+    r2r = m.get(f"timing__setup_r2r__ws__corner:{c}")
+    rr = f"  reg-to-reg WNS {r2r:8.3f} ns -> {period - r2r:6.2f} ns" if r2r is not None else ""
     print(f"  {c:20s} setup WNS {ws:8.3f} ns  TNS {tns:10.2f}  hold WS {hws:7.3f}"
-          f"  -> period {p:6.2f} ns = {1000 / p:6.1f} MHz")
+          f"  -> period {p:6.2f} ns = {1000 / p:6.1f} MHz{rr}")
 print()
 
 

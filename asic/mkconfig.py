@@ -34,7 +34,7 @@ GX, GY = 12.0, 36.0          # gaps between macros: sides; below each row (the p
 COLS, ROWS = 8, 16           # one 64 KiB store
 SW = COLS * (MW + GX)        # a store block
 SH = ROWS * (MH + GY)
-LW = float(os.environ.get("ASIC_STRIP_UM", "1500"))  # a core's logic strip
+LW = float(os.environ.get("ASIC_STRIP_UM", "3000"))  # a core's logic strip
 M = 120.0                    # die margin (pins, the PDN ring)
 
 names = [l.strip() for l in open(macro_list) if l.strip()]
@@ -150,7 +150,9 @@ cfg = {
     "IO_DELAY_CONSTRAINT": 5,
     "FP_SIZING": "absolute",
     "DIE_AREA": [0, 0, round(die_w, 2), round(die_h, 2)],
-    "PL_TARGET_DENSITY_PCT": 60,
+    # low: the logic strips have room, and at 60% the placer packed the
+    # logic into dense clumps that global routing could not clear
+    "PL_TARGET_DENSITY_PCT": int(os.environ.get("ASIC_DENSITY", "30")),
     # global placement without the routability and timing loops: with them,
     # one core's placement oscillated (overflow ~0.5) for 90 minutes and
     # 21,000 iterations without converging
@@ -182,6 +184,11 @@ cfg = {
     # without this the resizer buffers with delay cells (dlyb_1: slews over
     # 1 ns, 1.6 ns per stage); hold repair then uses buffers too
     "EXTRA_EXCLUDED_CELLS": ["gf180mcu_fd_sc_mcu7t5v0__dly*"],
+    # global routing: at most 10 rip-up iterations, leaving what congestion
+    # is left to the detailed router (one core spent 4 minutes per
+    # iteration, 50 allowed)
+    "GRT_OVERFLOW_ITERS": 10,
+    "GRT_ALLOW_CONGESTION": True,
     "DRT_THREADS": threads,
     "STA_THREADS": min(threads, 4),
     "PRIMARY_GDSII_STREAMOUT_TOOL": "klayout",
@@ -194,6 +201,11 @@ cfg = {
     "RUN_KLAYOUT_XOR": False,
     "RUN_MAGIC_STREAMOUT": False,
     "RUN_MAGIC_WRITE_LEF": False,
+    # no post-CTS timing repair: OpenROAD's repair_timing (2026-02-17) died
+    # without a message in its first iteration three times on one core
+    # (with and without gate cloning); the clock reported is what placement,
+    # design repair (slew, capacitance, long wires) and CTS give
+    "RUN_POST_CTS_RESIZER_TIMING": False,
     "RUN_POST_GRT_RESIZER_TIMING": False,
     "RUN_POST_GRT_DESIGN_REPAIR": False,
     "ERROR_ON_MAGIC_DRC": False,

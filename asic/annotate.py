@@ -23,12 +23,13 @@ Y = lambda y: img.height - y * sy         # noqa: E731
 stores = {}
 for line in open(cfg):
     n, x, y, _ = line.split()
-    m = re.match(r"(.*)\.g_r\[\d+\]\.g_b\[\d+\]\.u_m$", n)
+    m = re.match(r"(.*)\.g_r\[\d+\]\.g_b\[\d+\]\.u_m$", n) or re.match(r"(.*)\.g_b\[\d+\]\.u_m$", n)
+    h = 340.88 if "u_ctab" in n else MH
     x, y = float(x), float(y)
-    b = stores.setdefault(m.group(1), [x, y, x + MW, y + MH])
-    b[:] = [min(b[0], x), min(b[1], y), max(b[2], x + MW), max(b[3], y + MH)]
+    b = stores.setdefault(m.group(1), [x, y, x + MW, y + h])
+    b[:] = [min(b[0], x), min(b[1], y), max(b[2], x + MW), max(b[3], y + h)]
 
-COL = {"ils": (80, 170, 255), "dls": (90, 220, 140), "t2": (255, 179, 71)}
+COL = {"ils": (80, 170, 255), "dls": (90, 220, 140), "t2": (255, 179, 71), "ct": (230, 110, 200)}
 
 
 def label(key):
@@ -38,6 +39,8 @@ def label(key):
         return "ils", f"{c}I-LS 64 KiB"
     if key.endswith("u_dls"):
         return "dls", f"{c}D-LS 64 KiB"
+    if key.endswith("u_ctab"):
+        return "ct", "save table" if not c else f"{c.strip()} CTAB"
     return "t2", "T2 64 KiB"
 
 
