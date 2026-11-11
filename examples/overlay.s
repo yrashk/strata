@@ -25,8 +25,9 @@
 ;   calls          = 12
 ;   overlay misses = 3
 
-SLOT0   = 0x7000                        ; I-LS address of overlay slot 0
-SLOT1   = 0x7040                        ; I-LS address of overlay slot 1
+SLOT0   = 0x7700                        ; I-LS address of overlay slot 0 (under StrataOS,
+                                        ;   0x7700.. is the part of a worker's kernel only core 0 runs)
+SLOT1   = 0x7740                        ; I-LS address of overlay slot 1
 SLOTSZ  = 64                            ; bytes per slot (16 instructions)
 
         .data                           ; data Local Store

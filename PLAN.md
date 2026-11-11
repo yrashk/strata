@@ -524,9 +524,12 @@ Ideas to evaluate:
   are given to a per-core (or system-core) "keeper" through the inbox / a
   server and taken back on switch-in. Unbounded, but costs messages per
   switch; measure.
-- [ ] **Fewer live capabilities per thread.** Let the dispatcher save only
-  the valid registers (cvalid), and encourage programs to keep spares in
-  their own save slots or joined into c0. Most threads hold 3–5.
+- [x] **Fewer live capabilities per thread.** Done: the save table is a
+  pool of slots shared by the threads and the queues (4 reserved per thread
+  record, 12 general); only memory capabilities take slots (endpoints and
+  device capabilities are rebuilt on switch-in) and a one-thread process's
+  image and save area are one capability, so a typical switched-out thread
+  holds 3 slots. 11 threads per core (doc/strataos.md 2.1).
 - [ ] **A bigger or per-thread save table (ISA/RTL).** Grow the table
   (LUT-RAM cost), or bank it per hardware context. Weigh the FPGA cost
   (the 2-core xc7 build is already ~90k LUTs).
@@ -556,7 +559,8 @@ Ideas to evaluate:
   (MEMORY length, SPAWN mode >> 16, sh `-m N`), revoked by address at exit; 64 arena
   slots and kernel process records; proc / fs / ws / ps tables at 64.
 - [x] tools/test-procs.sh: 35 processes at once on 15 cores, twice, memory reused.
-- [ ] More than 3 threads per worker core (the save-table budget) - not done.
+- [x] More than 3 threads per worker core: the save table is a pool (11 threads per core;
+  endpoints and device capabilities rebuilt on switch-in, not saved); see S2.
 - [ ] System memory beyond 64 MiB in the emulator - not done.
 
 ## File ownership while agents run in parallel

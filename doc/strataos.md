@@ -322,7 +322,7 @@ greater length.
     process, and the core's demand paging of code units.
 - **The kernel pages its own code.** Resident: I-LS 0x4000..0x7FFF on every
   core (core 0's own resident code, the event loop and the paging trap,
-  sits at 0x7000 and up; workers never run that part). Everything else
+  sits at 0x7700 and up; workers never run that part). Everything else
   (start-up, the operations of 2.4, exits, ticks) is **kernel code units**
   of 2 KiB in the kernel image's `.far` section (`os/kunits/*.s`), called
   with `xcall` through c12 and paged by the system core's own supervisor
@@ -382,16 +382,37 @@ greater length.
   threads go on the run of N contiguous server-free cores whose busiest
   core is least loaded. SPAWN can pin a process to a core (the shell's
   `-c N`).
-- **Three threads per worker core.** A core's capability save table has 64
-  slots: 24 hold c0..c7 of three resident threads, 6 their save areas and
-  image shares, 16 the server's queued and parked requests, 11 the queue
-  of attachments and gifts, and 7 the dispatcher's own capabilities. A
-  server counts as one of its core's three threads. Other limits: 64
+- **Eleven threads per worker core.** A switched-out thread's capabilities
+  must stay on its core (capabilities never live in memory), in the core's
+  64-slot capability save table. Seven slots are the dispatcher's own; the
+  other 57 are a **pool** shared by the threads and the queues (the
+  server's queued and parked requests, the attachments and gifts waiting for
+  their messages). A thread takes slots only for what cannot be rebuilt:
+  memory capabilities (its memory c0, its message buffer c5, one capability
+  for its image and save area, which are adjacent, or two for a thread of a
+  multi-threaded process, and whatever memory it holds in c1..c7). Endpoints
+  (a node and permissions) are minted again on switch-in and device
+  capabilities (the clock in c7, a console port) are cut again from the
+  device root, so a typical thread holds 3 slots, a loaded one 1. Every
+  thread record has **4 slots reserved** (the server's 5), 11 × 4 + 1 = 45:
+  the first slots a thread takes never fail, so placing a thread on a core
+  with a free record is placing it where its slots are. The other 12 are
+  the **general part**: extra slots of a thread (at most 8, so 4 always stay
+  for the queues) and the queue entries. A full general part refuses a
+  request (back with -1, as a full queue does), a PARK (-1), drops an
+  attachment, and keeps a thread whose extra capability finds no slot
+  loaded until one frees up. A thread can only fill the general part by
+  holding more than 4 memory capabilities. Core 0 places a thread only on a
+  core with a free record and a free job record; CREATE fails with -5
+  otherwise. `cores` shows each core's free slots. Other limits: 64
   processes and 64 arenas (the kernel's, `proc`'s, `fs`'s and `ws`'s
   tables), memory (a 46 MiB arena pool), 8 handles per process. With 15
-  cores the worker slots bind first: 33 processes besides the servers
-  (`tools/test-procs.sh` runs 35 at once). Before revocation by address
-  the 15 revocation domains allowed 14 processes.
+  cores memory binds first (`tools/test-procs.sh` runs 35 processes at
+  once); with 6, the fewest StrataOS needs, 35 run at once as well, 11 on
+  each of the three cores that take programs (proc and tty are alone on
+  theirs). With the fixed split of old (24 slots for c0..c7 of three
+  threads, 16 for requests, 11 for attachments) a core held three threads,
+  and 6 cores 11 processes.
 
 ### 2.2 Context switches: the cost is explicit
 
@@ -400,8 +421,11 @@ and **the parts of its Local Stores it uses**. On a switch the dispatcher:
 1. drains the thread's transfers (every tag but the dispatcher's own);
 2. saves x1..x31 and the thread's CSRs into its record (on every trap);
 3. saves the thread's capabilities. A thread owns **c0..c7** across
-   switches; they go into the core's capability save table, 8 slots per
-   resident thread. **c8..c15 are a thread's own only while it is not
+   switches; each one is either described (an endpoint: node and
+   permissions; a device capability: base, length and permissions, cut
+   from the device root again on switch-in, indistinguishable from the
+   original) or put into a slot of the core's save-table pool (2.1).
+   **c8..c15 are a thread's own only while it is not
    switched out** (the dispatcher borrows c8 and c9 during a trap and
    gives them back); they do not survive a switch;
 4. copies the used D-LS out to the thread's **save area** in its arena:
@@ -442,7 +466,7 @@ memory is E bytes larger, [−E, P). The start-up block stays at offset
 | [−E, P) | the program's memory (thread 0's c0): 832 KiB with one thread. 0x7F000: the start-up block `proc` writes (pid, parent, handles, command line), read once by `sys_init`. The image's **`.far` section is loaded here at its own offsets** (`.far` labels are arena offsets) |
 | [P, 0xD0000) | the save areas of threads N−1 .. 1 (48 KiB each) |
 | [0xD0000, 0xF0000) | the program image as `fs` loaded it (128 KiB at most); each thread's dispatcher keeps a read-only share and reloads code from it |
-| [0xF0000, 0xFC000) | thread 0's save area |
+| [0xF0000, 0xFC000) | thread 0's save area (with one thread, the image and the save area are one capability, kept in one save-table slot) |
 | [0xFF000, 0x100000) | the message buffer (c5) |
 
 A save area holds the data extent at 0.. (40 KiB at most) and the live

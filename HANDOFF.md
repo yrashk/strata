@@ -108,7 +108,7 @@ Not verified:
 - `os/ws/README.md` still has a "what remains" section from before the
   integration.
 - Stretch goals: `PLAN.md` section S (Forth ahead-of-time compiler, more
-  than 3 threads per core).
+  than 3 threads per core: done as the save-table pool, 11 per core).
 
 ## Plans and notes in the tree
 

@@ -116,7 +116,7 @@ strata$ wait %2
 strata$ grep HTTP/ < r13
 HTTP/1.0 200 OK
 strata$ echo GET /~ps HTTP/1.0 | nc 127.0.0.1 80 > r11
-GET /~ps 200 3116
+GET /~ps 200 3117
 strata$ grep "<h2>" < r11
 <h2>Cores</h2>
 <h2>Processes</h2>

@@ -44,11 +44,11 @@ erc=$?
 rrc=$?
 wait $pe $pr
 # normalise what depends on timing: ps rows keep pid, parent, core, cores and
-# name; cores lines keep processes and flags; uptime keeps nothing but itself;
+# name; cores lines keep processes and flags (not switches, KiB, free slots); uptime keeps nothing but itself;
 # sched keeps the slice, not the rates
 norm() {
   sed -E -e 's/^( +[0-9]+ +[0-9]+) +(running|ready|blocked|zombie) +([0-9]+ +[0-9]+) +[0-9]+ +[0-9]+ +(.*)$/\1 \3 \4/' \
-         -e 's/^(core [0-9]+): (running [0-9]+|idle), [0-9]+ runnable,(.*); [0-9]+ switches, [0-9]+ KiB moved$/\1:\3/' \
+         -e 's/^(core [0-9]+): (running [0-9]+|idle), [0-9]+ runnable,(.*); [0-9]+ switches, [0-9]+ KiB moved, [0-9]+ slots free$/\1:\3/' \
          -e 's/^up [0-9.]+ s, .*$/up .../' \
          -e 's/^(time slice: [0-9]+ us); .*$/\1/' "$1"
 }

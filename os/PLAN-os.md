@@ -28,7 +28,8 @@ tools/test-break.sh, tools/test-preempt.sh, tools/test-as.sh (StrataOS part), Ma
 - User attachments: svc 12 SEND (sys_msga): attachment + message sent by the dispatcher
   in one step. (`csend cX, cE` then `csend c5, cE` is reliable only from processes alone
   on their core: proc, F_SOLO, still does that.)
-- Max 3 threads per worker core (save-table budget). Placement: servers on empty cores;
+- Max 11 threads per worker core (NSLOT; the save table is a pool: 4 slots reserved per
+  thread record, the server 5, 12 general for queues and extra slots). Placement: servers on empty cores;
   ordinary 1-thread processes prefer cores with a server (score = processes + 1 if no
   server); N threads on N contiguous non-server cores with the least-loaded busiest core.
 - No exclusive cores (user decision): bare programs and `-n N` = N threads, window
@@ -52,7 +53,8 @@ tools/test-break.sh, tools/test-preempt.sh, tools/test-as.sh (StrataOS part), Ma
   cutting the revoker at its bounds (u_arcap).
 - A bare-metal thread's saved D-LS is all of 0..0x9FFF (as keeps tables there); a
   StrataOS program's is its data section.
-- Core 0's resident code is at I-LS 0x7000+ (overlay.s writes 0x7000..0x707F on workers).
+- Core 0's resident code is at I-LS 0x7700+ (K0TEXT; overlay.s writes 0x7700..0x777F on workers).
+  It was 0x7000 until the save-table pool made the worker dispatcher larger.
 - clock.s / gfx.s are left off the disk (they need the device root).
 - dev's GRANT_FB: only to the pid registered as "ws" (proc WHOIS); the kernel lends the
   framebuffer, a revocable region of its own (FBLEND), and revokes it when the holder ends.
@@ -159,7 +161,7 @@ tools/test-break.sh, tools/test-preempt.sh, tools/test-as.sh (StrataOS part), Ma
   the requests sent to that core. It stays an ordinary child (WAIT, `kill`, Ctrl-C work;
   `ps` shows "ws (server)"). When it ends (exit, kill, fault) the kernel clears the
   core's server slot, its registry name goes (LOOKUP "ws" -> -4), and `ws` can be run
-  again. Other processes then time-share ws's core like any server core (3 threads per
+  again. Other processes then time-share ws's core like any server core (11 threads per
   core in all, ws included).
   REGISTER is now checked (spec 2.4): -5 unless the caller was started as a server (boot
   servers, `ws`); -7 if another live process holds the name.
