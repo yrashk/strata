@@ -29,7 +29,7 @@ cli @ sock-close  srv @ sock-close  ok
 bye strata$ -n 2 forth -e 80 tcp-listen
 *** net: one thread only (start Forth without -n)
 [exit 1]
-[1] strata$ forth httpd.fs 8000 9 > hlog &
+[1] strata$ forth httpd.fs 8000 11 > hlog &
 [1] 11
 strata$ echo "GET /httptest/note.txt HTTP/1.0" | nc 127.0.0.1 8000
 HTTP/1.0 200 OK
@@ -89,18 +89,25 @@ strata$ echo "GET /httptest/blob.bin HTTP/1.0" | nc 127.0.0.1 8000 | grep Type
 Content-Type: application/octet-stream
 strata$ echo "HEAD / HTTP/1.0" | nc 127.0.0.1 8000 | grep Type
 Content-Type: text/html
-[1] done  forth httpd.fs 8000 9 > hlog
+strata$ echo "GET /~ps HTTP/1.0" | nc 127.0.0.1 8000 | grep doing
+<html><head><title>what the machine is doing</title><link rel='stylesheet' href='/style.css'></head><body>
+<h1>StrataOS 0.1: what the machine is doing</h1>
+strata$ echo "GET /~ps HTTP/1.0" | nc 127.0.0.1 8000 | grep Processes
+<h2>Processes</h2><table><tr><th>pid</th><th>parent</th><th>state</th><th>core</th><th>threads</th><th>switches</th><th>KiB moved</th><th>name</th></tr>
+[1] done  forth httpd.fs 8000 11 > hlog
 strata$ wait
 strata$ cat hlog
 httpd: serving the tag file system on port 8000 
-127.0.0.1 GET /httptest/note.txt 200 57 
-127.0.0.1 GET /httptest/page.html 200 117 
-127.0.0.1 GET /httptest 200 262 
-127.0.0.1 HEAD /httptest/ 200 0 
-127.0.0.1 GET /httptest/nosuch 404 14 
-127.0.0.1 DELETE /httptest/note.txt 405 23 
-127.0.0.1 nonsense  400 16 
-127.0.0.1 GET /httptest/blob.bin 200 12 
-127.0.0.1 HEAD / 200 0 
+GET /httptest/note.txt 200 57 
+GET /httptest/page.html 200 117 
+GET /httptest 200 262 
+HEAD /httptest/ 200 0 
+GET /httptest/nosuch 404 14 
+DELETE /httptest/note.txt 405 23 
+nonsense  400 16 
+GET /httptest/blob.bin 200 12 
+HEAD / 200 0 
+GET /~ps 200 N 
+GET /~ps 200 N 
 strata$ halt
 StrataOS: all cores halted

@@ -216,7 +216,7 @@ $(BUILD)/src/as.s: os/progs/as.s
 FORTH_DISK := $(BUILD)/prog/forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
               $(wildcard lang/forth/demos/*.fs)
 # the network words (loaded on demand, like tools.fs) and the web server built on them
-FORTH_DISK += lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd.fs
+FORTH_DISK += lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd.fs lang/forth/httpd-ps.fs
 
 DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as \
               $(BUILD)/prog/units $(SRCS) $(USRCS) $(FORTH_DISK)
@@ -230,7 +230,7 @@ DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) \
              -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
              -t forth,demo $(wildcard lang/forth/demos/*.fs) \
-             -t forth,net lang/forth/net.fs lang/forth/udp.fs -t forth,net,demo lang/forth/httpd.fs
+             -t forth,net lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd-ps.fs -t forth,net,demo lang/forth/httpd.fs
 # the web site httpd serves (index.html at /, the stylesheet of every page)
 WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)

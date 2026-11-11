@@ -337,10 +337,11 @@ constant value to defer is s" ." abort" catch throw evaluate`...):
 | `heap-cap` `tmp-cap` | the heap's capability register (8; 6 under StrataOS) and a spare one (11; 7 under StrataOS) |
 | `cores core# workers` `spawn ( x1..xn n xt core -- )` `await ( core -- y1..ym )` `run-on ( xt core -- ... )` `par ( xt -- )` `publish` | cores (StrataOS: the threads of `-n N forth`) |
 | `include FILE` `included ( a u -- )` `require NAME` | StrataOS: interpret a file; `require tools` loads tools.fs for good, once |
-| `(msg) ( handle len mode op reg -- result )` | StrataOS: one request to a server (register 1 proc / the server a LOOKUP found, 2 fs, 3 tty, 4 pipe); data moves with `5 tput` / `5 tget` at offset 64. Bare metal: "not available on this platform" |
+| `(msg) ( handle len mode op reg -- result )` | StrataOS: one request to a server (register 1 proc, 2 fs, 3 tty, 4 pipe, 6 the network server, looked up through proc each time); data moves with `5 tput` / `5 tget` at offset 64. Bare metal: "not available on this platform" |
 | `tcp-listen ( port -- sock\|err )` `tcp-accept ( lsock -- sock\|err )` `tcp-connect ( ip port -- sock\|err )` | StrataOS, net.fs: TCP through the network server (started if none runs) |
-| `sock-read sock-write ( addr u sock -- n )` `sock-close sock-shutdown ( sock -- )` `sock-peer ( sock -- ip port )` | net.fs: a socket is read and written like a file; `sock-write` writes all of it |
-| `ip>str ( ip -- addr u )` `.ip ( ip -- )` `str>ip ( addr u -- ip\|-1 )` `net-init` `split ( a u c -- rest u2 first u1 )` | net.fs: IPv4 addresses (a.b.c.d in a cell), finding the server, a string helper |
+| `sock-read sock-write ( addr u sock -- n )` `sock-close sock-shutdown ( sock -- )` | net.fs: a socket is read and written like a file; `sock-write` writes all of it |
+| `net-init` `split ( a u c -- rest u2 first u1 )` | net.fs: finding (or starting) the server, a string helper |
+| `ip>str ( ip -- addr u )` `.ip ( ip -- )` `str>ip ( addr u -- ip\|-1 )` `sock-peer ( sock -- ip port )` | udp.fs: IPv4 addresses (a.b.c.d in a cell), the other end of a connection |
 | `udp-open ( port -- sock\|err )` `udp-send ( addr u ip port sock -- n )` `udp-recv ( addr u sock -- n ip port )` `ping ( ip -- us\|err )` | udp.fs: datagrams and ICMP echo |
 | `inline-limit` | a variable: primitives with bodies of up to this many bytes are copied inline (16; 4 for the start-up source under StrataOS) |
 | `(mark)` `(release)` | remember the dictionary / forget everything defined since (one level) |
@@ -357,8 +358,8 @@ constant value to defer is s" ." abort" catch throw evaluate`...):
 | `tools.fs`, `see.fs` | `words dump .cap .caps .jit .fcache`, and the disassembler with `see`: embedded on bare metal, disk files loaded on demand under StrataOS |
 | `bare/` | the bare-metal platform: `config.s` (constants), `boot.s` (the image's `.text`: boot stub, worker loop), `platform.s` (console, timer, capability set-up, far-cache backing, `bye`), `source.s` and `start.fs` (the embedded source, the banner) |
 | `os/` | the StrataOS 0.1 platform: `config.s` (constants, arena layout, data), `boot.s` (the stub, twice: `.text` and its copy in the mirror; the embedded source), `platform.s` (messages to tty/fs/pipe, `(msg)`, files, the clock, threads and the parcel, exit), `os.fs` (`include`, `require`, the banner) |
-| `net.fs`, `udp.fs` | StrataOS: TCP, addresses; UDP and ping. Disk files (tagged forth, net), loaded on demand like tools.fs |
-| `httpd.fs` | StrataOS: an HTTP/1.0 server for the tag file system (`forth httpd.fs`; tagged forth, net, demo) |
+| `net.fs`, `udp.fs` | StrataOS: TCP; UDP, ping, addresses. Disk files (tagged forth, net), loaded on demand like tools.fs |
+| `httpd.fs`, `httpd-ps.fs` | StrataOS: an HTTP/1.0 server for the tag file system (`forth httpd.fs`; tagged forth, net, demo), and its `/~ps` page, loaded for each request of it |
 | `demos/tiers.fs` | capabilities, transfers and tags, the far cache, code installation, ownership moving between cores |
 | `demos/multicore.fs` | a parallel sum: the heap is cut into slices, given to the workers, summed through each worker's own far cache, and joined back |
 | `demos/gfx.fs` | a parallel Mandelbrot: the framebuffer is cut into bands, one per worker, then joined and presented (bare metal only) |
@@ -380,14 +381,14 @@ layer: `config.s`, `boot.s`, `platform.s`, `source.s`.
 |---|---|---|
 | kernel + platform code | 12.9 KiB | 14.7 KiB (the kernel, the platform layer, the stub and trampolines) |
 | Forth source compiled at start-up | core.fs, tools.fs, see.fs: 19.4 KiB | core.fs, os.fs: 8.9 KiB (compact code, inline limit 4) |
-| code space free after start-up | about 32 KiB of 64 | about 8.4 KiB of 32 (net.fs takes 2.4, httpd.fs 5.3 more) |
+| code space free after start-up | about 32 KiB of 64 | about 8.3 KiB of 32 (net.fs takes 1.6, httpd.fs 5.5 more) |
 | data space free after start-up | about 17.4 KiB | about 16.4 KiB |
 | image | 133 KiB | 87 KiB (limit: 128) |
 | start-up | about 1.0 M instructions | about 0.8 M, plus messages |
 
 forth.s is 4581 lines of assembly, the platform layers 250 (bare) and 920
 (StrataOS) more; core.fs 299 lines, tools.fs 40, see.fs 68, net.fs 98,
-udp.fs 22, httpd.fs 188. `make test-forth` takes about 20 s.
+udp.fs 46, httpd.fs 195, httpd-ps.fs 60. `make test-forth` takes about 20 s.
 
 ## StrataOS
 
@@ -415,7 +416,7 @@ Under the OS:
   reads source through `fs`, tag paths included (`include /forth/core.fs`).
 - **The I-LS budget.** Programs get 0x8000..0xFFFF (32 KiB). The kernel,
   the platform layer and core.fs compiled in compact form (and with the
-  inlining limit at 4) leave about 8.4 KiB of code space, so the tools
+  inlining limit at 4) leave about 8.3 KiB of code space, so the tools
   (`see`, the disassembler, `dump`, `words`, `.cap`, the network words)
   are not compiled at start-up: `tools.fs`, `see.fs`, `net.fs` and
   `udp.fs` are loaded on demand the first time one of their words is used.
@@ -435,30 +436,36 @@ with `5 tput` and `5 tget`, so everything else is written in Forth:
 
 ```forth
 : tcp-listen ( port -- sock|err ) 0 0 54 net ;   \ LISTEN: handle = port
-: sock-read ( addr u sock -- n ) net-init 1 msg-read ;
+: sock-read ( addr u sock -- n ) net-init 6 msg-read ;
 ```
 
 - **net.fs**: `tcp-listen ( port -- sock|err )`, `tcp-accept ( lsock --
   sock|err )` (waits), `tcp-connect ( ip port -- sock|err )`, `sock-read`
   and `sock-write ( addr u sock -- n )` (a read returns what has arrived,
   at most 1 KiB, 0 once the peer has closed; a write sends all of it),
-  `sock-close`, `sock-shutdown ( sock -- )`, `sock-peer ( sock -- ip port )`,
-  `ip>str ( ip -- addr u )`, `.ip`, `str>ip ( addr u -- ip|-1 )`. **udp.fs**:
-  `udp-open ( port -- sock|err )` (0: any port), `udp-send ( addr u ip port
-  sock -- n )`, `udp-recv ( addr u sock -- n ip port )`, `ping ( ip --
-  us|err )`. A socket is the server's id for it; results below zero are
+  `sock-close`, `sock-shutdown ( sock -- )`. **udp.fs**: `sock-peer ( sock
+  -- ip port )`, `ip>str ( ip -- addr u )`, `.ip`, `str>ip ( addr u --
+  ip|-1 )`, `udp-open ( port -- sock|err )` (0: any port), `udp-send ( addr
+  u ip port sock -- n )`, `udp-recv ( addr u sock -- n ip port )`, `ping (
+  ip -- us|err )` (apart from net.fs, so that a TCP program such as
+  httpd.fs has more code space). A socket is the server's id for it; results below zero are
   the server's errors (-1 refused or reset, -4 no network server, -6 no
   free socket, -7 port in use, -8 no answer). Addresses are a.b.c.d =
   a<<24 | b<<16 | c<<8 | d in a cell: `$7f000001` is 127.0.0.1.
 - **Loading.** At the prompt each word loads its file for one command, like
   `see`; `require net` (or `require udp`) loads it for good, as a program
   must that uses the words in its definitions.
-- **The server's endpoint.** The first call looks the server up (LOOKUP
-  "net" through `proc`, whose endpoint is c1) and starts one (`net
-  10.0.0.1`) if none runs. The endpoint arrives where the heap lives (c6),
-  so the heap waits in c7 meanwhile; then it replaces `proc`'s in c1 for
-  good (Forth needs `proc` for nothing else). A Forth of several threads
-  (`-n N`) keeps the job board in c1 and has no network.
+- **The server's endpoint.** A process keeps c0..c7 and nothing else, and
+  Forth uses all of them, so the network server's endpoint has no register:
+  `(msg)` with register 6 asks `proc` (c1) for it, LOOKUP "net", before
+  every request, sends the request through it and drops it after. The
+  endpoint arrives where the heap lives (c6), so the heap waits in c7
+  meanwhile; LOOKUP's name covers 8 bytes of the request's data, which are
+  saved and put back. That is a `proc` round trip per network request (a
+  1 KiB `sock-write` chunk, an ACCEPT, ...), and in exchange `proc` stays
+  reachable (httpd.fs's `/~ps` asks it for INFO, CORES and PS). The first
+  call starts a network server (`net`) if none runs. A Forth of several
+  threads (`-n N`) keeps the job board in c1 and has no network.
 - **Limits.** The server has 4 sockets (TCP and UDP together, a closed
   connection waits 0.5 s in TIME-WAIT); up to 1 KiB moves per message.
   Loopback (127.0.0.1, or the machine's own address) works with no link,
@@ -486,14 +493,23 @@ port is 8000 so that it can run next to the assembly `httpd` on 80,
 doc/strataos.md 2.11). URL
 paths are tag paths: `/doc/motd` is motd, which carries the tag `doc`; a
 path of tags is an HTML listing of the files carrying them (`/forth/net`);
-a path ending in `/` serves its `index.html`, or else the listing (`/`
-lists every file). GET and HEAD; Content-Type by extension (html, txt,
+a path ending in `/` serves its `index.html`, or else the listing; `/` is
+its own home page, `/www/forth.html`, and `/~/` the listing of every file;
+`/~ps` is what the machine is doing (uptime, cores, processes, context
+switches and the KiB they moved, from `proc`'s INFO, CORES and PS, as on
+the assembly httpd). GET and HEAD; Content-Type by extension (html, txt,
 css, js, json, svg, png, jpg, gif, pdf, and the source files as text),
 else text or binary by the first bytes; Content-Length; 200, 400, 404 and
-405 (with `Allow`). Each request is logged on a line (`127.0.0.1 GET
-/doc/motd 200 1402`: client, method, path, status, body bytes). The
-listing is generated twice, once to count its bytes for Content-Length and
-once to send them, through a deferred `out`. Limits: requests of up to
-1 KiB (headers are read and ignored), listings of 126 files, no
-%-escapes, no keep-alive. With net.fs it takes about 7.7 of the 8.4 KiB of
-code space.
+405 (with `Allow`). Each request is logged on a line (`GET /doc/motd
+200 1402`: method, path, status, body bytes). A listing is generated twice,
+once to count its bytes for Content-Length and once to send them, through a
+deferred `out`. Limits: requests of up to 1 KiB (headers are read and
+ignored), listings of 126 files, no %-escapes, no keep-alive.
+
+With net.fs it takes about 7.1 of the 8.3 KiB of code space. The `/~ps`
+page would not fit beside it, so it is a file of its own, `httpd-ps.fs`,
+which httpd.fs loads for each request of `/~ps` and forgets after it with
+`(tool)`, the word the interpreter loads `see.fs` with (about 0.9 KiB of
+code while it is there, 0.3 KiB to spare). Most of that file is not even
+compiled: below a few definitions its lines are interpreted as it is read,
+and they make the page into a buffer in data space and send it.

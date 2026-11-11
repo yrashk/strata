@@ -1,0 +1,35 @@
+
+5. Printing statistics.
+
+=== $paramod$b2d55fa5b584ebd7c5fbf88efc19f5cb1e5a7fc6\strata_top ===
+
+        +----------Local Count, excluding submodules.
+        | 
+    62793 wires
+   164622 wire bits
+      362 public wires
+    14217 public wire bits
+       18 ports
+      295 port bits
+    65308 cells
+       12   $scopeinfo
+        1   BUFG
+     3244   CARRY4
+       30   DSP48E1
+    12594   FDRE
+       87   FDSE
+       70   IBUF
+      477   INV
+        3   LUT1
+     7646   LUT2
+     5688   LUT3
+     7245   LUT4
+    13325   LUT5
+    14333   LUT6
+       46   MUXF7
+       22   MUXF8
+      225   OBUF
+      119   RAM32M
+       53   RAM64M
+       88   RAMB36E1
+

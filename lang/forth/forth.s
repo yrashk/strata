@@ -2084,8 +2084,8 @@ tr_copy:                                ; copy them back
         ret                             ; done
 
 ; (MSG) ( handle len mode op reg -- result ): one request to a server through
-; endpoint register reg (StrataOS: 1 proc, or the server a LOOKUP through it
-; found; 2 fs, 3 tty, 4 pipe), waiting for the answer; data moves with
+; endpoint register reg (StrataOS: 1 proc, 2 fs, 3 tty, 4 pipe, 6 the network
+; server, looked up through proc each time), waiting for the answer; data moves with
 ; `5 tput` / `5 tget` at offset 64 of the message buffer. Bare metal: -306.
 p_msg:                                  ; Forth word
         j     plat_msg                  ; tail call: the platform sends it

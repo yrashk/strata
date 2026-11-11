@@ -230,6 +230,7 @@ about                         120  doc
 motd                         1566  doc
 rc                              9  etc
 resolv                        184  etc
+forth.html                   3158  www
 index.html                   2789  www
 style.css                    1312  www
 tfile                          11 

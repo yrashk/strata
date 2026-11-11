@@ -12,8 +12,8 @@
 ; switch and nothing else, so everything lives there:
 ;   c0  the arena below the heap: code mirror, source text, the parcel
 ;   c1  the job board (atomics only, copyable) when started with -n N;
-;       otherwise the endpoint of `proc`, which Forth uses only through
-;       (msg), until a LOOKUP through it (net.fs: "net") replaces it
+;       otherwise the endpoint of `proc` (Forth asks it through (msg):
+;       net.fs, the network server's endpoint for each request; httpd.fs, /~ps)
 ;   c2  endpoint of `fs`     c3  endpoint of `tty`     c4  endpoint of `pipe`
 ;   c5  the message buffer (4 KiB)
 ;   c6  the far heap behind far@ / far!  (heap-cap)
@@ -49,6 +49,7 @@ OP_LOOKUP = 25                          ; proc: a server's endpoint by name (it 
 R_FS      = 2                           ; endpoint registers: fs
 R_TTY     = 3                           ; tty
 R_PIPE    = 4                           ; pipe
+R_NET     = 6                           ; the network server (plat_msg: its endpoint is in c6 for one request)
 PL_NAMEMAX = 200                        ; longest file name passed to fs
 
 ; -----------------------------------------------------------------------------
@@ -195,7 +196,7 @@ pi_done:                                ; ready
 ; -----------------------------------------------------------------------------
 ; Messages
 ; -----------------------------------------------------------------------------
-; pl_call(a0 = server register 1..4, a1 = op, a2 = the server's id, a3 =
+; pl_call(a0 = server register 1..4 or 6, a1 = op, a2 = the server's id, a3 =
 ; length, a4 = mode) -> a0 = result. Data must be in the buffer already.
 ; Clobbers t0..t2, a0..a4.
 pl_call:                                ; leaf
@@ -213,7 +214,9 @@ pl_call:                                ; leaf
         li    t1, R_PIPE                ; ...
         beq   a0, t1, pc_pipe           ; a pipe
         li    t1, 1                     ; ...
-        beq   a0, t1, pc_c1             ; c1: proc, or the server a LOOKUP put there
+        beq   a0, t1, pc_c1             ; c1: proc
+        li    t1, R_NET                 ; ...
+        beq   a0, t1, pc_c6             ; c6: the network server's endpoint, for one request (plat_msg)
         csend c5, c2                    ; fs: lend it the buffer
         cbase a1, c2                    ; a1 = the core it names (for the doorbell)
         j     pc_wait                   ; ...
@@ -224,6 +227,10 @@ pc_tty:                                 ; tty
 pc_c1:                                  ; register 1
         csend c5, c1                    ; lend it the buffer
         cbase a1, c1                    ; a1 = its core
+        j     pc_wait                   ; ...
+pc_c6:                                  ; register 6
+        csend c5, c6                    ; lend it the buffer
+        cbase a1, c6                    ; a1 = its core
         j     pc_wait                   ; ...
 pc_pipe:                                ; pipe
         csend c5, c4                    ; lend it the buffer
@@ -257,17 +264,23 @@ pl_hcall:                               ; leaf (tail-calls pl_call)
 ; plat_msg: the Forth word (MSG) ( handle len mode op reg -- result ), one
 ; request to a server (net.fs is built on it; forth.s's p_msg jumps here,
 ; with the data stack as it was). The header op, handle, length, mode goes to
-; the server behind endpoint register reg (1, 2 fs, 3 tty, 4 pipe; anything
-; else is fs) and the word sleeps until the answer is back. Request and
-; reply data are the buffer's bytes from 64 on: Forth moves them itself with
-; `5 tput` and `5 tget` (pl_call waits for tag tg5 before the buffer leaves).
-; Register 1 is proc's endpoint until a LOOKUP (op 25) through it succeeds:
-; the endpoint of the server named arrives in c6, where the heap is, so the
-; heap waits in the scratch register c7 meanwhile; the endpoint then
-; replaces proc's in c1, and register 1 is that server for good (a later
-; LOOKUP answers 0 at once). With threads (-n N) c1 is the job board: -1.
+; the server behind endpoint register reg (1 proc, 2 fs, 3 tty, 4 pipe, 6 the
+; network server; anything else is fs) and the word sleeps until the answer
+; is back. Request and reply data are the buffer's bytes from 64 on: Forth
+; moves them itself with `5 tput` and `5 tget` (pl_call waits for tag tg5
+; before the buffer leaves). With threads (-n N) c1 is the job board, so
+; registers 1 and 6 fail (-1).
+;
+; Register 6 has no register of its own: c0..c7 are all taken, and proc's
+; endpoint must stay in c1. So every request to the network server first
+; asks proc for its endpoint (LOOKUP "net"), which arrives in c6, where the
+; heap is: the heap waits in the scratch register c7 meanwhile, the request
+; goes through the endpoint in c6, and the endpoint is dropped after the
+; answer. LOOKUP's name covers the first 8 bytes of the request's data, which
+; are kept in pl_save and put back. A proc round trip per network request;
+; -4 if no network server runs.
 plat_msg:                               ; a Forth word's body
-        addi  sp, sp, -8                ; frame
+        addi  sp, sp, -48               ; frame: ra, then op, handle, length, mode for register 6
         sd    ra, 0(sp)                 ; save the return address
         mv    a0, s1                    ; a0 = the register
         ld    a1, 0(s0)                 ; a1 = op
@@ -275,39 +288,61 @@ plat_msg:                               ; a Forth word's body
         ld    a3, 16(s0)                ; a3 = length
         ld    a2, 24(s0)                ; a2 = handle
         addi  s0, s0, 32                ; four cells off; the result replaces the fifth
-        li    t0, 1                     ; register 1?
-        bne   a0, t0, pm_call           ; no: an ordinary request
+        li    t0, 1                     ; register 1 (proc)
+        beq   a0, t0, pm_c1             ; ...
+        li    t0, R_NET                 ; or 6 (the network server, through proc)?
+        bne   a0, t0, pm_call           ; neither: an ordinary request
+pm_c1:                                  ; both need proc in c1
         ld    t0, v_ncores(zero)        ; threads: c1 is the job board
-        bne   t0, a0, pm_fail           ; (v_ncores = 1: one thread)
-        li    t0, OP_LOOKUP             ; a LOOKUP?
-        bne   a1, t0, pm_call           ; no: an ordinary request
-        ld    a0, pl_c1srv(zero)        ; done already?
-        bnez  a0, pm_zero               ; yes: register 1 is that server
-        li    a0, 1                     ; (register 1)
+        li    t1, 1                     ; (v_ncores = 1: one thread)
+        bne   t0, t1, pm_fail           ; no proc to ask
+        bne   a0, t0, pm_net            ; register 6
+pm_call:                                ; send it and wait
+        call  pl_call                   ; a0 = the result
+        j     pm_ret                    ; ...
+pm_net:                                 ; the network server: its endpoint first
+        sd    a1, 8(sp)                 ; keep the request
+        sd    a2, 16(sp)                ; ...
+        sd    a3, 24(sp)                ; ...
+        sd    a4, 32(sp)                ; ...
+        twait 1 << 5                    ; Forth's request data are in the buffer
+        la    t0, pl_save               ; their first 8 bytes, which the name covers,
+        li    t1, 64                    ; -> pl_save
+        li    t2, 8                     ; ...
+        tget  tg9, t0, c5, t1, t2       ; ...
+        ld    t0, pl_save(zero)         ; (waits for the transfer)
+        la    t0, pl_netnm              ; "net" -> LOOKUP's data
+        tput  tg9, t0, c5, t1, t2       ; ...
         cclear c7                       ; the scratch register holds the heap meanwhile:
         cmov  c7, c6                    ; the endpoint arrives in c6
-        call  pl_call                   ; a0 = 0, or -4: no such server
-        bnez  a0, pm_home               ; none: proc stays in c1
-        cclear c1                       ; proc's endpoint makes room
-        cmov  c1, c6                    ; for the server's
-        li    t0, 1                     ; register 1 is a server now
-        sd    t0, pl_c1srv(zero)        ; ...
+        li    a0, 1                     ; proc
+        li    a1, OP_LOOKUP             ; LOOKUP "net"
+        li    a2, 0                     ; ...
+        li    a3, 3                     ; ...
+        li    a4, 0                     ; ...
+        call  pl_call                   ; a0 = 0, the endpoint in c6; or -4: no network server
+        bnez  a0, pm_home               ; none
+        la    t0, pl_save               ; the request's data as they were
+        li    t1, 64                    ; ...
+        li    t2, 8                     ; ...
+        tput  tg9, t0, c5, t1, t2       ; (pl_call waits for it)
+        li    a0, R_NET                 ; the request, through c6
+        ld    a1, 8(sp)                 ; ...
+        ld    a2, 16(sp)                ; ...
+        ld    a3, 24(sp)                ; ...
+        ld    a4, 32(sp)                ; ...
+        call  pl_call                   ; a0 = the result
+        cclear c6                       ; the endpoint is dropped
 pm_home:                                ; the heap goes back
         cmov  c6, c7                    ; ...
         cclear c7                       ; (empty again, as after TICKS)
         j     pm_ret                    ; ...
-pm_call:                                ; send it and wait
-        call  pl_call                   ; a0 = the result
-        j     pm_ret                    ; ...
-pm_fail:                                ; no server behind register 1
+pm_fail:                                ; no proc behind register 1
         li    a0, -1                    ; failed
-        j     pm_ret                    ; ...
-pm_zero:                                ; nothing to do
-        li    a0, 0                     ; success
 pm_ret:                                 ; a0 = the result
         mv    s1, a0                    ; becomes the top of the stack
         ld    ra, 0(sp)                 ; restore
-        addi  sp, sp, 8                 ; pop
+        addi  sp, sp, 48                ; pop
         ret                             ; done
 
 ; plat_write(a0 = D-LS address (8-aligned), a1 = length): standard output

@@ -8,12 +8,13 @@
 \ A URL path is a tag path (doc/strataos.md 2.4): /doc/motd is the file motd,
 \ which carries the tag doc. A path of tags (/forth/demo) is a listing of
 \ the files that carry them; a path ending in / is its index.html if there
-\ is one, else that listing (so / lists every file).
+\ is one, else that listing. / is this server's own page, /www/forth.html
+\ (the assembly httpd's is index.html), else the listing of every file.
 \
 \ GET and HEAD; the answers carry Content-Type (by the extension, else text
 \ or binary by the first bytes), Content-Length, and the status 200, 400 (not
 \ a request), 404 (no such file or tag) or 405 (not GET or HEAD). One line
-\ per request on standard output: client, method, path, status, body bytes.
+\ per request on standard output: method, path, status, body bytes.
 \ It stops after COUNT requests if one is given (the tests use that).
 \
 \ Built on net.fs (sockets) and on messages to the file server, both through
@@ -123,12 +124,15 @@ variable file  variable #file                   \ the file being sent and its si
   dir-buf r@ content-type  #file @ s" 200 OK" respond
   head? 0= if dir-buf r@ send send-rest then  rdrop file @ fs-close ;
 
-\ ---- a listing ---------------------------------------------------------------------------
-\ Its length goes into the headers, so it is made twice: once to count the
-\ bytes, once to send them.
-defer out ( a u -- )                            \ where the listing goes
+\ ---- generated pages: a listing ------------------------------------------------------------
+\ A page's length goes into the headers, so it is made twice: once to count
+\ the bytes, once to send them.
+defer out ( a u -- )                            \ where a generated page goes
 : tally ( a u -- ) nip #body +! ;               \ the counting pass
 : out-nl ( -- ) crlf 2 out ;                    \ end a line
+: serve-page ( xt -- )                          \ 200 and the HTML page xt makes, to OUT
+  ['] tally is out  0 #body !  dup execute  s" text/html" #body @ s" 200 OK" respond
+  head? if drop else ['] send is out execute then ;
 : zcount ( a max -- a u )                       \ a name padded with zero bytes
   over swap 0 ?do dup c@ 0= if leave then 1+ loop over - ;
 : out-dir ( -- )                                \ the listing's path, ending in '/'
@@ -141,18 +145,21 @@ variable #files                                 \ the files in dir-buf
     s" <li><a href='" out out-dir 2dup out s" '>" out out s" </a> " out
     24 + @ <# #s #> out s" </li>" out out-nl
   loop  s" </ul></body></html>" out out-nl ;
-: serve-listing ( n -- )                        \ 200 and the listing of the n files in dir-buf
-  #files !  ['] tally is out  0 #body !  list-page
-  s" text/html" #body @ s" 200 OK" respond
-  head? 0= if ['] send is out list-page then ;
+: serve-listing ( n -- ) #files !  ['] list-page serve-page ; \ the n files in dir-buf
 
 \ ---- the answer to a request --------------------------------------------------------------
 create pbuf 256 allot                           \ room for PATH followed by index.html
 : index-path ( -- a u )                         \ PATH followed by index.html
   path 2@ 240 min dup >r  pbuf swap move  s" index.html" pbuf r@ + swap move  pbuf r> 10 + ;
 : serve-path ( -- )                             \ a file, an index, a listing, or 404
-  path 2@ + 1- c@ [char] / = if index-path else path 2@ then \ the file it may name
+  path 2@ + 1- c@ [char] / = if                  \ the file it may name: "/" is this
+    path 2@ nip 1 = if s" /www/forth.html" else index-path then \ server's own home page
+  else path 2@ then
   2dup fs-size dup 0< if drop 2drop else serve-file exit then
+  path 2@ s" /~ps" str= if                      \ what the machine is doing: httpd-ps.fs makes it,
+    s" /httpd-ps.fs" s" ps-page" ['] (tool) catch \ loaded for the request and forgotten after
+    if 2drop 2drop s" 500 Internal Server Error" error-page then exit then
+  path 2@ s" /~/" str= if s" /" path 2! then     \ /~/: every file, as on the assembly httpd
   path 2@ fs-dir dup 0< if drop s" 404 Not Found" error-page exit then  serve-listing ;
 : answer ( -- )                                 \ the request on conn
   0 #obuf !  0 #body !  read-request parse-request
@@ -161,10 +168,10 @@ create pbuf 256 allot                           \ room for PATH followed by inde
   serve-path ;
 
 \ ---- serving ------------------------------------------------------------------------------
-: log ( ip -- )                                 \ client method path status bytes
-  .ip method 2@ type space path 2@ type space status 2@ drop 3 type space #body @ . cr flush ;
+: log ( -- )                                    \ method path status bytes, as the assembly httpd logs
+  method 2@ type space path 2@ type space status 2@ drop 3 type space #body @ . cr flush ;
 : serve ( sock -- )                             \ answer one connection, close it, log it
-  dup conn !  sock-peer drop  answer send-flush  conn @ sock-close  log ;
+  conn !  answer send-flush  conn @ sock-close  log ;
 : serve-all ( lsock -- )                        \ accept and answer, http-count times (0: forever)
   0 begin                                       ( lsock answered )
     over tcp-accept dup 0< if ." httpd: accept failed: " . cr 2drop exit then

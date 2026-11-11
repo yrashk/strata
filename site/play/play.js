@@ -506,70 +506,188 @@ function vmPorts(listening) {
   vmChips();
 }
 
-// The panel: floating, draggable and resizable (a bottom sheet on a phone); it
-// never takes the focus from the terminal or the screen.
-const vm = { el: null, port: 80 };
-function vmUrl(p) { return new URL(`vm/${p}/`, location.href).href; }
-function vmBuild() {
+// The windows: one small browser per guest web server (port), all shown
+// together, each floating, moved by its title bar and resized by its edges
+// and corner (a bottom sheet on a phone, one at a time there), with back /
+// forward over its own history (the iframe's history.back() could take the
+// play page itself back), an address field, reload, open-in-a-tab and close
+// (a chip stays). A click brings a window to the front. They never take the
+// focus from the terminal or the screen; each one's place and size are
+// remembered.
+const vmWins = {};          // port -> { el, port, hist, at, nav }
+let vmTop = 50;             // the front window's z-index
+let vmChipBox = null;
+const VM_GEOM = "strata-play-vm-";
+const vmPhone = () => matchMedia("(max-width: 700px)").matches;
+function vmUrl(p, path = "/") { return new URL(`vm/${p}${path}`, location.href).href; }
+function vmPathOf(href) { // the guest path of a vm/PORT/... URL
+  const m = /\/vm\/(\d+)(\/.*)?$/.exec(new URL(href, location.href).pathname);
+  return m ? (m[2] || "/") : null;
+}
+function vmGo(w, path, push = true) {
+  w.nav = !push;
+  w.el.querySelector("iframe").src = vmUrl(w.port, path.startsWith("/") ? path : "/" + path);
+}
+function vmButtons(w) {
+  w.el.querySelector(".vmback").disabled = w.at <= 0;
+  w.el.querySelector(".vmfwd").disabled = w.at >= w.hist.length - 1;
+}
+function vmFront(w) { w.el.style.zIndex = ++vmTop; }
+function vmSaveGeom(w) {
+  if (vmPhone()) return;
+  const r = w.el.getBoundingClientRect();
+  try { localStorage.setItem(VM_GEOM + w.port, JSON.stringify({ l: r.left, t: r.top, w: r.width, h: r.height })); } catch (e) { /* no storage */ }
+}
+// The guest's page keeps its scrolling: at its ends (or when it cannot
+// scroll at all) the wheel would otherwise go on to the play page under the
+// panel. Same origin (the Service Worker serves it), so the panel can say so.
+function vmContain(frame) {
+  let d;
+  try { d = frame.contentDocument; } catch (e) { return; }
+  if (!d || !d.documentElement) return;
+  d.documentElement.style.overscrollBehavior = "contain";
+  if (d.body) d.body.style.overscrollBehavior = "contain";
+  d.addEventListener("wheel", (e) => {
+    // the innermost element under the pointer that can still scroll that way takes it
+    for (let n = e.target; n && n.nodeType === 1; n = n.parentElement) {
+      const cs = d.defaultView.getComputedStyle(n);
+      const canY = /(auto|scroll)/.test(cs.overflowY) || n === d.scrollingElement;
+      const canX = /(auto|scroll)/.test(cs.overflowX) || n === d.scrollingElement;
+      if (canY && e.deltaY < 0 && n.scrollTop > 0) return;
+      if (canY && e.deltaY > 0 && n.scrollTop + n.clientHeight < n.scrollHeight - 1) return;
+      if (canX && e.deltaX < 0 && n.scrollLeft > 0) return;
+      if (canX && e.deltaX > 0 && n.scrollLeft + n.clientWidth < n.scrollWidth - 1) return;
+    }
+    e.preventDefault(); // nothing left to scroll here: and not the page below either
+  }, { passive: false });
+}
+function vmBuild(p) {
   const el = document.createElement("section");
   el.className = "vmpanel";
   el.hidden = true;
-  el.innerHTML = `<div class="vmbar"><span class="vmtitle"></span><a class="vmurl" target="_blank" rel="noopener"></a>` +
-    `<span class="vmbtns"><button class="small vmreload" title="Reload">↻</button>` +
-    `<button class="small vmopen" title="Open in a new tab">↗</button>` +
+  el.innerHTML = `<div class="vmbar"><span class="vmtitle"></span>` +
+    `<span class="vmbtns"><button class="small vmback" title="Back">←</button>` +
+    `<button class="small vmfwd" title="Forward">→</button>` +
+    `<button class="small vmreload" title="Reload">↻</button></span>` +
+    `<input class="vmaddr" spellcheck="false" autocomplete="off" aria-label="Path on the guest's server">` +
+    `<span class="vmbtns"><button class="small vmopen" title="Open in a new tab">↗</button>` +
     `<button class="small vmclose" title="Close (a chip stays)">✕</button></span></div>` +
-    `<iframe class="vmframe" title="The guest's web page" tabindex="-1"></iframe>`;
+    `<iframe class="vmframe" title="The guest's web server on port ${p}" tabindex="-1"></iframe>` +
+    `<div class="vmgrip" data-e="e"></div><div class="vmgrip" data-e="s"></div><div class="vmgrip" data-e="w"></div>` +
+    `<div class="vmgrip" data-e="se"></div><div class="vmgrip" data-e="sw"></div>`;
   document.body.appendChild(el);
-  const chips = document.createElement("div");
-  chips.className = "vmchips";
-  document.body.appendChild(chips);
-  el.querySelector(".vmreload").addEventListener("click", () => { el.querySelector("iframe").src = vmUrl(vm.port); });
-  el.querySelector(".vmopen").addEventListener("click", () => window.open(vmUrl(vm.port), "_blank", "noopener"));
-  el.querySelector(".vmclose").addEventListener("click", () => { el.hidden = true; vmChips(); });
-  for (const b of el.querySelectorAll("button")) b.addEventListener("mousedown", (e) => e.preventDefault()); // (no focus)
-  // dragging by the bar
-  const bar = el.querySelector(".vmbar");
-  bar.addEventListener("pointerdown", (e) => {
-    if (e.target.closest("button, a") || matchMedia("(max-width: 700px)").matches) return;
-    e.preventDefault();
-    const r = el.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
-    el.querySelector("iframe").style.pointerEvents = "none";
-    const move = (ev) => {
-      el.style.left = Math.max(0, Math.min(innerWidth - 80, ev.clientX - dx)) + "px";
-      el.style.top = Math.max(0, Math.min(innerHeight - 40, ev.clientY - dy)) + "px";
-      el.style.right = el.style.bottom = "auto";
-    };
-    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); el.querySelector("iframe").style.pointerEvents = ""; };
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", up);
+  const w = { el, port: p, hist: [], at: -1, nav: false };
+  vmWins[p] = w;
+  el.querySelector(".vmtitle").textContent = `:${p}`;
+  el.querySelector(".vmtitle").title = `The guest's web server on port ${p}: ${vmUrl(p)}`;
+  const frame = el.querySelector("iframe"), addr = el.querySelector(".vmaddr");
+  // the window's own history: every page the iframe shows, back / forward move in it
+  frame.addEventListener("load", () => {
+    let path = null;
+    try { path = vmPathOf(frame.contentWindow.location.href); } catch (e) { /* not ours */ }
+    if (path === null) return;
+    vmContain(frame);
+    try { frame.contentDocument.addEventListener("pointerdown", () => vmFront(w)); } catch (e) { /* not ours */ }
+    if (w.nav) w.nav = false;
+    else if (w.hist[w.at] !== path) { w.hist.splice(w.at + 1); w.hist.push(path); w.at = w.hist.length - 1; }
+    addr.value = path;
+    vmButtons(w);
   });
-  vm.el = el;
-  vm.chips = chips;
+  el.querySelector(".vmback").addEventListener("click", () => { if (w.at > 0) vmGo(w, w.hist[--w.at], false); vmButtons(w); });
+  el.querySelector(".vmfwd").addEventListener("click", () => { if (w.at < w.hist.length - 1) vmGo(w, w.hist[++w.at], false); vmButtons(w); });
+  el.querySelector(".vmreload").addEventListener("click", () => { if (w.at >= 0) vmGo(w, w.hist[w.at], false); else vmGo(w, "/"); });
+  el.querySelector(".vmopen").addEventListener("click", () => window.open(vmUrl(p, w.hist[w.at] || "/"), "_blank", "noopener"));
+  el.querySelector(".vmclose").addEventListener("click", () => { el.hidden = true; vmChips(); });
+  addr.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); vmGo(w, addr.value.trim() || "/"); addr.blur(); }
+    else if (e.key === "Escape") { addr.value = w.hist[w.at] || "/"; addr.blur(); }
+  });
+  for (const b of el.querySelectorAll("button")) b.addEventListener("mousedown", (e) => e.preventDefault()); // (no focus)
+  el.addEventListener("wheel", (e) => e.preventDefault(), { passive: false }); // the bar and the edges: no page scrolling
+  el.addEventListener("pointerdown", () => vmFront(w));
+  // moving (by the bar) and resizing (by the grips): the pointer is captured,
+  // and the iframes ignore it meanwhile so they cannot swallow the moves
+  const track = (e, onMove) => {
+    e.preventDefault();
+    const t = e.currentTarget;
+    t.setPointerCapture(e.pointerId);
+    for (const f of document.querySelectorAll(".vmframe")) f.style.pointerEvents = "none";
+    const r0 = el.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
+    const mv = (ev) => onMove(r0, ev.clientX - x0, ev.clientY - y0);
+    const up = () => {
+      t.removeEventListener("pointermove", mv);
+      t.removeEventListener("pointerup", up);
+      t.removeEventListener("pointercancel", up);
+      for (const f of document.querySelectorAll(".vmframe")) f.style.pointerEvents = "";
+      vmSaveGeom(w);
+    };
+    t.addEventListener("pointermove", mv);
+    t.addEventListener("pointerup", up);
+    t.addEventListener("pointercancel", up);
+  };
+  const place = (l, t, wd, h) => {
+    wd = Math.max(280, Math.min(wd, innerWidth));
+    h = Math.max(180, Math.min(h, innerHeight));
+    l = Math.max(0, Math.min(l, innerWidth - 80));
+    t = Math.max(0, Math.min(t, innerHeight - 40));
+    Object.assign(el.style, { left: l + "px", top: t + "px", width: wd + "px", height: h + "px", right: "auto", bottom: "auto" });
+  };
+  w.place = place;
+  el.querySelector(".vmbar").addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button, a, input") || vmPhone()) return;
+    track(e, (r, dx, dy) => place(r.left + dx, r.top + dy, r.width, r.height));
+  });
+  for (const g of el.querySelectorAll(".vmgrip")) g.addEventListener("pointerdown", (e) => {
+    if (vmPhone()) return;
+    const edge = g.dataset.e;
+    track(e, (r, dx, dy) => {
+      let l = r.left, wd = r.width, h = r.height;
+      if (edge.includes("e")) wd = r.width + dx;
+      if (edge.includes("w")) { wd = r.width - dx; l = r.left + dx; if (wd < 280) l -= 280 - wd; }
+      if (edge.includes("s")) h = r.height + dy;
+      place(l, r.top, wd, h);
+    });
+  });
+  // where it was last time, else cascaded from the bottom right after the other windows
+  let g = null;
+  try { g = JSON.parse(localStorage.getItem(VM_GEOM + p) || "null"); } catch (e) { /* no storage */ }
+  if (!vmPhone()) {
+    if (g) place(g.l, g.t, g.w, g.h);
+    else {
+      const k = Object.keys(vmWins).length - 1, wd = Math.min(720, innerWidth * 0.92), h = Math.min(500, innerHeight * 0.7);
+      place(innerWidth - wd - 24 - 40 * k, innerHeight - h - 24 - 40 * k, wd, h);
+    }
+  }
+  addEventListener("resize", () => { if (!el.hidden && el.style.left) { const r = el.getBoundingClientRect(); place(r.left, r.top, r.width, r.height); } });
+  return w;
 }
 function vmShow(p, open) {
-  if (!vm.el) vmBuild();
   vmSeen[p].shown = true;
-  if (!open && !vm.el.hidden) return;
-  vm.port = p;
-  vm.el.querySelector(".vmtitle").textContent = `Guest web server :${p}`;
-  const a = vm.el.querySelector(".vmurl");
-  a.href = a.textContent = vmUrl(p);
-  vm.el.querySelector("iframe").src = vmUrl(p);
-  if (open) vm.el.hidden = false;
+  const w = vmWins[p] || vmBuild(p);
+  if (open) {
+    if (vmPhone()) for (const q in vmWins) if (+q !== p) vmWins[q].el.hidden = true; // a phone: one sheet at a time
+    w.el.hidden = false;
+    vmFront(w);
+    if (w.at < 0) vmGo(w, "/");
+  }
   vmChips();
 }
 function vmChips() {
-  if (!vm.chips) return;
-  vm.chips.textContent = "";
+  if (!vmChipBox) {
+    vmChipBox = document.createElement("div");
+    vmChipBox.className = "vmchips";
+    document.body.appendChild(vmChipBox);
+  }
+  vmChipBox.textContent = "";
   for (const p of VM_PORTS) {
-    if (!vmSeen[p] || !vmSeen[p].on || (!vm.el.hidden && vm.port === p)) continue;
+    if (!vmSeen[p] || !vmSeen[p].on || (vmWins[p] && !vmWins[p].el.hidden)) continue;
     const c = document.createElement("button");
     c.className = "small vmchip";
     c.textContent = `◉ web :${p}`;
     c.title = `The guest's web server on port ${p}`;
     c.addEventListener("mousedown", (e) => e.preventDefault());
-    c.addEventListener("click", () => { vm.el.hidden = false; vmShow(p, true); });
-    vm.chips.appendChild(c);
+    c.addEventListener("click", () => vmShow(p, true));
+    vmChipBox.appendChild(c);
   }
 }
 
