@@ -1,0 +1,98 @@
+/* the hardware page: the die render, numbers, charts, the block diagram */
+.hw-hero { padding: 64px 0 8px; }
+.hw-hero h1 { font-size: clamp(44px, 8vw, 92px); letter-spacing: 0.08em; }
+.hw-hero .lede { margin-bottom: 18px; }
+
+.die { margin: 28px 0 0; }
+.die a.zoom { display: block; cursor: zoom-in; }
+.die img {
+  display: block; width: 100%; height: auto; aspect-ratio: 4 / 3;
+  box-shadow: 0 0 0 1px var(--edge), 0 0 60px rgba(77, 225, 255, 0.12);
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+}
+.die figcaption { margin: 12px 0 0; color: var(--dim); font-size: 14.5px; min-height: 3.3em; }  /* two lines in either view */
+
+/* the wiring on / off switch above the die */
+.view { display: flex; align-items: center; justify-content: flex-end; gap: 0; margin: 0 0 10px;
+        font-family: var(--mono); font-size: 13px; color: var(--dim); }
+.view span { margin-right: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.view button {
+  font: inherit; color: var(--dim); background: transparent; cursor: pointer;
+  padding: 5px 14px; border: 1px solid var(--edge); margin-left: -1px;
+}
+.view button[aria-pressed="true"] { color: var(--bg); background: var(--cyan); border-color: var(--cyan); }
+.view button:hover { color: var(--amber); }
+.view button[aria-pressed="true"]:hover { color: var(--bg); }
+.view button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; position: relative; }
+.die figcaption b { color: var(--text); }
+
+
+/* stat tiles */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 26px 0 0; }
+.stat { padding: 14px 16px; background: rgba(12, 22, 38, 0.8); box-shadow: inset 0 0 0 1px rgba(31, 111, 139, 0.5);
+        clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
+.stat b { display: block; font-size: 26px; line-height: 1.15; color: #fff; font-weight: 700; }
+.stat span { display: block; color: var(--dim); font-size: 13px; }
+.stat.hot { box-shadow: inset 3px 0 0 var(--amber), inset 0 0 0 1px rgba(255, 179, 71, 0.5); }
+.stat.hot b { color: var(--amber); }
+
+/* tables */
+.tbl { overflow-x: auto; margin: 20px 0 0; }
+table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid rgba(31, 111, 139, 0.35); vertical-align: top; }
+th { color: var(--dim); font-weight: 500; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }
+td.n, th.n { text-align: right; font-family: var(--mono); font-size: 13.5px; white-space: nowrap; }
+tr.me td { background: rgba(255, 179, 71, 0.06); }
+td small { color: var(--dim); }
+
+/* bar charts: one row per item, label / bar / value; on phones the label
+   goes above the bar */
+.bars { margin: 22px 0 0; display: grid; gap: 7px; }
+.bar { display: grid; grid-template-columns: 250px 1fr 92px; gap: 14px; align-items: center; font-size: 14.5px; }
+.bar .t { position: relative; height: 16px; background: rgba(12, 22, 38, 0.9);
+          box-shadow: inset 0 0 0 1px rgba(31, 111, 139, 0.35); }
+.bar .t i { position: absolute; left: 0; top: 0; bottom: 0; }
+.bar .v { text-align: right; font-family: var(--mono); font-size: 13px; color: var(--text); white-space: nowrap; }
+.bar .l small { color: var(--dim); }
+/* the devices' sizes, as marks on the scale */
+.bar .t u { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--text); opacity: 0.55; }
+.marks { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 10px 0 0; font-size: 13px; color: var(--dim); }
+.marks b { color: var(--text); font-weight: 500; font-family: var(--mono); }
+.note { color: var(--dim); font-size: 14px; margin: 12px 0 0; max-width: 820px; }
+
+/* the block diagram */
+.diagram { margin: 24px 0 0; overflow-x: auto; background: rgba(5, 8, 15, 0.7);
+           box-shadow: inset 0 0 0 1px rgba(31, 111, 139, 0.4); }
+.diagram svg { display: block; width: 100%; min-width: 760px; height: auto; }
+.diagram text { font-family: var(--sans); fill: var(--text); font-size: 13px; }
+.diagram .h { font-weight: 700; fill: #fff; font-size: 15px; }
+.diagram .m { font-family: var(--mono); fill: var(--dim); font-size: 12px; }
+.diagram .s { font-family: var(--mono); fill: var(--dim); font-size: 10.5px; }
+.hw .cmds div { grid-template-columns: 290px 1fr; }
+
+/* the parts of the core: name and what it is, a bar, the counts */
+.parts { margin: 22px 0 0; display: grid; gap: 14px; }
+.part { display: grid; grid-template-columns: minmax(0, 1fr) 260px 110px; gap: 16px; align-items: center; }
+.part .l { font-size: 14.5px; line-height: 1.45; }
+.part .l i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; }
+.part .l b { font-weight: 600; }
+.part .l small { display: block; color: var(--dim); font-size: 13px; margin-left: 19px; }
+.part .t { position: relative; height: 14px; background: rgba(12, 22, 38, 0.9);
+           box-shadow: inset 0 0 0 1px rgba(31, 111, 139, 0.35); }
+.part .t i { position: absolute; left: 0; top: 0; bottom: 0; }
+.part .v { text-align: right; font-family: var(--mono); font-size: 13.5px; line-height: 1.35; white-space: nowrap; }
+.part .v small { color: var(--dim); font-size: 12px; }
+
+.hw h3.sub:first-child { margin-top: 24px; }
+.hw p { max-width: 820px; }
+
+@media (max-width: 820px) {
+  .bar { grid-template-columns: 1fr 84px; gap: 4px 10px; }
+  .bar .l { grid-column: 1 / -1; }
+  .stat b { font-size: 22px; }
+  .hw .cmds div { grid-template-columns: 1fr; }
+  .part { grid-template-columns: minmax(0, 1fr) 92px; gap: 6px 10px; }
+  .part .l { grid-column: 1 / -1; }
+  .tbl .opt { display: none; }   /* a column phones do without */
+  .tbl table { font-size: 14px; }
+}

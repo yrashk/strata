@@ -1,0 +1,8 @@
+RTL of commit d70790f; nextpnr-ecp5 0.11.1; 2026-11-11
+synthesis: 208 s
+place and route: 538 s (nextpnr, all of it)
+  	              DP16KD:     247/    208   118%
+  	          MULT18X18D:       8/    156     5%
+  	          TRELLIS_FF:   11683/  83640    13%
+  	        TRELLIS_COMB:   86932/  83640   103%
+nextpnr stopped by hand after 538 s: the static placer could not legalise 103% of the logic cells and 118% of the block RAM.

@@ -1,0 +1,5 @@
+read_verilog /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-2/strata.v
+chparam -set NCORES 2 -set T3_W 4096 -set T2_W 8192 -set DISK_WORDS 16384 strata_top
+hierarchy -top strata_top
+synth_ecp5 -json /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-2/strata.json
+tee -o /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-2/stat.txt stat

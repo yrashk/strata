@@ -1,0 +1,13 @@
+RTL of commit d70790f; nextpnr-ecp5 0.11.1; 2026-11-11
+synthesis: 98 s
+place and route: 366 s (nextpnr, all of it)
+  Static Placer Time: 23.00s
+  SA placement time 47.91s
+  Router1 time 287.53s
+  	              DP16KD:     180/    208    86%
+  	          MULT18X18D:       4/    156     2%
+  	          TRELLIS_FF:    6831/  83640     8%
+  	        TRELLIS_COMB:   44253/  83640    52%
+Max frequency for clock '$glbnet$clk$TRELLIS_IO_IN': 20.02 MHz (PASS at 10.00 MHz)
+path: Longest path 49.9 ns, 69% of it wire: from the D-LS block RAM read port to the trap cause register.
+render: 17 s (both pictures)

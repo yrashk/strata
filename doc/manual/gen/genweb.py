@@ -46,7 +46,7 @@ def insn_id(key):
 
 # ---------------------------------------------------------------- the page shell
 NAV = [("../#idea", "Idea", None), ("../arch/", "Architecture", "arch"), ("../isa/", "Instructions", "isa"),
-       ("../forth/", "Forth", "forth"), ("../play/", "Play", None),
+       ("../forth/", "Forth", "forth"), ("../hardware/", "Hardware", None), ("../play/", "Play", None),
        ("../debug/", "Debug", None), ("../code/", "Source", None)]
 
 

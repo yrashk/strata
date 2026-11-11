@@ -1,0 +1,24 @@
+# Pins for placing and routing the 1-core system on a Radiona ULX3S
+# (LFE5U-85F, CABGA381): only the ports a board top has. The external
+# memory port (ext_t3_*) is unused (T3_EXT = 0); fpga/pnr.sh takes it out
+# of the netlist before nextpnr.
+#
+# The clock constraint is the target for the Strata clock, 50 MHz. The
+# ULX3S oscillator (G2) is 25 MHz: a board top would put an EHXPLLL here.
+LOCATE COMP "clk" SITE "G2";
+IOBUF PORT "clk" IO_TYPE=LVCMOS33;
+FREQUENCY PORT "clk" 50 MHZ;
+
+# reset: button F1
+LOCATE COMP "rst" SITE "R1";
+IOBUF PORT "rst" IO_TYPE=LVCMOS33 PULLMODE=DOWN;
+
+# console: the FTDI UART
+LOCATE COMP "uart_txd" SITE "L4";
+IOBUF PORT "uart_txd" IO_TYPE=LVCMOS33;
+LOCATE COMP "uart_rxd" SITE "M1";
+IOBUF PORT "uart_rxd" IO_TYPE=LVCMOS33 PULLMODE=UP;
+
+# all cores halted: LED 0
+LOCATE COMP "all_halted" SITE "B2";
+IOBUF PORT "all_halted" IO_TYPE=LVCMOS33;
