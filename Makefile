@@ -107,6 +107,7 @@ test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-boot-jit.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/demo.txt
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-fb.sh $(BUILD)/examples/gfx.stx
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-jit.sh
+	BUILD=$(BUILD) ./tools/test-dbg.sh
 	BUILD=$(BUILD) NCORES=$(NCORES) ./conformance/run.sh
 	@if command -v node >/dev/null 2>&1 && command -v $(EMCC) >/dev/null 2>&1; then $(MAKE) test-wasm; \
 	else echo "test-wasm: skipped (needs node and $(EMCC))"; fi
