@@ -26,24 +26,45 @@ a 32 KiB block-RAM stand-in for system memory, which is external DRAM on a
 board. It prints the cell counts and checks the log for latches and for
 memories built from flip-flops; everything is in `fpga/build/<family>-<n>/`.
 
-These are for the RTL of commit 0e51b8f (2026-11-10: with the pointer
-device, the console input release and the network device;
-the runs' summaries, cell counts and logs are kept in `fpga/results/`):
+These are for the RTL after the core-size work of 2026-11-10 (plan (a):
+microarchitecture only, no change to the ISA); the runs' summaries, cell
+counts and logs are kept in `fpga/results/`:
 
 | Yosys, after synthesis | Logic | Flip-flops | Block RAM | Multipliers |
 |---|---|---|---|---|
-| Xilinx 7-series, 1 core (256-entry save table) | 50,606 LUTs | 12,638 | 88 RAMB36 + 1 RAMB18 | 30 DSP48E1 |
-| Xilinx 7-series, 1 core (64-entry save table, revocation by address) | 47,059 LUTs | 12,450 | 88 RAMB36 + 1 RAMB18 | 30 DSP48E1 |
-| Xilinx 7-series, 2 cores | 94,130 LUTs | 23,636 | 120 RAMB36 | 60 DSP48E1 |
-| Xilinx 7-series, 6 cores | 290,431 LUTs | 73,775 | 248 RAMB36 | 180 DSP48E1 |
-| Lattice ECP5, 1 core | 61,949 LUT4 + 9,525 carry cells = 80,999 LUT4 sites | 12,866 | 181 DP16KD | 30 MULT18X18D |
-| Lattice ECP5, 2 cores (before the pointer and network devices) | 106,472 LUT4 + 18,025 carry cells = 142,522 LUT4 sites | 24,028 | 250 DP16KD | 60 MULT18X18D |
+| Xilinx 7-series, 1 core | 30,530 LUTs | 6,871 | 88 RAMB36 + 4 RAMB18 | 4 DSP48E1 |
+| Xilinx 7-series, 2 cores | 58,066 LUTs | 11,713 | 120 RAMB36 + 7 RAMB18 | 8 DSP48E1 |
+| Xilinx 7-series, 6 cores | 172,984 LUTs | 31,104 | 248 RAMB36 + 19 RAMB18 | 24 DSP48E1 |
+| Lattice ECP5, 1 core | 36,408 LUT4 + 3,100 carry cells = 42,608 LUT4 sites | 6,831 | 180 DP16KD | 4 MULT18X18D |
 
-The three devices cost little on 7-series (one core: 47,449 LUTs before
-them, 48,240 after, +1.7%) and more on the ECP5 (73,757 LUT4 sites before,
-80,999 after); the 7-series 2- and 6-core runs moved by under 1% either way.
-On an FPGA the pointer and the network device have no host behind them:
-STATE reads 0, the waiting reads wait for a release, and TX is dropped.
+Before it (commit 0a4bd8a, with the 256-entry save table): 1 core 50,606
+LUTs, 12,638 FF, 30 DSP48E1; 2 cores 94,130 LUTs; 6 cores 290,431 LUTs,
+73,775 FF; ECP5 1 core 80,999 LUT4 sites, 12,866 FF (an 85F almost
+full: it did not route).
+
+The steps, one core on xc7 (`fpga/synth.sh xc7 1` after each commit):
+
+| Step | LUTs | FF | DSP | Block RAM |
+|---|---|---|---|---|
+| before (0a4bd8a) | 50,606 | 12,638 | 30 | 88 RAMB36 + 1 RAMB18 |
+| overlay map: far addresses in 27 bits, I-LS addresses in 16, one subtract per entry | 41,150 | 11,276 | 30 | same |
+| capability base / length in 27 bits; two capability read ports; one write each to cd and cs | 36,426 | 9,654 | 30 | same |
+| save table in block RAM (+1 cycle for csave / crestore and the x forms); integer registers in LUT-RAM; a reset sequencer | 32,728 | 7,360 | 30 | +3 RAMB18 |
+| ltag / linst entry address in its own cycles (+2); a 4-cycle 32 x 32 multiplier | 32,321 | 7,673 | 4 | same |
+| Transfer Unit ranges in 17 bits; one adder for addresses and branches; narrow pc + 4 / branch targets | 30,752 | 7,193 | 4 | same |
+| inboxes: one small RAM per core, one gift per cycle | 30,530 | 6,871 | 4 | same |
+
+The cost in cycles (no instruction's result changes): `csave`,
+`crestore`, `csavex`, `crestorex` +1 (4 cycles); `ltag` / `linst` +2;
+`mul` 6 cycles (was 3), `mulhu` 7; 256 cycles after reset. Everything
+else is unchanged (3 cycles, loads 4). The examples run 0.03% (`parsum`)
+to 2.2% (`swcache`, which is mostly `ltag`) more cycles, and the scripted
+StrataOS boot and session 1.0% more.
+
+The ltag / linst entry address (a 64 x 64 multiply into the hazard check)
+was the longest path; the 64 x 64 single-cycle multiplier was the other.
+Both are gone; nothing has been placed and routed, so no clock frequency
+is known yet.
 
 Notes on reading the table:
 
@@ -51,119 +72,73 @@ Notes on reading the table:
   LUTs before packing; Vivado usually reports somewhat fewer. On the ECP5 a
   carry cell (CCU2C) takes both LUT4 sites of a slice, so the number to
   compare with a device's size is the "LUT4 sites" sum.
-- No latches are inferred. The Local Stores, T2, the T3 stand-in and the
-  disk are all block RAM on both families. The memories that stay in
-  flip-flops are the small ones that are read in parallel: the integer and
-  capability registers, the overlay map, the Transfer Unit queue and the
-  inbox queues.
+- No latches are inferred. The Local Stores, T2, the T3 stand-in, the
+  disk and each core's save table are block RAM on both families; the
+  integer registers, the granule-table copies and the inbox queues are
+  LUT-RAM. The memories that stay in flip-flops are the small ones that
+  are read in parallel: the capability registers, the overlay map and the
+  Transfer Unit queue.
 - Block RAM: each core has two 64 KiB Local Stores (32 RAMB36, or 64
-  DP16KD); T2 takes 16 RAMB36 (32 DP16KD), the disk 32 (64) and the T3
-  stand-in 8 (16). On the ECP5 the capability save table is 5 more per core.
-- One more core costs about 47,000 LUTs, 11,000 flip-flops, 32 RAMB36 and
-  30 DSP slices on 7-series.
-- Revocation by address (the granule table, `doc/manual/ch-impl.tex`)
-  replaced the 15-entry revocation-domain table: 1 core on xc7 went from
-  48,240 LUTs, 12,681 flip-flops and 172 LUT-RAM cells (the RTL just before)
-  to 47,059 LUTs, 12,450 flip-flops and 214 LUT-RAM cells (each core's copy
-  of the 256-entry table, three read ports, is LUT-RAM; so is the top
-  level's master copy).
-- The 256-entry capability save table (`csavex` / `crestorex`, was 64):
-  1 core on xc7 went from 47,059 to 50,606 LUTs (+3,547, +7.5%) and from
-  12,450 to 12,638 flip-flops (+188: the valid bits); block RAM is
-  unchanged. The table itself became 155 RAM256X1S cells (4 LUT sites
-  each, 620 sites) instead of 52 RAM64M (208 sites); the rest is the valid
-  bits' 256-way read multiplexer and per-slot write enables, and the
-  register-or-immediate slot index. The table is still read
-  asynchronously, so `csave` / `crestore` / `csavex` / `crestorex` still
-  take one cycle in EX; a block-RAM table with a synchronous read (and
-  the valid bits beside it) would save most of that at the cost of a
-  cycle.
+  DP16KD) and its save table (3 RAMB18); T2 takes 16 RAMB36 (32 DP16KD),
+  the disk 32 (64) and the T3 stand-in 8 (16).
+- One more core costs about 27,500 LUTs, 4,800 flip-flops, 32 RAMB36 + 3
+  RAMB18 and 4 DSP slices on 7-series.
 
-### Where the LUTs go
+### Where the LUTs went, and what is left
 
-Per module, from a 2-core 7-series run without flattening (95,142 LUTs in
-all; the flattened run above is a little smaller):
+Before this work the overlay map was about 12,000 LUTs of a 47,000-LUT
+core: sixteen entries, each with two 64-bit range matches, two 64-bit
+subtract-and-add paths and an invalidation compare. The capability
+registers were 158 bits wide with three read ports and some twenty-five
+write statements, every bounds check a 64-bit adder; the integer register
+file was 2,048 flip-flops with three 32-way multiplexers; the save table
+was 155 RAM256X1S cells plus 256 valid bits with their own multiplexer.
 
-| Module | LUTs | Flip-flops | Notes |
-|---|---|---|---|
-| `strata_core`, each of 2 | 44,190 | 9,590 | |
-| - the core's own logic | 39,570 | 8,355 | registers, CSRs, capabilities, overlay map, execute |
-| - `strata_tu` | 2,704 | 838 | 4-entry queue with hazard range compares |
-| - `strata_alu` | 1,304 | 0 | plus 16 DSP48E1 |
-| - `strata_div` | 452 | 396 | iterative |
-| - `strata_decode` | 142 | 0 | |
-| `strata_top` | 3,278 | 2,267 | inbox queues, domain table (now the granule walker), core control |
-| `strata_dev` | 1,440 | 1,578 | console UART, disk, timer, framebuffer registers |
-| `strata_mem`, T2 and T3 | 1,181 | 419 | |
-| `strata_bus` | 846 | 170 | |
+What made it smaller, in order of effect:
 
-So 93% of the logic is the two cores, and inside a core the decoder, ALU,
-divider and Transfer Unit together are only a tenth. Synthesizing one core
-with a constant changed shows what the rest is:
+1. **Narrow fields where the architecture guarantees narrow values.** Every
+   capability has base + length within its space, so bases, lengths, far
+   addresses and overlay entries need 27 bits (the largest space, system
+   memory, is 2^26 bytes); Local Store addresses and lengths need 17. A
+   64-bit register compared with a narrow length is "any high bit set, or
+   the narrow compare", so the 64-bit trap values stay exact.
+2. **One port where there were many.** One write port per capability
+   register index and one for the integer registers (so they map to
+   LUT-RAM); two capability read ports instead of four; one adder in the
+   ALU for addresses, branches and comparisons.
+3. **RAM for tables that are read one entry at a time.** The save table,
+   the integer registers, the inboxes.
+4. **Cycles for logic where an instruction is rare.** The save table's
+   registered read, the ltag entry address, the multiplier.
 
-1. **The overlay map: about 12,000 LUTs per core (30%).** With 4 entries
-   instead of 16 the core is 8,900 LUTs smaller, about 740 LUTs per entry.
-   Each entry has a 64-bit range match on the call target, a second one on
-   the PC (for the return link), two 64-bit subtract-and-add paths and an
-   invalidation compare against every transfer into the I-LS: nine or ten
-   64-bit carry chains. A core has 179 64-bit adders and comparators before
-   mapping, and about 150 of them are here.
-   *To shrink it:* fewer entries; store and compare the I-LS side in 16
-   bits (the I-LS is 64 KiB, and `xm_ils` is a 64-bit register today);
-   require slot-aligned mappings, so that a match is an equality on the
-   upper address bits instead of two magnitude compares and an adder (a
-   change to the ISA); do the lookup in two cycles, so that one set of
-   adders serves the matching entry instead of sixteen sets in parallel.
-2. **The capability registers: about 5,400 LUTs per core (14%).** With 4
-   registers instead of 16 the core is 4,000 LUTs and 1,900 flip-flops
-   smaller. A capability is 158 bits, the file has three read ports and is
-   written from many places in the execute state, and every use checks
-   bounds with 64-bit adders and compares.
-   *To shrink it:* one write port fed by a result mux, LUT-RAM for the
-   fields that are not needed in parallel, and base and length fields no
-   wider than the largest space of the platform.
-3. **Execute, the integer registers and the CSRs: the remaining 22,000
-   LUTs or so.** This is one large multi-cycle state machine in which every
-   instruction has its own 64-bit operators and result paths, the integer
-   register file is 2,048 flip-flops with three 32-way read muxes (its reset
-   loop keeps it out of LUT-RAM), and the trap CSRs are banked.
-   *To shrink it:* drop the register reset so the file becomes LUT-RAM;
-   share one 64-bit adder/comparator among the address, bounds and branch
-   computations; mux operands into the shared ALU instead of one operator
-   per instruction.
-
-The capability save table was not a consumer at 64 entries: it is LUT-RAM
-(block RAM on the ECP5), and shrinking it from 64 to 16 entries changed
-nothing visible. At 256 entries it costs about 3,500 LUTs more per core
-(see above).
-The Transfer Unit's hazard checks (four queue entries, each compared with
-the PC and the current access) cost about 2,700 LUTs.
+What is left, roughly: the overlay map (still 16 x 2 subtracts and range
+compares: slot-aligned mappings, an ISA change, would make it equality
+compares), the capability registers in flip-flops, execute's result
+multiplexers and the banked trap CSRs, the Transfer Unit's queue and
+hazard compares, the per-core granule-table copy.
 
 ### What fits where
 
 | System | Board | Use of the device (synthesis estimate) |
 |---|---|---|
-| 1 core | Digilent Arty A7-100T (XC7A100T: 63,400 LUTs, 135 RAMB36) | 75% of the LUTs, 80 RAMB36 |
-| 1 core | Radiona ULX3S 85F (LFE5U-85F: 83,640 LUT4, 208 DP16KD) | 88% of the LUT4 sites, 165 DP16KD: fits on paper, not placed and routed |
-| 2 cores | Digilent Nexys Video (XC7A200T: 134,600 LUTs, 365 RAMB36) | 71% of the LUTs, 112 RAMB36 |
-| 2 cores | any ECP5 | does not fit: 142,522 LUT4 sites, and the largest ECP5 has 83,640 |
+| 1 core | Digilent Arty A7-100T (XC7A100T: 63,400 LUTs, 135 RAMB36) | 48% of the LUTs, 82 RAMB36 equivalents |
+| 1 core | Radiona ULX3S 85F (LFE5U-85F: 83,640 LUT4, 208 DP16KD) | 51% of the LUT4 sites, 164 DP16KD: not placed and routed |
+| 2 cores | Digilent Arty A7-100T | 92% of the LUTs: on paper only, too full to route comfortably |
+| 2 cores | Digilent Nexys Video (XC7A200T: 134,600 LUTs, 365 RAMB36) | 43% of the LUTs, 116 RAMB36 equivalents |
+| 6 cores | Kintex-7 325T (203,800 LUTs, 445 RAMB36) | 85% of the LUTs |
 
-The block RAM counts here leave out the T3 stand-in. The 2-core system does
-not fit the Arty A7-100T (94,658 LUTs against 63,400), so the earlier
-statement stands: two cores need an XC7A200T. There is no ECP5 board top,
-pin file or SDRAM adapter in this repository; the ECP5 row is a size check
-only.
+The block RAM counts here leave out the T3 stand-in. There is no ECP5
+board top, pin file or SDRAM adapter in this repository; the ECP5 row is
+a size check only.
 
-Two limits apply to every row:
+Two limits apply:
 
-- **StrataOS does not boot on one or two cores.** It needs at least six
-  (the system core and five servers). A 6-core system is 292,670 LUTs:
-  more than twice an XC7A200T, more than the Kintex-7 325T (203,800) and
-  410T (254,200), and 98% of a 480T; it needs a Virtex-7 or UltraScale
-  part of 350,000 LUTs or more, or a smaller core. The 1- and 2-core
-  systems run bare-metal programs and the boot ROM; `make fpga-images`
-  still writes a StrataOS disk image for the 2-core Arty top, which that
-  machine cannot run.
+- **StrataOS needs at least six cores** (the system core and five
+  servers). A 6-core system is now 172,984 LUTs: still more than any
+  Artix-7 (the largest, the 200T, has 134,600), but within a Kintex-7
+  325T. The 1- and 2-core systems run bare-metal programs and the boot
+  ROM; `make fpga-images` still writes a StrataOS disk image for the
+  2-core Arty top, which that machine cannot run.
 - **There is no video output on FPGA yet.** The framebuffer window is
   ordinary system memory and nothing scans it out; the console on the UART
   is the only output.
@@ -197,10 +172,10 @@ On a Nexys Video, take the same steps with LiteDRAM's Nexys Video
 configuration, the board's own pin constraints and its 100 MHz clock.
 
 Open items before this can work on a board:
-- **Timing closure.** The core is not pipelined and has 64-bit adders,
-  comparators and a 64×64 multiplier in single cycles. 100 MHz is unlikely;
-  a slower Strata clock with a clock-domain crossing to LiteDRAM's user
-  clock may be needed.
+- **Timing closure.** The core is not pipelined and has 64-bit adders and
+  comparators in single cycles (the 64×64 multiplier and the ltag entry
+  address no longer are). 100 MHz is unlikely; a slower Strata clock with a
+  clock-domain crossing to LiteDRAM's user clock may be needed.
 - **The DRAM adapter.** It performs one access per 8-byte beat; correct, but
   slow. Bursts would help.
 - **Never run on hardware.**

@@ -1,86 +1,87 @@
         1   BUFG
-    17860   CARRY4
-      180   DSP48E1
-    73363   FDRE
+     6186   CARRY4
+       24   DSP48E1
+    30692   FDRE
       412   FDSE
        70   IBUF
-     1591   INV
-        1   LUT1
-    45501   LUT2
-    30870   LUT3
-    41847   LUT4
-    78368   LUT5
-    93844   LUT6
-       68   MUXF7
-       23   MUXF8
+     2384   INV
+        3   LUT1
+    23988   LUT2
+    19233   LUT3
+    26696   LUT4
+    67110   LUT5
+    35954   LUT6
+       18   MUXF7
+        7   MUXF8
       225   OBUF
-      179   RAM32M
-      318   RAM64M
+      400   RAM32M
+      288   RAM64M
+       19   RAMB18E1
       248   RAMB36E1
-xc7: 290431 LUT, 73775 FF, 248 RAMB36 (+0 RAMB18), 180 DSP48E1, 497 LUT-RAM cells
+xc7: 172984 LUT, 31104 FF, 248 RAMB36 (+19 RAMB18), 24 DSP48E1, 688 LUT-RAM cells
 latches inferred: 0
 memories built from flip-flops (fine when small; a Local Store, T2, T3 or the disk here is a bug):
-  $auto$memory_bmux2rom.cc:63:execute$876709
-  $auto$memory_bmux2rom.cc:63:execute$876712
+  $auto$memory_bmux2rom.cc:63:execute$571969
+  $auto$memory_bmux2rom.cc:63:execute$571972
   g_core[0].u_core.caps
+  g_core[0].u_core.gt2
+  g_core[0].u_core.u_tu.q_end
   g_core[0].u_core.u_tu.q_kind
-  g_core[0].u_core.u_tu.q_len
   g_core[0].u_core.u_tu.q_ls
   g_core[0].u_core.u_tu.q_sp
-  g_core[0].u_core.x
   g_core[0].u_core.xm_far
   g_core[0].u_core.xm_ils
   g_core[0].u_core.xm_sp
   g_core[0].u_core.xm_v
   g_core[1].u_core.caps
+  g_core[1].u_core.gt2
+  g_core[1].u_core.u_tu.q_end
   g_core[1].u_core.u_tu.q_kind
-  g_core[1].u_core.u_tu.q_len
   g_core[1].u_core.u_tu.q_ls
   g_core[1].u_core.u_tu.q_sp
-  g_core[1].u_core.x
   g_core[1].u_core.xm_far
   g_core[1].u_core.xm_ils
   g_core[1].u_core.xm_sp
   g_core[1].u_core.xm_v
   g_core[2].u_core.caps
+  g_core[2].u_core.gt2
+  g_core[2].u_core.u_tu.q_end
   g_core[2].u_core.u_tu.q_kind
-  g_core[2].u_core.u_tu.q_len
   g_core[2].u_core.u_tu.q_ls
   g_core[2].u_core.u_tu.q_sp
-  g_core[2].u_core.x
   g_core[2].u_core.xm_far
   g_core[2].u_core.xm_ils
   g_core[2].u_core.xm_sp
   g_core[2].u_core.xm_v
   g_core[3].u_core.caps
+  g_core[3].u_core.gt2
+  g_core[3].u_core.u_tu.q_end
   g_core[3].u_core.u_tu.q_kind
-  g_core[3].u_core.u_tu.q_len
   g_core[3].u_core.u_tu.q_ls
   g_core[3].u_core.u_tu.q_sp
-  g_core[3].u_core.x
   g_core[3].u_core.xm_far
   g_core[3].u_core.xm_ils
   g_core[3].u_core.xm_sp
   g_core[3].u_core.xm_v
   g_core[4].u_core.caps
+  g_core[4].u_core.gt2
+  g_core[4].u_core.u_tu.q_end
   g_core[4].u_core.u_tu.q_kind
-  g_core[4].u_core.u_tu.q_len
   g_core[4].u_core.u_tu.q_ls
   g_core[4].u_core.u_tu.q_sp
-  g_core[4].u_core.x
   g_core[4].u_core.xm_far
   g_core[4].u_core.xm_ils
   g_core[4].u_core.xm_sp
   g_core[4].u_core.xm_v
   g_core[5].u_core.caps
+  g_core[5].u_core.gt2
+  g_core[5].u_core.u_tu.q_end
   g_core[5].u_core.u_tu.q_kind
-  g_core[5].u_core.u_tu.q_len
   g_core[5].u_core.u_tu.q_ls
   g_core[5].u_core.u_tu.q_sp
-  g_core[5].u_core.x
   g_core[5].u_core.xm_far
   g_core[5].u_core.xm_ils
   g_core[5].u_core.xm_sp
   g_core[5].u_core.xm_v
-  ib_cap
+  mt2
   u_dev.sq_buf

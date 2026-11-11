@@ -1,39 +1,36 @@
         1   BUFG
-     3278   CARRY4
-       30   DSP48E1
-    12551   FDRE
+     1284   CARRY4
+        4   DSP48E1
+     6784   FDRE
        87   FDSE
        70   IBUF
-      481   INV
-     8113   LUT2
-     5810   LUT3
-     8150   LUT4
-    13815   LUT5
-    14718   LUT6
-       87   MUXF7
-       25   MUXF8
+      647   INV
+     4512   LUT2
+     3591   LUT3
+     4929   LUT4
+    11157   LUT5
+     6341   LUT6
+        5   MUXF7
+        2   MUXF8
       225   OBUF
-      155   RAM256X1S
-       94   RAM32M
-       68   RAM64M
-        1   RAMB18E1
+      125   RAM32M
+       48   RAM64M
+        4   RAMB18E1
        88   RAMB36E1
-xc7: 50606 LUT, 12638 FF, 88 RAMB36 (+1 RAMB18), 30 DSP48E1, 162 LUT-RAM cells
+xc7: 30530 LUT, 6871 FF, 88 RAMB36 (+4 RAMB18), 4 DSP48E1, 173 LUT-RAM cells
 latches inferred: 0
 memories built from flip-flops (fine when small; a Local Store, T2, T3 or the disk here is a bug):
-  $auto$memory_bmux2rom.cc:63:execute$165165
-  $auto$memory_bmux2rom.cc:63:execute$165168
+  $auto$memory_bmux2rom.cc:63:execute$120567
+  $auto$memory_bmux2rom.cc:63:execute$120570
   g_core[0].u_core.caps
   g_core[0].u_core.gt2
+  g_core[0].u_core.u_tu.q_end
   g_core[0].u_core.u_tu.q_kind
-  g_core[0].u_core.u_tu.q_len
   g_core[0].u_core.u_tu.q_ls
   g_core[0].u_core.u_tu.q_sp
-  g_core[0].u_core.x
   g_core[0].u_core.xm_far
   g_core[0].u_core.xm_ils
   g_core[0].u_core.xm_sp
   g_core[0].u_core.xm_v
-  ib_cap
   mt2
   u_dev.sq_buf
