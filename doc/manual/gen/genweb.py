@@ -46,7 +46,8 @@ def insn_id(key):
 
 # ---------------------------------------------------------------- the page shell
 NAV = [("../#idea", "Idea", None), ("../arch/", "Architecture", "arch"), ("../isa/", "Instructions", "isa"),
-       ("../forth/", "Forth", "forth"), ("../play/", "Play", None), ("../code/", "Source", None)]
+       ("../forth/", "Forth", "forth"), ("../hardware/", "Hardware", None), ("../play/", "Play", None),
+       ("../code/", "Source", None)]
 
 
 def page(here, title, desc, side, main, head="", tail=""):

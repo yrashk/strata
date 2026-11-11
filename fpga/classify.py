@@ -25,7 +25,7 @@ from collections import deque
 GROUPS = [
     ("xmap", "Overlay map", "#ff9f1c"),
     ("exec", "Execute, registers, CSRs", "#4de1ff"),
-    ("caps", "Capabilities and domains", "#ff5fa2"),
+    ("caps", "Capabilities and revocation", "#ff5fa2"),
     ("tu",   "Transfer Unit", "#7ef05a"),
     ("alu",  "ALU, multiplier, divider, decode", "#b38cff"),
     ("ls",   "Local Stores (block RAM)", "#2f6bff"),
@@ -61,7 +61,10 @@ def group(name, ctype=""):
         r = b[m.end():]
         if r.startswith("xm_"):
             return "xmap"
-        if r.startswith(("caps", "ctab", "ct_", "dom_", "give_", "take_", "cd_", "cs_")):
+        # the capability file, the save table, the checks, the granule
+        # table copy (gt2, gt3) and its lookups, hand-over, revocation requests
+        if r.startswith(("caps", "ctab", "ct_", "dom_", "give_", "take_", "cd_", "cs_",
+                         "gt2", "gt3", "gt_", "g_a", "g_d", "g_c", "live_", "ka")):
             return "caps"
         if r.startswith("u_tu."):
             return "tu"
@@ -73,7 +76,10 @@ def group(name, ctype=""):
             # logic feeding a Local Store port: port A is the core's, B the TU's
             return "tu" if re.match(r"u_[id]ls\.mem\.[\d.]+_(DIB|ADB|CEB|WEB)", r) else "exec"
         return "exec"
-    if b.startswith(("ib_", "dom_", "g_valid", "g_cap", "g_dst", "take_", "give_")):
+    # the inboxes, gifts, and revocation: the granule tables (mt2, mt3),
+    # their walker (w_*) and broadcast (gt_*), the requests (dom_*)
+    if b.startswith(("ib_", "dom_", "g_valid", "g_cap", "g_dst", "g_ack", "take_", "give_",
+                     "gt_", "mt2", "mt3", "w_")):
         return "caps"
     if b.startswith(("u_bus", "ext_t3", "u_t2", "g_t3_int", "m_", "t_", "u_dev.disk")):
         return "mem"
