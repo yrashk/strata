@@ -26,6 +26,7 @@ input:focus, select:focus { outline: none; border-color: var(--cyan); }
 .ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .pick { font: 13px var(--mono); color: var(--dim); display: flex; gap: 8px; align-items: center; }
 .mode { font: 12.5px var(--mono); color: var(--dim); }
+.pick[hidden] { display: none; }  /* a desktop engine runs the one image it was started with */
 .status {
   font: 13px/1.4 var(--mono); color: var(--cyan); padding: 6px 14px; background: rgba(5, 8, 15, 0.9);
   box-shadow: inset 3px 0 0 var(--cyan); min-width: 0; overflow-wrap: anywhere; flex: 1 1 360px;

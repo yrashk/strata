@@ -25,6 +25,7 @@
 #   make debug-NAME debug an example with strata-dbg, e.g. make debug-pipeline
 #   make debug-os   boot StrataOS under strata-dbg (StrataOS-aware: info processes, break process NAME)
 #   make debug-web  the web debugger against the desktop engine: http://localhost:4444/debug/
+#                   (one program per engine: DEBUG_WEB=NAME, default pipeline)
 
 CC      ?= cc
 CFLAGS  ?= -std=gnu11 -O2 -Wall -Wextra

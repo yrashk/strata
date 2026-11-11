@@ -62,6 +62,9 @@ The web debugger (`site/debug/`) uses the debug engine of `emu/emu.c`
   page and upgrades a WebSocket on the same port; the page asks
   `/dbg-info`, finds the engine and talks to it (`make debug-web`, then
   http://localhost:4444/debug/). `?ws=HOST:PORT` names an engine elsewhere.
+  The engine runs the one image it was started with, so the page has no
+  program picker then (`make debug-web DEBUG_WEB=hello` for another); the
+  picker is the in-page engine's, over the examples `make wasm` copies.
 
 `?ex=NAME&do=...` loads an example and runs a short script (`break:LOC`,
 `continue`, `stepi:N`, `round`, `rstepi`, `rcontinue`, `goto:T`, `core:N`,

@@ -716,8 +716,10 @@ async function connectWs(url) {
   await c.open(url);
   conn = c;
   $("source").querySelectorAll("label, #load").forEach((el) => (el.hidden = true));
-  $("mode").textContent = "connected to the engine at " + url.replace(/^ws:\/\//, "");
   await connected();
+  // (the engine runs the image it was started with: name it where the picker was)
+  const img = (hello.image || "").split("/").pop();
+  $("mode").textContent = (img ? img + " · " : "") + "the engine at " + url.replace(/^ws:\/\//, "").replace(/\/$/, "");
 }
 
 function reset() {
