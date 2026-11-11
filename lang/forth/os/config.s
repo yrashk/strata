@@ -61,6 +61,7 @@ pl_keof:  .dword 0                      ; 1: standard input has ended
 pl_bufb:  .dword 0                      ; base of the buffer a reply comes back in (0: the process's own)
 pl_arena: .dword 0                      ; base address of the arena (thread 0's c0 at start-up)
 pl_save:  .dword 0                      ; (msg) to the network server: the 8 bytes of request data LOOKUP's name covers
+plat_lkname:                            ; KVAR 41: the server register 6 reaches ("net"; devs.fs asks for "dev")
 pl_netnm: .ascii "net"                  ; LOOKUP's data for it (8 bytes: the name and zeros)
           .byte 0, 0, 0, 0, 0           ; ...
 pl_wh:    .dword 0, 0                   ; a worker page's header: mirror arena offset, code end

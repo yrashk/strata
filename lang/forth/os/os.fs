@@ -18,6 +18,15 @@
 \ This file adds the parsing words:
 
 : include ( i*x "name" -- j*x ) parse-name included ; \ interpret a file
+\ A name that is no file may be one of the Forth ports of os/progs (seq.fs,
+\ cat.fs, ...) or their sys.fs: they are kept together in one disk file,
+\ progs.pk, since the disk's directory has room for 128 files. INCLUDED runs
+\ the word in KVAR 39 (once: it clears it) for such a name: this one includes
+\ /progs.pk with the name (in sbuf) on the stack. Its text (lang/forth/
+\ progs.fs) finds the name in its index, interprets that part of itself and
+\ puts (pack) back in KVAR 39.
+: (pack) ( a u -- ) >sbuf s" /progs.pk" included ; \ a port of os/progs, or "no such file"
+' (pack) 39 kvar !
 : require ( i*x "name" -- j*x )                 \ include NAME.fs for good, once
   parse-name here swap 2dup 2>r move  s" .fs" 2r@ + swap move  2r> 3 + \ the file's name, at HERE
   2dup find-name if 2drop exit then  included ; \ a file ends by defining a word with its name

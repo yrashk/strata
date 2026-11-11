@@ -222,6 +222,7 @@ v_efname: .dword s_corefs               ; that name when the last error was thro
 v_moff:   .dword 0                      ; I-LS address minus this = c0 offset of its mirror (per core)
 v_ftop:   .dword A_FILES                ; INCLUDED: c0 offset where the next file's text goes (a stack)
 v_fdepth: .dword 0                      ; INCLUDED: nesting depth
+v_nofile: .dword 0                      ; INCLUDED: an xt ( a u -- ) for a name that is no file (KVAR 39; os.fs: the pack of ports)
 v_tooling: .dword 0                     ; 1 while a tool file is loaded for one command
 v_inlmax: .dword PLAT_INLINE            ; primitives whose bodies have at most this many bytes are copied inline
 v_ovl:    .dword 0                      ; code overlays (overlay.fs; KVAR 37): +0 the overlay being compiled (0: resident code),
@@ -389,6 +390,9 @@ kvars:                                  ; KVAR n -> address (for core.fs)
           .half v_inlmax                ; 36 inline bodies of up to this many bytes (INLINE-LIMIT)
           .half v_ovl                   ; 37 code overlays: the block above (overlay.fs)
           .half plat_handles            ; 38 standard handles 0..2: the server's endpoint register (3 cells), its id (3)
+          .half v_nofile                ; 39 INCLUDED: the xt ( a u -- ) run for a name that is no file (0: "no such file")
+          .half v_ftop                  ; 40 INCLUDED: c0 offset where the next file's text goes (sys.fs puts a pack member there)
+          .half plat_lkname             ; 41 the name (8 bytes, zero-padded) of the server (msg) register 6 asks proc for: "net"
         .align 8                        ; the dictionary starts here
 dict0:                                  ; first header
 
@@ -2044,11 +2048,18 @@ ic_load:                                ; read the file into far memory
         bgez  a0, ic_run                ; loaded
         ld    t0, 8(sp)                 ; the message names the file:
         sd    t0, v_ename(zero)         ; "*** nofile.fs: no such file"
-        ld    t0, 16(sp)                ; ...
-        sd    t0, v_elen(zero)          ; ...
+        ld    t1, 16(sp)                ; ...
+        sd    t1, v_elen(zero)          ; ...
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, 32                ; pop
-        j     throw_a0                  ; error
+        ld    t2, v_nofile(zero)        ; a word for names that are no file?
+        beqz  t2, throw_a0              ; no: the error
+        li    t3, -309                  ; and only for "no such file"
+        bne   a0, t3, throw_a0          ; ...
+        sd    zero, v_nofile(zero)      ; yes: once (it sets KVAR 39 again if it wants to)
+        addi  s0, s0, -16               ; it gets the name back (still in memory there,
+        mv    s1, t1                    ; its length cut to 31) and runs instead (a tail call:
+        jr    t2                        ; it returns to INCLUDED's caller)
 ic_run:                                 ; a0 = length of the text
         ld    t0, v_fname(zero)         ; keep the outer file's name
         sd    t0, 16(sp)                ; ...

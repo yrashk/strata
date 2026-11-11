@@ -128,6 +128,14 @@ true jit-trace  : cube dup dup * * ; [jit: tput+tgetx 64 bytes -> I-LS 0x8160]  
   back after it. <code>lang/forth/vi.fs</code>, the Forth port of StrataOS's editor
   (<code>forth vi.fs FILE</code>), is nineteen overlays and 2&nbsp;KiB of resident code: the same keys,
   screen and highlighting as the assembly <code>vi</code>, and it writes the same files.</p>
+<h3 id="progs">The ports of StrataOS's programs</h3>
+<p>Twenty-two of StrataOS's programs are also Forth programs, run as <code>forth NAME.fs ARGS</code>
+  with the same arguments, output, errors and exit codes: <code>seq cat upper wc grep hexdump touch rm
+  cp mv tag untag retag tags ls df free uptime devs cores ps sched spin units</code>
+  (<code>lang/forth/progs/</code>). They share <code>sys.fs</code> (below), and are packed into one
+  disk file, <code>progs.pk</code>: given a name that is no file, <code>included</code> runs the word
+  in KVAR 39 instead, which includes the pack; its head, <code>progs.fs</code>, finds the port in its
+  index and interprets that part of the pack's text.</p>
 <h3 id="reading">Reading the reference</h3>
 <p>Each entry gives the stack effect and description from the source's own comments, the kind of
   word (a kernel primitive, inlined or called; a colon definition; a constant, variable or created

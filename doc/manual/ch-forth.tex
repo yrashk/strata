@@ -218,3 +218,30 @@ The editor \texttt{lang/forth/vi.fs}, the Forth port of StrataOS's \texttt{vi}
 4.1~KiB, with its byte loops as code words assembled by \texttt{core.fs}'s assembler. Data space is
 its other limit (16~KiB holds a chunk of text, the line being edited and every word's name), so its
 text, undo history, register, keyword tables and message texts are in far memory.
+
+\subsection{The ports of StrataOS's programs}\label{sec:forth-progs}
+Twenty-two of StrataOS's programs are also written in Strata Forth, \texttt{lang/forth/progs/},
+and run as \texttt{forth NAME.fs ARGS}: the same arguments, output, error messages and exit codes,
+in pipes and with redirections. At the Forth prompt \texttt{include NAME.fs} defines the word
+\texttt{NAME}, which runs the program on the rest of its line.
+
+\begin{center}\small
+\begin{tabular}{@{}l l@{}}
+\toprule
+\textbf{Ports} & \textbf{What they are}\\\midrule
+\texttt{seq cat upper wc grep hexdump} & data through standard input and output, a disk block\\
+\texttt{touch rm cp mv tag untag retag tags ls} & files and tags, through the file server\\
+\texttt{df free uptime devs cores ps sched} & status reports from \texttt{fs}, \texttt{proc} and \texttt{dev}\\
+\texttt{spin units} & a busy loop; 24 functions in 24 code overlays\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+They share a library, \texttt{sys.fs} (the command line, standard input by lines, standard error,
+messages to the servers; about 2.9~KiB of code). The disk's directory has room for 128 files, so
+the ports are packed into one, \texttt{progs.pk}: \texttt{included}, given a name that is no file,
+runs the word in a kernel variable instead, and that includes the pack, whose head
+(\texttt{progs.fs}) finds the port in its index and interprets that part of the pack's text. A start costs about 2.5~M instructions more
+than the assembly program; past that, with the byte loops as code words, a long input takes about
+1.1 to 1.8 times its instructions. \texttt{tools/test-fs-progs.sh} runs every port against its
+assembly program.
