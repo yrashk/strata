@@ -71,7 +71,7 @@ idle machine skips it ahead to the next deadline, so it may jump.
 
 | Request | Answer |
 |---|---|
-| `hello` | `version` (1), `ncores`, `image`, `jit`, `virtual`, `timetravel`, `os`, `state` (`stopped`, `running`, `done`), `maps` (`path`, `scope`: image / kernel / prog, `prog`, `forth`), the position |
+| `hello` | `version` (1), `ncores`, `ctab` (save-table entries), `nxmap` (overlay map entries), `image`, `jit`, `virtual`, `timetravel`, `os`, `state` (`stopped`, `running`, `done`), `maps` (`path`, `scope`: image / kernel / prog, `prog`, `forth`), the position |
 | `status` | `state`, `why` (when done), the position, `events` (the next event sequence number), `console` (bytes of console output so far), `history` (below) |
 | `quit` | the engine ends after answering |
 
@@ -162,7 +162,7 @@ or after the line; a basename is enough) or, under StrataOS, `prog:label`.
 | `caps {core}` | `caps`: 16 capabilities |
 | `ctab {core}` | `size`, `entries`: `slot`, `cap` for every valid entry of the save table |
 | `inbox {core}` | `from`: `node`, `caps` per sender with something queued |
-| `xmap {core}` | `xslot`, `entries`: `index`, `valid`, `space`, `far`, `ils`, `sym` |
+| `xmap {core}` | `xslot`, `size` (the platform's NXMAP), `entries` (`size` of them): `index`, `valid`, `space`, `far`, `ils`, `sym` |
 | `tags {core?}` | `cores`: `core`, `tags` (16: `tag`, `busy`; for a tag that has had a transfer: `op` tget / tput / tgetx, `space`, `ls`, `len`, `far`, `port` (device), `pc`, `issued` and `completed` rounds, and ticks), `stall` |
 | `pending` | `reads`: every pending device read (`core`, `tag`, `port`, `name`, `ls`, `len`, `seq`, `issued`, `waits`: what it waits for, e.g. "the timer deadline 5002 (now 3, in 4999 ticks)"); `blk`: the block device's queues (`commands`, `partial`, `caps`, `completions`, `returning_to`); `input_queued`, `breaks`, `deadline`, `now` |
 | `granules` | `units`: the revocation units (`space`, `base`, `len`, `gen`) |

@@ -751,7 +751,7 @@ static void info_list(const char *cmd, int c) {
     }
   } else if (!strcmp(cmd, "xmap")) {
     const JVal *a = json_get(r, "entries");
-    fprintf(out, "core %d overlay map (xslot %s):\n", c, S(r, "xslot"));
+    fprintf(out, "core %d overlay map (%d entries, xslot %s):\n", c, json_int(json_get(r, "size"), 16), S(r, "xslot"));
     for (const JVal *e = a ? a->kid : NULL; e; e = e->next) {
       if (!json_bool(json_get(e, "valid"), false)) continue;
       fprintf(out, "  %2d  %s 0x%llx -> I-LS 0x%llx %s\n", json_int(json_get(e, "index"), 0), S(e, "space"),

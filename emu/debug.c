@@ -1492,6 +1492,8 @@ static void dbg_request(const char *line, size_t len, JW *w) {
   if (!strcmp(cmd, "hello")) {
     jw_int(w, "version", DBG_PROTO_VERSION);
     jw_int(w, "ncores", ncores);
+    jw_uint(w, "ctab", ctab_size);
+    jw_uint(w, "nxmap", nxmap);
     jw_str(w, "image", dbg_img_path ? dbg_img_path : "");
     jw_bool(w, "jit", use_jit);
     jw_bool(w, "virtual", virtual_time);
@@ -1820,8 +1822,9 @@ static void dbg_request(const char *line, size_t len, JW *w) {
       Core *c = &cores[ci];
       jw_int(w, "core", ci);
       jw_uint(w, "xslot", c->xslot);
+      jw_uint(w, "size", nxmap); /* the platform's NXMAP */
       jw_arr(w, "entries");
-      for (int i = 0; i < NXMAP; i++) {
+      for (int i = 0; i < (int)nxmap; i++) {
         jw_obj(w, NULL);
         jw_int(w, "index", i);
         jw_bool(w, "valid", c->xm_v[i]);

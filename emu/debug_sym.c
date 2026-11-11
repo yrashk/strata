@@ -319,6 +319,12 @@ static Where forth_kernel(Where w) {
   return w;
 }
 
+/* the far address of the unit overlay entry i maps: with slot mapping, the
+ * aligned slot holding its far address (the low bits are ignored) */
+static uint64_t xm_unit(const Core *c, int i) {
+  return c->xslot ? c->xm_far[i] & ~((1ull << c->xslot) - 1) : c->xm_far[i];
+}
+
 static Where where_code(const Core *c, uint64_t pc) {
   Where w = {NULL, MS_TEXT, pc};
   uint64_t sl = c->xslot ? 1ull << c->xslot : 4;
@@ -339,12 +345,12 @@ static Where where_code(const Core *c, uint64_t pc) {
       const Cap *k = &cores[0].caps[15];
       uint64_t kb = k->valid && (k->perms & P_X) ? k->base : 0;
       w.sect = MS_FAR;
-      w.addr = c->xm_far[hit] + (pc - c->xm_ils[hit]) - kb;
+      w.addr = xm_unit(c, hit) + (pc - c->xm_ils[hit]) - kb;
     }
     return w;
   }
   w.map = map_scope(SC_IMAGE);
-  if (hit >= 0) { w.sect = MS_FAR; w.addr = c->xm_far[hit] + (pc - c->xm_ils[hit]); }
+  if (hit >= 0) { w.sect = MS_FAR; w.addr = xm_unit(c, hit) + (pc - c->xm_ils[hit]); }
   w = forth_kernel(w);
   return w;
 }

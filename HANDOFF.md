@@ -118,6 +118,10 @@ Not verified:
   `prov_after` (`emu/debug.c`) and the snapshot's list of machine state
   (`Misc` in `emu/debug_tt.c`: every static that a run depends on must be
   in it, or replays diverge; `info history` counts divergences).
+  NXMAP and CTAB are fixed for a run (-X / -S), so they are not in `Misc`;
+  `hello` reports both, `xmap` lists NXMAP entries, and the far address
+  of code in a mapped slot uses the unit's aligned start (`xm_unit` in
+  `emu/debug_sym.c`), as slot-aligned xmap defines it.
 - Open: the RTL behind the same protocol; a timing model; per-line
   stepping; the timeline's axis is rounds, which jump when an idle
   machine skips time (StrataOS).
