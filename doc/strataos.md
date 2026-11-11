@@ -252,8 +252,20 @@ controller's ports are at the fixed device address 0x4000.
     Delete ESC [ 3 ~; Page Up/Down ESC [ 5 ~ / ESC [ 6 ~;
   - Ctrl+letter = 1..26, **except Ctrl+C, which is the break key** (exactly
     like Ctrl-C at the terminal: it completes a pending break read);
-  - Alt+key = ESC followed by the key's bytes (xterm "meta sends escape").
-  The terminal keeps working as an input source at the same time.
+  - Alt+key in the xterm modified-key forms: Alt+ a character is
+    ESC [ 27 ; 3 ; *code* ~, *code* the character's code in decimal (Shift
+    and Caps Lock are in the character: Alt+Shift+Q is 81, `Q`; Alt+Enter
+    is 13); Alt+arrows ESC [ 1 ; 3 A/B/C/D, Alt+Home / End ESC [ 1 ; 3 H / F;
+    Alt+Delete, Page Up / Down ESC [ 3 ; 3 ~, ESC [ 5 ; 3 ~, ESC [ 6 ; 3 ~.
+    Not ESC followed by the key ("meta sends escape"): that is also what Esc
+    and then the key sends, and the input is a byte stream, so a program
+    could only tell them apart by time, and the bytes of one key can arrive
+    apart under load. Nobody types these forms by hand, so the window server
+    (2.8) takes only them as its Alt bindings, and Esc and then `p` is just
+    Esc and `p`. (Ctrl+Alt+letter is Alt with the control character, codes
+    1 to 26, except Ctrl+Alt+C, which is the break key.)
+  The terminal keeps working as an input source at the same time (its Alt,
+  from the host's terminal, is whatever that terminal sends).
 
 ### 1.5 ISA rules clarified by conformance
 
@@ -947,14 +959,20 @@ shell):
   2 × 2 grid (at most 4).
 - Text drawing uses an original public-domain 8 × 16 cell font (plus a
   5 × 7 small-caps font for labels) and is available to clients (TEXT).
-- Keys (Alt = ESC prefix): Alt+Enter starts a new `term` window; Alt+Q
+- Keys (Alt+key as the window's keyboard sends it, 1.4: ESC [ 27 ; 3 ;
+  code ~, Alt+arrows ESC [ 1 ; 3 X): Alt+Enter starts a new `term` window; Alt+Q
   closes the focused window (its client gets a close event, and is killed
   after 400 ms if it does not go away); Alt+arrows / Alt+1..4 move focus;
   Alt+P or Alt+Space opens the command palette; Alt+Shift+Q quits the window server
   (the console returns to the shell); Alt+Shift+H halts the machine;
   Alt+Shift+W makes the server ignore the keyboard for a second (for
   scripted input in tests and demos); Alt+? shows the key help. Every
-  other key is an event for the focused window. Ctrl-C closes the palette, or SIGNALs the focused
+  other key is an event for the focused window: Esc followed by a key is
+  Esc and then that key, whatever the timing (an ESC with nothing after it
+  for 100 ms is the Esc key, not the start of ESC [); an Alt+key the server
+  does not bind reaches the window as ESC and the key (as a terminal's
+  "meta sends escape"), Alt+Home, End, Delete, Page Up or Down as the key
+  alone. Ctrl-C closes the palette, or SIGNALs the focused
   window's process.
 - Redraws only damaged areas and writes PRESENT once per batch.
 - With no window it opens a `term`.
@@ -1332,9 +1350,7 @@ messages and the `:` and `/` lines take its place.
 - **Keys.** The console delivers a key's bytes one at a time, so an Esc is
   told from an escape sequence by time: a `[` within 30 ms (vi polls with
   READs that do not block, which have `tty` read one byte ahead) makes a
-  sequence (the arrows, Home, End, Delete, PgUp, PgDn). In a window the
-  server's own rule applies first: Esc followed at once by `p`, `q`, Space,
-  Enter, `1`-`4` or an arrow is its Alt binding.
+  sequence (the arrows, Home, End, Delete, PgUp, PgDn).
 - **Drawing.** Only what changed is sent: the rows of lines that changed
   (and the rows below when lines come or go), the status line, the
   cursor; the cursor is off while a frame is drawn. A scroll draws the

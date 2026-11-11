@@ -70,7 +70,7 @@ them.
 - [x] Platform table: PT_FB (5) and PT_TIMER (6), geometry in the info
   word.
 - [x] SDL2 window opened on the first PRESENT; keyboard mapping (Alt =
-  ESC prefix, Ctrl-C = break).
+  ESC [ 27 ; 3 ; code ~, Ctrl-C = break).
   - [x] Flags `-g none`, `-F frame.ppm`, `-z N`, `-H`, `-r WxH`.
 - [x] Shared host code in `common/display.h`. The emulator still builds with
   `-DNO_SDL`.

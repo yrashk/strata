@@ -161,6 +161,18 @@ function sendBreak() { if (W && !stopped) W.postMessage({ t: "break" }); }
 
 term.onData((d) => { term.scrollToBottom(); sendText(d); });
 
+// Alt+key as the desktop window sends it (spec 1.4): the xterm modified-key
+// forms, which cannot be typed by hand, so the window server tells Alt+P from
+// Esc and then p by the bytes, not by time. A character is ESC [ 27 ; 3 ;
+// code ~ (Enter: 13), an arrow, Home or End ESC [ 1 ; 3 X, Delete, Page Up
+// or Down ESC [ n ; 3 ~.
+function altSeq(s) {
+  let m = /^\x1b\[([A-DHF])$/.exec(s);
+  if (m) return "\x1b[1;3" + m[1];
+  if ((m = /^\x1b\[(\d+)~$/.exec(s))) return `\x1b[${m[1]};3~`;
+  if ([...s].length === 1) return `\x1b[27;3;${s === "\n" ? 13 : s.codePointAt(0)}~`;
+  return s;
+}
 // The canvas keyboard: the same mapping as the desktop window.
 const KEYS = {
   Enter: "\n", Backspace: "\x7f", Tab: "\t", Escape: "\x1b",
@@ -174,10 +186,12 @@ canvas.addEventListener("keydown", (e) => {
   if (!s && e.ctrlKey && letter) s = String.fromCharCode(letter[1].charCodeAt(0) - 64); // Ctrl-C = 0x03 = break
   else if (!s && e.altKey && letter) s = e.shiftKey ? letter[1] : letter[1].toLowerCase();
   else if (!s && e.altKey && /^Digit\d$/.test(e.code) && !e.shiftKey) s = e.code[5];
+  else if (!s && e.altKey && e.code === "Space") s = " "; // (Option+Space, Option+? are other characters on a Mac)
+  else if (!s && e.altKey && e.code === "Slash") s = e.shiftKey ? "?" : "/";
   else if (!s && !e.ctrlKey && e.key.length === 1) s = e.key;
   if (!s) return;
   e.preventDefault();
-  sendText(e.altKey && s !== "\x03" ? "\x1b" + s : s);
+  sendText(e.altKey && s !== "\x03" ? altSeq(s) : s);
 });
 canvas.addEventListener("click", () => canvas.focus());
 
@@ -732,7 +746,7 @@ if (want && PRESETS[want])
   const mods = () => { for (const b of bar.querySelectorAll(".tk-mod")) b.classList.toggle("on", b.dataset.tk === "ctrl" ? ctrl : alt); };
   const send = (s) => {
     if (ctrl && s.length === 1 && /[a-z@\[\\\]^_ ]/i.test(s)) s = String.fromCharCode(s.toUpperCase().charCodeAt(0) & 31);
-    if (alt && s !== "\x03") s = "\x1b" + s;
+    if (alt && s !== "\x03") s = altSeq(s);
     ctrl = alt = false;
     mods();
     sendText(s);
@@ -753,6 +767,7 @@ if (want && PRESETS[want])
       if (tk === "kbd") { field.focus({ preventScroll: true }); return; }
       if (tk === "ctrl") ctrl = !ctrl, mods();
       else if (tk === "alt") alt = !alt, mods();
+      else if (b.dataset.alt) ctrl = false, alt = true, send(unesc(b.dataset.alt)); // an Alt binding
       else send(unesc(b.dataset.send));
       refocus(was);
     });
