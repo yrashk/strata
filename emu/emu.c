@@ -136,6 +136,7 @@ typedef struct {
   uint64_t u_cause, u_epc, u_tval, u_tvec;           /* user trap state */
   uint64_t hz_base, hz_span;    /* the D-LS bytes of the device reads in flight, for the fast paths (hazard_set) */
   bool ipend;                   /* a stop request is pending */
+  bool reset_req;               /* a reset request is pending (taken in any mode) */
   Pending pend[NPEND];          /* in-flight device reads */
   uint64_t xslot;               /* log2 bytes of an overlay slot; 0 = exact-match mapping */
   uint8_t dls[DLS_BYTES], ils[ILS_BYTES];
@@ -159,6 +160,7 @@ static uint64_t disk_blocks = 2048;
 static uint8_t sq_buf[32];
 static int sq_fill;
 static uint8_t sq_cmds[BLK_QDEPTH][32];
+static int sq_from[BLK_QDEPTH]; /* the core that submitted each queued command */
 static int sq_head, sq_cnt;
 static Gift blk_inbox[IQ];
 static int bi_head, bi_cnt;
@@ -180,6 +182,7 @@ static uint64_t pend_seq;
 static uint64_t net_lstat;      /* network STATUS, latched when its byte 0 is read */
 
 static Core cores[MAXCORES];
+static const uint8_t *boot_ils, *boot_dls; /* the boot image, to reload a reset core's Local Stores */
 static int ncores = 4;
 static uint64_t ctab_size = CTAB_DEF; /* capability save-table entries per core (-S) */
 static unsigned nxmap = NXMAP_DEF;    /* overlay map entries per core (-X) */
@@ -226,19 +229,55 @@ static bool inbox_push(Core *dst, Cap cap, int from) {
  * waiting, the completion queue has room and no capability is waiting to be
  * returned. Data moves between the disk and the far memory the capability
  * names; the capability goes back to the core named in the command. */
+/* Is there a queued command whose submitter is this core? */
+static bool blk_has_cmd(int from) {
+  for (int i = 0; i < sq_cnt; i++)
+    if (sq_from[(sq_head + i) % BLK_QDEPTH] == from) return true;
+  return false;
+}
+
+/* Remove, and return into *g, the oldest inbox buffer whose sender is `from`;
+ * -1 if none, 0 if removed (the ring is compacted). */
+static int blk_take_buf(int from, Gift *g) {
+  for (int i = 0; i < bi_cnt; i++) {
+    int idx = (bi_head + i) % IQ;
+    if (blk_inbox[idx].from != from) continue;
+    *g = blk_inbox[idx];
+    for (int j = i; j > 0; j--) /* close the gap: shift the earlier entries up */
+      blk_inbox[(bi_head + j) % IQ] = blk_inbox[(bi_head + j - 1) % IQ];
+    bi_head = (bi_head + 1) % IQ;
+    bi_cnt--;
+    return 0;
+  }
+  return -1;
+}
+
 static void blk_run(void) {
   for (;;) {
     if (blk_out_to >= 0) {
       if (!inbox_push(&cores[blk_out_to], blk_out.cap, blk_out.from)) return;
       blk_out_to = -1;
     }
-    if (!sq_cnt || !bi_cnt || cq_cnt == BLK_QDEPTH) return;
+    if (cq_cnt == BLK_QDEPTH) return;
+    /* A buffer may be paired only with a command from the SAME core, so one
+     * core cannot slip a buffer under another's command. A buffer whose sender
+     * has no pending command is an orphan (a stray gift, e.g. from a hostile
+     * guest): return it to its sender rather than pairing it with anyone. */
+    if (bi_cnt && !blk_has_cmd(blk_inbox[bi_head].from)) {
+      blk_out = blk_inbox[bi_head];
+      blk_out_to = blk_inbox[bi_head].from;
+      bi_head = (bi_head + 1) % IQ;
+      bi_cnt--;
+      continue;
+    }
+    if (!sq_cnt || !bi_cnt) return;
+    int submitter = sq_from[sq_head];
+    Gift bg;
+    if (blk_take_buf(submitter, &bg) < 0) return; /* the head command's buffer is not here yet */
     uint8_t *cmd = sq_cmds[sq_head];
     sq_head = (sq_head + 1) % BLK_QDEPTH;
     sq_cnt--;
-    Cap k = blk_inbox[bi_head].cap;
-    bi_head = (bi_head + 1) % IQ;
-    bi_cnt--;
+    Cap k = bg.cap;
     unsigned op = cmd[0], reply = cmd[1];
     uint64_t cid = le(cmd + 2, 2), n = le(cmd + 4, 4), lba = le(cmd + 8, 8), off = le(cmd + 16, 8);
     uint64_t bytes = n * BLK_BLOCK;
@@ -264,7 +303,8 @@ static void blk_run(void) {
     plat_put(e + 4, st == BLK_OK ? n : 0, 4);
     cq_cnt++;
     blk_out = (Gift){k, ncores};
-    blk_out_to = reply < (unsigned)ncores ? (int)reply : 0;
+    blk_out_to = bg.from; /* the buffer returns to the core that lent it (not the forgeable reply field) */
+    (void)reply;
   }
 }
 
@@ -345,7 +385,7 @@ static void pend_service(void) {
 }
 
 /* One byte written to device space: byte `i` of a transfer starting at `port`. */
-static void dev_write(uint64_t port, uint64_t i, uint8_t b) {
+static void dev_write(uint64_t port, uint64_t i, uint8_t b, int from) {
   uint64_t a = port + i;
   if (port == DEV_CONSOLE) {
     if (dbg_on) dbg_con_out(b); /* the debugger's console, not its own terminal */
@@ -383,7 +423,9 @@ static void dev_write(uint64_t port, uint64_t i, uint8_t b) {
     if (sq_fill == 32) {
       sq_fill = 0;
       if (sq_cnt < (int)BLK_QDEPTH) {
-        memcpy(sq_cmds[(sq_head + sq_cnt) % BLK_QDEPTH], sq_buf, 32);
+        int slot = (sq_head + sq_cnt) % BLK_QDEPTH;
+        memcpy(sq_cmds[slot], sq_buf, 32);
+        sq_from[slot] = from; /* the submitting core: a buffer pairs only with it */
         sq_cnt++;
       }
       blk_run();
@@ -423,6 +465,31 @@ static uint8_t dev_read(uint64_t port, uint64_t i) {
     return v;
   }
   return 0;
+}
+
+static void dec_invalidate(Core *c, uint64_t ls, uint64_t len); /* the fast loop's decode cache */
+
+/* A core-control reset request (Section corectl): restart this core as if
+ * just powered on, but leave the shared memories and devices alone. It is
+ * taken in any mode, so a supervisor that will not yield a core can still be
+ * stopped. Everything private to the core is cleared and its Local Stores are
+ * reloaded from the boot image; it resumes at the boot ROM entry (pc 0) in
+ * supervisor mode with the reset capabilities, as at power-on. */
+static void core_reset(Core *c) {
+  int id = c->id;
+  memset((char *)c + offsetof(Core, halted), 0, sizeof(Core) - offsetof(Core, halted)); /* all but id */
+  c->id = id;
+  memcpy(c->dls, boot_dls, DLS_BYTES);
+  memcpy(c->ils, boot_ils, ILS_BYTES);
+  c->caps[2] = (Cap){true, SP_DEV, P_W | P_D, 0, 1, 0, 0}; /* console output: every core */
+  if (id == 0) { /* core 0's reset set (a worker reset gets only the console) */
+    c->caps[0] = (Cap){true, SP_T3, P_R | P_W | P_X, 0, T3_BYTES, 0, 0};
+    c->caps[1] = (Cap){true, SP_T2, P_R | P_W | P_X, 0, T2_BYTES, 0, 0};
+    c->caps[3] = (Cap){true, SP_DEV, P_R | P_W | P_D, 0, DEV_SPACE_LEN, 0, 0};
+    c->caps[4] = (Cap){true, SP_CORE, P_W | P_D, 0, (uint64_t)ncores * 8, 0, 0};
+  }
+  jit_invalidate(id, 0, ILS_BYTES); /* its code changed under the JIT */
+  dec_invalidate(c, 0, ILS_BYTES);
 }
 
 static void fatal(Core *c, int cause, uint64_t tval, bool dbl) {
@@ -628,10 +695,15 @@ static bool step(Core *c) {
       for (int i = 0; i < NXMAP; i++)
         if (c->xm_v[i] && c->xm_ils[i] < ls + len && ls < c->xm_ils[i] + sl) c->xm_v[i] = false;
     }
-    if (k->space == SP_CORE) { /* core control: a word with bit 0 set interrupts that core */
+    if (k->space == SP_CORE) { /* core control: bit 0 = stop request, bit 1 = reset request */
       for (uint64_t i = 0; i < len; i += 8) {
-        uint64_t n = (far + i) / 8;
-        if (n < (uint64_t)ncores && (rd64(c->dls + ls + i) & 1)) cores[n].ipend = true;
+        uint64_t n = (far + i) / 8, w = rd64(c->dls + ls + i);
+        if (n >= (uint64_t)ncores) continue;
+        if (w & 1) cores[n].ipend = true;
+        if (w & 2) { /* reset request: taken in any mode, even when halted */
+          if ((int)n == c->id) { cores[n].reset_req = true; cores[n].halted = false; } /* self: at the next boundary */
+          else core_reset(&cores[n]); /* another core: now, so a following gift reaches the reset core */
+        }
       }
     } else if (k->space == SP_DEV && sub == XF_GET && len &&
                (far == DEV_CONSOLE + CON_IN || far == DEV_CONSOLE + CON_BREAK ||
@@ -667,7 +739,7 @@ static bool step(Core *c) {
       }
     } else if (k->space == SP_DEV) {
       for (uint64_t i = 0; i < len; i++) {
-        if (sub == XF_PUT) dev_write(far, i, c->dls[ls + i]);
+        if (sub == XF_PUT) dev_write(far, i, c->dls[ls + i], c->id);
         else c->dls[ls + i] = dev_read(far, i);
       }
       if (sub == XF_PUT && far == DEV_FBCTL + FBC_PRESENT && len) host_present(t3 + FB_BASE);
@@ -1491,6 +1563,7 @@ static int machine_round(void) {
   if (use_jit) {
     for (int i = 0; i < ncores; i++) {
       Core *c = &cores[i];
+      if (c->reset_req) { c->reset_req = false; core_reset(c); progress = true; }
       if (c->halted) continue;
       any_live = true;
       uint64_t n = run_jit(c);
@@ -1501,6 +1574,8 @@ static int machine_round(void) {
     int nlive = 0, nlead = 0;
     bool stepped = false;
     uint64_t minlead = UINT64_MAX;
+    for (int i = 0; i < ncores; i++)
+      if (cores[i].reset_req) { cores[i].reset_req = false; core_reset(&cores[i]); progress = true; }
     for (int i = 0; i < ncores; i++) nlive += !cores[i].halted;
     any_live = nlive > 0;
     for (int i = 0; i < ncores; i++) {
@@ -1691,6 +1766,7 @@ int main(int argc, char **argv) {
   blk_ident(blk_rom, disk_blocks);
   t2 = img.t2;
   t3 = img.t3;
+  boot_ils = img.ils; boot_dls = img.dls; /* a reset reloads a core's Local Stores from these */
   host_scan = t3 + FB_BASE; /* the display scans out live memory */
   for (int i = 0; i < ncores; i++) {
     Core *c = &cores[i];

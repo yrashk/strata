@@ -1533,6 +1533,153 @@ messages and the `:` and `/` lines take its place.
   6 M instructions); a 333 KiB file takes about 1.3 times vi's instructions
   to open, a key in normal mode about the same.
 
+### 2.13 Guests: co-existing OSes at whole-core granularity
+
+StrataOS can hand a bundle of its worker cores to a **guest**: a second
+operating system that runs on those cores, in supervisor mode, beside
+StrataOS. The guest is not trusted. It reaches only what it was given, and
+StrataOS can end it at any time and get the cores back clean. There is no ISA
+change for the grant itself; two small, general ISA additions make *ending* a
+guest sound (below). Code: `os/kunits/guest.s` (the kernel units), the system
+endpoint ops `GSTART`/`GSTOP`/`GINFO` (`os/kunits/ops.s`), `proc` ops 40/41/42
+(`os/servers/proc.s`), the `guest` shell command (`os/progs/guest.s`), and
+demo/test guest images (`os/guests/`).
+
+#### The grant
+
+`guest <image> [cores] [MiB]` asks `proc`, which gets an arena from the kernel
+(`MEMORY`), loads the guest image (a bare STX) into the top of it, and calls
+the kernel's `GSTART`. The kernel:
+
+- takes N free worker cores out of its own scheduling (it chooses a run of
+  cores that hold no StrataOS thread — empty cores — and marks them `CF_GUEST`
+  so placement skips them and `k_wake`/`k_ring` leave them alone);
+- gives the guest, through a defined boot protocol, exactly:
+  - **an arena** (its memory, sized by the request), which is **one revocation
+    domain**: it is cut from the pool with `cdom` and every capability derived
+    from it dies when the domain is revoked;
+  - **a console endpoint** to the `tty` server (read and write) — see the
+    console choice below;
+  - **a read-only clock** (the timer's `NOW`/`FREQ`), cut from the device root;
+  - **core control over its own cores only** (`[8·base, 8·(base+N))`,
+    write-only), so it can run its own workers but can never touch a StrataOS
+    core;
+  - **nothing else**: no KST, no device root, no core control over StrataOS, no
+    endpoint to `proc` or to the kernel.
+
+**Why a console endpoint, not the raw console device.** The raw console
+*output* port is copyable and several cores already hold it, so handing the
+guest a copy would be sound for output. The console *input* port, however, is
+owned exclusively by the `tty` server (which is `F_SOLO` on its own core and
+keeps a read in flight); a second reader would race it for keystrokes. One
+endpoint to `tty` carries both directions through the channel StrataOS already
+gives its own programs, with line discipline, and makes the guest no more
+privileged for I/O than a StrataOS process — the simplest sound choice. The
+guest talks to `tty` with raw `csend`/`ctake` on the endpoint (it is a
+supervisor, so it does not use `svc`); StrataOS routes and confines those sends
+(below).
+
+#### The boot protocol
+
+The arena is split in two: the writable low part `[0, imgoff)` is the guest's
+memory (relative core 0's `c0`); the high part `[imgoff, size)` is the image
+plus a small **guest platform table** and is handed to every guest core as a
+read+execute share (`c5`) so each core can load its own Local Stores. The
+platform table (at `size − 0x1000`, inside the shared region) holds a magic,
+`corebase`, `corecount` and `imgoff`.
+
+Each guest core is woken out of StrataOS idle by a gift — a **loader** code
+unit (`u_gload`) that the kernel's dispatcher (`w_guest`) copies into the I-LS
+and jumps to. The loader then `ctake`s, in order: the image share (`c5`), the
+console endpoint (`c1`), the clock (`c2`), core control (`c3`), and — on
+relative core 0 only — the writable arena (`c0`). It reads the platform table,
+sets `corebase`/`corecount` (so the guest sees itself as an N-core machine,
+`coreid` 0..N−1, `ncores` = N), copies the image's sections into the core's
+Local Stores (and, on core 0, the image's T3 section into the writable arena),
+and jumps to the image entry in supervisor mode. A multi-core guest's workers
+then wait for its own core 0, exactly as a bare-metal program does.
+
+#### Ending a guest, and the two ISA additions
+
+`guest stop <id>` (kernel `GSTOP`) revokes the guest's arena domain — one
+`crevoke`, after which **everything the guest holds or lent out is dead**
+(its memory, the message buffers it lent to `tty`, any block-device buffer it
+submitted) — and then **resets each of its cores** and re-provisions them as
+StrataOS workers. A guest that is halted by itself (`bye`) is reclaimed the
+same way: the reset un-halts the core.
+
+Reclaiming a *supervisor-mode* core needs two things the base ISA could not
+do, so two small, general additions were made (emulator `emu/emu.c`; the RTL
+and conformance tests are the remaining work):
+
+1. **A core-control reset request.** A `tput` through a core-control
+   capability that writes a doubleword with **bit 1** set (bit 0 is the
+   existing stop request) resets the target core. Unlike a stop request, a
+   reset is taken *in any mode*, so a supervisor that will not yield is stopped
+   anyway. A reset clears the core's registers, capability registers and save
+   table, inbox, overlay map, pending transfers and reads, and CSRs, reloads
+   its Local Stores from the boot image, and restarts it at the boot ROM entry
+   (pc 0) in supervisor mode with the reset capabilities — exactly as at
+   power-on. It runs the boot ROM's secondary path and waits for core 0 to
+   re-give it the OS shares, so core 0 re-provisions it like any worker. Who
+   may issue it: a holder of core control over that core (the same right as a
+   stop request).
+
+2. **The block device pairs a buffer only with a command from the same core.**
+   The device records the submitting core of each queued command and pairs it
+   only with an inbox buffer whose sender is that same core; a buffer whose
+   sender has no pending command is an orphan (a stray gift, e.g. from a
+   hostile guest) and is returned to its sender rather than slipped under
+   another core's command. This closes the one receiving-side channel a
+   supervisor guest could otherwise abuse: without it, a guest could `cgive` a
+   buffer into the block device's queue and have it paired with `fs`'s next
+   command, corrupting `fs`'s I/O.
+
+#### The isolation argument, and its limits
+
+What a guest can *reach* is bounded by the capabilities it holds: a revocable
+arena, a `tty` endpoint, a read-only clock, and core control over its own
+cores. It holds no capability to any other memory, core or device, and no
+instruction forges one, so every out-of-grant access faults
+(`os/guests/ghostile.s` tries several and each is refused).
+
+What a guest can *send* is not bounded by its capabilities alone, because a
+supervisor-mode `cgive` reaches any core's inbox and `cmkep` mints an endpoint
+to any node. StrataOS therefore confines the guest on the **receiving** side:
+a worker's dispatcher and core 0 drop everything arriving from a guest core
+except a 4 KiB request to a server the guest was explicitly given (`G_GALLOW`),
+and accept at most one such request outstanding (`G_GOUT`), so a guest can
+never make a StrataOS core wait on its full inbox; the sender pid stamped on a
+request is taken from the buffer's arena by the receiver, so it cannot be
+forged; and the block-device rule above closes the device channel. Revoking
+the arena kills every buffer the guest lent to a server, so a server holding a
+guest's request when the guest is killed simply finds a dead capability.
+
+**Known gap (user mode is not bounded in the Local Store).** Neither the
+emulator nor the RTL checks the privilege mode on D-LS loads/stores or on the
+Local-Store ranges of `tget`/`tput`/`tgetx`. A StrataOS *user* program can
+therefore read or write the dispatcher's own area (D-LS `0xA000..0xDFFF`:
+thread records, saved registers) and overwrite the dispatcher's code in the
+I-LS with `tgetx` — i.e. take over its core in supervisor mode. This gap is
+*within* a core, between StrataOS's dispatcher and the user programs that share
+that core. It does **not** apply between StrataOS and a guest, because a guest
+gets *whole cores*: there is no StrataOS dispatcher on a guest's core to
+corrupt, and the guest cannot reach any other core's Local Store (it has no
+far capability to it, and its `cgive`s are filtered on arrival). So a guest can
+do anything it likes *inside its own cores and its own arena* and nothing
+outside them; it cannot read or write StrataOS's memory, drive StrataOS's
+devices, disturb StrataOS's cores, or outlast a `GSTOP`. The within-core grain
+— a guest OS confining its *own* user-mode children on a shared core — is the
+next step, and needs the Local-Store protection discussed in the design notes
+(per-LS user-window bounds; see the report).
+
+#### Visibility
+
+A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
+`CF_GUEST` flag and run no StrataOS pid. `guest` with no arguments (or
+`guest list`) lists the running guests — id, cores, arena size, state — through
+`proc` op 42 / kernel `GINFO`.
+
 ## 3. Tests
 
 - `make test` compares every example on the emulator and the RTL

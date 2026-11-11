@@ -39,6 +39,8 @@ m_serv: .ascii ", server"               ; flag text
 m_serv_e:                               ; end of the text above
 m_solo: .ascii ", solo"                 ; flag text
 m_solo_e:                               ; end of the text above
+m_guest: .ascii ", guest"               ; flag text (a guest OS's core)
+m_guest_e:                              ; end of the text above
 m_sw:   .ascii "; "                     ; output text
 m_sw_e:                                 ; end of the text above
 m_swn:  .ascii " switches, "            ; output text
@@ -127,9 +129,16 @@ f_serv:
 f_solo:
         lbu   t0, 4(s1)                 ; solo?
         andi  t0, t0, 4                 ; ...
-        beqz  t0, f_done                ; no
+        beqz  t0, f_guest               ; no
         la    a0, m_solo                ; ", solo"
         li    a1, m_solo_e - m_solo     ; ...
+        call  out_str                   ; ...
+f_guest:
+        lbu   t0, 4(s1)                 ; a guest's core?
+        andi  t0, t0, 8                 ; (CF_GUEST)
+        beqz  t0, f_done                ; no
+        la    a0, m_guest               ; ", guest"
+        li    a1, m_guest_e - m_guest   ; ...
         call  out_str                   ; ...
 f_done:
         la    a0, m_sw                  ; "; "

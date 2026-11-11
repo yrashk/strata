@@ -186,6 +186,7 @@ G_PGRAN  = 0x38                         ; its granules
 G_CTAB   = 0x40                         ; capability save-table slots per core (platform table)
 G_NSLOT  = 0x48                         ; threads a worker core takes (w_params)
 G_NXMAP  = 0x50                         ; overlay map entries per core (platform table)
+G_GCORES = 0x58                         ; bit c: core c is a guest's (or lost to one): see "Guests"
 G_GPID   = 0x100                        ; 256 words: the process owning pool granule g (0: none)
 NGPID    = 256                          ; (64 MiB of pool at most)
 NARENA   = 64                           ; arena slots (K0_AR); every process has one
@@ -206,6 +207,7 @@ CA_SWCYC = 0x38                         ; cycles the dispatcher spent switching 
 CA_NSWP  = 0x40                         ; switch passes those cycles cover
 CA_KCYC  = 0x48                         ; cycles the dispatcher was busy (trap entry to eret, idle not counted)
 CA_NTRAP = 0x50                         ; traps (dispatcher entries)
+CA_GJOB  = 0x58                         ; nonzero: hand this core to a guest; the loader's I-LS address + 1
 CA_TAIL  = 0x60                         ; exit events written (worker)
 CA_HEAD  = 0x68                         ; exit events read (core 0)
 CA_RING  = 0x70                         ; 8 events of 16 bytes: pid, status
@@ -231,6 +233,9 @@ J_A2     = 80                           ; ...
 J_SAVE   = 88                           ; arena offset of this thread's save area
 J_MEM    = 96                           ; the arena's base (J_ARENA is its layout base)
 PSTATS   = 0x4800                       ; per pid (mod 256): u64 switches, u64 bytes moved
+G_GALLOW = 0x5800                       ; 16 words: guest core c may send requests to the
+                                        ;   servers of these cores (bits); 0: to none
+G_GOUT   = 0x5880                       ; 16 words: 1 while guest core c has a request at a server
 
 MSGB     = 0x8000                       ; core 0's 8 message buffers
 NMSGB    = 8                            ; ...
@@ -250,6 +255,8 @@ F_SYS    = 4                            ; a StrataOS program (c1..c5, c7)
 F_PRIV   = 8                            ; may mint endpoints in REPLY (proc, dev)
 F_DEVCAPS = 16                          ; gets the device root (c6) and framebuffer (c2): dev
 F_SOLO   = 32                           ; alone on its core (pending device reads: tty)
+F_GUEST  = 128                          ; a guest: whole cores in supervisor mode (core 0's records)
+CF_GUEST = 8                            ; core flags (K0_CORE): a guest's core
 
 ; ---- worker capability save table -----------------------------------------------
 ; The table has CTAB slots (the platform table says how many: 64..256; 256 by
@@ -298,6 +305,9 @@ K_MSG    = 48                           ; 48..55: core 0's message buffers (when
 K_STASH  = 56                           ; 56..59: attachments from proc / others
 K_FB     = 60                           ; the framebuffer's revoker (a revocable region of its own, made at boot)
 K_SPARE  = 61                           ; (spare)
+K_KCODE  = 46                           ; the OS code image share (the boot ROM's c10): a reset
+K_KDATA  = 47                           ;   guest core re-provisions from these (free core-0 slots,
+                                        ;   clear of the worker slots 57..63 and K_MSG 48..55)
 K_T2     = 2                            ; T2 after the KST (u_mem) and the code units (u_fart2)
 
 ; ---- process record (worker), PR_SIZE bytes each ---------------------------------------
@@ -405,7 +415,27 @@ AR_SIZE  = 8                            ;   size (bytes, whole granules)
 AR_STATE = 16                           ;   0 free, 1 issued (MEMORY), 2 a process's, 3 kept, 4 with proc
 AR_SZ    = 32                           ; ...
 K0_GMAP  = 0x6800                       ; 32 bytes: bit g: pool granule g is in an arena
-K0_END   = 0x6820                       ; (cleared at boot up to here)
+K0_GMASK = 0x6820                       ; bit c: core c is a guest's or lost (k_wake, k_ring skip them)
+K0_GUEST = 0x6828                       ; NGUEST guest records of GU_SIZE bytes:
+GU_PID   = 0                            ;   guest id (0 = free record)
+GU_CORE  = 8                            ;   first core
+GU_N     = 16                           ;   cores
+GU_LEFT  = 24                           ;   cores not yet back (stop: counts down; kill: stays)
+GU_ASLOT = 32                           ;   arena slot
+GU_FLAGS = 40                           ;   F_GUEST
+GU_SIZE  = 48                           ; ...
+NGUEST   = 4                            ; guests at once (cores are the real limit)
+K0_END   = 0x6980                       ; (cleared at boot up to here)
+; guest start/stop scratch (core 0 only, in K0_SCR; not the kernel data image):
+g_core   = K0_SCR + 0x800                ; first core
+g_n      = K0_SCR + 0x808                ; cores
+g_aslot  = K0_SCR + 0x810                ; arena slot
+g_allow  = K0_SCR + 0x818                ; servers it may reach (core bitmask)
+g_flags  = K0_SCR + 0x820                ; flags
+g_pt     = K0_SCR + 0x828                ; image offset (the arena split point)
+g_id     = K0_SCR + 0x830                ; the guest id
+g_rec    = K0_SCR + 0x838                ; its record address
+g_tmp    = K0_SCR + 0x840                ; 64 bytes: platform table / reset word
 
         .text                           ; kernel code
         .org  KTEXT                     ; the boot ROM loads it at I-LS 0x4000
@@ -416,6 +446,10 @@ K0_END   = 0x6820                       ; (cleared at boot up to here)
 kentry:
         li    sp, STACKTOP              ; a stack for now
         la    gp, GPBASE                ; kernel data base
+        bnez  a0, ke_drop               ; core 0 keeps the boot ROM's image shares: a core a
+        csave c10, K_KCODE              ;   guest gives back loads the kernel from them
+        csave c11, K_KDATA              ;   (see "Guests")
+ke_drop:
         cclear c10                      ; the boot ROM's image shares are not needed any more
         cclear c11                      ; (copyable capabilities: dropping them loses nothing)
         bnez  a0, wboot                 ; every core but 0 is a worker
@@ -967,10 +1001,10 @@ kst_xchg0:                              ; kst_xchg0(a0 = offset) -> a0 = old val
 
 ; ---- boot -------------------------------------------------------------------------------
 wboot:
-        sd    a0, w_me-GPBASE(gp)       ; our core
-        la    sp, kstack_top            ; the dispatcher's own stack
-        ctake c8, zero                  ; the KST, from core 0
-        li    a0, T_KST                 ; keep it
+        sd    a0, w_me-GPBASE(gp)       ; our core (also a core core 0 reset and re-provisioned:
+        la    sp, kstack_top            ;   the boot ROM gave it the OS shares again, so this
+        ctake c8, zero                  ;   path is the same as at boot)
+        li    a0, T_KST                 ; the KST, from core 0
         call  csv8                      ; ...
         ctake c8, zero                  ; core control, from core 0 (for doorbells)
         li    a0, T_CCTL                ; ...
@@ -1767,6 +1801,18 @@ sv_reply:
         andi  s2, s2, 255               ; ...
         ld    t0, w_ncores-GPBASE(gp)   ; a real core?
         bgeu  s2, t0, svr_bad           ; no
+        li    a0, G_GCORES              ; a guest's core: the buffer alone, no doorbell
+        call  kst_rd                    ; ...
+        srl   a0, a0, s2                ; ...
+        andi  a0, a0, 1                 ; ...
+        beqz  a0, svr_ring              ; ...
+        slli  a0, s2, 3                 ; (its request is answered: it may send another)
+        li    t0, G_GOUT                ; ...
+        add   a0, a0, t0                ; ...
+        li    a1, 0                     ; ...
+        call  kst_wr                    ; ...
+        j     svr_buf                   ; ...
+svr_ring:
         mv    a0, s2                    ; wake it
         call  w_ring                    ; ...
         ld    t0, PR_REGS+96(s0)        ; attach c4 first?
@@ -2278,6 +2324,11 @@ w_place:
         mv    s1, a0                    ; s1 = sender
         cvalid t0, c8                   ; alive?
         beqz  t0, wpl_drop              ; no: drop it
+        li    a0, G_GCORES              ; from a guest's core?
+        call  kst_rd                    ; ...
+        srl   a0, a0, s1                ; ...
+        andi  a0, a0, 1                 ; ...
+        bnez  a0, wpl_guest             ; yes: a request, or nothing
         cbase s2, c8                    ; s2 = base
         cperms t0, c8                   ; s3 = space
         srli  s3, t0, 8                 ; ...
@@ -2432,6 +2483,50 @@ wpl_att:
         li    a1, -1                    ; (not a gift)
         call  att_put                   ; ...
         j     wpl_ret                   ; ...
+; From a guest's core only a request to this core's server is taken, if the
+; guest was given that server, and only while it has no other request out
+; (G_GOUT): its answer is then the one gift on its way to that core, so no
+; core of StrataOS can wait on a guest's full inbox. Anything else is dropped
+; (a refusal would be a gift too). The sender pid is stamped from the buffer's
+; arena as for any request (w_complete): the guest's own pid.
+wpl_guest:
+        cperms t0, c8                   ; a 4 KiB buffer of system memory?
+        srli  t0, t0, 8                 ; ...
+        li    t1, 3                     ; ...
+        bne   t0, t1, wpl_drop          ; ...
+        clen  t0, c8                    ; ...
+        li    t1, 4096                  ; ...
+        bne   t0, t1, wpl_drop          ; ...
+        ld    t0, w_server-GPBASE(gp)   ; for a server here
+        bltz  t0, wpl_drop              ; ...
+        ld    t0, w_nreq-GPBASE(gp)     ; with room in its queue
+        li    t1, NREQ                  ; ...
+        bge   t0, t1, wpl_drop          ; ...
+        slli  s2, s1, 3                 ; that the guest was given?
+        li    t0, G_GALLOW              ; ...
+        add   a0, s2, t0                ; ...
+        call  kst_rd                    ; ...
+        ld    t0, w_me-GPBASE(gp)       ; ...
+        srl   a0, a0, t0                ; ...
+        andi  a0, a0, 1                 ; ...
+        beqz  a0, wpl_drop              ; ...
+        li    t0, G_GOUT                ; its one request out
+        add   s2, s2, t0                ; ...
+        mv    a0, s2                    ; ...
+        li    a1, 1                     ; ...
+        call  kst_wr                    ; ...
+        bnez  a0, wpl_drop              ; it has one out already
+        li    a0, 0                     ; a pool slot (general part)
+        call  pool_get                  ; ...
+        bltz  a0, wpl_gnot              ; none
+        mv    a1, a0                    ; queue it
+        mv    a0, s1                    ; ...
+        call  w_enq                     ; ...
+        j     wpl_ret                   ; ...
+wpl_gnot:
+        mv    a0, s2                    ; not taken after all
+        li    a1, 0                     ; ...
+        call  kst_wr                    ; ...
 wpl_drop:
         cclear c8                       ; ...
 wpl_ret:
@@ -2714,6 +2809,10 @@ w_cmds:
         li    a0, G_HALT                ; the machine is stopping?
         call  kst_rd                    ; ...
         bnez  a0, w_halt                ; yes
+        li    a0, CA_GJOB               ; this core goes to a guest?
+        call  carea                     ; ...
+        call  kst_rd                    ; ...
+        bnez  a0, w_guest               ; yes
         li    a0, CA_KILL               ; slots to destroy
         call  carea                     ; ...
         call  kst_xchg0                 ; ...
@@ -2822,6 +2921,18 @@ wj_ret:
         ld    ra, 0(sp)                 ; ...
         addi  sp, sp, 16                ; ...
         ret                             ; ...
+
+; w_guest(a0 = loader address + 1): core 0 gives this core (empty: no process,
+; no server) to a guest. The rest is the loader, a kernel unit core 0 lends as a
+; read+execute share (kunits/guest.s, u_gload): it never comes back here.
+w_guest:
+        addi  s1, a0, -1                ; where it runs
+        cclear c8                       ; ...
+        ctake c8, zero                  ; the loader, from core 0
+        li    t1, 2048                  ; one unit
+        tgetx tg0, s1, c8, zero, t1     ; -> the I-LS
+        cclear c8                       ; ...
+        jr    s1                        ; (fetching it waits for the transfer)
 
 ; w_halt: the machine is stopping
 ; `halt` drains the core's transfers, device reads included (tty's break
@@ -4410,6 +4521,11 @@ kl_msg:
         csrr  s1, takefrom              ; s1 = the sender
         cvalid t0, c8                   ; still alive?
         beqz  t0, kl_drop               ; no: drop it
+        li    t0, K0_GMASK              ; from a guest's core?
+        ld    t0, 0(t0)                 ; ...
+        srl   t0, t0, s1                ; ...
+        andi  t0, t0, 1                 ; ...
+        bnez  t0, kl_guest              ; ...
         cperms t0, c8                   ; t0 = space << 8 | perms
         srli  t0, t0, 8                 ; space
         li    t1, 4                     ; device space: a worker's "look at my events" token
@@ -4445,6 +4561,11 @@ kl_stash:
         j     k_loop                    ; next event
 kl_drop:
         cclear c8                       ; a dead capability
+        j     k_loop                    ; next event
+kl_guest:
+        mv    a0, s1                    ; a core giving itself back, or nothing
+        la    t5, u_ggift               ; ...
+        xcall ra, c12, t5               ; ...
         j     k_loop                    ; next event
 
 ; k_stash(a0 = sender): c8 -> a free stash slot, tagged with its sender
@@ -4598,6 +4719,11 @@ k_ring:
         blez  a0, kr_no                 ; never core 0
         ld    t0, w_ncores-GPBASE(gp)   ; a worker
         bgeu  a0, t0, kr_no             ; ...
+        li    t1, K0_GMASK              ; never a guest's core (it ignores stop requests anyway,
+        ld    t1, 0(t1)                 ;   and must not be disturbed by a preemption doorbell)
+        srl   t1, t1, a0                ; ...
+        andi  t1, t1, 1                 ; ...
+        bnez  t1, kr_no                 ; ...
         slli  t0, a0, 3                 ; its word
         la    t1, w_bell                ; 1 = stop
         li    t2, 1                     ; ...
@@ -4612,6 +4738,11 @@ k_wake:
         blez  a0, kr_no                 ; never core 0
         ld    t0, w_ncores-GPBASE(gp)   ; ...
         bgeu  a0, t0, kr_no             ; ...
+        li    t1, K0_GMASK              ; never a guest's core: core 0 gives it nothing (a
+        ld    t1, 0(t1)                 ;   guest that takes nothing would make it wait)
+        srl   t1, t1, a0                ; ...
+        andi  t1, t1, 1                 ; ...
+        bnez  t1, kr_no                 ; ...
         cgive c2, a0                    ; the token: a copy of the console capability
         j     k_ring                    ; and the doorbell
 
@@ -4776,6 +4907,7 @@ k_pra:     .dword 0                     ; ra at a kernel fault
         .include "kunits/boot.s"        ; start-up: memory, the KST, proc, dev, fs
         .include "kunits/ops.s"         ; CREATE, DESTROY, MEMORY, STATS, NOTIFY, FREE, HALT
         .include "kunits/events.s"      ; exit events, EXITED, ticks
+        .include "kunits/guest.s"       ; guests: whole cores for another OS
         .text                           ; resident again
         .include "../firmware/fw.s"     ; firmware library (disk at boot, panics)
         .data                           ; its data follows ours
