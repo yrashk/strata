@@ -21,6 +21,10 @@ package strata_pkg;
   localparam int CTAB      = 256;      // capability save table entries (common/platform.h CTAB_DEF)
   localparam int CTW       = $clog2(CTAB); // a slot number
   localparam int NXMAP     = 16;       // overlay map entries
+  // Far addresses and capability bounds are held in FW bits: every
+  // capability satisfies base + len <= its space's size, the largest space
+  // being system memory, so FW bits hold any far address or length exactly
+  localparam int FW        = $clog2(T3_BYTES) + 1;
   localparam int GRAN_SHIFT = 18;      // revocation granules of T2 and T3: 256 KiB
   localparam int NG3       = T3_BYTES >> GRAN_SHIFT;   // T3 granules
   localparam int NG2       = T2_BYTES >> GRAN_SHIFT;   // T2 granules
