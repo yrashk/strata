@@ -22,6 +22,11 @@ const BUILD = "__BUILD__";       // (tools/web-stamp.sh: the commit, so that no 
 const V = "?v=" + BUILD;
 const ASSETS = "../play/debug/";
 const RUNS = new Set(["continue", "stepi", "next", "finish", "step-round", "until"]);
+// The JIT is for fast continues only (recorded runs step one instruction at
+// a time); off on iPhone and iPad, as on the play page (Safari there kills
+// the page once compiled WebAssembly fills its pool).
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const JIT = IOS ? "-j" : "-J";
 
 // ---------------------------------------------------------------- transports
 class Conn {
@@ -152,10 +157,65 @@ function paint(m) {
   fitScreen();
 }
 function fitScreen() {
+  if ($("screen-panel").classList.contains("floating")) { // the whole frame in the window's box
+    const box = $("screen-box"), k = Math.min(box.clientWidth / screen.width, box.clientHeight / screen.height);
+    screen.style.width = Math.max(1, Math.floor(screen.width * k)) + "px";
+    screen.style.height = Math.max(1, Math.floor(screen.height * k)) + "px";
+  } else screen.style.width = screen.style.height = "";
   const css = screen.getBoundingClientRect().width / Math.max(1, screen.width);
   screen.classList.toggle("smooth", css * (window.devicePixelRatio || 1) < 1);
 }
 addEventListener("resize", fitScreen);
+
+// Floating windows: a panel taken out of the page's flow, fixed on the
+// screen; its bar moves it, the corner resizes it; where it was is
+// remembered per browser. The button puts it back.
+function floatable(panel, btn, key, onResize, low) {
+  const load = () => { try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (e) { return null; } };
+  const save = () => {
+    const r = panel.getBoundingClientRect();
+    try { localStorage.setItem(key, JSON.stringify({ on: panel.classList.contains("floating"), x: r.left, y: r.top, w: r.width, h: r.height })); } catch (e) { /* not remembered */ }
+  };
+  const clamp = () => {
+    const r = panel.getBoundingClientRect();
+    panel.style.left = Math.max(0, Math.min(r.left, innerWidth - 120)) + "px";
+    panel.style.top = Math.max(0, Math.min(r.top, innerHeight - 40)) + "px";
+  };
+  function set(on, at) {
+    panel.classList.toggle("floating", on);
+    btn.classList.toggle("on", on);
+    btn.textContent = on ? "⧉ Put back" : "⧉ Float";
+    if (on) {
+      const w = Math.min(720, innerWidth * 0.5), h = Math.min(low ? 300 : 460, innerHeight * (low ? 0.35 : 0.55));
+      const r = at || { x: innerWidth - w - 24, y: low ? innerHeight - h - 24 : 90, w, h }; // (the console below the screen)
+      Object.assign(panel.style, { left: r.x + "px", top: r.y + "px", width: r.w + "px", height: r.h + "px" });
+      clamp();
+    } else for (const p of ["left", "top", "width", "height"]) panel.style[p] = "";
+    onResize();
+    save();
+  }
+  btn.addEventListener("click", (e) => { e.stopPropagation(); set(!panel.classList.contains("floating"), load()); });
+  const bar = panel.querySelector(".tag");
+  let drag = null;
+  bar.addEventListener("pointerdown", (e) => {
+    if (!panel.classList.contains("floating") || e.target.closest("button")) return;
+    const r = panel.getBoundingClientRect();
+    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    bar.setPointerCapture(e.pointerId);
+  });
+  bar.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    panel.style.left = Math.max(0, Math.min(e.clientX - drag.dx, innerWidth - 120)) + "px";
+    panel.style.top = Math.max(0, Math.min(e.clientY - drag.dy, innerHeight - 40)) + "px";
+  });
+  bar.addEventListener("pointerup", () => { if (drag) { drag = null; save(); } });
+  new ResizeObserver(() => { if (panel.classList.contains("floating")) { onResize(); save(); } }).observe(panel);
+  addEventListener("resize", () => { if (panel.classList.contains("floating")) clamp(); });
+  const st = load();
+  if (st && st.on) set(true, st);
+}
+floatable($("screen-panel"), $("screen-float"), "strata-dbg-float-screen", fitScreen);
+floatable($("con-panel"), $("con-float"), "strata-dbg-float-console", refitTerm, true);
 const SKEYS = {
   Enter: "\n", Backspace: "\x7f", Tab: "\t", Escape: "\x1b",
   ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", ArrowRight: "\x1b[C", ArrowLeft: "\x1b[D",
@@ -885,12 +945,13 @@ $("osrun").addEventListener("change", async () => {
 });
 
 // ---------------------------------------------------------------- buttons and keys
-for (const b of document.querySelectorAll("[data-do]")) b.addEventListener("click", () => doCmd(b.dataset.do));
+for (const b of document.querySelectorAll("[data-do]")) b.addEventListener("click", () => doCmd(b.dataset.do, b.dataset.fast ? { fast: true } : undefined));
 addEventListener("keydown", (e) => {
   if (e.target.closest("input, select, textarea, canvas#screen") || e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key;
   const map = { c: "continue", s: "stepi", n: "next", f: "finish", r: "step-round", S: "reverse-stepi", R: "reverse-step-round", C: "reverse-continue", Escape: "pause" };
-  if (map[k]) { e.preventDefault(); doCmd(map[k]); }
+  if (k === "F") { e.preventDefault(); doCmd("continue", { fast: true }); }
+  else if (map[k]) { e.preventDefault(); doCmd(map[k]); }
   else if (k === "[" || k === "]") { cur = (cur + (k === "]" ? 1 : ncores - 1)) % Math.max(1, ncores); markCur(); refreshProv(); drawTimeline(); }
 });
 
@@ -918,7 +979,7 @@ async function loadOs() {
     ...progs.map((n) => get("/os/prog/" + n + ".map", ASSETS + "os/prog/" + n + ".map"))]);
   const c = new WorkerConn();
   c.onEvent = onEvent;
-  await c.start(files, "/os/bootrom.stx", ["-c", String(OS_CORES), "-j", "-T", "virtual", "-d", "/disk.img", "--os", "/os"]);
+  await c.start(files, "/os/bootrom.stx", ["-c", String(OS_CORES), JIT, "-T", "virtual", "-d", "/disk.img", "--os", "/os"]);
   conn = c;
   $("mode").textContent = "StrataOS in this page (WebAssembly)";
   await connected();
@@ -938,7 +999,7 @@ async function loadExample(name, cores) {
   }
   const c = new WorkerConn();
   c.onEvent = onEvent;
-  await c.start(files, "/" + name + ".stx", ["-c", String(cores), "-j", "-T", "virtual"]);
+  await c.start(files, "/" + name + ".stx", ["-c", String(cores), JIT, "-T", "virtual"]);
   conn = c;
   $("mode").textContent = "in this page (WebAssembly)";
   await connected();

@@ -998,6 +998,8 @@ static size_t unescape(const char *s, char *o, size_t n) {
 static void help(void) {
   fputs("Running\n"
         "  continue (c)            run until a breakpoint, a watchpoint or Ctrl-C\n"
+        "  fast (ff)               the same, not recorded (the JIT, without breakpoints): the\n"
+        "                          history restarts where it stops (catching up: a boot, a splash)\n"
         "  stepi (si) [N]          N instructions of the current core (other cores run their rounds)\n"
         "  next (ni)               one instruction, stepping over a call\n"
         "  finish                  until the current function returns (pc = ra)\n"
@@ -1062,6 +1064,16 @@ static bool command(char *line) {
   if (IS("q") || IS("quit")) return false;
   else if (IS("help") || IS("h")) help();
   else if (IS("c") || IS("continue")) run_simple("continue", -1, 0);
+  else if (IS("ff") || IS("fast")) { /* continue, not recorded, at full speed: recording starts again where it stops */
+    JW w = {0};
+    jw_reset(&w);
+    jw_obj(&w, NULL);
+    jw_str(&w, "cmd", "continue");
+    jw_bool(&w, "fast", true);
+    jw_oend(&w);
+    run_cmd(&w);
+    free(w.p);
+  }
   else if (IS("si") || IS("stepi")) {
     if (follow_pid) {
       JW w = {0};
@@ -1283,7 +1295,7 @@ int main(int argc, char **argv) {
   os_aware = json_bool(json_get(h, "os"), false);
   if (interactive) {
     fprintf(out, "strata-dbg: %s on %d core(s)%s%s%s\n", S(h, "image"), ncores, json_bool(json_get(h, "timetravel"), false) ? ", time travel on" : "",
-            os_aware ? ", StrataOS aware" : "", json_bool(json_get(h, "jit"), false) ? ", JIT for plain continues" : "");
+            os_aware ? ", StrataOS aware" : "", json_bool(json_get(h, "jit"), false) ? ", JIT for fast continues (ff)" : "");
     const JVal *maps = json_get(h, "maps");
     for (const JVal *m = maps ? maps->kid : NULL; m; m = m->next)
       fprintf(out, "  map %s (%s%s)\n", S(m, "path"), S(m, "scope"), json_bool(json_get(m, "forth"), false) ? ", Forth words" : "");

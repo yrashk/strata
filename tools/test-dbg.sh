@@ -15,7 +15,9 @@
 #      watchpoint on its destination fired by its completion; reverse-tag
 #      back to its issue (in front of the tget: its tag has no transfer yet);
 #   4. StrataOS: break when the process `ls` runs, info processes;
-#   5. the wasm engine: a breakpoint and a reverse step.
+#   5. the wasm engine: a breakpoint and a reverse step;
+#   6. fast continues (ff, with the JIT): hello to its end, StrataOS to the
+#      process ls, and the history starting again there.
 #
 #   tools/test-dbg.sh            (-v: show the transcripts)
 set -u
@@ -163,6 +165,20 @@ if command -v node >/dev/null 2>&1 && [ -f "$b/web/strata-emu.js" ]; then
     '"reason":"reverse step","core":0'
 else
   echo "test-dbg: no node or no WebAssembly build (make wasm): skipping part 5"
+fi
+
+# ---- 6. fast continues: unrecorded (the JIT), the history starts again where they stop
+printf 'ff\ninfo history\nquit\n' > "$tmp/ff.cmd"
+run ff "$tmp/ff.cmd" -c 4 -J -T virtual "$b/examples/hello.stx"
+expect ff "console| Hello from Strata core 3 of 4" \
+  "the machine has stopped: halted (tick 100," "time travel: ticks 100..100, 1 snapshot(s)"
+if [ -f "$b/disk.img" ] && [ -f "$b/kernel.map" ]; then
+  cp "$b/disk.img" "$tmp/disk.img"
+  printf 'break process ls\ninput ls\\n\nff\ninfo history\nstepi 20\nreverse-stepi 5\ninfo history\nquit\n' > "$tmp/osff.cmd"
+  run osff "$tmp/osff.cmd" -c 8 -J -T virtual -g none -d "$tmp/disk.img" --os "$b" "$b/bootrom.stx"
+  expect osff "stopped: breakpoint 1: process ls runs (at its entry)" "<_start> (ls.s:" \
+    "recording starts again at the next round's start" "stopped: step" "stopped: reverse step" \
+    "time travel: ticks "
 fi
 
 if [ $fail = 0 ]; then echo "test-dbg: ok"; else exit 1; fi

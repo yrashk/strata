@@ -55,6 +55,12 @@ static bool dbg_rr_live, dbg_rr_progress; /* this round: a live core, a step */
 static uint64_t dbg_poll_at;       /* the round of the next host poll (as main's loop) */
 static int64_t dbg_skip_tick = -1; /* the slot stopped in front of: its breakpoints are passed */
 static bool dbg_tt;                /* time travel: snapshots and the input log are kept */
+static bool dbg_ttok;              /* this run can be recorded (-T virtual, no network) */
+static bool dbg_ff;                /* a fast continue: not recorded until it stops */
+static bool dbg_tt_due;            /* recording starts again at the next round's start */
+static void tt_restart(void); /* debug_tt.c */
+static const char *tt_off_why(void);
+static void tt_clear(void);
 static bool dbg_fastok;            /* a plain continue may run machine_round() (JIT, fast loop) */
 static bool dbg_trapped;           /* a trap was taken in this slot */
 static int dbg_trap_cause;
@@ -867,6 +873,7 @@ static int end_of_round(void) {
 static int dbg_tick1(void) {
   if (dbg_ci == 0 && !dbg_rs) {
     /* the round's start: a snapshot, the input log, then what main's loop does */
+    if (dbg_tt_due) { dbg_tt_due = false; tt_restart(); }
     if (dbg_tt) { tt_at_round(); tt_apply(dbg_tick); }
     rounds++;
     if (opt_break_at && mach_steps >= opt_break_at) { opt_break_at = 0; press_break(); }
@@ -943,6 +950,16 @@ static double dbg_now_ms(void) { return (double)host_us() / 1000.0; }
 
 static void ev_stopped(void);
 
+/* A fast continue has stopped: recording starts again from here (now, at a
+ * round's start; else at the next one). */
+static void ff_end(void) {
+  if (!dbg_ff) return;
+  dbg_ff = false;
+  if (!dbg_ttok) return;
+  if (dbg_ci == 0 && !dbg_rs) tt_restart();
+  else dbg_tt_due = true;
+}
+
 /* Runs the machine while it is running, for up to `ms` milliseconds.
  * Returns -1 when it is not running (any more), 0 when the time is up,
  * or the milliseconds to wait (idle: every core waits for input or time). */
@@ -960,10 +977,10 @@ static double dbg_run(double ms) {
     }
     int r;
     if (stop.hit) r = TK_STOP;
-    else if (dbg_fastok && !dbg_tt && goal.kind == G_CONT && !dbg_nlive_bp && dbg_ci == 0 && !dbg_rs) r = dbg_fast_round();
+    else if ((dbg_fastok || dbg_ff) && !dbg_tt && goal.kind == G_CONT && !dbg_nlive_bp && dbg_ci == 0 && !dbg_rs) r = dbg_fast_round();
     else r = dbg_tick1();
-    if (r == TK_STOP) { dbg_state = ST_STOPPED; ev_stopped(); return -1; }
-    if (r == TK_DONE) { ev_stopped(); return -1; }
+    if (r == TK_STOP) { dbg_state = ST_STOPPED; ff_end(); ev_stopped(); return -1; }
+    if (r == TK_DONE) { ff_end(); ev_stopped(); return -1; }
     if (r == TK_IDLE) { con_flush(); return dbg_idle_ms > 0 ? dbg_idle_ms : 0.001; }
     if ((k & 1023) == 1023) {
       con_flush();
@@ -1525,7 +1542,17 @@ static void dbg_request(const char *line, size_t len, JW *w) {
              !strcmp(cmd, "reverse-continue") || !strcmp(cmd, "reverse-step-round") || !strcmp(cmd, "reverse-tag")) {
     if (busy) snprintf(err, sizeof err, "running (pause first)");
     else if (dbg_state == ST_DONE && strncmp(cmd, "reverse", 7) && strcmp(cmd, "goto")) snprintf(err, sizeof err, "the machine has stopped: %s", dbg_done_why);
-    else if (!strcmp(cmd, "continue")) run_start(G_CONT);
+    else if (!strcmp(cmd, "continue")) {
+      /* fast: not recorded (the history is dropped) and, without live
+       * breakpoints, at full speed (the JIT); recording starts again where
+       * it stops */
+      if (json_bool(json_get(rq, "fast"), false)) {
+        if (dbg_tt) { tt_clear(); dbg_tt = false; }
+        dbg_tt_due = false;
+        dbg_ff = true;
+      }
+      run_start(G_CONT);
+    }
     else if (!strcmp(cmd, "stepi")) {
       int pid = json_int(json_get(rq, "pid"), 0);
       int c = pid ? 0 : req_core(rq, err, sizeof err);
@@ -2131,7 +2158,7 @@ static void dbg_request(const char *line, size_t len, JW *w) {
     else jw_puts(w, "\"\"");
     free(buf);
   } else if (!strcmp(cmd, "history")) {
-    if (!dbg_tt) snprintf(err, sizeof err, "no time travel: needs -T virtual, no JIT, no network");
+    if (!dbg_tt) snprintf(err, sizeof err, "%s", tt_off_why());
     else tt_history_json(w);
   } else if (!strcmp(cmd, "quit") || !strcmp(cmd, "kill")) {
     dbg_quit = true;
@@ -2197,7 +2224,8 @@ static void dbg_setup(const char *img, const char *in_path, const char *disk_pat
   /* the engine runs the reference interleaving; the JIT only for a plain continue */
   dbg_fastok = use_jit;
   fast_off = true;
-  dbg_tt = virtual_time && !use_jit && net_mode == NET_NONE;
+  dbg_ttok = virtual_time && net_mode == NET_NONE;
+  dbg_tt = dbg_ttok; /* (recorded runs step one instruction at a time; the JIT is for fast continues) */
   if (dbg_tt) tt_init();
   stop_req(-1, 0, "started");
 }

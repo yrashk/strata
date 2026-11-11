@@ -67,7 +67,9 @@ The web debugger (`site/debug/`) uses the debug engine of `emu/emu.c`
   guest first draws (the worker calls `web_paint()` as the play page's
   does, and `web_dbg_repaint()` after time travel). Keys and the mouse go
   through the engine's `input`, `ctrl-c` and `pointer` requests, which log
-  them, so a recorded GUI run replays with its clicks.
+  them, so a recorded GUI run replays with its clicks. The page starts the
+  engine with `-J` (not on iPhone or iPad) for **⏩ Fast**, a continue that
+  catches up unrecorded; the console and the screen can float as windows.
 - **Against the desktop.** `strata-emu --debug PORT --www site` serves the
   page and upgrades a WebSocket on the same port; the page asks
   `/dbg-info`, finds the engine and talks to it (`make debug-web`, then

@@ -239,6 +239,13 @@ strata$ ws                          # the window server takes the screen
 - **Utilities**: `ls cat cp mv rm touch df tag untag retag tags ps free
   uptime devs hexdump cores sched seq grep wc upper spin`, `units` (a program
   that pages its own code), and `as`.
+- **The editor** (`vi FILE`): vi keys (motions, counts, `d c y` operators,
+  put, many-level undo and redo, `.`, search, `:w :q :e :set nu`) on the
+  console or in a window, Strata assembly and Forth in the site's colours
+  (keyword tables generated from the assembler and Forth sources), the
+  screen's size asked of the terminal, and the text kept in far memory, so a
+  file far bigger than the 64 KiB Local Store opens (the 333 KiB shell
+  source does).
 - **Networking**: the `net` server (IPv4, ICMP, UDP, TCP, a DNS resolver)
   and `ping host nc tcpecho ifconfig netstat httpd`. `httpd &` serves the disk
   over HTTP: URLs are tag paths (`/src/demo/hello.s`, `/src/` lists the files
@@ -392,10 +399,12 @@ build/strata-dbg -c 4 -j -T virtual build/examples/pipeline.stx
   paged code units by name, and `break process NAME` stops when it runs;
   `follow PID` makes `stepi` follow a thread across switches and cores.
   Forth code is named by its dictionary.
-- Time travel needs a deterministic run (`-T virtual`, no JIT, no
-  network): the engine keeps snapshots and a log of what came from outside,
-  and goes back by replaying: `reverse-stepi`, `reverse-continue`,
-  `reverse-step-round`, `reverse-tag tgN`, `goto TICK`.
+- Time travel needs a deterministic run (`-T virtual`, no network): the
+  engine keeps snapshots and a log of what came from outside, and goes back
+  by replaying: `reverse-stepi`, `reverse-continue`, `reverse-step-round`,
+  `reverse-tag tgN`, `goto TICK`. `ff` (fast) catches up without recording,
+  with the JIT under `-J`, and the history starts again where it stops: boot
+  StrataOS that way, then debug from there.
 - The guest's console never mixes with the debugger's: strata-dbg opens a
   pty for it (`screen /dev/ttys012` in another terminal: what you type
   there is the guest's input), or `--console FILE`.

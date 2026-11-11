@@ -103,7 +103,8 @@ static int tt_n, tt_cap;
 static int tt_base = -1;          /* the snapshot the dirty bits are relative to */
 static int tt_next;               /* the first snapshot after the current position */
 static uint32_t tt_serial;
-static uint64_t tt_every = 50000; /* ticks between snapshots */
+#define TT_EVERY0 50000
+static uint64_t tt_every = TT_EVERY0; /* ticks between snapshots */
 static uint64_t tt_bytes;         /* memory held by versions and blobs */
 static InLog *tt_log;
 static size_t tt_nlog, tt_caplog;
@@ -353,6 +354,44 @@ static void tt_cut(uint64_t t) {
   if (tt_base >= tt_n) tt_base = tt_n - 1;
 }
 
+/* Why going back is not possible now. */
+static const char *tt_off_why(void) {
+  return dbg_tt_due ? "recording starts again at the next round's start (after a fast continue): step once"
+                    : "no time travel in this run (needs -T virtual and no network)";
+}
+
+/* Forgets the whole history (a fast continue: what runs is not recorded). */
+static void tt_clear(void) {
+  for (int ri = 0; ri < tt_nrg; ri++) {
+    Region *r = &tt_rg[ri];
+    for (uint32_t p = 0; p < r->npages; p++) {
+      PList *l = &r->pl[p];
+      for (uint32_t k = 0; k < l->n; k++) free(l->v[k].data);
+      l->n = 0;
+    }
+  }
+  for (int i = 0; i < tt_n; i++) { free(tt_snaps[i].delta); free(tt_snaps[i].misc); }
+  for (size_t i = 0; i < tt_nlog; i++) free(tt_log[i].data);
+  tt_n = tt_next = 0;
+  tt_base = -1;
+  tt_nlog = 0;
+  tt_bytes = 0;
+  tt_every = TT_EVERY0;
+}
+
+/* Recording starts again here, at a round's start (a fast continue has
+ * stopped): the first snapshot looks at everything. */
+static void tt_restart(void) {
+  tt_clear();
+  for (int ri = 0; ri < tt_nrg; ri++)
+    if (tt_rg[ri].dirty) memset(tt_rg[ri].dirty, 1, tt_rg[ri].npages);
+  dbg_frontier = dbg_tick;
+  dbg_muted = false;
+  tt_applied = 2 * dbg_tick;
+  tt_snap();
+  dbg_tt = true;
+}
+
 /* Keeps the history inside its budget. */
 static void tt_thin(void) {
   while (tt_bytes > dbg_hist_mib << 20 && tt_n > 2) {
@@ -569,7 +608,7 @@ static int tt_find(uint64_t t) { /* the last snapshot at or before tick t */
 }
 
 static bool tt_goto(uint64_t t, char *err, size_t ne) {
-  if (!dbg_tt) { snprintf(err, ne, "no time travel in this run (needs -T virtual, no JIT, no network)"); return false; }
+  if (!dbg_tt) { snprintf(err, ne, "%s", tt_off_why()); return false; }
   if (t > dbg_frontier) { snprintf(err, ne, "tick %llu has not happened yet", (unsigned long long)t); return false; }
   if (t < tt_snaps[0].tick) { snprintf(err, ne, "the history starts at tick %llu", (unsigned long long)tt_snaps[0].tick); return false; }
   if (t <= dbg_tick) tt_restore(tt_find(t));
@@ -583,7 +622,7 @@ static bool tt_goto(uint64_t t, char *err, size_t ne) {
  * (SK_BPS: a breakpoint or watchpoint would stop; SK_STEP: core `core`
  * makes a step; SK_TAG: core's tag `tag` is issued), n times. */
 static bool tt_reverse(int kind, int core, int tag, uint64_t n, char *err, size_t ne) {
-  if (!dbg_tt) { snprintf(err, ne, "no time travel in this run (needs -T virtual, no JIT, no network)"); return false; }
+  if (!dbg_tt) { snprintf(err, ne, "%s", tt_off_why()); return false; }
   uint64_t orig = dbg_tick;
   int64_t found = -1;
   int lastbp = 0, lastcore = -1;

@@ -276,12 +276,13 @@ far memory and to the disk, traps and console output.
 \item[Provenance] every capability the machine makes is given an id, which moves keep, and the engine
   records its parent and the operation that made it (split, share, restrict, give, mint, revoke,
   \ldots), so a front-end can show where any capability came from.
-\item[Time travel] on a deterministic run (\texttt{-T virtual}, no JIT, no network) the engine keeps
+\item[Time travel] on a deterministic run (\texttt{-T virtual}, no network) the engine keeps
   snapshots of the machine (the pages of memory that changed since the last one) and a log of what came
   from outside (console input, Ctrl-C, the debugger's own writes). Going back is restoring the nearest
   earlier snapshot and executing forward again: to any tick, back one step of a core, back to the last
   breakpoint or watchpoint hit, back to the issue of a tag. The memory it uses is bounded; old snapshots
-  are thinned out.
+  are thinned out. A fast continue catches up without recording (with the JIT under \texttt{-J}) and
+  recording starts again where it stops, so a boot need not be recorded to debug what follows it.
 \item[StrataOS] with \texttt{-{}-os}, the kernel's shared table and \texttt{proc}'s process table are
   read through the maps (no layout is hard-coded): processes, the process each core runs, the program
   map for user code, the kernel's code units by name through core 0's overlay map.
