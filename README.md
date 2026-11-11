@@ -239,6 +239,13 @@ strata$ ws                          # the window server takes the screen
 - **Utilities**: `ls cat cp mv rm touch df tag untag retag tags ps free
   uptime devs hexdump cores sched seq grep wc upper spin`, `units` (a program
   that pages its own code), and `as`.
+- **The editor** (`vi FILE`): vi keys (motions, counts, `d c y` operators,
+  put, many-level undo and redo, `.`, search, `:w :q :e :set nu`) on the
+  console or in a window, Strata assembly and Forth in the site's colours
+  (keyword tables generated from the assembler and Forth sources), the
+  screen's size asked of the terminal, and the text kept in far memory, so a
+  file far bigger than the 64 KiB Local Store opens (the 333 KiB shell
+  source does).
 - **Networking**: the `net` server (IPv4, ICMP, UDP, TCP, a DNS resolver)
   and `ping host nc tcpecho ifconfig netstat httpd`. `httpd &` serves the disk
   over HTTP: URLs are tag paths (`/src/demo/hello.s`, `/src/` lists the files

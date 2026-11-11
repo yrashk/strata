@@ -787,7 +787,10 @@ the status becomes 0. `as < hello.s > hi` works this way.
 
 **tty (c3)**: 1 READ (mode bit 0 = do not block; cooked: echo, Backspace,
 returns one line or what was typed before 0x04, 0 = end of input; raw: no
-echo, whatever bytes are there, at least one; CR → LF in both), 2 WRITE,
+echo, whatever bytes are there, at least one, and a READ that does not block
+and finds nothing (-3) has one byte read ahead, so a program that polls sees
+the rest of an escape sequence: `vi` telling Esc from an arrow's ESC [ A;
+CR → LF in both), 2 WRITE,
 4 CLOSE (0), 18 SETFG (handle = pid), 19 CONMODE (0 cooked, 1 raw); 36–38
 from `proc`. READ mode bit 1 (raw, for `ws`) asks for the pointer's events
 too: the READ is also answered when events wait, the answer's mode field
@@ -831,14 +834,20 @@ takes a timeout and a tag mask. `ws` and `sh` never busy-wait the CPU.
 - The shell catches interrupts, gives the console to a foreground job with
   SETFG and takes it back after, and SIGNALs the job when interrupted while
   waiting for it. The window server catches interrupts and forwards them
-  to the focused window's process.
+  to the focused window's process. `vi` catches them: Ctrl-C reaches it as
+  a read that returns -2, which it takes as the key Ctrl-C (2.12).
 
 ### 2.6 Terminal output subset
 
 Programs write plain bytes to stdout. The console passes them to the host
 terminal; `term` windows interpret this subset and ignore other
 escape sequences: `\n`, `\r`, `\b`, `\t`; ESC [ K; ESC [ n C / D; ESC [ 2 J;
-ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47.
+ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47;
+ESC [ ? 25 l / h (the cursor off / on while a program draws); ESC [ 6 n
+(where is the cursor: `term` answers ESC [ row ; column R on the program's
+standard input, as a terminal would type it; `vi` learns the window's size
+this way). Other sequences, private ones (ESC [ ? ...) too, are ignored
+whole.
 
 ### 2.7 The shell (`sh`)
 
@@ -878,8 +887,9 @@ ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47.
   devs, hexdump, cores,
   sched (`sched` shows the slice and switch rates; `sched 500us` / `sched 5ms`
   sets it; `rc` may set it at boot),
-  seq, grep, wc, upper, spin, as, units, and the examples (all but `clock`
-  and `gfx`, which need the device root that only `dev` holds).
+  seq, grep, wc, upper, spin, as, units, vi (the editor, 2.12), and the
+  examples (all but `clock` and `gfx`, which need the device root that only
+  `dev` holds).
 - Not there: globbing, `2>`; completion
   assumes an 80-column terminal, and a line longer than the terminal's
   width redraws wrongly.
@@ -1028,7 +1038,8 @@ window whose process ends is removed.
   (`term COMMAND` types COMMAND into that shell first). It interprets the
   terminal subset of 2.6 (`os/ws/term.s` is its grid, parser and renderer),
   writes key events to the shell's input pipe, and turns Ctrl-C into SIGNAL
-  to the shell. It blocks in READ on the output pipe and asks the server
+  to the shell; a cursor position report a program asks for (ESC [ 6 n)
+  goes into that pipe too. It blocks in READ on the output pipe and asks the server
   (CREATE mode bit 0) to interrupt it when events wait: the READ returns
   -2 and the events are fetched without blocking. Nothing is polled.
 - **`wmandel`**: renders the Mandelbrot set, DAMAGEs rows as they finish,
@@ -1260,6 +1271,96 @@ host opens `http://localhost:8080/`.
   4 KiB buffer shared by DIR records, file chunks and PS records, the tag
   tables, 3 KiB of requests); code: 12.3 KiB of the 32 KiB I-LS.
 
+### 2.12 The editor (`vi`)
+
+`vi [FILE]` (`os/progs/vi.s`) edits a file in the manner of vi, on the
+console (an ANSI terminal: `make boot`, the browser's terminal) and in a
+`term` window (`make boot-ws`, Alt+Enter), with Strata assembly and Strata
+Forth in colour. FILE is a path (`/src/hello.s`, or a name under the current
+tag path); one that does not exist is created by `:w`. The screen is the
+text, a line a row (a long line scrolls the view sideways), and a status
+line: `-- INSERT --`, the file name, `[+]` when modified, line,column;
+messages and the `:` and `/` lines take its place.
+
+- Moving: `h j k l` and the arrows, `w b e`, `0 ^ $`, `gg G`, `NG`, `%`,
+  Enter `+ -`, Space, Backspace, Ctrl-D / Ctrl-U (half a screen), Ctrl-F /
+  Ctrl-B (a screen), Home/End, PgUp/PgDn. A count repeats or scales: `5j`,
+  `3dd`, `2dw`, `d3w`.
+- Inserting: `i a I A o O`; in insert mode Enter splits the line,
+  Backspace and Delete erase, the arrows move; Esc or Ctrl-C ends it.
+- Changing: `x X r D C s S J`, `d c y` with a motion (`dw cw d$ c$ dG y3j`
+  ...) or doubled for lines (`dd cc yy`), `Y`, `p P` (characters into the
+  line, or lines below / above), `u` (undo, many levels), Ctrl-R (redo), `.`
+  (the last change again: its keys are replayed). A motion to another line
+  makes `d c y` linewise when it is a line motion (`j k G gg`); a character
+  motion that leaves the line stops at its end or start (`dw` on the last
+  word, `cw` changes to the end of the word).
+- Searching: `/text` and `?text` (plain text), `n`, `N`; the search goes
+  round the end of the file and says so.
+- `:w`, `:w NAME` (the buffer keeps its name unless it had none), `:q`,
+  `:q!`, `:wq`, `:x` and `ZZ` (written only if modified), `:e NAME`, `:e!`,
+  `:N` (line N), `:set nu` / `:set nonu` (line numbers), `:syntax on` /
+  `:syntax off`. Ctrl-L asks the terminal its size and draws everything
+  again; Ctrl-G shows the file and its size.
+- **Highlighting.** `.s` is Strata assembly, `.fs` Strata Forth; another
+  name is plain unless the file carries the tag `src` (assembly) or `forth`.
+  The rules are the site's (`site/hl.js`): for assembly, comment lines and
+  `;` `#` `//` comments, labels, `NAME =` and CAPITALS, mnemonics by
+  category (ALU, memory, branch, transfer, capability, system, paging,
+  pseudo-instructions), directives (a word starting with "."), x and c
+  registers and transfer tags, CSR names after `csrr` / `csrw`, numbers,
+  strings and characters; for Forth, `\` and `( )` comments (a `(` comment
+  may run over lines: the state at the start of each row is kept, and a
+  change that alters it draws the rows below), `:` `;` and the defining
+  words with the names they define, control words, the Strata words,
+  numbers, strings and locals. The keyword tables are generated at build
+  time (`tools/vi-syntax.py` -> `build/vi-syntax.s`) from the sources the
+  site uses: `asm/sasm.c` and `lang/forth/README.md` through
+  `tools/web-code.py`, and `site/hl.js`'s Forth word lists. The site's
+  colours (`site/hl.css`) are mapped to the 16 SGR colours: comments 90,
+  labels 97, constants 92, ALU 96, memory 94, branches 95, transfers 33,
+  capabilities 93, system 31, paging 91, pseudo 36, directives 34, x
+  registers 37, c registers 93, CSRs 91, numbers 32, strings 35; Forth
+  definitions 31, names 97, control 95, defining words 34, Strata words 33,
+  locals 93.
+- **Screen size.** vi moves the cursor to row 999, column 999 and asks
+  ESC [ 6 n; an ANSI terminal (and `term`, 2.6) answers ESC [ row ; column R
+  with where the cursor stopped. Without an answer within 0.2 s, or when a
+  key comes first (a script), it is 80 × 24 (at most 62 × 250 are used).
+  Ctrl-L asks again; an answer is taken whenever it comes. A window that
+  changes size is not noticed until Ctrl-L.
+- **Keys.** The console delivers a key's bytes one at a time, so an Esc is
+  told from an escape sequence by time: a `[` within 30 ms (vi polls with
+  READs that do not block, which have `tty` read one byte ahead) makes a
+  sequence (the arrows, Home, End, Delete, PgUp, PgDn). In a window the
+  server's own rule applies first: Esc followed at once by `p`, `q`, Space,
+  Enter, `1`-`4` or an arrow is its Alt binding.
+- **Drawing.** Only what changed is sent: the rows of lines that changed
+  (and the rows below when lines come or go), the status line, the
+  cursor; the cursor is off while a frame is drawn. A scroll draws the
+  text rows again: the console's and the window's terminals share no
+  cheaper way to scroll (`term` redraws every row of its grid on a scroll
+  anyway). On exit the screen is cleared.
+- **Where the text lives.** In far memory (the arena), moved with
+  transfers; the D-LS holds one 2 KiB chunk, the line being edited and the
+  screen's state. Arena [0, 512 KiB): the text, in 256 chunks of 2 KiB,
+  each a run of whole lines with their newlines, in the order of a chunk
+  table (store number, bytes, lines) in the D-LS; a full chunk is split
+  where a line goes in, an emptied one is freed, and a small one takes in
+  the next. [512 KiB, 736 KiB): the undo history, a record per change (the
+  first line, the old lines and the new ones, the cursor before it); the
+  oldest records go when it is full. [736 KiB, 832 KiB): the register
+  (what `y d c x` took).
+- **Limits.** About 500 KiB of text (a file that does not fit is cut
+  short, and vi says so); lines of 1000 bytes at most (a longer one is
+  split when the file is read); 96 KiB in the register; a change bigger
+  than the 224 KiB history cannot be undone (the history before it goes).
+  `fs` holds a file being written in 128 KiB, so `:w` refuses a bigger
+  buffer before the file is touched; `/src/sh.s` (333 KiB) opens, but
+  cannot be written back. Every line is written with a newline after it.
+  No counts on inserts, no `f t`, no marks or named registers, no regular
+  expressions.
+
 ## 3. Tests
 
 - `make test` compares every example on the emulator and the RTL
@@ -1305,6 +1406,17 @@ host opens `http://localhost:8080/`.
   Cookie header) from the test disk `build/http-test/disk.img`, compared
   with `tools/test-http.out`; then two emulators over host UDP: a quick
   request is answered while a slow connection waits.
+- `tools/test-vi.sh`: the editor. A scripted session (`-j -T virtual`)
+  edits files with inserts, motions, counts, operators, yank and put,
+  undo, redo and `.`, searches, `:w NAME`, `:q!`, `:e`, options, a file
+  bigger than the whole D-LS (`seq 15000`: 77 KiB) and the 333 KiB shell
+  source; the files it wrote (`cat`, `wc`, `grep`), with vi's screens
+  taken out, are compared with `tools/test-vi.out`, and the screens are
+  checked for the SGR colours of an `.s` and an `.fs` file (a Forth `(`
+  comment carried over a line). A second boot sends Ctrl-C (`-b`) while
+  vi runs: it carries on. `tools/vi-shots.sh` (not run by `make test`)
+  takes pictures of vi in the window server's terminal:
+  `build/vi-shots/asm.png`, `forth.png`.
 - `tools/test-as.sh` (run on its own, not by `make test`): the self-hosted
   assembler against `sasm`, including a StrataOS boot that assembles and
   runs a program.

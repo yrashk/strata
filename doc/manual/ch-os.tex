@@ -651,7 +651,9 @@ Store. Files are contiguous runs of blocks; a file being written is held in a 12
 \textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
 1 & READ & length; mode bit 0 = do not block. Cooked mode: input is echoed and edited with Backspace,
   and a READ returns one line with its newline, or what was typed before Ctrl-D; 0 = end of input.
-  Raw mode: no echo; whatever bytes are there, at least one. CR becomes LF in both\\
+  Raw mode: no echo; whatever bytes are there, at least one; a READ that does not block and finds
+  nothing has one byte read ahead, so a program that polls sees the rest of an escape sequence. CR
+  becomes LF in both\\
 2 & WRITE & data to the console\\
 4 & CLOSE & 0 (the console is never closed)\\
 18 & SETFG & handle = pid: Ctrl-C now interrupts that process\\
@@ -830,7 +832,8 @@ Chapter~\ref{ch:traps}: an event that is a transfer, messages, and core control.
 The shell catches interrupts. It gives the console to a foreground job with SETFG and takes it back
 afterwards; interrupted while it waits for a job, it SIGNALs every stage of the job; interrupted while
 reading a line, it abandons the line. The window server catches interrupts and forwards them to the
-process of the focused window.
+process of the focused window. The editor catches them too: its read returns $-2$, which it takes as
+the key Ctrl-C (Section~\ref{sec:os-vi}).
 
 \section{Code paging}
 
@@ -978,6 +981,7 @@ spin [N [C]] & burn CPU, printing a character now and then: $N$ times, or foreve
 units & demand-paged code (Section~\ref{sec:os-paging})\\
 as & the assembler (Section~\ref{sec:os-as})\\
 sh & the shell\\
+vi [FILE] & the editor (Section~\ref{sec:os-vi})\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1002,6 +1006,45 @@ strata$ sched 500us
 The pipeline is three processes and two pipes; the two \texttt{spin} processes share core 6 and
 \texttt{ps} shows the switches between them and the bytes those switches moved; \texttt{mandel} runs as
 three threads on three cores, its \insn{ctake}s emulated.
+
+\subsection{The editor}\label{sec:os-vi}
+\texttt{vi} \textit{file} (\texttt{os/progs/vi.s}) edits a file in the manner of vi, on the console and
+in a \texttt{term} window, with Strata assembly and Strata Forth in colour. It has normal, insert,
+command-line (\texttt{:}) and search (\texttt{/}, \texttt{?}) modes and a status line (the mode, the
+file, \texttt{[+]} when modified, line and column). It moves with \texttt{h j k l} and the arrows,
+\texttt{w b e}, \texttt{0 \^{} \$}, \texttt{gg G}, \textit{N}\texttt{G}, \texttt{\%} and Ctrl-D, U, F, B;
+inserts with \texttt{i a I A o O}; changes with \texttt{x X r D C s S J}, the operators \texttt{d c y}
+with a motion or doubled (\texttt{dw}, \texttt{cw}, \texttt{d\$}, \texttt{dd}, \texttt{3dd}),
+\texttt{Y}, \texttt{p P}, \texttt{u} (undo, many levels), Ctrl-R (redo) and \texttt{.} (the last change,
+its keys replayed); searches with \texttt{/} \texttt{?} \texttt{n} \texttt{N} (plain text); and takes
+\texttt{:w}, \texttt{:w} \textit{name}, \texttt{:q}, \texttt{:q!}, \texttt{:wq}, \texttt{:x},
+\texttt{:e} \textit{name}, \texttt{:}\textit{N}, \texttt{:set nu}, \texttt{:set nonu},
+\texttt{:syntax on} and \texttt{off}.
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[Highlighting] \texttt{.s} files are Strata assembly, \texttt{.fs} files Forth (another name: by
+  the file's tags \texttt{src} and \texttt{forth}). The rules and colours are the web site's
+  highlighter's, mapped to the terminal's 16 colours; a Forth \texttt{(} comment that runs over lines
+  is followed by keeping the state at the start of each row. The keyword tables (mnemonics by
+  category, CSR and register names, Forth words) are generated at build time by
+  \texttt{tools/vi-syntax.py} from the assembler's own tables, the Forth README and the site's
+  highlighter, so the editor, the site and the tools cannot disagree.
+\item[The screen's size] vi moves the cursor to row 999, column 999 and asks where it is
+  (\texttt{ESC [ 6 n}); the host's terminal and \texttt{term} answer with the bottom right corner.
+  Without an answer it is $80\times24$. Ctrl-L asks again.
+\item[The text in far memory] The text does not live in the D-LS: it is 256 chunks of 2~KiB in the
+  arena, each a run of whole lines, in the order of a chunk table; one chunk at a time is in the D-LS.
+  A full chunk is split where a line goes in, an empty one is freed, a small one takes in the next.
+  The undo history (a record per change: the old lines and the new) and the register are in the arena
+  too. A file of about 500~KiB fits, so the 333~KiB shell source opens; \texttt{fs} writes files of
+  128~KiB at most, and \texttt{:w} refuses more before it touches the file.
+\item[Drawing] Only the rows that changed, the status line and the cursor are sent, with the cursor
+  hidden meanwhile; a scroll draws the text rows again.
+\item[Keys and Ctrl-C] The console delivers a key's bytes one at a time, so Esc is told from an
+  arrow's \texttt{ESC [ A} by time: vi polls with READs that do not block (which have \texttt{tty}
+  read a byte ahead) for 30~ms. vi catches interrupts: Ctrl-C ends insert mode or cancels what is
+  being typed, and does not end the editor.
+\end{description}
 
 \section{The window server}\label{sec:os-ws}
 
@@ -1123,7 +1166,10 @@ Programs write plain bytes to standard output. On the console they go to the hos
 return, backspace and tab; \texttt{ESC [ K} (erase to end of line); \texttt{ESC [ n C} and
 \texttt{ESC [ n D} (cursor right and left); \texttt{ESC [ 2 J} and \texttt{ESC [ H} (clear, home);
 \texttt{ESC [ r ; c H} (position); and \texttt{ESC [ \ldots\ m} with 0, 1, 30--37, 90--97 and 40--47
-(colours). The shell's line editor uses only this subset.
+(colours), \texttt{ESC [ ? 25 l} and \texttt{h} (the cursor off and on while a program draws), and
+\texttt{ESC [ 6 n}, which \texttt{term} answers with \texttt{ESC [}\textit{ row}\texttt{ ;}\textit{
+column}\texttt{ R} on the program's standard input, as a terminal would type it. The shell's line
+editor uses only the first part of this subset; \texttt{vi} uses all of it.
 
 \section{Networking}\label{sec:os-net}
 
