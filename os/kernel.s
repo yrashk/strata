@@ -165,6 +165,7 @@ DATAMAX  = 0xA000                       ; programs' data ends below the kernel's
 STACKLO  = 0xE000                       ; programs' stack: 0xE000..0xFFFF
 
 KST_SIZE = 0x8000                       ; the kernel shared table: 32 KiB
+KST_SPACE = 2                           ; ... in T2 when T2 has room (the debug engine reads it there)
 G_NCORES = 0x00                         ; cores
 G_SWITCH = 0x08                         ; context switches, all cores
 G_KIB    = 0x10                         ; KiB moved by switches, all cores

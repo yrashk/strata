@@ -173,7 +173,8 @@ static int64_t map_abs(const Map *m, const char *name, int64_t def) {
 
 /* ------------------------------------------------------------ StrataOS awareness */
 
-/* The kernel's shared table (KST, T3 offset 0) and core 0's process records:
+/* The kernel's shared table (KST: T2 offset 0, or T3 offset 0 for a kernel
+ * whose map has no KST_SPACE = 2) and core 0's process records:
  * offsets come from kernel.map (CAREA, CA_SIZE, CA_CUR, K0_PROC, ...), the
  * process table from proc's map (procs, E_SIZE, E_NAME, ...): nothing here
  * hard-codes the kernel's layout. */
@@ -190,13 +191,24 @@ static uint64_t t3_word(uint64_t off) {
   return v;
 }
 
+/* A word of the KST: in T2 when the kernel's map says so (KST_SPACE = 2; the
+ * emulator's T2 always has room for it), else in T3. */
+static uint64_t kst_word(uint64_t off) {
+  Map *k = map_scope(SC_KERNEL);
+  if (!k || map_abs(k, "KST_SPACE", 3) != 2) return t3_word(off);
+  if (off + 8 > T2_BYTES) return 0;
+  uint64_t v;
+  memcpy(&v, t2 + off, 8);
+  return v;
+}
+
 /* The pid core i runs now (KST CA_CUR), 0 if none or not known. */
 static int os_cur_pid(int i) {
   Map *k = map_scope(SC_KERNEL);
   if (!os_aware || !k) return 0;
   int64_t ca = map_abs(k, "CAREA", -1), sz = map_abs(k, "CA_SIZE", -1), cur = map_abs(k, "CA_CUR", -1);
   if (ca < 0 || sz < 0 || cur < 0) return 0;
-  return (int)(t3_word((uint64_t)(ca + i * sz + cur)) & 0xffff);
+  return (int)(kst_word((uint64_t)(ca + i * sz + cur)) & 0xffff);
 }
 
 static const char *os_name_of(int pid);
@@ -240,7 +252,7 @@ static void os_read_procs(void) {
     if (cur == 0 && ca >= 0 && sz >= 0 && sl >= 0) {
       proc_here = true;
       for (int64_t q = 0; q < ns; q++) {
-        int pid = (int)(t3_word((uint64_t)(ca + proc_core * sz + sl + 8 * q)) & 0xff);
+        int pid = (int)(kst_word((uint64_t)(ca + proc_core * sz + sl + 8 * q)) & 0xff);
         if (pid && pid != 1) proc_here = false;
       }
     }
