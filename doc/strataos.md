@@ -500,7 +500,13 @@ stack at 0xA000.. (8 KiB at most).
 
 The kernel counts switches and bytes moved per process and per core
 (shown by `ps`, `cores`, `uptime`, `sched`, and drawn by the window
-server). Memory map of a worker core: I-LS 0x0000 boot ROM, 0x4000 kernel,
+server). Each worker's dispatcher also times itself with the `cycle`
+CSR, and `cores` shows the averages: **cycles per switch**, from deciding
+to switch to having issued the next thread's restore (`w_out` + `w_in`),
+and **cycles per trap**, from a trap's entry to the `eret` that resumes a
+thread, its idle time not counted (on the emulator `cycle` counts
+instructions). The sums and counts are published in the KST core area
+(CA_SWCYC, CA_NSWP, CA_KCYC, CA_NTRAP) with the other per-core words. Memory map of a worker core: I-LS 0x0000 boot ROM, 0x4000 kernel,
 0x8000.. program code (+ code cache); D-LS 0x0000..0x9FFF program data,
 0xA000 kernel data, 0xE000..0xFFFF the program's stack (the kernel uses a
 stack of its own in its data).

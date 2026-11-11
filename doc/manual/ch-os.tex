@@ -344,6 +344,9 @@ every byte of a switch is a byte moved by a transfer. A switch between two small
 kilobytes; one between two programs that each use their whole data extent moves more than a hundred.
 The dispatcher counts context switches and bytes moved per process and per core; \texttt{ps},
 \texttt{cores}, \texttt{uptime} and \texttt{sched} print them, and the window server draws them.
+It also times itself with \csr{cycle}: \texttt{cores} shows, per core, its cycles per switch (from
+deciding to switch to having issued the next thread's restore) and per trap (from the trap to the
+\insn{eret} that resumes a thread, idle time not counted).
 
 Two supervisor calls let a program reduce or correct what a switch does.
 
