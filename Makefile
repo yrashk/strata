@@ -457,11 +457,25 @@ $(WEB)/strata-emu.js: web/web.c emu/emu.c $(DBG_ENGINE) emu/jit/jit_wasm.c emu/j
 	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_jit_wasm_set_budget,_web_dbg,_web_dbg_run,_web_dbg_events,_malloc,_free \
 	  -sEXPORTED_RUNTIME_METHODS=callMain,FS,HEAPU8,wasmMemory,wasmTable,UTF8ToString,stringToNewUTF8
 
-wasm: $(WEB)/strata-emu.js web-assets
-	@mkdir -p $(WEB)/images $(WEB)/demos
+# the web debugger's examples (site/debug/): images, their maps (sasm -g) and
+# the sources the maps name, under build/web/debug/ (the site's play/debug/)
+DEBUG_EXAMPLES := hello pipeline clock stream_sum parsum overlay swcache race
+DEBUG_ASSETS := $(foreach e,$(DEBUG_EXAMPLES),$(BUILD)/examples/$(e).stx $(BUILD)/examples/$(e).map)
+
+# (a map is written with its image; this rebuilds an image made before maps were)
+$(BUILD)/examples/%.map: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
+	@mkdir -p $(BUILD)/examples
+	$(BUILD)/sasm -g $@ -o $(@:.map=.stx) $<
+
+wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS)
+	@mkdir -p $(WEB)/images $(WEB)/demos $(WEB)/debug/src/examples/lib
 	cp $(WEB_IMAGES) $(WEB)/images/
 	cp lang/forth/demos/*.fs $(WEB)/demos/
 	ls lang/forth/demos | sed -n 's/\.fs$$//p' > $(WEB)/demos/index.txt
+	cp $(DEBUG_ASSETS) $(WEB)/debug/
+	cp $(patsubst %,examples/%.s,$(DEBUG_EXAMPLES)) $(WEB)/debug/src/examples/
+	cp examples/lib/*.s $(WEB)/debug/src/examples/lib/
+	echo $(DEBUG_EXAMPLES) | tr ' ' '\n' > $(WEB)/debug/index.txt
 
 web-code:
 	rm -rf $(BUILD)/web-code
