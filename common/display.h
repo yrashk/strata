@@ -80,6 +80,7 @@ static int host_breaks;          /* Ctrl-C presses not yet given to the break po
 #ifdef __EMSCRIPTEN__
 static bool host_in_page;        /* console input comes from the page, not from a file */
 #endif
+static bool host_in_pushed;      /* console input is pushed by the debugger (--debug), not stdin */
 static volatile bool host_quit;  /* the window was closed: end the run */
 static uint64_t host_in_taken;   /* console bytes the guest has taken so far (pointer scripts: kN) */
 
@@ -107,6 +108,7 @@ static inline bool host_input_open(const char *path) {
     host_in_fd = open(path, O_RDONLY);
     return host_in_fd >= 0;
   }
+  if (host_in_pushed) return true; /* host_in_push() only */
   host_in_fd = STDIN_FILENO;
   if (isatty(STDIN_FILENO) && !tcgetattr(STDIN_FILENO, &host_saved_tio)) {
     struct termios t = host_saved_tio;
@@ -383,9 +385,9 @@ static inline bool host_break_live(void) { return host_in_page; }
 static inline bool host_ptr_live(void) { return host_in_page || host_ptr_script_stepped(); }
 #else
 /* More console input may still arrive. */
-static inline bool host_input_live(void) { return host_in_fd >= 0 || host_window_open(); }
+static inline bool host_input_live(void) { return host_in_fd >= 0 || host_in_pushed || host_window_open(); }
 /* A Ctrl-C may still arrive. */
-static inline bool host_break_live(void) { return (host_in_tty && host_in_fd >= 0) || host_window_open(); }
+static inline bool host_break_live(void) { return (host_in_tty && host_in_fd >= 0) || host_in_pushed || host_window_open(); }
 /* A pointer event may still arrive (a script line that waits for console
  * input to be taken is not counted: only the guest can make it happen). */
 static inline bool host_ptr_live(void) { return host_window_open() || host_ptr_script_stepped(); }

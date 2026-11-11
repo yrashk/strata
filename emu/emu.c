@@ -59,7 +59,11 @@ typedef struct {
   bool rv;      /* revocable: live only while its granule's generation is gen */
   uint16_t gen; /* revocable: the generation of the granule holding base when it was
                  * made; a revoker (P_V): the permissions crevoke / cundom give */
+  uint32_t id;  /* the debugger's provenance id (emu/debug.c); 0 unless debugging */
 } Cap;
+/* (capability literals below leave the debugger's id at 0) */
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+
 
 /* The revocation granules of system memory (T3) and the cluster store (T2),
  * shared by all cores: a generation each, and a HEAD bit marking the first
@@ -141,6 +145,8 @@ typedef struct {
   int iq_cnt[MAXNODES];
 } Core;
 
+#include "debug.h" /* the debug engine's hooks (--debug; emu/debug.c) */
+
 /* ------------------------------------------------------------ devices */
 
 static uint8_t plat_rom[PLAT_LEN];
@@ -195,6 +201,7 @@ static uint8_t *far_ptr(uint8_t space, uint64_t addr) {
 /* A word written to far memory: a write into the framebuffer window feeds
  * the live scanout (and opens the window the first time). */
 static inline void far_wrote(uint8_t space, uint64_t addr) {
+  if (dbg_on) dbg_far_written(space, addr);
   if (space != SP_T3) return;
   addr &= (T3_BYTES - 1) & ~7ull;
   if (addr >= FB_BASE && addr < (uint64_t)FB_BASE + FB_SIZE) host_fb_touch((uint32_t)(addr - FB_BASE), 8);
@@ -247,6 +254,7 @@ static void blk_run(void) {
         if (op == BLK_OP_READ) { memcpy(fp, disk + lba * BLK_BLOCK + i, 8); far_wrote(k.space, k.base + off + i); }
         else memcpy(disk + lba * BLK_BLOCK + i, fp, 8);
       }
+      if (dbg_on && op == BLK_OP_WRITE) dbg_disk_written(lba * BLK_BLOCK, bytes);
     }
     uint8_t *e = cq[(cq_head + cq_cnt) % BLK_QDEPTH];
     memset(e, 0, 16);
@@ -338,7 +346,11 @@ static void pend_service(void) {
 /* One byte written to device space: byte `i` of a transfer starting at `port`. */
 static void dev_write(uint64_t port, uint64_t i, uint8_t b) {
   uint64_t a = port + i;
-  if (port == DEV_CONSOLE) { fputc(b, stdout); return; }
+  if (port == DEV_CONSOLE) {
+    if (dbg_on) dbg_con_out(b); /* the debugger's console, not its own terminal */
+    else fputc(b, stdout);
+    return;
+  }
   if (port == DEV_CONSOLE + CON_RELEASE) {   /* complete every pending break and input read with 0 */
     Core *c;
     Pending *p;
@@ -413,7 +425,7 @@ static uint8_t dev_read(uint64_t port, uint64_t i) {
 }
 
 static void fatal(Core *c, int cause, uint64_t tval, bool dbl) {
-  fprintf(stderr, "core %d: %sfault %s pc=0x%llx tval=0x%llx\n", c->id, dbl ? "double " : "",
+  if (!dbg_muted) fprintf(stderr, "core %d: %sfault %s pc=0x%llx tval=0x%llx\n", c->id, dbl ? "double " : "",
           stx_cause_name(cause), (unsigned long long)c->pc, (unsigned long long)tval);
   c->halted = true;
   faulted = true;
@@ -423,6 +435,7 @@ static void fatal(Core *c, int cause, uint64_t tval, bool dbl) {
  * installed one and the cause is its business; halts, interrupts, privilege
  * violations and anything without a user handler go to the supervisor. */
 static void trap(Core *c, int cause, uint64_t tval) {
+  if (dbg_on) dbg_trap(c, cause, tval);
   if (c->user) {
     bool to_s = cause == C_HALT || cause == C_STOP || cause == C_PRIV || cause == C_SVC || c->u_tvec == 0 ||
                 c->pc == c->u_tvec;
@@ -902,7 +915,7 @@ static bool step(Core *c) {
     if (imm16 == SYS_HALT) {
       c->instret++;
       c->halted = true;
-      fprintf(stderr, "core %d: halt a0=%lld instret=%llu\n", c->id, (long long)c->x[10],
+      if (!dbg_muted) fprintf(stderr, "core %d: halt a0=%lld instret=%llu\n", c->id, (long long)c->x[10],
               (unsigned long long)c->instret);
       return true;
     }
@@ -1463,6 +1476,8 @@ static uint64_t user_burst(int i) {
   return n;
 }
 
+static int round_idle(void);
+
 static int machine_round(void) {
   pend_service();
   bool any_live = false, progress = false;
@@ -1534,9 +1549,13 @@ static int machine_round(void) {
   }
   if (!any_live) return RND_HALTED;
   if (progress) return RND_RAN;
-  /* Every live core is blocked. That is a deadlock unless a pending
-   * device read can still complete: time passes for WAIT and VSYNC;
-   * input or Ctrl-C can arrive while the terminal or window is open. */
+  return round_idle();
+}
+
+/* Every live core is blocked. That is a deadlock unless a pending device
+ * read can still complete: time passes for WAIT and VSYNC; input or Ctrl-C
+ * can arrive while the terminal or window is open. Sets `idle`. */
+static int round_idle(void) {
   idle.timed = idle.input = false;
   idle.next = UINT64_MAX;
   for (int i = 0; i < ncores; i++)
@@ -1578,13 +1597,25 @@ static int machine_round(void) {
   "  -H          when every core has halted, keep the window open until it is closed\n"         \
   "  -N MODE     network: none (default), loop, peer, udp:LPORT:HOST:RPORT (common/net.h)\n" \
   "  -J / -j     run with the JIT / only interpret (default: the JIT, except with -t or\n"     \
-  "              -T virtual, which keep the exact one-instruction interleaving)\n"
+  "              -T virtual, which keep the exact one-instruction interleaving)\n"                \
+  "  --debug WHERE  run under the debug engine, stopped at the first instruction: WHERE is\n"   \
+  "              a TCP port (raw JSON lines, WebSocket and the web debugger on the same port),\n" \
+  "              unix:PATH or stdio (doc/debug-protocol.md; strata-dbg starts it this way)\n"  \
+  "  --map FILE  a symbol map (sasm -g) for the debugger; image.map is loaded by itself\n"     \
+  "  --os DIR    StrataOS awareness: DIR/kernel.map, DIR/prog/NAME.map, the kernel's tables\n" \
+  "  --www DIR   the files the debug port serves to a browser (default: site/)\n"            \
+  "  --history N  time travel's memory, MiB (deterministic runs: -T virtual; default 512)\n"
 
 /* Ctrl-C now: completes the oldest pending break read, or is remembered. */
 static void press_break(void) {
   host_breaks++;
   pend_service();
 }
+
+/* ------------------------------------------------------------ the debug engine */
+
+#include "debug.c" /* --debug: breakpoints, state queries, time travel, the protocol */
+
 
 int main(int argc, char **argv) {
   const char *path = NULL, *in_path = NULL, *ppm = NULL;
@@ -1631,7 +1662,8 @@ int main(int argc, char **argv) {
     } else if (!strcmp(argv[i], "-H")) hold = true;
     else if (!strcmp(argv[i], "-N") && more) {
       if (!net_host_open(argv[++i])) return 2;
-    } else if (!strcmp(argv[i], "-J")) jit_opt = 1;
+    } else if (dbg_option(argc, argv, &i)) continue;
+    else if (!strcmp(argv[i], "-J")) jit_opt = 1;
     else if (!strcmp(argv[i], "-j")) jit_opt = 0;
     else if (argv[i][0] != '-' && !path) path = argv[i];
     else { fputs(USAGE, stderr); return 2; }
@@ -1680,12 +1712,14 @@ int main(int argc, char **argv) {
     if (!use_jit && jit_opt == 1) fprintf(stderr, "strata-emu: no JIT on this host; interpreting\n");
   }
 
+  if (dbg_on) dbg_setup(path, in_path, disk_path); /* (--debug: before the first round) */
 #ifdef __EMSCRIPTEN__
   /* In the browser, web/web.c (which includes this file) runs the rounds a
    * slice at a time from the worker's loop: the machine is set up, return. */
   (void)hold;
   return web_start();
 #endif
+  if (dbg_on) return dbg_main(hold); /* the engine's loop instead of the one below */
   uint64_t poll_at = 0;
   for (;;) {
     rounds++;

@@ -196,6 +196,37 @@ EMSCRIPTEN_KEEPALIVE int web_port_listening(int port) {
   return r;
 }
 
+/* ------------------------------------------------------------ the debugger (site/debug/) */
+
+/* With --debug (any WHERE: the worker is the transport), the worker drives
+ * the debug engine (emu/debug.c) instead of calling web_run():
+ *   web_dbg(line)     one request (a JSON line); returns the answer, valid
+ *                     until the next call;
+ *   web_dbg_run(ms)   runs the machine while it is running: like web_run's
+ *                     result, 0 = call again, > 0 = idle (sleep that long or
+ *                     until input), < 0 = it is not running (stopped);
+ *   web_dbg_events()  the events since the last call (JSON lines), then
+ *                     forgotten: console output, stops. */
+static JW web_dbg_resp, web_dbg_ev;
+
+EMSCRIPTEN_KEEPALIVE const char *web_dbg(const char *line) {
+  dbg_request(line, strlen(line), &web_dbg_resp);
+  return web_dbg_resp.p;
+}
+EMSCRIPTEN_KEEPALIVE double web_dbg_run(double ms) {
+  double r = dbg_run(ms);
+  con_flush();
+  return r;
+}
+EMSCRIPTEN_KEEPALIVE const char *web_dbg_events(void) {
+  con_flush();
+  jw_reset(&web_dbg_ev);
+  jw_raw(&web_dbg_ev, dbg_out.p ? dbg_out.p : "", dbg_out.n);
+  dbg_out.n = 0;
+  if (dbg_out.p) dbg_out.p[0] = 0;
+  return web_dbg_ev.p;
+}
+
 /* Stops the machine for good (Reset loads a fresh instance). */
 EMSCRIPTEN_KEEPALIVE void web_stop(void) { web_state = WEB_STOPPED; }
 
