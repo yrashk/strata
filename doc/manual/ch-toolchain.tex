@@ -3,20 +3,25 @@
 The toolchain is built with \texttt{make} and consists of the assembler \texttt{sasm}, the reference
 emulator \texttt{strata-emu} with its dynamic binary translator, the Verilator-based RTL simulator
 \texttt{strata-rtl}, the disk builder \texttt{mkdisk}, the conformance suite in \texttt{conformance/},
-the test scripts in \texttt{tools/}, and a WebAssembly build of the emulator that runs in a web browser.
-\texttt{make} builds \texttt{build/sasm}, \texttt{build/strata-emu} and \texttt{build/strata-rtl}; the
+the test scripts in \texttt{tools/}, a WebAssembly build of the emulator that runs in a web browser,
+and the debuggers: the emulator's debug engine with the text debugger \texttt{strata-dbg} and a web
+debugger as its front-ends. \texttt{make} builds \texttt{build/sasm}, \texttt{build/strata-emu},
+\texttt{build/strata-rtl} and \texttt{build/strata-dbg}; the
 number of RTL cores is fixed at build time by \texttt{NCORES} (default 8), and the \texttt{make} targets
 pass the same count to the emulator.
 
 \section{The assembler, \texttt{sasm}}
 
 \begin{shell}
-sasm [-o out.stx] [-l] [-T text-origin] [-I dir] file.s
+sasm [-o out.stx] [-l] [-g out.map] [-T text-origin] [-I dir] file.s
 \end{shell}
 
 \begin{description}[leftmargin=1em,style=nextline]
 \item[\texttt{-o}] output image (default: the source name with \texttt{.stx}).
 \item[\texttt{-l}] print a listing (section, address, up to four instruction words, source line).
+\item[\texttt{-g file}] also write a symbol and line map for the debuggers (Section~\ref{sec:debug}):
+  every label with its section and address, every constant, and the address of each source line's
+  first byte. The image is the same with or without it.
 \item[\texttt{-T addr}] start \texttt{.text} at \texttt{addr} instead of 0. Programs for StrataOS use
   \texttt{-T 0x8000}.
 \item[\texttt{-I dir}] add a directory to the \texttt{.include} search path (up to 16).
@@ -116,7 +121,8 @@ every core, and the T2 and T3 contents to the shared memories.
 \begin{shell}
 strata-emu [-c ncores] [-t trace.txt] [-m max_steps] [-d disk.img] [-i input.txt]
            [-b steps] [-T real|virtual] [-g none] [-F frame.ppm] [-z scale]
-           [-r WxH] [-H] [-P pointer.txt] [-N mode] [-J|-j] image.stx
+           [-r WxH] [-H] [-P pointer.txt] [-N mode] [-J|-j]
+           [--debug where [--map file] [--os dir] [--www dir] [--history MiB]] image.stx
 \end{shell}
 
 The emulator executes the sequential semantics $\mathcal{S}$ (Chapter~\ref{ch:model}): every memory
@@ -180,6 +186,15 @@ console input or Ctrl-C from an interactive terminal or the window.
   until it is closed.
 \item[\texttt{-J}, \texttt{-j}] run with the JIT, or interpret only. The default is the JIT, except
   with \texttt{-t} or \texttt{-T virtual}, which keep the exact one-instruction interleaving.
+\item[\texttt{-{}-debug} \textit{where}] run under the debug engine (Section~\ref{sec:debug}), stopped in
+  front of the first instruction, controlled through the debug protocol: \textit{where} is
+  \texttt{stdio}, a TCP port (\texttt{PORT} or \texttt{HOST:PORT}: JSON lines, a WebSocket and the web
+  debugger's pages on one port) or \texttt{unix:}\textit{path}. The companion options:
+  \texttt{-{}-map} \textit{file} loads a symbol map (\textit{image}\texttt{.map} is loaded by itself);
+  \texttt{-{}-os} \textit{dir} turns StrataOS awareness on (\textit{dir}\texttt{/kernel.map},
+  \textit{dir}\texttt{/prog/}\textit{name}\texttt{.map}); \texttt{-{}-www} \textit{dir} is what the
+  port serves to a browser (default \texttt{site/}); \texttt{-{}-history} \textit{MiB} bounds time
+  travel's memory (default 512).
 \end{description}
 The exit status is 0 when every core halted (or the window was closed), 1 if any core faulted, on
 deadlock or on timeout, and 2 for a usage error.
@@ -220,6 +235,115 @@ atomic, \insn{tany}, \insn{cgive}, \insn{ctake}, \insn{cpoll}, \insn{csend}, \in
 with a pending device read or a pending stop is interpreted. Results of programs that do not depend
 on timing (Section~\ref{sec:determinism}) are identical with and without the JIT; \texttt{make
 test-jit} checks this on every example and on the Forth regression test.
+
+\section{The debuggers}\label{sec:debug}
+
+The emulator has a debug engine (\texttt{emu/debug.c}) that runs a machine under control, and two
+front-ends: \texttt{strata-dbg}, a text debugger in the manner of gdb, and a web debugger
+(\texttt{site/debug/}). Nothing in the architecture changes for them: breakpoints and watchpoints live
+in the emulator, and without \texttt{-{}-debug} it runs exactly as before. The protocol between them,
+JSON objects one per line, is documented in \texttt{doc/debug-protocol.md}.
+
+\subsection{The engine}
+The engine runs the reference interleaving: round after round, each live core executes one instruction
+or finds itself blocked. A \term{tick} is one core's turn in a round; ticks are counted from power-on
+and are the debugger's clock. Before a core's turn the engine decodes the instruction at its \reg{pc}
+(breakpoints stop there, in front of the instruction); after it, it compares the core with what it was
+(transfers issued, capabilities made and given, bytes written) and looks at every core's pending
+device reads (completions). The emulator reports to it only what cannot be seen from outside: writes to
+far memory and to the disk, traps and console output.
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[Control] continue, pause; \texttt{stepi} one core (the others take their turns in the same
+  rounds), or the thread of a StrataOS process across switches and cores; \texttt{next} over a call,
+  \texttt{finish}, \texttt{until} a location, whole rounds. A plain continue with no breakpoint set,
+  on a run with the JIT, runs at full speed and stops between quanta.
+\item[Breakpoints] at a \reg{pc} (on any core or one, with an ignore count or a condition on a register,
+  under StrataOS in one program only), at a trap cause, \insn{svc}, \insn{eret}, a halt, a capability
+  operation (\insn{cgive}, \insn{ctake}, \insn{csend}, \insn{crecv}, \insn{cdom}, \insn{crevoke},
+  \ldots), or when a StrataOS process starts to run.
+\item[Watchpoints] on D-LS or I-LS bytes (written by a store or by a transfer at its completion, read by
+  a load or a \insn{tput}), on far ranges of T2, T3 or device space (touched by transfers, atomics and
+  the block device), on a capability register, on a tag's issue or completion.
+\item[State] registers and CSRs; the capability registers decoded (space, base, length, permissions,
+  revocable and generation, live or dead), the save table, the inboxes, the overlay map, the revocation
+  units; the sixteen tags of every core (the last transfer on each: operation, Local Store range, far
+  space and offset, length, issue and completion round); the pending device reads and what each waits
+  for; the block device's queues; why a core is stalled (which tag, which hazard, which inbox); memory
+  of any space; disassembly with labels and source lines; a backtrace by heuristics.
+\item[Event log] transfers issued and completed, traps, \insn{eret}, gifts and messages, revocations,
+  stalls and halts, for the timelines of the front-ends.
+\item[Provenance] every capability the machine makes is given an id, which moves keep, and the engine
+  records its parent and the operation that made it (split, share, restrict, give, mint, revoke,
+  \ldots), so a front-end can show where any capability came from.
+\item[Time travel] on a deterministic run (\texttt{-T virtual}, no JIT, no network) the engine keeps
+  snapshots of the machine (the pages of memory that changed since the last one) and a log of what came
+  from outside (console input, Ctrl-C, the debugger's own writes). Going back is restoring the nearest
+  earlier snapshot and executing forward again: to any tick, back one step of a core, back to the last
+  breakpoint or watchpoint hit, back to the issue of a tag. The memory it uses is bounded; old snapshots
+  are thinned out.
+\item[StrataOS] with \texttt{-{}-os}, the kernel's shared table and \texttt{proc}'s process table are
+  read through the maps (no layout is hard-coded): processes, the process each core runs, the program
+  map for user code, the kernel's code units by name through core 0's overlay map.
+\end{description}
+
+Symbols come from the maps \texttt{sasm -g} writes (the Makefile writes one for every image, every
+program on the StrataOS disk, the kernel and the boot ROM); Strata Forth's code is also named from its
+dictionary. In the emulator a memory transfer completes the instant it issues (Chapter~\ref{ch:model}),
+so only device reads are ever seen in flight.
+
+\subsection{\texttt{strata-dbg}}
+
+\begin{shell}
+strata-dbg [--console pty|file|-] [--tui] [-x script] [--batch] [emulator options] image.stx
+strata-dbg [options] --connect host:port | unix:path
+\end{shell}
+
+\texttt{strata-dbg} starts \texttt{strata-emu -{}-debug stdio} with the emulator's options, or connects
+to an engine that runs already. The guest's console never mixes with the debugger: by default it is a
+new pseudo-terminal, to be opened in another window (what is typed there is the guest's input);
+\texttt{-{}-console} \textit{file} sends it to a file or another terminal, and \texttt{-} prints it
+inline, each line marked (the default for scripts). Its commands:
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}>{\ttfamily}l X@{}}
+\toprule
+\textrm{\bfseries Command} & \textbf{Effect}\\\midrule
+continue, stepi [n], next, finish & run; step the current core; step over a call; until the function returns\\
+until \textit{loc}, step-round [n] & run to a location; run whole rounds\\
+core \textit{n}, follow \textit{pid} & make a core current; let \texttt{stepi} follow a process\\
+reverse-stepi [n], reverse-continue & back one step of the current core; back to the last breakpoint hit\\
+reverse-step-round [n] & back to the start of the round, or of earlier ones\\
+reverse-tag tg\textit{n}, goto \textit{tick} & back to a tag's last issue; to any tick of the run\\
+break, tbreak \textit{loc} & \textit{loc}: an address, \texttt{label}, \texttt{label+n}, \texttt{file.s:line}, \texttt{prog:label}; then optionally \texttt{core} \textit{n} and \texttt{if} \textit{reg op value}\\
+break trap, svc, eret, halt, capop, process & the other kinds of breakpoint\\
+watch, rwatch, awatch & Local Store bytes, far ranges (\texttt{t2}, \texttt{t3}, \texttt{dev}), \texttt{cap c}\textit{n}, \texttt{tag tg}\textit{n}\\
+delete, enable, disable & manage them (\texttt{info breakpoints} lists them)\\
+info registers, caps, ctab, inbox, xmap & a core's state\\
+info tags [all], pending, cores & transfers, device reads, every core and why it is stalled\\
+info processes, granules, history & StrataOS processes; revocation units; the recorded run\\
+x/\textit{nf} [\textit{space}:]\textit{addr} & memory: units \texttt{b h w g}, \texttt{s}, \texttt{i}; spaces \texttt{dls ils t2 t3 disk}\\
+disassemble, list, backtrace & code, source, the call chain\\
+log [n], prov c\textit{n} & the last events; a capability's history\\
+set \textit{reg value}, input \textit{text}, ctrl-c & change a register; console input; the break key\\
+tui & the cores side by side: disassembly, registers, capabilities and tags\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{The web debugger}
+\texttt{site/debug/} shows the cores side by side (disassembly with the current line and breakpoints,
+registers, capabilities, stall reasons), a transfer timeline (a row per core: transfers as they issue,
+device reads in flight from issue to completion, stalls, gifts between cores, traps), a Local Store map,
+the provenance graph of the capabilities held, breakpoint and watchpoint management, the console and a
+slider over the recorded run. In the page it runs the WebAssembly emulator in a worker with
+\texttt{-{}-debug}; served by \texttt{strata-emu -{}-debug} \textit{port} it drives the desktop engine
+over a WebSocket on the same port (\texttt{make debug-web}). On wide screens the transfers are docked
+on the right, beside the cores, with a list of the newest ones. Its first program is StrataOS: the play
+page's disk booted with \texttt{-{}-os}, and a Run menu that types a program's name at the shell and can
+stop at the process's first instruction (\texttt{make debug-web-os} on the desktop). In the page the
+console is a terminal and the framebuffer opens when the guest first draws; keys and the pointer go through
+the engine (\texttt{input}, \texttt{pointer}), which logs them for time travel.
 
 \section{The RTL simulator, \texttt{strata-rtl}}
 
@@ -324,9 +448,9 @@ cores, or start Strata Forth on 8 cores with a 640\,x\,400 screen and its demos
 \begin{tabularx}{\linewidth}{@{}>{\ttfamily}l X@{}}
 \toprule
 \textrm{\bfseries Target} & \textbf{Effect}\\\midrule
-make & build \texttt{build/sasm}, \texttt{build/strata-emu}, \texttt{build/strata-rtl}\\
+make & build \texttt{build/sasm}, \texttt{build/strata-emu}, \texttt{build/strata-rtl}, \texttt{build/strata-dbg}\\
 make examples & assemble every example\\
-make test & every example on both machines (\texttt{compare.sh}); StrataOS boot compared (\texttt{compare-boot.sh}); Ctrl-C (\texttt{test-break.sh}); preemption (\texttt{test-preempt.sh}); StrataOS with the JIT (\texttt{test-boot-jit.sh}); framebuffer frames (\texttt{test-fb.sh}); JIT against interpreter (\texttt{test-jit.sh}); the conformance suite\\
+make test & every example on both machines (\texttt{compare.sh}); StrataOS boot compared (\texttt{compare-boot.sh}); Ctrl-C (\texttt{test-break.sh}); preemption (\texttt{test-preempt.sh}); StrataOS with the JIT (\texttt{test-boot-jit.sh}); framebuffer frames (\texttt{test-fb.sh}); JIT against interpreter (\texttt{test-jit.sh}); the debuggers (\texttt{test-dbg.sh}); the conformance suite\\
 make conformance & the conformance suite on the interpreter, the JIT and the RTL\\
 make fuzz & the differential fuzzer (\texttt{SEEDS=}$n$, \texttt{FIRST=}\textit{seed})\\
 make test-jit & the JIT against the interpreter\\
@@ -345,6 +469,11 @@ make forth, forth-rtl & the Strata Forth REPL on the emulator or the RTL\\
 make forth-demo-NAME, forth-demos & one Forth demo (\texttt{tiers}, \texttt{multicore}, \texttt{gfx}), or all three, on the emulator\\
 make test-forth & the Forth regression test on both machines\\
 make wasm, web-site & the WebAssembly emulator; the site with the emulator and the source browser\\
+make dbg & \texttt{strata-dbg} and the emulator\\
+make debug-NAME, debug-os & one example, or StrataOS (aware of its processes), under \texttt{strata-dbg}\\
+make debug-web & the debug engine on port 4444 with the web debugger at \texttt{/debug/}\\
+make debug-web-os & the same with StrataOS booting\\
+make test-dbg & the debuggers driven by scripts (\texttt{tools/test-dbg.sh}; part of \texttt{make test})\\
 make manual & this manual\\
 make clean & remove \texttt{build/}\\
 \bottomrule

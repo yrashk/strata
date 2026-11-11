@@ -43,6 +43,20 @@ exists today, what is known to be missing or rough, and what is planned.
 - The emulator compiled to WebAssembly, with a terminal and a canvas for
   the framebuffer, and a browser for all the sources.
 
+**Debuggers**
+- A debug engine in the emulator (`strata-emu --debug`): breakpoints and
+  watchpoints that know the machine (transfers at issue and completion,
+  tags, capability operations, far ranges, processes), the state decoded
+  (tags in flight, pending device reads, stall reasons, capabilities and
+  their provenance, the save table, inboxes, the overlay map), an event
+  log, and time travel on deterministic runs. One JSON-lines protocol
+  (`doc/debug-protocol.md`) over stdio, TCP, WebSocket or the browser.
+- `strata-dbg`, a gdb-like text debugger with a split-screen view, and a
+  web debugger (`site/debug/`) with a transfer timeline, a Local Store map,
+  a provenance graph and a time slider, in the page or against the
+  desktop engine. Symbol and line maps from `sasm -g`; StrataOS and Forth
+  awareness.
+
 ## Known limitations
 
 **Hardware**
@@ -108,6 +122,17 @@ exists today, what is known to be missing or rough, and what is planned.
 - It runs on the bare machine only, in supervisor mode: nothing can
   interrupt a runaway word.
 
+**The debuggers**
+- The emulator completes memory transfers at issue, so the debuggers see
+  only device reads in flight; a timeline of the RTL's real transfer
+  latencies would need the RTL simulator behind the same protocol.
+- Time travel needs a deterministic run (`-T virtual`, no JIT, no
+  network); the JIT is used only for a plain `continue` with no
+  breakpoints on a run that is not recorded.
+- The backtrace is a heuristic (there are no frame pointers); the
+  StrataOS view reads `proc`'s table only while `proc` owns its core's
+  Local Store (it is alone on its core).
+
 ## Next
 
 **Forth as a StrataOS program.** The kernel already has what a program
@@ -156,6 +181,12 @@ compares become equalities too), and fewer cores' worth of granule-table
 copies. Then timing: place and route, register the capability operand
 before EX, or run a slower core clock beside the memory controller's.
 Then a first board bring-up.
+
+**The debuggers, further.** The RTL simulator behind the debug protocol
+(real transfer latencies on the timeline; the same front-ends); a timing
+model for the emulator that keeps memory transfers in flight as the
+hardware would (legal under the as-if-synchronous rule: stalls only); data
+breakpoints on Forth's dictionary words; source-level stepping by line.
 
 **Video on FPGA.** Scan the framebuffer window out over HDMI/DVI, with
 PRESENT and VSYNC tied to the real display, and a keyboard, so that the
