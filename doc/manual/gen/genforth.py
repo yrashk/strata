@@ -383,6 +383,10 @@ GROUPS = [
     ("net", "Networking", "StrataOS only: TCP and UDP through the <code>net</code> server (net.fs, udp.fs, loaded "
      "on demand or with <code>require net</code> / <code>require udp</code>); a socket is a handle. "
      "<code>httpd.fs</code> is a web server written with them."),
+    ("ovl", "Code overlays", "StrataOS, after <code>require overlay</code> (overlay.fs): parts of a program compiled "
+     "into one region at the top of code space, kept in far memory and brought in when a word of theirs is "
+     "called. The kernel compiles a call of an overlay word through <code>ovjump</code> or <code>ovcall</code>; "
+     "<code>lang/forth/vi.fs</code>, the editor, is nineteen overlays."),
     ("files", "Files and the system", "Files are StrataOS's; <code>bye</code> halts every core (bare metal) or "
      "ends the process."),
     ("tools", "Tools", "<code>see</code>, the disassembler, <code>words</code>, <code>dump</code> and the "
@@ -429,7 +433,7 @@ SECTION_GROUP = {
     "cores": "cores",
 }
 FILE_GROUP = {FORTH + "/tools.fs": "tools", FORTH + "/see.fs": "tools", FORTH + "/os/os.fs": "files",
-              FORTH + "/net.fs": "net", FORTH + "/udp.fs": "net",
+              FORTH + "/net.fs": "net", FORTH + "/udp.fs": "net", FORTH + "/overlay.fs": "ovl",
               FORTH + "/bare/start.fs": "io"}
 
 
@@ -714,6 +718,8 @@ def avail_of(w, tools):
     if f.endswith("/net.fs") or f.endswith("/udp.fs"): # (sockets exist only under StrataOS)
         base = os.path.basename(f)[:-3]
         return "os", "StrataOS only: loaded on demand, or <code>require %s</code>" % base
+    if f.endswith("/overlay.fs"):                     # (a disk file: StrataOS's)
+        return "os", "StrataOS: after <code>require overlay</code>"
     if f.endswith("/bare/start.fs"):
         return "bare", "bare metal only"
     if f.endswith("/tools.fs") or f.endswith("/see.fs") or f.endswith("/net.fs") or f.endswith("/udp.fs"):
@@ -789,7 +795,7 @@ def collect():
     kernel = kernel_words()
     files = [(FORTH + "/core.fs", "core"), (FORTH + "/tools.fs", "tools"), (FORTH + "/see.fs", "see"),
              (FORTH + "/os/os.fs", "os"), (FORTH + "/bare/start.fs", "bare"),
-             (FORTH + "/net.fs", "net"), (FORTH + "/udp.fs", "udp")]
+             (FORTH + "/net.fs", "net"), (FORTH + "/udp.fs", "udp"), (FORTH + "/overlay.fs", "overlay")]
     words, by = [], {}
     for w in kernel:
         w["sources"] = [w]

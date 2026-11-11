@@ -40,8 +40,11 @@
 \ overlay is in. One thread only (not with forth -n N). OVERLAYS takes the
 \ store from the bottom of the far heap (the heap starts after it: call it
 \ before using the heap); on bare metal the store is at c0 offset $30000.
-\ Costs: a call into another overlay is about 40 instructions more than a
-\ plain one, plus the moves when it is not in (ovl-loads counts them).
+\ Costs: this file takes 2 KiB of resident code. A call of a word of the
+\ overlay that is in is about 40 instructions more than a plain call; one
+\ that brings another overlay in costs some 200 more for each move (there
+\ and, for OVCALL, back): ovl-loads counts them. lang/forth/vi.fs (the
+\ editor) is built this way: nineteen overlays.
 
 inline-limit @  4 inline-limit !                \ resident code space is scarce: primitives are called
 

@@ -115,6 +115,19 @@ true jit-trace  : cube dup dup * * ; [jit: tput+tgetx 64 bytes -> I-LS 0x8160]  
   for good.</li>
 </ul>
 
+<h3 id="overlays">Code overlays, and an editor</h3>
+<p>Under StrataOS a program has 32&nbsp;KiB of I-LS, and about 8&nbsp;KiB of it are left after the
+  kernel and <code>core.fs</code>. A bigger one is written in <em>code overlays</em>
+  (<code>require overlay</code>, below): <code>overlays</code> reserves a region at the top of code
+  space, and every <code>overlay</code> is compiled into it and kept in far memory. Calling a word of
+  an overlay that is not in brings it in with two transfers, store to code mirror (through the
+  D-LS) and mirror to I-LS with <code>tgetx</code>; since StrataOS reloads the I-LS from the mirror
+  after a context switch, the region survives preemption. It is the hardware's code paging done by
+  the program, as compiled Forth runs only where it was compiled. The kernel compiles a call of an
+  overlay word through <code>ovjump</code> or <code>ovcall</code>, which brings the caller's overlay
+  back after it. <code>lang/forth/vi.fs</code>, the Forth port of StrataOS's editor
+  (<code>forth vi.fs FILE</code>), is nineteen overlays and 2&nbsp;KiB of resident code: the same keys,
+  screen and highlighting as the assembly <code>vi</code>, and it writes the same files.</p>
 <h3 id="reading">Reading the reference</h3>
 <p>Each entry gives the stack effect and description from the source's own comments, the kind of
   word (a kernel primitive, inlined or called; a colon definition; a constant, variable or created

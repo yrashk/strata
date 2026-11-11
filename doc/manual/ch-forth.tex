@@ -196,3 +196,25 @@ and \texttt{dump}. Compiling \texttt{core.fs} at power-on takes about one millio
 Strata Forth runs on the bare machine. A program of its kind under StrataOS, which installs code at
 run time, declares its far mirror to the kernel as a code mirror, so that a context switch reloads the
 I-LS from it (Section~\ref{sec:os-switch}).
+
+\subsection{Code overlays}\label{sec:forth-ovl}
+Under StrataOS a program has 32~KiB of I-LS, and about 8~KiB of it are left after the kernel and
+\texttt{core.fs}. A bigger program is written in \emph{code overlays} (\texttt{overlay.fs}):
+\texttt{4 3072 overlays} reserves a region at the top of code space, \texttt{overlay} starts the next
+overlay and \texttt{resident} ends the last. Every overlay is compiled into the same region and kept
+in far memory; one is in the region at a time, and calling a word of another brings that one in with
+two moves of its bytes: store $\rightarrow$ code mirror, through a D-LS buffer, and mirror
+$\rightarrow$ I-LS with \insn{tgetx}. Because the mirror is what the dispatcher reloads after a
+switch, the region holds the right overlay after a context switch too. It is the hardware's code
+paging (\insn{xcall}, \texttt{xmiss}) done by the program: compiled Forth runs only where it was
+compiled. The kernel marks an overlay word in its header and compiles a use of it from elsewhere as
+the word's overlay and address and a call of the manager's \texttt{ovjump} (from resident code) or
+\texttt{ovcall} (from another overlay: it brings the caller's overlay back after); \texttt{'},
+\texttt{execute} and \texttt{compile,} know such an xt. A call into another overlay and back costs
+about 400 instructions.
+
+The editor \texttt{lang/forth/vi.fs}, the Forth port of StrataOS's \texttt{vi}
+(Section~\ref{sec:os-vi}), is built this way: 2~KiB resident and nineteen overlays in a region of
+4.1~KiB, with its byte loops as code words assembled by \texttt{core.fs}'s assembler. Data space is
+its other limit (16~KiB holds a chunk of text, the line being edited and every word's name), so its
+text, undo history, register, keyword tables and message texts are in far memory.
