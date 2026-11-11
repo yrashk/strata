@@ -85,8 +85,8 @@ ws & the window server, started on demand: owns the framebuffer and, while it ru
 \end{table}
 
 The kernel shares no memory with processes and almost none between its own cores. The system core and
-the dispatchers coordinate through the \term{kernel shared table}, 32~KiB of system memory that every
-core reaches through a copy of one \emph{atomic} capability: the system core posts job records, kills
+the dispatchers coordinate through the \term{kernel shared table}, 32~KiB of the cluster store (T2) that
+every core reaches through a copy of one \emph{atomic} capability: the system core posts job records, kills
 and notifications there, and each dispatcher publishes its run-queue length, its counters and its exit
 events. All access is by far atomics, which is the only way several cores can touch the same memory.
 
@@ -111,8 +111,11 @@ D-LS & \hex{E000}--\hex{FFFF} & the running program's stack\\
 The system core uses the program ranges for itself: its I-LS \hex{8000}--\hex{FFFF} is the kernel's code
 cache (Section~\ref{sec:os-kpaging}) and its D-LS \hex{0000}--\hex{9FFF} holds the kernel's tables.
 
-System memory is used as follows: $[0, 32~\text{KiB})$ the kernel shared table; $[32, 64~\text{KiB})$ the
-system core's own message buffers; the \term{arena pool}, $[1, 15~\text{MiB})$ and $[16, 48~\text{MiB})$
+The cluster store holds the kernel shared table in its first 32~KiB, where an atomic takes about 7 bus
+cycles instead of 23 in system memory (on a platform whose T2 is smaller, the table takes system
+memory's first 32~KiB). T2 is a single revocation granule and can only be revoked whole, so it holds
+nothing but the kernel's own. System memory is used as follows: $[0, 32~\text{KiB})$ unused (the
+table's place without T2); $[32, 64~\text{KiB})$ the system core's own message buffers; the \term{arena pool}, $[1, 15~\text{MiB})$ and $[16, 48~\text{MiB})$
 (46~MiB; the boot ROM's load area lies between); and the framebuffer window $[48, 64~\text{MiB})$, which the
 kernel makes a revocable region of its own at boot and lends to the window server.
 

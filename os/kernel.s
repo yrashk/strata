@@ -28,7 +28,11 @@
 ; Core 0 runs no programs: its I-LS 0x8000..0xFFFF is the kernel code cache
 ; and its D-LS 0x0000..0x9FFF holds the kernel's tables (K0_* below).
 ;
-; System memory (T3): [0, 32 KiB) the kernel shared table (KST, below);
+; Cluster store (T2, c1 from the boot ROM, 256 KiB; the platform table's
+; size counts): [0, 32 KiB) the kernel shared table (KST, below; in T3's
+; first 32 KiB instead if T2 is smaller). T2 is one revocation granule and
+; can only be revoked whole, so it holds only what is the kernel's for good.
+; System memory (T3): [0, 32 KiB) unused (the KST's place without T2);
 ; [32 KiB, 64 KiB) core 0's own message buffers; the ARENA POOL [16 MiB,
 ; 48 MiB) (c13 from the boot ROM; on a 16 MiB machine [1 MiB, 15 MiB));
 ; [48 MiB, 64 MiB) the framebuffer window (c14).
@@ -279,6 +283,7 @@ K_MSG    = 48                           ; 48..55: core 0's message buffers (when
 K_STASH  = 56                           ; 56..59: attachments from proc / others
 K_FB     = 60                           ; the framebuffer's revoker (a revocable region of its own, made at boot)
 K_SPARE  = 61                           ; (spare)
+K_T2     = 2                            ; T2 after the KST (u_mem), for the paged code
 
 ; ---- process record (worker), PR_SIZE bytes each ---------------------------------------
 PR_STATE = 0                            ; S_* below

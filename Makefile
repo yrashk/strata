@@ -364,7 +364,7 @@ fpga-images: $(BUILD)/mkhex $(BUILD)/bootrom.stx $(BUILD)/kernel.stx $(BUILD)/mk
 	$(BUILD)/mkhex ils $(BUILD)/bootrom.stx $(FPGA)/bootrom_ils.hex
 	$(BUILD)/mkhex dls $(BUILD)/bootrom.stx $(FPGA)/bootrom_dls.hex
 	$(BUILD)/mkhex disk $(FPGA)/disk.img 16384 $(FPGA)/disk.hex
-	$(BUILD)/mkhex plat 2 256 $(FPGA)/plat.hex
+	$(BUILD)/mkhex plat 2 256 $(FPGA)/plat.hex 16 65536
 
 # ---- Strata Forth (lang/forth): make forth, forth-rtl, test-forth ------------
 .PHONY: forth forth-rtl test-forth

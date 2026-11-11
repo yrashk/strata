@@ -350,8 +350,9 @@ greater length.
   I-LS 0x8000 of the system core, with the same `xslot`/`xmiss`/`xret`
   mechanism programs use. The kernel counts the unit loads (INFO, `uptime`).
 - **Shared state.** The system core and the dispatchers share one 32 KiB
-  table at the bottom of system memory (the KST), accessed only with far
-  atomics: per-core counters, the published state of each core's thread
+  table at the bottom of the cluster store, T2 (the KST; in T3 if a
+  platform's T2 is smaller), accessed only with far atomics (an atomic
+  takes about 7 bus cycles in T2, 23 in T3): per-core counters, the published state of each core's thread
   slots, exit events, job records for threads being created, deadlines of
   timed waits. Commands from the system core to a worker are a job record
   plus a doorbell.
@@ -1131,8 +1132,14 @@ in `os/ws/`).
   [16 MiB, 48 MiB)**: system memory above the load area and below the
   framebuffer window; and core 0 also gets **c14 = the framebuffer window
   [48 MiB, 64 MiB)** (read/write).
-- The kernel's use of system memory: [0, 32 KiB) the shared table (KST);
-  [32 KiB, 64 KiB) the system core's own message buffers; the **arena
+- The kernel's use of the cluster store (T2, c1 from the boot ROM, of the
+  size the platform table gives): [0, 32 KiB) the shared table (KST); the
+  rest is kept for the kernel's paged code (below). T2 is a single
+  256 KiB revocation granule, so it can only be revoked whole: it holds
+  only what is the kernel's for good. If T2 is smaller than the KST, the
+  KST takes T3's first 32 KiB instead.
+- The kernel's use of system memory: [0, 32 KiB) unused (the KST's place
+  without T2); [32 KiB, 64 KiB) the system core's own message buffers; the **arena
   pool**: [1 MiB, 15 MiB) and c13 = [16 MiB, 48 MiB) (on a machine with
   16 MiB, only the first), each made one revocable region at boot, of
   which core 0 keeps only the revokers and a bitmap of the 256 KiB
