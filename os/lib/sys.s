@@ -775,7 +775,10 @@ ssc_ret:
 
 ; sys_cores(a0 = buffer, 16 * 32 bytes) -> a0 = number of 32-byte core records:
 ; u8 core, u8 pid running (0 none), u8 runnable, u8 processes, u8 flags (1
-; unused, 2 server, 4 solo), 3 reserved, u32 switches, u32 KiB moved, 16 reserved
+; unused, 2 server, 4 solo), u8 free save-table slots, 2 reserved, u32 switches,
+; u32 KiB moved, u32 the dispatcher's cycles per switch (from deciding to switch to
+; having issued the restore), u32 its cycles per trap (trap entry to eret, idle
+; time not counted), 8 reserved
 sys_cores:
         li    a1, OP_CORES              ; the request
         j     sys_table                 ; shared path

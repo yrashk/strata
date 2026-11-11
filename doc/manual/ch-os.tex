@@ -85,8 +85,8 @@ ws & the window server, started on demand: owns the framebuffer and, while it ru
 \end{table}
 
 The kernel shares no memory with processes and almost none between its own cores. The system core and
-the dispatchers coordinate through the \term{kernel shared table}, 32~KiB of system memory that every
-core reaches through a copy of one \emph{atomic} capability: the system core posts job records, kills
+the dispatchers coordinate through the \term{kernel shared table}, 32~KiB of the cluster store (T2) that
+every core reaches through a copy of one \emph{atomic} capability: the system core posts job records, kills
 and notifications there, and each dispatcher publishes its run-queue length, its counters and its exit
 events. All access is by far atomics, which is the only way several cores can touch the same memory.
 
@@ -111,8 +111,11 @@ D-LS & \hex{E000}--\hex{FFFF} & the running program's stack\\
 The system core uses the program ranges for itself: its I-LS \hex{8000}--\hex{FFFF} is the kernel's code
 cache (Section~\ref{sec:os-kpaging}) and its D-LS \hex{0000}--\hex{9FFF} holds the kernel's tables.
 
-System memory is used as follows: $[0, 32~\text{KiB})$ the kernel shared table; $[32, 64~\text{KiB})$ the
-system core's own message buffers; the \term{arena pool}, $[1, 15~\text{MiB})$ and $[16, 48~\text{MiB})$
+The cluster store holds the kernel shared table in its first 32~KiB, where an atomic takes about 7 bus
+cycles instead of 23 in system memory (on a platform whose T2 is smaller, the table takes system
+memory's first 32~KiB). T2 is a single revocation granule and can only be revoked whole, so it holds
+nothing but the kernel's own. System memory is used as follows: $[0, 32~\text{KiB})$ unused (the
+table's place without T2); $[32, 64~\text{KiB})$ the system core's own message buffers; the \term{arena pool}, $[1, 15~\text{MiB})$ and $[16, 48~\text{MiB})$
 (46~MiB; the boot ROM's load area lies between); and the framebuffer window $[48, 64~\text{MiB})$, which the
 kernel makes a revocable region of its own at boot and lends to the window server.
 
@@ -344,6 +347,20 @@ every byte of a switch is a byte moved by a transfer. A switch between two small
 kilobytes; one between two programs that each use their whole data extent moves more than a hundred.
 The dispatcher counts context switches and bytes moved per process and per core; \texttt{ps},
 \texttt{cores}, \texttt{uptime} and \texttt{sched} print them, and the window server draws them.
+It also times itself with \csr{cycle}: \texttt{cores} shows, per core, its cycles per switch (from
+deciding to switch to having issued the next thread's restore) and per trap (from the trap to the
+\insn{eret} that resumes a thread, idle time not counted).
+
+The dispatcher waits for none of these transfers. A far atomic, \insn{cgive} and \insn{csend} wait until
+none of the core's memory transfers is in flight (the publication rule), so every atomic of a switch
+(the counters, the published slot states, the running process) is made before its first transfer, when
+the sizes are already known. The save need not complete before the restore begins, because one core's
+transfers take effect on the Local Store side, as on the far side, in issue order (invariant I2,
+Chapter~\ref{ch:model}); a store that would overwrite bytes still being read waits (I1). The save
+and the restore use transfer tags of their own (\reg{tg12}--\reg{tg15}), so that no issue waits for a
+busy tag, and the thread is resumed while its D-LS and code are still arriving: by the
+as-if-synchronous rule (Section~\ref{sec:asif}) it cannot tell, since every access to bytes in flight
+waits for them.
 
 Two supervisor calls let a program reduce or correct what a switch does.
 
@@ -359,6 +376,35 @@ Two supervisor calls let a program reduce or correct what a switch does.
   dispatcher reloads the code from the mirror on every switch-in. Keeping the mirror current is the
   program's job, and costs nothing: the code is written to far memory before it is installed anyway.
 \end{description}
+
+\subsection{What the next process may see}\label{sec:os-isolate}
+
+What a switch leaves out, the D-LS above the data extent, below the live stack and in a scratch range,
+still holds the previous thread's bytes, and the next one could read them. So the dispatcher remembers
+whose bytes its D-LS holds. When it loads a thread of another process, and on a thread's first load,
+it restores the thread's whole D-LS, \hex{0000}--\hex{9FFF} and \hex{E000}--\hex{FFFF} (48~KiB, two
+\insn{tget}s), from the save area instead of only the extent and the stack. Outside those the save area
+holds zeros: the arena is scrubbed when MEMORY hands it out, CREATE accepts only such arenas, the
+program cannot reach its save area, and a switch writes there only the extent and the live stack.
+What it holds is therefore zeros or older bytes of the same thread, never another process's. A first
+load takes the zeros and then the image's data section on top (the transfers act in issue order),
+which replaces a 40~KiB store loop. A thread that returns to a core where nothing else ran meanwhile
+gets back only its extent and stack, as before. \texttt{tools/test-isolate.sh} checks this with
+two copies of \texttt{tools/dlsgap.s} on one core: one fills its gaps with a pattern, the other must
+never find it in its own, at its first load and after each switch back.
+
+The I-LS above a program's resident code still holds the previous program's code and code-cache units.
+Nothing can read it: loads and \insn{tget} use the D-LS, \insn{tgetx} only writes the I-LS, \insn{ltag}
+and \insn{linst} work on the D-LS tag table, and \insn{xcall} and \insn{xret} reach code only through
+the overlay map, which every switch-in clears. A program could only jump into that code and execute it;
+overwriting it would cost up to 32~KiB of far-bus traffic per switch, and it is not done.
+
+Neither Local Store is protected from user mode: loads, stores and \insn{tgetx} reach every address,
+including the dispatcher's own data at \hex{A000}--\hex{DFFF} (which holds the records, and so the saved
+registers, of the other threads on the core) and its code. Isolation between the processes on one core
+is therefore against disclosure to programs that read memory they did not write, not against a hostile
+program, which only a hardware bound on user-mode Local Store addresses would stop. Far memory is
+protected by capabilities either way.
 
 \section{Emulating the inbox}\label{sec:os-emul}
 
@@ -865,8 +911,13 @@ cache is empty and refills on demand.
 The resident kernel is the 16~KiB at I-LS \hex{4000}--\hex{7FFF} of every core: the dispatcher, and on
 the system core the event loop and the paging handler. Everything the system core does rarely
 (start-up, creating and destroying processes, memory, statistics, exits) is \term{kernel code units}:
-27 units of 2~KiB in the kernel image's \texttt{.far} section, which the boot ROM loads into the load
-area and hands to core 0 as the far image share \reg{c12} (Section~\ref{sec:boot}).
+32 units of 2~KiB in the kernel image's \texttt{.far} section, which the boot ROM loads into the load
+area and hands to core 0 as the far image share \reg{c12} (Section~\ref{sec:boot}). When start-up is
+over, the system core copies the units into the cluster store after the shared table, through its D-LS
+(there is no far-to-far transfer), and makes \reg{c12} a read+execute share of the copy, so that a unit
+starts arriving after T2's 4 bus cycles instead of system memory's 20. It does this from resident
+code, where no far link into the old image remains, and only if the units fit beside the table: on a
+platform whose T2 is 64~KiB they stay in system memory.
 
 Resident code calls a unit with \insn{xcall ra, c12, t5}. A miss traps to the system core's own
 supervisor handler, which copies the unit into one of $\textit{NXMAP}$ cache slots (sixteen by

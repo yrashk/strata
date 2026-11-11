@@ -3,7 +3,10 @@
  *   mkhex ils  image.stx out.hex          I-LS contents (8192 x 64-bit words)
  *   mkhex dls  image.stx out.hex          D-LS contents (8192 x 64-bit words)
  *   mkhex disk disk.img words out.hex     the first `words` 64-bit words of a disk
- *   mkhex plat ncores disk_blocks out.hex platform table bytes (common/platform.h) */
+ *   mkhex plat ncores disk_blocks out.hex [nxmap [t2_bytes]]
+ *                                          platform table bytes (common/platform.h); t2_bytes:
+ *                                          the cluster store's size in its memory entry, for
+ *                                          a build whose T2 is smaller than T2_BYTES (T2_W) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,16 +44,21 @@ int main(int argc, char **argv) {
     fclose(f);
     return 0;
   }
-  if ((argc == 5 || argc == 6) && !strcmp(argv[1], "plat")) {
+  if (argc >= 5 && argc <= 7 && !strcmp(argv[1], "plat")) {
     uint8_t t[PLAT_LEN];
-    unsigned nx = argc == 6 ? (unsigned)strtoul(argv[5], NULL, 0) : NXMAP_DEF;
+    unsigned nx = argc >= 6 ? (unsigned)strtoul(argv[5], NULL, 0) : NXMAP_DEF;
     if (nx < NXMAP_MIN || nx > NXMAP_MAX) { fprintf(stderr, "mkhex: overlay map entries: 4..16\n"); return 2; }
     plat_build(t, atoi(argv[2]), strtoull(argv[3], NULL, 0), nx);
+    if (argc == 7) { /* entry 1 is T2's memory entry: its size */
+      uint64_t t2 = strtoull(argv[6], NULL, 0);
+      if (!t2 || t2 > T2_BYTES || (t2 & 7)) { fprintf(stderr, "mkhex: T2 bytes: 8..%u, whole words\n", (unsigned)T2_BYTES); return 2; }
+      plat_put(t + 32 + 1 * 32 + 24, t2, 8);
+    }
     FILE *f = out(argv[4]);
     for (int i = 0; i < PLAT_LEN; i++) fprintf(f, "%02x\n", t[i]);
     fclose(f);
     return 0;
   }
-  fprintf(stderr, "usage: mkhex ils|dls image.stx out.hex | disk disk.img words out.hex | plat ncores blocks out.hex [nxmap]\n");
+  fprintf(stderr, "usage: mkhex ils|dls image.stx out.hex | disk disk.img words out.hex | plat ncores blocks out.hex [nxmap [t2bytes]]\n");
   return 2;
 }

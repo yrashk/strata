@@ -361,9 +361,17 @@ greater length.
   entry: 16 by default, read from the platform table's header at boot) from
   I-LS 0x8000 of the system core, with the same `xslot`/`xmiss`/`xret`
   mechanism programs use. The kernel counts the unit loads (INFO, `uptime`).
+  Once start-up is over the units (64 KiB) are copied into T2 after the
+  KST, bounced through core 0's D-LS (there is no far-to-far transfer),
+  and c12 becomes a read+execute share of the copy (`u_fart2`, called from
+  resident code so that no far link into the old image remains): a unit
+  then starts arriving after T2's 4 bus cycles instead of T3's 20. Only if
+  it fits beside the KST, decided from the platform table's T2 size: on
+  the 64 KiB T2 of the FPGA builds it does not, and c12 stays in T3.
 - **Shared state.** The system core and the dispatchers share one 32 KiB
-  table at the bottom of system memory (the KST), accessed only with far
-  atomics: per-core counters, the published state of each core's thread
+  table at the bottom of the cluster store, T2 (the KST; in T3 if a
+  platform's T2 is smaller), accessed only with far atomics (an atomic
+  takes about 7 bus cycles in T2, 23 in T3): per-core counters, the published state of each core's thread
   slots, exit events, job records for threads being created, deadlines of
   timed waits. Commands from the system core to a worker are a job record
   plus a doorbell.
@@ -474,6 +482,27 @@ and **the parts of its Local Stores it uses**. On a switch the dispatcher:
    process's image** in its arena (code is never saved: it is read-only),
    code-cache units reloaded on demand, capabilities, registers, `eret`.
 
+Nothing waits for the transfers of steps 4 and 5. A far atomic, `cgive`
+and `csend` wait until none of the core's memory transfers is in flight
+(the publication rule), so the dispatcher makes every atomic of a switch
+(the switch and byte counters, the published slot states and runnable
+count, the running pid) before its first transfer; the sizes are known by
+then. The save is not waited for either: one core's transfers take
+effect, on the Local Store side as well as the far side, in issue order
+(invariant I2 of the manual's execution model), so the restore that
+follows cannot overtake it, and a store that would overwrite bytes the
+save still reads waits (I1). The next thread's code goes first (it is
+the I-LS, which the save does not read), then the save (tg14 data, tg15
+stack), then the restore (tg12 data, tg13 stack; a first load's data
+and a code mirror on tg14); with tags of their own no issue waits for a
+busy tag, only, past the fourth, for room in the Transfer Unit's
+four-entry queue, i.e. for the code and then the save to have moved.
+The thread then runs while its
+D-LS and code stream in: by the as-if-synchronous rule it cannot tell,
+since a load, store or fetch that touches bytes still arriving waits for
+them. (A program that issues a transfer on one of those tags right after
+a switch merely waits for the dispatcher's; `tpoll` may show it busy.)
+
 Two calls let a program reduce or correct what a switch does:
 
 - **Scratch ranges.** `svc` 11 SET_SCRATCH (a1 = D-LS start, a2 = length;
@@ -490,6 +519,43 @@ Two calls let a program reduce or correct what a switch does:
   mirror instead of from the image on every switch-in. Keeping the mirror
   up to date is the program's job (it writes code there before installing
   it anyway).
+
+**What the next process may see.** What a switch leaves out (the D-LS
+above the data extent, below the live stack, a scratch range) still
+holds the previous thread's bytes. The dispatcher remembers whose bytes
+its D-LS holds (`w_dpid`): when it loads a thread of another process, and
+on a thread's first load, it restores the whole program D-LS,
+[0, 0xA000) and [0xE000, 0x10000) (48 KiB in two `tget`s), from the save
+area instead of only the extent and the stack. Outside those, the save
+area holds zeros (the arena is scrubbed when MEMORY hands it out, CREATE
+takes only such arenas, the program cannot reach its save area, and a
+switch writes there only the extent and the live stack) or older bytes of
+the same thread: never another process's. A first load takes the zeros
+and then the image's data section on top (transfers act in issue order),
+replacing a 40 KiB store loop (about 46,000 RTL cycles). A thread that
+returns to a core where nothing else ran meanwhile gets back only its
+extent and stack, as before. `tools/test-isolate.sh` checks it: two
+copies of `tools/dlsgap.s` pinned to one core, one filling its gaps with
+a pattern, the other looking for it in its own at its first load and
+after each of 8 switches back.
+
+Not covered, and why:
+- **The I-LS** above a program's resident code still holds the previous
+  program's code and code-cache units. Nothing can read it: loads and
+  `tget` use the D-LS, `tgetx` only writes the I-LS, `ltag`/`linst` work
+  on the D-LS tag table, and `xcall`/`xret` reach code only through the
+  overlay map, which every switch-in clears. A program could only jump
+  into it and execute it; overwriting it would cost up to 32 KiB of
+  far-bus traffic per switch.
+- **The Local Stores have no user/supervisor protection.** User-mode
+  loads, stores and `tgetx` reach every address, including the
+  dispatcher's data at 0xA000..0xDFFF (the records, and so the saved
+  registers, of the other threads on the core) and its code. Isolation
+  between the processes of one core is therefore against disclosure to
+  programs that read memory they did not write, not against a hostile
+  program; that needs a hardware bound on user-mode Local Store
+  addresses, which the ISA does not have. Far memory is protected by
+  capabilities either way.
 
 **The arena** (1 MiB unless the spawner asked for more, whole 256 KiB
 granules, zeroed when handed out), for a process with N threads, with
@@ -512,7 +578,40 @@ stack at 0xA000.. (8 KiB at most).
 
 The kernel counts switches and bytes moved per process and per core
 (shown by `ps`, `cores`, `uptime`, `sched`, and drawn by the window
-server). Memory map of a worker core: I-LS 0x0000 boot ROM, 0x4000 kernel,
+server). Each worker's dispatcher also times itself with the `cycle`
+CSR, and `cores` shows the averages: **cycles per switch**, from deciding
+to switch to having issued the next thread's restore (`w_out` + `w_in`),
+and **cycles per trap**, from a trap's entry to the `eret` that resumes a
+thread, its idle time not counted (on the emulator `cycle` counts
+instructions). The sums and counts are published in the KST core area
+(CA_SWCYC, CA_NSWP, CA_KCYC, CA_NTRAP) with the other per-core words.
+
+Measured on the RTL (8 cores, `os/demo.txt`, `strata-rtl -T virtual -g
+none`), one row per step of the 2026-11 switch work: the counters alone,
+then the isolation fix (whole D-LS from the save area when another
+process ran), the KST in T2, a switch that waits for none of its
+transfers, and the kernel's code units in T2. Cores 3, 5 and 6 are the
+ones that switch (fs and `sh`, pipe and the programs, the two `spin`s
+pinned to core 6); per-core cycle and stall totals are dominated by idle
+time and the session's fixed waits, so the session total moves little.
+
+| Step | Total cycles | Switches | KiB moved | Cycles/switch (cores 3/5/6) | Cycles/trap (3/5/6) | First load (core 1) |
+|---|---|---|---|---|---|---|
+| counters only | 151,962,794 | 726 | 33,638 | 17,007 / 11,920 / 8,985 | 18,446 / 16,516 / 19,307 | 52,108 |
+| + isolation | 154,186,031 | 738 | 55,116 | 14,403 / 14,294 / 12,654 | 18,226 / 16,942 / 22,751 | 12,860 |
+| + KST in T2 | 148,860,825 | 738 | 55,129 | 14,039 / 13,962 / 12,500 | 16,978 / 16,040 / 21,742 | 12,860 |
+| + no waiting | 147,362,921 | 728 | 54,699 | 10,674 / 10,355 / 9,589 | 16,449 / 14,670 / 15,379 | 12,201 |
+| + units in T2 | 147,662,013 | 730 | 54,856 | 10,667 / 10,478 / 9,588 | 16,452 / 14,787 / 15,375 | 12,201 |
+
+The isolation fix costs bus traffic (+64% KiB moved: 48 KiB in on every
+switch between processes, against the extent and stack before) and
+about 3,700 cycles per switch on core 6, but makes first loads four
+times cheaper (a transfer instead of a 40 KiB store loop). The KST in T2
+takes about 1,000 cycles off a trap (some 25 atomics at 7 bus cycles
+instead of 23). Not waiting takes a quarter off a switch although the
+publishing now counts inside it, and nearly a third off core 6's traps. The
+units in T2 save 16 bus cycles per unit paged in (about 550 in the
+session): too little to see here. Memory map of a worker core: I-LS 0x0000 boot ROM, 0x4000 kernel,
 0x8000.. program code (+ code cache); D-LS 0x0000..0x9FFF program data,
 0xA000 kernel data, 0xE000..0xFFFF the program's stack (the kernel uses a
 stack of its own in its data).
@@ -1106,8 +1205,15 @@ in `os/ws/`).
   [16 MiB, 48 MiB)**: system memory above the load area and below the
   framebuffer window; and core 0 also gets **c14 = the framebuffer window
   [48 MiB, 64 MiB)** (read/write).
-- The kernel's use of system memory: [0, 32 KiB) the shared table (KST);
-  [32 KiB, 64 KiB) the system core's own message buffers; the **arena
+- The kernel's use of the cluster store (T2, c1 from the boot ROM, of the
+  size the platform table gives): [0, 32 KiB) the shared table (KST); the
+  rest holds a copy of the kernel's code units (64 KiB, if they fit: not
+  in the FPGA builds' 64 KiB T2) and is otherwise unused. T2 is a single
+  256 KiB revocation granule, so it can only be revoked whole: it holds
+  only what is the kernel's for good. If T2 is smaller than the KST, the
+  KST takes T3's first 32 KiB instead.
+- The kernel's use of system memory: [0, 32 KiB) unused (the KST's place
+  without T2); [32 KiB, 64 KiB) the system core's own message buffers; the **arena
   pool**: [1 MiB, 15 MiB) and c13 = [16 MiB, 48 MiB) (on a machine with
   16 MiB, only the first), each made one revocable region at boot, of
   which core 0 keeps only the revokers and a bitmap of the 256 KiB
@@ -1416,7 +1522,8 @@ messages and the `:` and `/` lines take its place.
   survives, on both machines. `tools/test-sh.sh`: a scripted interactive
   shell session with editing keys, compared with `tools/test-sh.out`.
   `tools/test-preempt.sh`: two `spin` processes on one core both make
-  progress; `ps` shows context switches. `tools/test-boot-jit.sh`: the
+  progress; `ps` shows context switches. `tools/test-isolate.sh`: nothing
+  one process leaves in its core's D-LS is visible to the next (2.2). `tools/test-boot-jit.sh`: the
   demo session three times under the JIT's coarser interleaving.
 - `tools/test-fb.sh`: frames written with `-F` are byte-identical on the
   emulator and the RTL. `tools/test-jit.sh`: the JIT against the
