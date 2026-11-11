@@ -1,16 +1,16 @@
-     3100   CCU2C
+     2873   CCU2C
       180   DP16KD
-      634   L6MUX21
-    36408   LUT4
+      633   L6MUX21
+    35473   LUT4
         4   MULT18X18D
-     5112   PFUMX
+     5492   PFUMX
       375   TRELLIS_DPR16X4
      6831   TRELLIS_FF
-ecp5: 36408 LUT4 + 3100 carry cells (2 LUT4 sites each) = 42608 LUT4 sites, 6831 FF, 180 DP16KD, 4 MULT18X18D, 375 LUT-RAM cells
+ecp5: 35473 LUT4 + 2873 carry cells (2 LUT4 sites each) = 41219 LUT4 sites, 6831 FF, 180 DP16KD, 4 MULT18X18D, 375 LUT-RAM cells
 latches inferred: 0
 memories built from flip-flops (fine when small; a Local Store, T2, T3 or the disk here is a bug):
-  $auto$memory_bmux2rom.cc:63:execute$106642
-  $auto$memory_bmux2rom.cc:63:execute$106645
+  $auto$memory_bmux2rom.cc:63:execute$110442
+  $auto$memory_bmux2rom.cc:63:execute$110445
   g_core[0].u_core.caps
   g_core[0].u_core.gt2
   g_core[0].u_core.u_tu.q_end
