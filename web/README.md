@@ -58,6 +58,11 @@ The web debugger (`site/debug/`) uses the debug engine of `emu/emu.c`
   `web_dbg_events()` (console output, stops) to the page. The protocol is
   the desktop's: [`doc/debug-protocol.md`](../doc/debug-protocol.md).
   `tools/wasm-dbg.js` drives the same exports under node (`make test-dbg`).
+  **StrataOS** (the picker's first entry, `?ex=os`) boots the play page's
+  `images/bootrom.stx` and `disk.img` on 8 cores with `--os /os`: `make
+  wasm` copies the kernel's and every program's map to `build/web/debug/os/`
+  (`prog.txt` lists them). The Run menu types a program's name at the shell,
+  with a temporary `pid` breakpoint at its start when asked.
 - **Against the desktop.** `strata-emu --debug PORT --www site` serves the
   page and upgrades a WebSocket on the same port; the page asks
   `/dbg-info`, finds the engine and talks to it (`make debug-web`, then
@@ -65,6 +70,7 @@ The web debugger (`site/debug/`) uses the debug engine of `emu/emu.c`
   The engine runs the one image it was started with, so the page has no
   program picker then (`make debug-web DEBUG_WEB=hello` for another); the
   picker is the in-page engine's, over the examples `make wasm` copies.
+  `make debug-web-os` is the same with StrataOS (`--os build`).
 
 `?ex=NAME&do=...` loads an example and runs a short script (`break:LOC`,
 `continue`, `stepi:N`, `round`, `rstepi`, `rcontinue`, `goto:T`, `core:N`,

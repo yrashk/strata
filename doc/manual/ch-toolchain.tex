@@ -338,7 +338,10 @@ device reads in flight from issue to completion, stalls, gifts between cores, tr
 the provenance graph of the capabilities held, breakpoint and watchpoint management, the console and a
 slider over the recorded run. In the page it runs the WebAssembly emulator in a worker with
 \texttt{-{}-debug}; served by \texttt{strata-emu -{}-debug} \textit{port} it drives the desktop engine
-over a WebSocket on the same port (\texttt{make debug-web}).
+over a WebSocket on the same port (\texttt{make debug-web}). On wide screens the transfers are docked
+on the right, beside the cores, with a list of the newest ones. Its first program is StrataOS: the play
+page's disk booted with \texttt{-{}-os}, and a Run menu that types a program's name at the shell and can
+stop at the process's first instruction (\texttt{make debug-web-os} on the desktop).
 
 \section{The RTL simulator, \texttt{strata-rtl}}
 
@@ -467,6 +470,7 @@ make wasm, web-site & the WebAssembly emulator; the site with the emulator and t
 make dbg & \texttt{strata-dbg} and the emulator\\
 make debug-NAME, debug-os & one example, or StrataOS (aware of its processes), under \texttt{strata-dbg}\\
 make debug-web & the debug engine on port 4444 with the web debugger at \texttt{/debug/}\\
+make debug-web-os & the same with StrataOS booting\\
 make test-dbg & the debuggers driven by scripts (\texttt{tools/test-dbg.sh}; part of \texttt{make test})\\
 make manual & this manual\\
 make clean & remove \texttt{build/}\\

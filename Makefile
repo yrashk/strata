@@ -26,6 +26,7 @@
 #   make debug-os   boot StrataOS under strata-dbg (StrataOS-aware: info processes, break process NAME)
 #   make debug-web  the web debugger against the desktop engine: http://localhost:4444/debug/
 #                   (one program per engine: DEBUG_WEB=NAME, default pipeline)
+#   make debug-web-os  the same with StrataOS booting (the page's Run menu types at its shell)
 
 CC      ?= cc
 CFLAGS  ?= -std=gnu11 -O2 -Wall -Wextra
@@ -137,7 +138,7 @@ show-%: $(BUILD)/strata-emu $(BUILD)/examples/%.stx
 
 # ---- the debuggers (emu/debug.c, dbg/, site/debug/) --------------------------
 # Deterministic runs (-j -T virtual) keep a history for time travel.
-.PHONY: dbg debug-os debug-web test-dbg
+.PHONY: dbg debug-os debug-web debug-web-os test-dbg
 dbg: $(BUILD)/strata-dbg $(BUILD)/strata-emu
 
 debug-%: $(BUILD)/strata-dbg $(BUILD)/strata-emu $(BUILD)/examples/%.stx
@@ -146,6 +147,10 @@ debug-%: $(BUILD)/strata-dbg $(BUILD)/strata-emu $(BUILD)/examples/%.stx
 debug-os: $(BUILD)/strata-dbg $(BUILD)/strata-emu os
 	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
 	@$(BUILD)/strata-dbg -c 8 -j -T virtual -g none -d $(BUILD)/disk-run.img --os $(BUILD) $(BUILD)/bootrom.stx
+
+debug-web-os: $(BUILD)/strata-emu os
+	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
+	@$(BUILD)/strata-emu -c 8 -j -T virtual -g none -d $(BUILD)/disk-run.img --os $(BUILD) --debug 4444 --www site $(BUILD)/bootrom.stx
 
 DEBUG_WEB ?= pipeline
 debug-web: $(BUILD)/strata-emu $(BUILD)/examples/$(DEBUG_WEB).stx
@@ -478,6 +483,10 @@ wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS)
 	cp $(patsubst %,examples/%.s,$(DEBUG_EXAMPLES)) $(WEB)/debug/src/examples/
 	cp examples/lib/*.s $(WEB)/debug/src/examples/lib/
 	echo $(DEBUG_EXAMPLES) | tr ' ' '\n' > $(WEB)/debug/index.txt
+	@mkdir -p $(WEB)/debug/os/prog
+	cp $(BUILD)/bootrom.map $(BUILD)/kernel.map $(WEB)/debug/os/
+	cp $(BUILD)/prog/*.map $(WEB)/debug/os/prog/
+	ls $(BUILD)/prog | sed -n 's/\.map$$//p' > $(WEB)/debug/os/prog.txt
 
 web-code:
 	rm -rf $(BUILD)/web-code

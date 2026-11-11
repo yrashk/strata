@@ -45,6 +45,10 @@
       </label>
       <label class="pick">Cores <select id="ncores"><option>2</option><option selected>4</option><option>8</option></select></label>
       <button id="load" class="small">Load</button>
+      <label class="pick" id="osrun-wrap" hidden title="Types the program's name at StrataOS's shell">Run
+        <select id="osrun"><option value="">a program…</option></select>
+      </label>
+      <label class="pick" id="osstop-wrap" hidden title="A temporary breakpoint: the process's first instruction"><input type="checkbox" id="osstop" checked> stop when it starts</label>
       <span id="mode" class="mode"></span>
     </div>
     <div id="status" class="status" aria-live="polite">idle · pick a program</div>
@@ -153,6 +157,9 @@
       <li>On your machine: <code>build/strata-emu -c 4 -j -T virtual --debug 4455 build/examples/pipeline.stx</code>
         and open <code>http://localhost:4455/debug/</code>: the page connects to that engine instead
         (or <code>?ws=host:port</code> from here). <code>strata-dbg</code> is the text front-end.</li>
+      <li><b>StrataOS</b> (the first program) boots the play page's disk on 8 cores with the debugger aware of
+        the kernel and its processes: cores show the process they run, symbols come from each program's map.
+        <b>Run</b> types a program's name at the shell and, if asked, stops at its first instruction.</li>
       <li>The reference emulator copies a memory transfer at the instant it issues, so its bars have no
         length; device reads that wait (console input, the timer's WAIT) stay in flight, and their tags
         stay busy, until the device completes them. Stalls are the rounds a core could not make its step.</li>

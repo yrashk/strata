@@ -726,6 +726,27 @@ $("bkadd").onclick = async () => {
   await refreshBps();
 };
 
+// ---------------------------------------------------------------- StrataOS: run a program
+const OS = "@os", OS_CORES = 8;
+const OS_RUN = ["ls", "ps", "hello", "cores", "free", "uptime", "tags", "pipeline", "parsum", "stream_sum", "race", "overlay", "swcache"];
+$("osrun").insertAdjacentHTML("beforeend", OS_RUN.map((n) => `<option>${n}</option>`).join(""));
+// Types the name at the shell (its input waits in the console queue until the
+// shell reads it, so this works while it boots), with a temporary breakpoint
+// at the process's start if asked, and runs the machine.
+$("osrun").addEventListener("change", async () => {
+  const name = $("osrun").value;
+  $("osrun").value = "";
+  if (!name || !conn) return;
+  if ($("osstop").checked) {
+    const b = await conn.request("tbreak", { kind: "pid", name });
+    if (!b.ok) setStatus("tbreak: " + b.error, true);
+  }
+  const r = await conn.request("input", { data: name + "\n" });
+  if (!r.ok) { setStatus("input: " + r.error, true); return; }
+  await refreshBps();
+  if (!running && !done) await doCmd("continue");
+});
+
 // ---------------------------------------------------------------- console input
 $("conform").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -752,7 +773,31 @@ async function fetchBytes(url) {
   return r.arrayBuffer();
 }
 
+// StrataOS under the debugger: the boot ROM and the disk the play page boots
+// (../play/images/), and the maps of the kernel and of every program on the
+// disk (../play/debug/os/, for --os: process names, the kernel's code units,
+// symbols in user programs). No sources: the maps' line numbers name them.
+async function loadOs() {
+  if (conn) conn.close();
+  conn = null;
+  reset();
+  setStatus("loading StrataOS…");
+  const progs = (await (await fetch(ASSETS + "os/prog.txt" + V)).text()).split("\n").map((s) => s.trim()).filter(Boolean);
+  const get = (path, url) => fetchBytes(url + V).then((data) => ({ path, data }));
+  const files = await Promise.all([
+    get("/os/bootrom.stx", "../play/images/bootrom.stx"), get("/disk.img", "../play/images/disk.img"),
+    get("/os/bootrom.map", ASSETS + "os/bootrom.map"), get("/os/kernel.map", ASSETS + "os/kernel.map"),
+    ...progs.map((n) => get("/os/prog/" + n + ".map", ASSETS + "os/prog/" + n + ".map"))]);
+  const c = new WorkerConn();
+  c.onEvent = onEvent;
+  await c.start(files, "/os/bootrom.stx", ["-c", String(OS_CORES), "-j", "-T", "virtual", "-g", "none", "-d", "/disk.img", "--os", "/os"]);
+  conn = c;
+  $("mode").textContent = "StrataOS in this page (WebAssembly)";
+  await connected();
+}
+
 async function loadExample(name, cores) {
+  if (name === OS) return loadOs();
   if (conn) conn.close();
   conn = null;
   reset();
@@ -796,6 +841,7 @@ function reset() {
 async function connected() {
   hello = await conn.request("hello");
   ncores = hello.ncores;
+  $("osrun-wrap").hidden = $("osstop-wrap").hidden = !hello.os;
   const cs = await conn.request("cores");
   stopEv = { ev: hello.state === "done" ? "done" : "stopped", reason: hello.state === "running" ? "running" : "at the start", tick: cs.tick, round: cs.round, cores: cs.cores };
   if (hello.state === "done") { // (an engine whose machine stopped before this page connected)
@@ -854,9 +900,15 @@ async function main() {
     if (l.length) names = l;
   } catch (e) { /* the default list */ }
   const sel = $("ex");
-  sel.innerHTML = names.map((n) => `<option>${esc(n)}</option>`).join("");
-  sel.value = Q.get("ex") || "pipeline";
+  sel.innerHTML = `<option value="${OS}">StrataOS</option>` + names.map((n) => `<option>${esc(n)}</option>`).join("");
+  sel.value = Q.get("ex") === "os" ? OS : Q.get("ex") || "pipeline";
   if (Q.get("cores")) $("ncores").value = Q.get("cores");
+  const osCores = () => { // (StrataOS needs at least 6 cores)
+    $("ncores").disabled = sel.value === OS;
+    if (sel.value === OS) $("ncores").value = String(OS_CORES);
+  };
+  sel.addEventListener("change", osCores);
+  osCores();
   $("load").onclick = () => loadExample(sel.value, +$("ncores").value).catch((e) => setStatus(e.message, true));
   $("mode").textContent = "runs in this page";
   $("load").click();

@@ -368,6 +368,7 @@ without `--debug` it runs exactly as before.
 make debug-hello          # strata-dbg on an example (debug-NAME for any)
 make debug-os             # StrataOS, with process awareness
 make debug-web            # the engine on port 4444: http://localhost:4444/debug/ (DEBUG_WEB=NAME)
+make debug-web-os         # the same with StrataOS: the page's Run menu types at its shell
 build/strata-dbg -c 4 -j -T virtual build/examples/pipeline.stx
 ```
 
