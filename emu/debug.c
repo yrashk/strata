@@ -937,7 +937,11 @@ static int dbg_fast_round(void) {
   if (r == RND_IDLE) {
     if (host_ptr_script_stepped()) { host_ptr_script_do(); return TK_OK; }
     uint64_t now = now_ticks();
-    if (virtual_time && idle.timed && !idle.input) { rounds = idle.next * 100; return TK_OK; }
+    /* virtual time: on to the next deadline at once. A fast continue is
+     * catching up, so it does not wait for input that might come first (as
+     * the exact loop does, which keeps a live machine near real time); input
+     * that comes meanwhile is taken at the next slice. */
+    if (virtual_time && idle.timed && (!idle.input || dbg_ff)) { rounds = idle.next * 100; return TK_OK; }
     dbg_idle_ms = !idle.timed ? 1 : idle.next <= now ? 0 : (double)(idle.next - now) / 1000.0;
     if (dbg_idle_ms > 1) dbg_idle_ms = 1;
     if (virtual_time) rounds += (uint64_t)(dbg_idle_ms * 100000);

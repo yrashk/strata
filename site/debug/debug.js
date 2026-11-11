@@ -855,9 +855,32 @@ async function refreshProv() {
   $("provinfo").textContent = `${nodes.size} capabilities, ${r.held.length} held ${provAll ? "by all cores" : "by core " + cur}`;
 }
 $("prov").addEventListener("click", (e) => {
+  if (provPanned) { provPanned = false; return; } // (the end of a drag, not a click)
   const g = e.target.closest(".node");
   if (g) showChain({ id: +g.dataset.id }, "#" + g.dataset.id);
 });
+// Drag to pan the graph (a mouse without a horizontal wheel); a click without
+// moving still picks a node. Touch scrolls natively.
+let provDrag = null, provPanned = false;
+$("prov").addEventListener("pointerdown", (e) => {
+  if (e.pointerType !== "mouse" || e.button !== 0) return;
+  const box = $("prov");
+  provDrag = { x: e.clientX, y: e.clientY, l: box.scrollLeft, t: box.scrollTop, moved: false, id: e.pointerId };
+});
+$("prov").addEventListener("pointermove", (e) => {
+  if (!provDrag) return;
+  const dx = e.clientX - provDrag.x, dy = e.clientY - provDrag.y;
+  if (!provDrag.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+  if (!provDrag.moved) { provDrag.moved = true; try { $("prov").setPointerCapture(provDrag.id); } catch (x) { /* (gone) */ } $("prov").classList.add("panning"); }
+  $("prov").scrollLeft = provDrag.l - dx;
+  $("prov").scrollTop = provDrag.t - dy;
+});
+const provEnd = () => {
+  if (provDrag && provDrag.moved) { provPanned = true; $("prov").classList.remove("panning"); setTimeout(() => { provPanned = false; }, 0); }
+  provDrag = null;
+};
+$("prov").addEventListener("pointerup", provEnd);
+$("prov").addEventListener("pointercancel", provEnd);
 $("prov-cur").onclick = () => { provAll = false; $("prov-cur").classList.add("on"); $("prov-all").classList.remove("on"); refreshProv(); };
 $("prov-all").onclick = () => { provAll = true; $("prov-all").classList.add("on"); $("prov-cur").classList.remove("on"); refreshProv(); };
 
