@@ -36,7 +36,7 @@
   <h1>ON THE FABRIC</h1>
   <p class="lede">The same SystemVerilog that the simulator checks instruction by instruction against the emulator,
     synthesized, placed and routed with open tools: one Strata core on a Lattice ECP5-85F, at 20&nbsp;MHz.</p>
-  <p class="note">Every number here is from the RTL of commit <code>d70790f</code> (2026-11-10, after the core-size work)
+  <p class="note">Every number here is from the RTL of commit <code>d70790f</code> (2026-11-10)
     unless a row says otherwise. Nothing has run on a board yet: there is no ECP5 board top, and no bitstream was made.</p>
 </header>
 
@@ -62,16 +62,6 @@
       (<code id="die-path">fpga/results/ecp5-1/die.png</code>).</figcaption>
   </figure>
 
-  <ul class="legend" aria-label="What the colours are, and each one's share of the logic cells">
-    <li><i style="background:#4de1ff"></i>Execute, registers, CSRs<span>59.7%</span></li>
-    <li><i style="background:#ff5fa2"></i>Capabilities and revocation<span>15.9%</span></li>
-    <li><i style="background:#d63a3a"></i>Devices and core control<span>8.5%</span></li>
-    <li><i style="background:#ff9f1c"></i>Overlay map<span>6.0%</span></li>
-    <li><i style="background:#fff27a"></i>Bus, T2, T3, disk<span>4.2%</span></li>
-    <li><i style="background:#7ef05a"></i>Transfer Unit<span>3.0%</span></li>
-    <li><i style="background:#b38cff"></i>ALU, multiplier, divider, decode<span>2.8%</span></li>
-    <li><i style="background:#2f6bff"></i>Local Stores (block RAM)<span>64 blocks</span></li>
-  </ul>
   <p class="note">The colours follow the RTL signal each cell is named after (<a href="https://github.com/yrashk/strata/blob/main/fpga/classify.py"><code>fpga/classify.py</code></a>):
     exact for registers and memories, the nearest named signal for logic, so the borders between the colours are
     approximate. The block RAM rows hold the two Local Stores (blue), the save table (pink) and the
@@ -100,9 +90,7 @@
     trap logic, and ends at the trap cause register <code>s_cause</code>.
     The critical path is in <a href="https://github.com/yrashk/strata/blob/main/fpga/results/ecp5-1/timing.txt"><code>fpga/results/ecp5-1/timing.txt</code></a>.</p>
   <p>The next step is to register the Local Store read: use the block RAM's output register, or give loads one more
-    cycle. Before the core-size work the longest path ran through a multiplier computing the tag-lookup set address
-    (69&nbsp;ns, 14.5&nbsp;MHz, on that core with its overlay map cut to 12 entries so that it would route); that
-    address now takes its own cycles, and the 64&times;64 single-cycle multiplier is a 4-cycle 32&times;32 one.</p>
+    cycle; then run nextpnr again to see what is longest next.</p>
 
   <h3 class="sub">Two cores</h3>
   <p>Two cores do not fit any ECP5. They synthesize to 81,654 LUT4 sites, which pack into 86,932 logic cells (103% of
@@ -127,52 +115,85 @@
       </tbody>
     </table>
   </div>
-  <p class="note">Before the core-size work the one core filled 99.6% of the 85F: nextpnr's default placer could not
-    place it, the static placer could, and routing had not finished after an hour.</p>
 </section>
 
-<section class="section" id="luts">
-  <h2><span class="num">04</span>Where the LUTs went</h2>
-  <p class="intro">One core on Xilinx 7-series after each step of the core-size work (<code>fpga/synth.sh xc7 1</code>
-    after each commit). Each bar is coloured by the part of the core that step cut.</p>
-  <div class="bars" role="list" aria-label="LUTs of one core after each step">
-    <div class="bar" role="listitem"><span class="l">before <small>0a4bd8a</small></span><span class="t"><i style="width:97.3%;background:#5b7088"></i></span><span class="v">50,606</span></div>
-    <div class="bar" role="listitem"><span class="l">overlay map: 27-bit far, 16-bit I-LS addresses <small>c03b679</small></span><span class="t"><i style="width:79.1%;background:#ff9f1c"></i></span><span class="v">41,150</span></div>
-    <div class="bar" role="listitem"><span class="l">capabilities: 27-bit bounds, two read ports <small>046172b</small></span><span class="t"><i style="width:70.0%;background:#ff5fa2"></i></span><span class="v">36,426</span></div>
-    <div class="bar" role="listitem"><span class="l">save table in block RAM, registers in LUT-RAM <small>7d7e54d</small></span><span class="t"><i style="width:62.9%;background:#4de1ff"></i></span><span class="v">32,728</span></div>
-    <div class="bar" role="listitem"><span class="l">ltag address and multiplier over several cycles <small>8007e34</small></span><span class="t"><i style="width:62.2%;background:#b38cff"></i></span><span class="v">32,321</span></div>
-    <div class="bar" role="listitem"><span class="l">Transfer Unit in 17 bits, one address adder <small>3a75504</small></span><span class="t"><i style="width:59.1%;background:#7ef05a"></i></span><span class="v">30,752</span></div>
-    <div class="bar" role="listitem"><span class="l">inboxes: one small RAM per core <small>23316ae</small></span><span class="t"><i style="width:58.7%;background:#ff5fa2"></i></span><span class="v">30,530</span></div>
-    <div class="bar" role="listitem"><span class="l">slot-aligned <code>xmap</code>, map size a parameter <small>d70790f</small></span><span class="t"><i style="width:57.7%;background:#ff9f1c"></i></span><span class="v">30,011</span></div>
-    <div class="bar" role="listitem"><span class="l">the same with 8 map entries</span><span class="t"><i style="width:55.9%;background:#ffc46b"></i></span><span class="v">29,078</span></div>
+<section class="section" id="parts">
+  <h2><span class="num">04</span>What the core is made of</h2>
+  <p class="intro">The routed one-core system on the LFE5U-85F above, by part: 44,253 logic cells (each a LUT4, or half
+    of a carry or a LUT-RAM slice) and 6,831 flip-flops, in the die's colours. The bars compare the parts with each
+    other.</p>
+  <div class="parts" role="list" aria-label="Logic cells and flip-flops by part of the system">
+    <div class="part" role="listitem">
+      <span class="l"><i style="background:#4de1ff"></i><b>Execute, registers, CSRs</b> <small>the multi-cycle state machine and its result multiplexers, the integer registers (LUT-RAM), the trap registers banked by mode, the ltag / linst sequencer</small></span>
+      <span class="t"><i style="width:100.0%;background:#4de1ff"></i></span>
+      <span class="v">26,407 <small>59.7%</small><br><small>1,761 FF</small></span>
+    </div>
+    <div class="part" role="listitem">
+      <span class="l"><i style="background:#ff5fa2"></i><b>Capabilities and revocation</b> <small>the sixteen capability registers and their bounds checks, the save table's port, the copy of the granule table, the inboxes, the revocation walker</small></span>
+      <span class="t"><i style="width:26.6%;background:#ff5fa2"></i></span>
+      <span class="v">7,026 <small>15.9%</small><br><small>1,401 FF</small></span>
+    </div>
+    <div class="part" role="listitem">
+      <span class="l"><i style="background:#d63a3a"></i><b>Devices and core control</b> <small>the console UART, the disk controller and its DMA, the timer, framebuffer, pointer and network registers, the platform ROM, starting and stopping cores</small></span>
+      <span class="t"><i style="width:14.3%;background:#d63a3a"></i></span>
+      <span class="v">3,768 <small>8.5%</small><br><small>1,437 FF</small></span>
+    </div>
+    <div class="part" role="listitem">
+      <span class="l"><i style="background:#ff9f1c"></i><b>Overlay map</b> <small>sixteen entries mapping far slots to the I-LS, slot-aligned</small></span>
+      <span class="t"><i style="width:10.0%;background:#ff9f1c"></i></span>
+      <span class="v">2,637 <small>6.0%</small><br><small>752 FF</small></span>
+    </div>
+    <div class="part" role="listitem">
+      <span class="l"><i style="background:#fff27a"></i><b>Bus, T2, T3, disk</b> <small>the far bus's arbiter and the controllers of the memories behind it</small></span>
+      <span class="t"><i style="width:7.0%;background:#fff27a"></i></span>
+      <span class="v">1,850 <small>4.2%</small><br><small>544 FF</small></span>
+    </div>
+    <div class="part" role="listitem">
+      <span class="l"><i style="background:#7ef05a"></i><b>Transfer Unit</b> <small>the queue of transfers and the hazard checks on Local Store ranges</small></span>
+      <span class="t"><i style="width:5.0%;background:#7ef05a"></i></span>
+      <span class="v">1,332 <small>3.0%</small><br><small>371 FF</small></span>
+    </div>
+    <div class="part" role="listitem">
+      <span class="l"><i style="background:#b38cff"></i><b>ALU, multiplier, divider, decode</b> <small>one adder for addresses, branches and compares, a 4-cycle multiplier, an iterative divider, the decoder</small></span>
+      <span class="t"><i style="width:4.7%;background:#b38cff"></i></span>
+      <span class="v">1,229 <small>2.8%</small><br><small>565 FF</small></span>
+    </div>
   </div>
-  <p class="note">41% smaller: narrow fields where the architecture guarantees narrow values (every capability's base
-    and length fit the largest space, 2<sup>26</sup> bytes), one port where there were many, RAM for tables read one
-    entry at a time, and extra cycles for rare instructions. No instruction's result changed; <code>csave</code>,
-    <code>crestore</code>, <code>ltag</code>, <code>linst</code> and <code>mul</code> take a few more cycles, the examples
-    0.03% to 2.2% more in all. The details are in <a href="https://github.com/yrashk/strata/blob/main/fpga/README.md"><code>fpga/README.md</code></a>.</p>
+  <p class="note">The parts come from the names Yosys gives the cells (exact for registers and memories, the nearest
+    named signal for logic), so the counts are good to a few percent. 375 of the slices are LUT-RAM: the integer
+    registers, the granule-table copy, the inboxes and the devices' queues.</p>
 
-  <h3 class="sub">What is left</h3>
-  <p>Of the routed core's logic cells, by the colours of the die:</p>
-  <div class="stack" role="img" aria-label="Execute 59.7%, capabilities 15.9%, devices 8.5%, overlay map 6.0%, bus and memories 4.2%, Transfer Unit 3.0%, ALU 2.8%">
-    <i style="width:59.7%;background:#4de1ff"></i><i style="width:15.9%;background:#ff5fa2"></i><i style="width:8.5%;background:#d63a3a"></i><i style="width:6.0%;background:#ff9f1c"></i><i style="width:4.2%;background:#fff27a"></i><i style="width:3.0%;background:#7ef05a"></i><i style="width:2.8%;background:#b38cff"></i>
+  <h3 class="sub">Block RAM: 180 of 208</h3>
+  <div class="bars" role="list" aria-label="DP16KD block RAMs by use">
+    <div class="bar" role="listitem"><span class="l">disk (128 KiB)</span><span class="t"><i style="width:100.0%;background:#fff27a"></i></span><span class="v">64</span></div>
+    <div class="bar" role="listitem"><span class="l">I-LS, the core's instructions (64 KiB)</span><span class="t"><i style="width:50.0%;background:#2f6bff"></i></span><span class="v">32</span></div>
+    <div class="bar" role="listitem"><span class="l">D-LS, the core's data (64 KiB)</span><span class="t"><i style="width:50.0%;background:#2f6bff"></i></span><span class="v">32</span></div>
+    <div class="bar" role="listitem"><span class="l">T2, the cluster store (64 KiB)</span><span class="t"><i style="width:50.0%;background:#fff27a"></i></span><span class="v">32</span></div>
+    <div class="bar" role="listitem"><span class="l">T3, system memory's stand-in (32 KiB)</span><span class="t"><i style="width:25.0%;background:#fff27a"></i></span><span class="v">16</span></div>
+    <div class="bar" role="listitem"><span class="l">capability save table</span><span class="t"><i style="width:4.7%;background:#ff5fa2"></i></span><span class="v">3</span></div>
+    <div class="bar" role="listitem"><span class="l">granule table</span><span class="t"><i style="width:1.6%;background:#ff5fa2"></i></span><span class="v">1</span></div>
+    <div class="bar" role="listitem"><span class="l">unused</span><span class="t"><i style="width:43.8%;background:#1b2a40"></i></span><span class="v">28</span></div>
   </div>
-  <p class="note">Execute dominates now: its result multiplexers, the banked trap registers and the integer register
-    file's ports. The capability registers are still flip-flops; the overlay map, a third of the core before, is 6%.</p>
+  <p class="note">Each DP16KD holds 2 KiB. The disk, T2 and the T3 stand-in are there because this system has no DRAM
+    yet; on a board, system memory is DRAM and the disk could be too. Multipliers: 4 of 156 MULT18X18D, the 32&times;32
+    multiplier, which takes four cycles.
+    How the core got this size (from 50,606 to 30,011 LUTs on Xilinx 7-series):
+    <a href="https://github.com/yrashk/strata/blob/main/fpga/README.md#synthesis-numbers"><code>fpga/README.md</code></a>.</p>
 </section>
+
 
 <section class="section" id="sizes">
   <h2><span class="num">05</span>Sizes by family and core count</h2>
   <div class="tbl">
     <table>
-      <thead><tr><th>Yosys, after synthesis</th><th class="n">Logic</th><th class="n opt">Flip-flops</th><th class="n">Block RAM</th><th class="n opt">Multipliers</th></tr></thead>
+      <thead><tr><th>Yosys, after synthesis</th><th class="n">Logic</th><th class="n opt">Flip-flops</th><th class="n opt">Block RAM</th><th class="n opt">Multipliers</th></tr></thead>
       <tbody>
-        <tr><td>Xilinx 7-series, 1 core</td><td class="n">30,011 LUTs</td><td class="n opt">6,869</td><td class="n">88 RAMB36 + 4 RAMB18</td><td class="n opt">4 DSP48E1</td></tr>
-        <tr><td>Xilinx 7-series, 1 core, 8 map entries</td><td class="n">29,078 LUTs</td><td class="n opt">6,495</td><td class="n">88 + 4</td><td class="n opt">4</td></tr>
-        <tr><td>Xilinx 7-series, 2 cores</td><td class="n">58,066 LUTs</td><td class="n opt">11,713</td><td class="n">120 + 7</td><td class="n opt">8</td></tr>
-        <tr><td>Xilinx 7-series, 6 cores</td><td class="n">168,694 LUTs</td><td class="n opt">31,102</td><td class="n">248 + 19</td><td class="n opt">24</td></tr>
-        <tr class="me"><td>Lattice ECP5, 1 core <small>placed and routed: 20.0&nbsp;MHz</small></td><td class="n">41,219 LUT4 sites</td><td class="n opt">6,831</td><td class="n">180 DP16KD</td><td class="n opt">4 MULT18X18D</td></tr>
-        <tr><td>Lattice ECP5, 2 cores <small>does not fit</small></td><td class="n">81,654 LUT4 sites</td><td class="n opt">11,683</td><td class="n">247 DP16KD</td><td class="n opt">8</td></tr>
+        <tr><td>Xilinx 7-series, 1 core</td><td class="n">30,011 LUTs</td><td class="n opt">6,869</td><td class="n opt">88 RAMB36 + 4 RAMB18</td><td class="n opt">4 DSP48E1</td></tr>
+        <tr><td>Xilinx 7-series, 1 core, 8 map entries</td><td class="n">29,078 LUTs</td><td class="n opt">6,495</td><td class="n opt">88 + 4</td><td class="n opt">4</td></tr>
+        <tr><td>Xilinx 7-series, 2 cores</td><td class="n">58,066 LUTs</td><td class="n opt">11,713</td><td class="n opt">120 + 7</td><td class="n opt">8</td></tr>
+        <tr><td>Xilinx 7-series, 6 cores</td><td class="n">168,694 LUTs</td><td class="n opt">31,102</td><td class="n opt">248 + 19</td><td class="n opt">24</td></tr>
+        <tr class="me"><td>Lattice ECP5, 1 core <small>placed and routed: 20.0&nbsp;MHz</small></td><td class="n">41,219 LUT4 sites</td><td class="n opt">6,831</td><td class="n opt">180 DP16KD</td><td class="n opt">4 MULT18X18D</td></tr>
+        <tr><td>Lattice ECP5, 2 cores <small>does not fit</small></td><td class="n">81,654 LUT4 sites</td><td class="n opt">11,683</td><td class="n opt">247 DP16KD</td><td class="n opt">8</td></tr>
       </tbody>
     </table>
   </div>
@@ -204,7 +225,7 @@
     <table>
       <thead><tr><th>Cores</th><th>Device</th><th>Use</th><th class="opt">Tools</th></tr></thead>
       <tbody>
-        <tr class="me"><td>1</td><td>Lattice LFE5U-85F (Radiona ULX3S)</td><td>53% of the logic, 87% of the block RAM; <b>placed and routed, 20.0&nbsp;MHz</b></td><td class="opt">open: Yosys, nextpnr, Project Trellis</td></tr>
+        <tr class="me"><td>1</td><td>Lattice LFE5U-85F (Radiona ULX3S)</td><td><b>placed and routed, 20.0&nbsp;MHz</b> (<a href="#die">the die</a>)</td><td class="opt">open: Yosys, nextpnr, Project Trellis</td></tr>
         <tr><td>1</td><td>Artix-7 100T (Digilent Arty A7)</td><td>47% of the LUTs</td><td class="opt">Vivado, or openXC7</td></tr>
         <tr><td>2</td><td>Artix-7 100T</td><td>92% of the LUTs: on paper only, too full to route comfortably</td><td class="opt"></td></tr>
         <tr><td>2</td><td>Artix-7 200T (Digilent Nexys Video)</td><td>43% of the LUTs</td><td class="opt">Vivado, or openXC7</td></tr>
