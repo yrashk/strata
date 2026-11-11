@@ -1,0 +1,57 @@
+strata$ vi f1
+strata$ cat f1; cat f2
+cat: no such file: f1
+[exit 1]
+zero
+one
+hree
+four
+five
+strata$ vi w1
+strata$ cat w1
+alphaX -;
+delta epsilon EP;
+iota;
+strata$ seq 12 > n1
+strata$ vi n1
+strata$ cat n1
+495
+6
+7
+10
+11
+12
+5
+6
+strata$ vi p1
+strata$ cat p1
+new firsxzyt
+beg beloweQ
+foo(bar[1], baz{2}
+strata$ seq 10000 > big
+strata$ vi big
+strata$ wc < big; grep end < big; grep 9999 < big; grep 5000 < big; grep 4999 < big
+8000 8000 38892
+end
+strata$ vi /src/sh.s
+strata$ vi n1
+strata$ vi n1
+strata$ cat n1; cat w1
+6
+7
+10
+11
+12
+5
+6
+lphaX -;
+delta epsilon EP;
+iota;
+strata$ vi /src/hello.s
+strata$ vi gfx.fs
+strata$ vi m.fs
+strata$ rm f2 w1 n1 p1 big m.fs
+strata$ echo bye
+bye
+strata$ 
+StrataOS: all cores halted
