@@ -1388,6 +1388,19 @@ messages and the `:` and `/` lines take its place.
   cannot be written back. Every line is written with a newline after it.
   No counts on inserts, no `f t`, no marks or named registers, no regular
   expressions.
+- **In Forth.** `forth vi.fs FILE` (or `include vi.fs` at the Forth prompt,
+  then `vi FILE`) is the same editor written in Strata Forth
+  (`lang/forth/vi.fs`, with `vi-text.fs` and `vi-edit.fs`; the README there
+  has the details): the same keys, modes, highlighting and screen; given the
+  same keys it writes the same files. It is four times the code space a
+  Forth program has, so it is nineteen code overlays (`lang/forth/overlay.fs`)
+  brought into one region of the I-LS by transfers, through the code mirror
+  the dispatcher reloads after a switch. Its text is in Forth's far heap:
+  368 KiB of text at most, 96 KiB of undo history, 48 KiB in the register;
+  `.` repeats up to 64 keys. Its keyword tables come from the same generator
+  (`tools/vi-syntax.py` -> `vi-syntax.fs`). Every start compiles it (about
+  6 M instructions); a 333 KiB file takes about 1.2 times vi's instructions
+  to open, a key in normal mode about the same.
 
 ## 3. Tests
 
@@ -1444,7 +1457,13 @@ messages and the `:` and `/` lines take its place.
   comment carried over a line). A second boot sends Ctrl-C (`-b`) while
   vi runs: it carries on. `tools/vi-shots.sh` (not run by `make test`)
   takes pictures of vi in the window server's terminal:
-  `build/vi-shots/asm.png`, `forth.png`.
+  `build/vi-shots/asm.png`, `forth.png` (`-f`: of `forth vi.fs`,
+  `fs-asm.png`, `fs-forth.png`).
+- `tools/test-vifs.sh`: the Forth editor (`forth vi.fs`) with the keys of
+  `tools/test-vi.sh`; the files it writes are compared with
+  `tools/test-vifs.out` and with `tools/test-vi.out` (the assembly vi's:
+  they must be the same files), then the highlighting, a Ctrl-C while it
+  runs, and `vi FILE` at the Forth prompt after `include vi.fs`.
 - `tools/test-as.sh` (run on its own, not by `make test`): the self-hosted
   assembler against `sasm`, including a StrataOS boot that assembles and
   runs a program.

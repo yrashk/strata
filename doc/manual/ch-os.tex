@@ -1046,6 +1046,12 @@ its keys replayed); searches with \texttt{/} \texttt{?} \texttt{n} \texttt{N} (p
   arrow's \texttt{ESC [ A} by time: vi polls with READs that do not block (which have \texttt{tty}
   read a byte ahead) for 30~ms. vi catches interrupts: Ctrl-C ends insert mode or cancels what is
   being typed, and does not end the editor.
+\item[In Forth] \texttt{forth vi.fs} \textit{file} (or \texttt{include vi.fs} at the Forth prompt,
+  then \texttt{vi} \textit{file}) is the same editor written in Strata Forth
+  (\texttt{lang/forth/vi.fs}): the same keys, screen and highlighting; given the same keys it writes
+  the same files. It is about four times the code space a Forth program has under StrataOS, so it is
+  nineteen code overlays (Section~\ref{sec:forth-ovl}); its text, undo history and register are in
+  Forth's far heap (368, 96 and 48~KiB).
 \end{description}
 
 \section{The window server}\label{sec:os-ws}

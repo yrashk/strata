@@ -105,6 +105,7 @@ test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-break.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-sh.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vi.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vifs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-net.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-http.sh $(BUILD)/bootrom.stx $(BUILD)/http-test/disk.img
 	BUILD=$(BUILD) ./tools/test-ws.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
@@ -245,6 +246,11 @@ $(BUILD)/vi-syntax.s: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth
 	@mkdir -p $(BUILD)
 	python3 tools/vi-syntax.py $@
 
+# the same tables for the Forth port, lang/forth/vi.fs, as Forth source (a disk file next to it)
+$(BUILD)/forth-os/vi-syntax.fs: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth/README.md site/hl.js os/progs/vi.s
+	@mkdir -p $(BUILD)/forth-os
+	python3 tools/vi-syntax.py $@
+
 $(BUILD)/prog/vi: os/progs/vi.s os/lib/sys.s $(BUILD)/vi-syntax.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -I $(BUILD) -o $@ $<
@@ -289,6 +295,8 @@ FORTH_DISK := $(BUILD)/prog/forth lang/forth/core.fs lang/forth/tools.fs lang/fo
               $(wildcard lang/forth/demos/*.fs)
 # the network words (loaded on demand, like tools.fs) and the web server built on them
 FORTH_DISK += lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd.fs lang/forth/httpd-ps.fs
+# code overlays (a library: require overlay), and the editor built on them with its keyword tables
+FORTH_DISK += lang/forth/overlay.fs lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUILD)/forth-os/vi-syntax.fs
 
 DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as \
               $(BUILD)/prog/units $(BUILD)/prog/vi $(SRCS) $(USRCS) $(BUILD)/src/vi.s $(FORTH_DISK)
@@ -300,7 +308,8 @@ DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc
              -t sys $(SPROGS) -t bin $(UPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag -t bin,net $(NPROGS) -t bin,ws $(WSPROGS) \
              -t demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units $(BUILD)/prog/vi \
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) $(BUILD)/src/vi.s \
-             -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
+             -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs lang/forth/overlay.fs \
+             lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUILD)/forth-os/vi-syntax.fs \
              -t forth,demo $(wildcard lang/forth/demos/*.fs) \
              -t forth,net lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd-ps.fs -t forth,net,demo lang/forth/httpd.fs
 # the web site httpd serves (index.html at /, the stylesheet of every page)

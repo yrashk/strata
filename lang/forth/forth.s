@@ -81,6 +81,7 @@ F_HIDDEN  = 4                           ; not found (a definition in progress)
 F_CREATE  = 8                           ; compiles as a literal: its data field address
 F_CONST   = 16                          ; compiles as a literal: the cell in its data field
 F_VALUE   = 32                          ; compiles as a load of its data field
+F_OVL     = 64                          ; lives in a code overlay (H_FOLD = its number): see overlay.fs
 FD_ADD    = 1                           ; lit +      -> addi s1, s1, v
 FD_SUB    = 2                           ; lit -      -> addi s1, s1, -v
 FD_AND    = 3                           ; lit and    -> andi s1, s1, v
@@ -223,6 +224,9 @@ v_ftop:   .dword A_FILES                ; INCLUDED: c0 offset where the next fil
 v_fdepth: .dword 0                      ; INCLUDED: nesting depth
 v_tooling: .dword 0                     ; 1 while a tool file is loaded for one command
 v_inlmax: .dword PLAT_INLINE            ; primitives whose bodies have at most this many bytes are copied inline
+v_ovl:    .dword 0                      ; code overlays (overlay.fs; KVAR 37): +0 the overlay being compiled (0: resident code),
+          .dword 0, 0                   ;   +8 the xt that calls an overlay word from an overlay, +16 from resident code,
+          .dword CODE_LIMIT             ;   +24 where code space ends now (an overlay region starts below the I-LS's end)
 msave:    .space 24 + NBUCKETS * 2      ; the dictionary before a tool file: here, chere, latest, bucket heads
 fnames:   .space 4 * 32                 ; names of the files being included, by depth (zero-terminated)
 v_epoch:  .dword 1                      ; bumped for every word the interpreter runs
@@ -383,6 +387,8 @@ kvars:                                  ; KVAR n -> address (for core.fs)
           .half v_tooling               ; 34 nonzero while a tool file is loaded for one command
           .half msave                   ; 35 the dictionary before that file: here, chere, latest
           .half v_inlmax                ; 36 inline bodies of up to this many bytes (INLINE-LIMIT)
+          .half v_ovl                   ; 37 code overlays: the block above (overlay.fs)
+          .half plat_handles            ; 38 standard handles 0..2: the server's endpoint register (3 cells), its id (3)
         .align 8                        ; the dictionary starts here
 dict0:                                  ; first header
 
@@ -1066,7 +1072,8 @@ lf_none:                                ; not a local
 ; cg(a0 = instruction): append one instruction at chere (in the staging buffer)
 cg:                                     ; leaf; clobbers t0..t2
         ld    t0, v_chere(zero)         ; t0 = its I-LS address
-        li    t1, CODE_LIMIT - 8        ; the I-LS is 64 KiB
+        ld    t1, v_ovl+24(zero)        ; the end of code space (64 KiB, or where overlays start)
+        addi  t1, t1, -8                ; ...
         bgeu  t0, t1, cg_full           ; out of code space
         ld    t1, v_cbase(zero)         ; t1 = I-LS address of staging byte 0
         sub   t1, t0, t1                ; t1 = staging offset
@@ -1203,6 +1210,23 @@ cg_call:                                ; clobbers t0..t2, a0, a1
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, 16                ; pop
         ret                             ; done
+
+; cg_ovcall(a0 = overlay xt n << 16 | address): compile a call of a word in
+; code overlay n: push the xt, call the manager's word for it (overlay.fs puts
+; their xts in v_ovl: one for calls from resident code, one that also brings
+; the caller's overlay back, for calls from an overlay)
+cg_ovcall:                              ; clobbers t0..t3, t6, a0, a1
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        call  cg_lit                    ; the xt
+        ld    a0, v_ovl+16(zero)        ; from resident code
+        ld    t0, v_ovl(zero)           ; from an overlay?
+        beqz  t0, co_call               ; ...
+        ld    a0, v_ovl+8(zero)         ; then its overlay comes back after
+co_call:                                ; ...
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 8                 ; pop
+        j     cg_call                   ; tail call
 
 ; cg_fold(a0 = FD_ kind) -> a0 = 1 if the last literal was folded into the operation
 cg_fold:                                ; clobbers t0..t3, t6, a0, a1
@@ -1347,6 +1371,8 @@ compile_nt:                             ; clobbers t0..t6, a0..a2
         bnez  t1, cn_const              ; ... is its value
         andi  t1, t0, F_VALUE           ; a VALUE ...
         bnez  t1, cn_value              ; ... is a load
+        andi  t1, t0, F_OVL             ; a word in a code overlay ...
+        bnez  t1, cn_ovl                ; ... is called through the overlay manager
         lbu   a0, H_FOLD(a0)            ; folding kind
         beqz  a0, cn_plain              ; none
         call  cg_fold                   ; try to fold the last literal into it
@@ -1370,6 +1396,15 @@ cn_long:                                ; a long primitive: call it, but never a
 cn_call:                                ; a call
         lhu   a0, H_XT(a0)              ; target
         call  cg_call                   ; emit
+        j     cn_ret                    ; done
+cn_ovl:                                 ; an overlay word (H_FOLD = its overlay)
+        lbu   t1, H_FOLD(a0)            ; from a definition in the same overlay:
+        ld    t2, v_ovl(zero)           ; ...
+        beq   t1, t2, cn_call           ; a plain call (both are there together)
+        lhu   a0, H_XT(a0)              ; else its overlay xt, n << 16 | address
+        slli  t1, t1, 16                ; ...
+        or    a0, a0, t1                ; ...
+        call  cg_ovcall                 ; through the manager
         j     cn_ret                    ; done
 cn_create:                              ; push the data field address
         call  nt_dfa                    ; a0 = data field
@@ -1642,7 +1677,14 @@ in_find:                                ; a dictionary word?
         call  compile_nt                ; compile it
         j     in_loop                   ; next word
 in_exec:                                ; run the word
+        lbu   t1, H_FLAGS(a0)           ; in a code overlay?
+        andi  t1, t1, F_OVL             ; ...
+        lbu   t2, H_FOLD(a0)            ; (its number)
         lhu   a0, H_XT(a0)              ; a0 = its code
+        beqz  t1, in_xt                 ; no
+        slli  t2, t2, 16                ; yes: its overlay xt, n << 16 | address
+        or    a0, a0, t2                ; (EXECUTE has the manager load it)
+in_xt:                                  ; a0 = the xt
         addi  sp, sp, -8                ; save it
         sd    a0, 0(sp)                 ; ...
         ld    t0, v_open(zero)          ; inside a definition?
@@ -1654,7 +1696,10 @@ in_go:                                  ; call it
         ld    t1, v_epoch(zero)         ; one more word run: the image may differ
         addi  t1, t1, 1                 ; one more
         sd    t1, v_epoch(zero)         ; v_epoch = t1
-        jalr  ra, t0, 0                 ; execute
+        addi  s0, s0, -8                ; execute it
+        sd    s1, 0(s0)                 ; ...
+        mv    s1, t0                    ; ...
+        call  p_execute                 ; ...
         li    t0, DS_TOP                ; stack check: underflow?
         bltu  t0, s0, in_under          ; s0 above the top: too many pops
         li    t0, DS_BOTTOM             ; overflow?
@@ -1887,7 +1932,10 @@ p_catch:                                ; CATCH ( i*x xt -- j*x 0 | i*x n )
         addi  a0, sp, 56                ; the input source
         call  spec_save                 ; (clobbers only t0..t2, a0)
         sd    sp, v_handler(zero)       ; we are the innermost frame
-        jalr  ra, t3, 0                 ; run the xt
+        addi  s0, s0, -8                ; run the xt
+        sd    s1, 0(s0)                 ; ...
+        mv    s1, t3                    ; ...
+        call  p_execute                 ; ...
         ld    t1, 48(sp)                ; it returned normally: unlink the frame
         sd    t1, v_handler(zero)       ; v_handler = t1
         ld    ra, 0(sp)                 ; our return address
@@ -3078,7 +3126,14 @@ p_tick:                                 ; Forth word
         sd    a1, v_elen(zero)          ; v_elen = a1
         call  find_name                 ; a0 = header
         beqz  a0, in_u13                ; unknown
+        lbu   t1, H_FLAGS(a0)           ; in a code overlay?
+        andi  t1, t1, F_OVL             ; ...
+        lbu   t2, H_FOLD(a0)            ; (its number)
         lhu   t0, H_XT(a0)              ; xt
+        beqz  t1, tk_push               ; no
+        slli  t2, t2, 16                ; yes: its overlay xt, n << 16 | address
+        or    t0, t0, t2                ; ...
+tk_push:                                ; t0 = the xt
         addi  s0, s0, -8                ; push it
         sd    s1, 0(s0)                 ; the old top goes to memory
         mv    s1, t0                    ; t0 is the new top
@@ -3105,6 +3160,8 @@ p_compile:                              ; COMPILE, ( xt -- ): compile a call
         mv    a0, s1                    ; the xt
         ld    s1, 0(s0)                 ; pop
         addi  s0, s0, 8                 ; one cell off the data stack
+        srli  t0, a0, 16                ; an overlay xt (n << 16 | address)?
+        bnez  t0, cg_ovcall             ; tail call: through the overlay manager
         j     cg_call                   ; tail call
 p_insn:                                 ; INSN, ( u -- ): compile one instruction
         mv    a0, s1                    ; the instruction
@@ -4058,9 +4115,14 @@ p_unloop: ld  s2, 0(sp)                 ; UNLOOP: restore the outer loop registe
 p_unloop_e: ret                         ; return
         .align 8                        ; ...
 p_execute: mv t0, s1                    ; EXECUTE ( i*x xt -- j*x )
+        srli  t1, t0, 16                ; an overlay xt (n << 16 | address)?
+        bnez  t1, ex_ovl                ; ...
         ld    s1, 0(s0)                 ; pop
         addi  s0, s0, 8                 ; one cell off the data stack
         jr    t0                        ; tail jump: it returns to our caller
+ex_ovl:                                 ; the overlay manager's word ( xt -- ) runs it
+        ld    t0, v_ovl+8(zero)         ; (it brings back the overlay that was in)
+        jr    t0                        ; ...
 p_execute_e:                            ; ...
         .align 8                        ; ...
 p_depth: li   t0, DS_TOP                ; DEPTH ( -- n )
