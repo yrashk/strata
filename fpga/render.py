@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """Draws a placed (and routed) ECP5 design the way a die shot looks.
 
-    python3 fpga/render.py DESIGN.json OUT.png [--report report.json]
-                           [--web OUT-web.png] [--title ...] [--note ...]
+    python3 fpga/render.py DESIGN OUT.png [--report report.json] [--placed]
+                           [--web OUT-web.webp] [--title ...] [--note ...]
+    python3 fpga/render.py DESIGN.json --extract DATA.json.gz [--report ...]
 
-DESIGN.json is what `nextpnr-ecp5 --write` produced (fpga/pnr.sh): every cell
-carries its location in the attribute NEXTPNR_BEL ("X61/Y55/SLICEA.K0"), and
-after routing every net its wires and pips in ROUTING. The fabric (logic
+DESIGN is what `nextpnr-ecp5 --write` produced (fpga/pnr.sh; .gz is fine):
+every cell carries its location in the attribute NEXTPNR_BEL
+("X61/Y55/SLICEA.K0"), and after routing every net its wires and pips in
+ROUTING. Or it is an extract (--extract): only what the pictures need, every
+cell's site and group and every routed wire's name and group, a few MB
+instead of a few hundred; fpga/results/ecp5-N/die-data.json.gz is one, so
+the pictures can be redrawn without placing and routing again. --placed
+leaves the routing out (the placement view). The fabric (logic
 tiles, block RAM, multipliers, I/O) comes from fpga/ecp5/lfe5u-85f-bels.json,
 written by fpga/ecp5/bels.py from nextpnr's chip database.
 
@@ -25,7 +31,7 @@ Needs numpy and Pillow (fpga/README.md: a venv under build/ does). Fonts:
 Space Grotesk and JetBrains Mono from build/fonts/ if they are there (the
 site's fonts), else the system's.
 """
-import argparse, json, math, os, re, sys
+import argparse, gzip, json, math, os, re, sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -81,8 +87,13 @@ def font(kind, size, weight=400):
 BEL = re.compile(r"^X(\d+)/Y(\d+)/(.+)$")
 
 
+def read_json(path):
+    with (gzip.open(path, "rt") if path.endswith(".gz") else open(path)) as f:
+        return json.load(f)
+
+
 def load(path):
-    d = json.load(open(path))
+    d = read_json(path)
     top = [v for v in d["modules"].values() if v["attributes"].get("top")]
     return top[0] if top else list(d["modules"].values())[0]
 
@@ -118,11 +129,51 @@ def blur(a, sigma):
     return a
 
 
+def extract(top_json, report_path=None):
+    """What the pictures need from nextpnr's JSON: every placed cell's site,
+    group and whether it is half of a carry cell, and every routed net's
+    group (that of the cell driving it) and wires (the clock tree left out:
+    it would light everything)."""
+    m = [v for v in top_json["modules"].values() if v["attributes"].get("top")]
+    top = m[0] if m else list(top_json["modules"].values())[0]
+    cg = classify.assign(top)
+    cells = []
+    for n, c in top["cells"].items():
+        bel = c["attributes"].get("NEXTPNR_BEL")
+        if bel:
+            cells.append([bel, cg[n], 1 if c["parameters"].get("MODE", "") == "CCU2" else 0])
+    bit_owner = {}
+    for n, c in top["cells"].items():
+        for p, bits in c.get("connections", {}).items():
+            if c.get("port_directions", {}).get(p) == "output":
+                for b in bits:
+                    if isinstance(b, int):
+                        bit_owner[b] = cg[n]
+    nets = []
+    for n, v in top["netnames"].items():
+        r = v["attributes"].get("ROUTING")
+        if not r or n.startswith("clk") or "$glbnet" in n or "$gbuf" in n:
+            continue
+        g = next((bit_owner[b] for b in v["bits"] if isinstance(b, int) and b in bit_owner), None)
+        if g is None:
+            g = net_group(n)
+        nets.append([g, [w for w in r.split(";")[0::3] if w]])
+    data = {"strata-die": 1, "groups": [k for k, _, _ in classify.GROUPS], "cells": cells, "nets": nets}
+    if report_path and os.path.exists(report_path):
+        rep = read_json(report_path)
+        data["report"] = {"utilization": {k: v for k, v in rep.get("utilization", {}).items()
+                                          if k in ("TRELLIS_COMB", "TRELLIS_FF", "DP16KD", "MULT18X18D")},
+                          "fmax": rep.get("fmax", {})}
+    return data
+
+
 # ---------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("design")
-    ap.add_argument("out")
+    ap.add_argument("design", help="nextpnr's JSON (placed or routed), or an extract")
+    ap.add_argument("out", nargs="?")
+    ap.add_argument("--extract", help="write what the pictures need to this .json.gz and stop")
+    ap.add_argument("--placed", action="store_true", help="the placement only: leave the routing out")
     ap.add_argument("--report", help="nextpnr --report JSON (utilisation, Fmax)")
     ap.add_argument("--web", help="also write a small version (PNG or WebP by extension)")
     ap.add_argument("--web-width", type=int, default=1600)
@@ -142,31 +193,30 @@ def main():
     NX = max(int(BEL.match(b)[1]) for b in allbels) + 1
     NY = max(int(BEL.match(b)[2]) for b in allbels) + 1
 
-    top = load(a.design)
-    cg = classify.assign(top)
+    data = read_json(a.design)
+    if not data.get("strata-die"):
+        data = extract(data, a.report)
+    if a.extract:
+        with gzip.open(a.extract, "wt", compresslevel=9) as f:
+            json.dump(data, f, separators=(",", ":"))
+        print(a.extract, len(data["cells"]), "cells,", sum(len(w) for _, w in data["nets"]), "wires")
+        return
 
     # placed cells by location
     slices = {}      # (x, y, slice letter) -> {"K0": (g, mode), "FF0": g, ...}
     blocks = {}      # bel name -> group
     lut_count = [0] * len(GCOL)
-    routed = False
-    for n, c in top["cells"].items():
-        bel = c["attributes"].get("NEXTPNR_BEL")
-        if not bel:
-            continue
+    for bel, g, carry in data["cells"]:
         m = BEL.match(bel)
         x, y, b = int(m[1]), int(m[2]), m[3]
-        g = cg[n]
         if b.startswith("SLICE"):
-            s, part = b[5], b.split(".")[1]
-            mode = c["parameters"].get("MODE", "")
-            slices.setdefault((x, y, s), {})[part] = (g, mode)
-            if c["type"] == "TRELLIS_COMB":
+            s_, part = b[5], b.split(".")[1]
+            slices.setdefault((x, y, s_), {})[part] = (g, "CCU2" if carry else "")
+            if part.startswith("K"):
                 lut_count[g] += 1
         else:
             blocks[bel] = g
-
-    report = json.load(open(a.report)) if a.report and os.path.exists(a.report) else None
+    report = data.get("report")
 
     # ------------------------------------------------ canvas: 4:3, die centred
     dw, dh = NX * T, NY * T
@@ -174,21 +224,6 @@ def main():
     H = dh + top_m + bot_m
     W = max(int(H * 4 / 3), dw + 2 * int(T * 3))
     ox, oy = (W - dw) // 2, top_m
-
-    # a net belongs to the cell that drives it
-    bit_owner = {}
-    for n, c in top["cells"].items():
-        for p, bits in c.get("connections", {}).items():
-            if c.get("port_directions", {}).get(p) == "output":
-                for b in bits:
-                    if isinstance(b, int):
-                        bit_owner[b] = cg[n]
-    net_owner = {}
-    for n, v in top["netnames"].items():
-        for b in v["bits"]:
-            if isinstance(b, int) and b in bit_owner:
-                net_owner[n] = bit_owner[b]
-                break
 
     # routing / glow, in die pixels
     best = np.zeros((dh, dw), np.float32)
@@ -198,17 +233,8 @@ def main():
     dirs = {"N": (0, -1), "S": (0, 1), "E": (1, 0), "W": (-1, 0)}
     segs = []        # x0, y0, x1, y1, group
     local = []       # x, y, group
-    for n, v in top["netnames"].items():
-        r = v["attributes"].get("ROUTING")
-        if not r:
-            continue
-        if n.startswith("clk") or "$glbnet" in n or "$gbuf" in n:
-            continue                       # the clock tree would light everything
-        g = net_owner.get(n)
-        if g is None:
-            g = net_group(n)
-        parts = r.split(";")
-        for w in parts[0::3]:
+    for g, wires in ([] if a.placed else data["nets"]):
+        for w in wires:
             m = BEL.match(w)
             if not m:
                 continue
@@ -232,6 +258,8 @@ def main():
     # a --no-route run still has the fixed connections (carry chains, inside
     # slices): routed means general routing, wires that span tiles
     routed = len(segs) > 100
+    if not a.out:
+        ap.error("an output file, or --extract")
     if routed:
         seg = np.array(segs, np.float32) if segs else np.zeros((0, 5), np.float32)
         for gi in range(len(GCOL)):
@@ -433,10 +461,6 @@ def main():
     mf = font("mono", int(top_m * 0.13), 500)
     x0 = ox - pad
     d.text((x0, top_m * 0.12), a.title, font=tf, fill=(255, 255, 255))
-    yy = top_m * 0.12 + top_m * 0.45
-    for line in a.note:
-        d.text((x0, yy), line, font=sf, fill=(138, 163, 189))
-        yy += top_m * 0.19
     # numbers, top right
     nums = []
     if report:
@@ -455,9 +479,35 @@ def main():
             break
     xr = ox + dw + pad
     yy = top_m * 0.14
+    statw = 0
     for lab, val, pct in nums:
         d.text((xr, yy), f"{lab}  {val}  {pct}", font=mf, fill=TEXT, anchor="ra")
+        statw = max(statw, d.textlength(f"{lab}  {val}  {pct}", font=mf))
         yy += top_m * 0.165
+    # the notes under the title, wrapped short of the numbers
+    maxw = xr - statw - T * 2 - x0
+
+    def wrap(f):
+        out = []
+        for note in a.note:
+            line = ""
+            for w in note.split():
+                t = (line + " " + w).strip()
+                if line and d.textlength(t, font=f) > maxw:
+                    out.append(line)
+                    line = w
+                else:
+                    line = t
+            out.append(line)
+        return out
+    lines, step = wrap(sf), top_m * 0.19
+    if len(lines) > 2:
+        sf = font("sans", int(top_m * 0.125), 400)
+        lines, step = wrap(sf), top_m * 0.145
+    yy = top_m * 0.12 + top_m * 0.43
+    for line in lines[:3]:
+        d.text((x0, yy), line, font=sf, fill=(138, 163, 189))
+        yy += step
 
     # legend: 2 rows of 4
     lf = font("sans", int(bot_m * 0.11), 500)

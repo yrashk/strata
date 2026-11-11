@@ -1,0 +1,370 @@
+Info: Critical path report for clock '$glbnet$clk$TRELLIS_IO_IN' (posedge -> posedge):
+Info:       type curr  total name
+Info:   clk-to-q  5.83  5.83 Source g_core[0].u_core.u_dls.mem.0.9.DOB1
+Info:    routing  4.29  10.12 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (62,46) -> (96,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).A
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:507.20-507.27
+Info:      logic  0.45  10.57 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  10.57 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (96,69) -> (96,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  10.64 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  10.64 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (96,69) -> (96,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  10.64 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  10.64 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (96,69) -> (97,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  10.71 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  10.71 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (97,69) -> (97,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  10.71 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  10.71 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (97,69) -> (97,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  10.78 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  10.78 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (97,69) -> (97,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  10.78 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  10.78 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (97,69) -> (97,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  10.85 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  10.85 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (97,69) -> (97,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  10.85 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  10.85 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (97,69) -> (97,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  10.92 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  10.92 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (97,69) -> (97,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  10.92 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  10.92 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (97,69) -> (98,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  10.99 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  10.99 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (98,69) -> (98,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  10.99 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  10.99 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (98,69) -> (98,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.06 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.06 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (98,69) -> (98,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  11.06 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.06 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (98,69) -> (98,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.13 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.13 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (98,69) -> (98,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  11.13 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.13 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (98,69) -> (98,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.20 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.20 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (98,69) -> (98,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  11.20 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.20 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (98,69) -> (99,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.28 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.28 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (99,69) -> (99,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  11.28 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.28 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (99,69) -> (99,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.35 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.35 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (99,69) -> (99,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  11.35 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.35 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (99,69) -> (99,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.42 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.42 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (99,69) -> (99,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  11.42 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.42 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (99,69) -> (99,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.49 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.49 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (99,69) -> (99,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  11.49 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.49 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (99,69) -> (100,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.56 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.56 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (100,69) -> (100,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  11.56 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.56 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (100,69) -> (100,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.63 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.63 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (100,69) -> (100,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  11.63 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.63 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (100,69) -> (100,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.70 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.70 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (100,69) -> (100,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  11.70 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.70 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (100,69) -> (100,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.77 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.77 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (100,69) -> (100,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  11.77 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.77 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (100,69) -> (101,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.84 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.84 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (101,69) -> (101,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  11.84 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.84 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (101,69) -> (101,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.91 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.91 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (101,69) -> (101,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  11.91 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.91 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (101,69) -> (101,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.99 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.99 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (101,69) -> (101,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  11.99 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  11.99 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (101,69) -> (101,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  12.06 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  12.06 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (101,69) -> (101,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  12.06 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  12.06 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (101,69) -> (102,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  12.13 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  12.13 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (102,69) -> (102,69)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  12.13 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  12.13 Net $nextpnr_(CCU2C...) (102,69) -> (102,69)
+Info:                          Sink $nextpnr_(CCU2C...).FCI
+Info:      logic  0.44  12.57 Source $nextpnr_(CCU2C...).F
+Info:    routing  0.94  13.51 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (102,69) -> (100,68)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).D
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3867.18-3867.50
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.24  13.74 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).F
+Info:    routing  1.48  15.22 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (100,68) -> (101,61)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).A
+Info:      logic  0.45  15.67 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  15.67 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (101,61) -> (101,61)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3870.29-3870.43
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  15.74 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  15.74 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (101,61) -> (101,61)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  15.74 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  15.74 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (101,61) -> (102,61)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3870.29-3870.43
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  15.81 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  15.81 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (102,61) -> (102,61)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  15.81 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  15.81 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (102,61) -> (102,61)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3870.29-3870.43
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  15.88 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  15.88 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (102,61) -> (102,61)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.00  15.88 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  15.88 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (102,61) -> (102,61)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:3870.29-3870.43
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  15.95 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCO
+Info:    routing  0.00  15.95 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (102,61) -> (102,61)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FCI
+Info:      logic  0.40  16.36 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).F
+Info:    routing  0.65  17.01 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (102,61) -> (101,60)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).M
+Info:      logic  0.26  17.27 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).OFX
+Info:    routing  1.04  18.30 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (101,60) -> (100,60)
+Info:                          Sink g_core[0].u_core.x.0.15_DO_2_(LUT4...).C
+Info:      logic  0.24  18.54 Source g_core[0].u_core.x.0.15_DO_2_(LUT4...).F
+Info:    routing  1.13  19.67 Net g_core[0].u_core.x.0.15_DO_2_(LUT4...) (100,60) -> (99,59)
+Info:                          Sink g_core[0].u_core.x.0.15_DO_2_(LUT4...).D
+Info:      logic  0.24  19.91 Source g_core[0].u_core.x.0.15_DO_2_(LUT4...).F
+Info:    routing  0.87  20.78 Net g_core[0].u_core.x.0.15_DO_2_(LUT4...) (99,59) -> (97,57)
+Info:                          Sink g_core[0].u_core.x.0.15_DO_2_(LUT4...).C
+Info:      logic  0.24  21.02 Source g_core[0].u_core.x.0.15_DO_2_(LUT4...).F
+Info:    routing  0.63  21.65 Net g_core[0].u_core.x.0.15_DO_2_(LUT4...) (97,57) -> (97,57)
+Info:                          Sink g_core[0].u_core.x.0.15_DO_2_(LUT4...).D
+Info:      logic  0.24  21.89 Source g_core[0].u_core.x.0.15_DO_2_(LUT4...).F
+Info:    routing  0.72  22.61 Net g_core[0].u_core.x.0.15_DO_2_(LUT4...) (97,57) -> (95,56)
+Info:                          Sink g_core[0].u_core.x.0.15_DO_2_(LUT4...).D
+Info:      logic  0.24  22.84 Source g_core[0].u_core.x.0.15_DO_2_(LUT4...).F
+Info:    routing  1.56  24.41 Net g_core[0].u_core.x.0.15_DO_2_(LUT4...) (95,56) -> (80,55)
+Info:                          Sink g_core[0].u_core.x.0.15_DO_2_(LUT4...).M
+Info:      logic  0.26  24.66 Source g_core[0].u_core.x.0.15_DO_2_(LUT4...).OFX
+Info:    routing  0.72  25.38 Net g_core[0].u_core.x.0.15_DO_2_(LUT4...) (80,55) -> (88,55)
+Info:                          Sink g_core[0].u_core.x.0.15_DO_2_(LUT4...).D
+Info:      logic  0.24  25.62 Source g_core[0].u_core.x.0.15_DO_2_(LUT4...).F
+Info:    routing  3.18  28.80 Net g_core[0].u_core.x.0.15_DO_2_(LUT4...) (88,55) -> (60,74)
+Info:                          Sink g_core[0].u_core.s_tval_(TRELLIS_FF...).M
+Info:      logic  0.26  29.06 Source g_core[0].u_core.s_tval_(TRELLIS_FF...).OFX
+Info:    routing  1.74  30.80 Net g_core[0].u_core.s_tval_(TRELLIS_FF...) (60,74) -> (55,78)
+Info:                          Sink g_core[0].u_core.s_tval_(TRELLIS_FF...).A
+Info:      logic  0.45  31.25 Source g_core[0].u_core.s_tval_(TRELLIS_FF...).FCO
+Info:    routing  0.00  31.25 Net g_core[0].u_core.s_tval_(TRELLIS_FF...) (55,78) -> (55,78)
+Info:                          Sink g_core[0].u_core.s_tval_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:827.18-827.34
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  31.32 Source g_core[0].u_core.s_tval_(TRELLIS_FF...).FCO
+Info:    routing  0.00  31.32 Net g_core[0].u_core.s_tval_(TRELLIS_FF...) (55,78) -> (55,78)
+Info:                          Sink g_core[0].u_core.s_tval_(TRELLIS_FF...).FCI
+Info:      logic  0.40  31.72 Source g_core[0].u_core.s_tval_(TRELLIS_FF...).F
+Info:    routing  1.38  33.11 Net g_core[0].u_core.s_tval_(TRELLIS_FF...) (55,78) -> (52,80)
+Info:                          Sink g_core[0].u_core.s_tval_(TRELLIS_FF...).B
+Info:      logic  0.45  33.56 Source g_core[0].u_core.s_tval_(TRELLIS_FF...).FCO
+Info:    routing  0.00  33.56 Net g_core[0].u_core.s_tval_(TRELLIS_FF...) (52,80) -> (53,80)
+Info:                          Sink g_core[0].u_core.s_tval_(TRELLIS_FF...).FCI
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:821.29-821.35
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  33.63 Source g_core[0].u_core.s_tval_(TRELLIS_FF...).FCO
+Info:    routing  0.00  33.63 Net g_core[0].u_core.s_tval_(TRELLIS_FF...) (53,80) -> (53,80)
+Info:                          Sink g_core[0].u_core.s_tval_(TRELLIS_FF...).FCI
+Info:      logic  0.00  33.63 Source g_core[0].u_core.s_tval_(TRELLIS_FF...).FCO
+Info:    routing  0.00  33.63 Net $nextpnr_(CCU2C...) (53,80) -> (53,80)
+Info:                          Sink $nextpnr_(CCU2C...).FCI
+Info:      logic  0.44  34.07 Source $nextpnr_(CCU2C...).F
+Info:    routing  1.18  35.25 Net g_core[0].u_core.s_tval_(TRELLIS_FF...) (53,80) -> (56,79)
+Info:                          Sink g_core[0].u_core.s_tval_(TRELLIS_FF...).D
+Info:                               /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-af2c373178c62e5b5/fpga/build/ecp5-1/strata.v:821.29-821.35
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.24  35.48 Source g_core[0].u_core.s_tval_(TRELLIS_FF...).F
+Info:    routing  0.42  35.90 Net g_core[0].u_core.s_tval_(TRELLIS_FF...) (56,79) -> (57,79)
+Info:                          Sink g_core[0].u_core.x.0.15_DO_2_(LUT4...).D
+Info:      logic  0.24  36.13 Source g_core[0].u_core.x.0.15_DO_2_(LUT4...).F
+Info:    routing  0.94  37.08 Net g_core[0].u_core.x.0.15_DO_2_(LUT4...) (57,79) -> (57,77)
+Info:                          Sink g_core[0].u_core.x.0.15_DO_2_(LUT4...).D
+Info:      logic  0.24  37.31 Source g_core[0].u_core.x.0.15_DO_2_(LUT4...).F
+Info:    routing  3.49  40.80 Net all_halted_(LUT4...) (57,77) -> (61,37)
+Info:                          Sink g_core[0].u_core.lt_ph_(TRELLIS_FF...).D
+Info:      logic  0.24  41.04 Source g_core[0].u_core.lt_ph_(TRELLIS_FF...).F
+Info:    routing  0.45  41.49 Net all_halted_(LUT4...) (61,37) -> (61,37)
+Info:                          Sink all_halted_(LUT4...).D
+Info:      logic  0.24  41.73 Source all_halted_(LUT4...).F
+Info:    routing  0.64  42.37 Net all_halted_(LUT4...) (61,37) -> (61,37)
+Info:                          Sink all_halted_(LUT4...).D
+Info:      logic  0.24  42.60 Source all_halted_(LUT4...).F
+Info:    routing  3.97  46.58 Net all_halted_(LUT4...) (61,37) -> (107,20)
+Info:                          Sink all_halted_(LUT4...).D
+Info:      logic  0.24  46.82 Source all_halted_(LUT4...).F
+Info:    routing  3.14  49.96 Net all_halted_(LUT4...) (107,20) -> (61,24)
+Info:                          Sink g_core[0].u_core.s_cause_(TRELLIS_FF...).CE
+Info:      setup  0.00  49.96 Source g_core[0].u_core.s_cause_(TRELLIS_FF...).CE
+Info: 15.37 ns logic, 34.58 ns routing
+
+Info: Critical path report for cross-domain path '<async>' -> 'posedge $glbnet$clk$TRELLIS_IO_IN':
+Info:       type curr  total name
+Info:     source  0.00  0.00 Source rst$tr_io.O
+Info:    routing  8.25  8.25 Net rst$TRELLIS_IO_IN (4,95) -> (57,33)
+Info:                          Sink all_halted_(LUT4...).B
+Info:      logic  0.24  8.48 Source all_halted_(LUT4...).F
+Info:    routing  0.88  9.36 Net all_halted_(LUT4...) (57,33) -> (56,33)
+Info:                          Sink all_halted_(LUT4...).D
+Info:      logic  0.24  9.60 Source all_halted_(LUT4...).F
+Info:    routing  0.96  10.56 Net all_halted_(LUT4...) (56,33) -> (56,37)
+Info:                          Sink all_halted_(LUT4...).C
+Info:      logic  0.24  10.80 Source all_halted_(LUT4...).F
+Info:    routing  0.59  11.39 Net all_halted_(LUT4...) (56,37) -> (56,37)
+Info:                          Sink all_halted_(LUT4...).C
+Info:      logic  0.24  11.63 Source all_halted_(LUT4...).F
+Info:    routing  0.68  12.30 Net all_halted_(LUT4...) (56,37) -> (53,37)
+Info:                          Sink all_halted_(LUT4...).C
+Info:      logic  0.24  12.54 Source all_halted_(LUT4...).F
+Info:    routing  1.17  13.71 Net all_halted_(LUT4...) (53,37) -> (57,37)
+Info:                          Sink all_halted_(LUT4...).C
+Info:      logic  0.24  13.95 Source all_halted_(LUT4...).F
+Info:    routing  0.70  14.65 Net all_halted_(LUT4...) (57,37) -> (57,38)
+Info:                          Sink all_halted_(LUT4...).C
+Info:      logic  0.24  14.88 Source all_halted_(LUT4...).F
+Info:    routing  1.19  16.07 Net all_halted_(LUT4...) (57,38) -> (52,38)
+Info:                          Sink all_halted_(LUT4...).M
+Info:      logic  0.26  16.33 Source all_halted_(LUT4...).OFX
+Info:    routing  0.47  16.80 Net all_halted_(LUT4...) (52,38) -> (52,36)
+Info:                          Sink all_halted_(LUT4...).D
+Info:      logic  0.24  17.03 Source all_halted_(LUT4...).F
+Info:    routing  0.46  17.49 Net all_halted_(LUT4...) (52,36) -> (54,36)
+Info:                          Sink all_halted_(LUT4...).D
+Info:      logic  0.24  17.73 Source all_halted_(LUT4...).F
+Info:    routing  0.63  18.35 Net all_halted_(LUT4...) (54,36) -> (54,36)
+Info:                          Sink all_halted_(LUT4...).C
+Info:      logic  0.24  18.59 Source all_halted_(LUT4...).F
+Info:    routing  0.80  19.39 Net all_halted_(LUT4...) (54,36) -> (54,36)
+Info:                          Sink all_halted_(LUT4...).D
+Info:      logic  0.24  19.63 Source all_halted_(LUT4...).F
+Info:    routing  0.00  19.63 Net all_halted_(LUT4...) (54,36) -> (54,36)
+Info:                          Sink all_halted_(LUT4...).F1
+Info:      logic  0.17  19.80 Source all_halted_(LUT4...).OFX
+Info:    routing  0.42  20.21 Net all_halted_(LUT4...) (54,36) -> (53,36)
+Info:                          Sink all_halted_(LUT4...).M
+Info:      logic  0.26  20.47 Source all_halted_(LUT4...).OFX
+Info:    routing  0.00  20.47 Net all_halted_(LUT4...) (53,36) -> (53,36)
+Info:                          Sink all_halted_(LUT4...).FXB
+Info:      logic  0.24  20.71 Source all_halted_(LUT4...).OFX
+Info:    routing  0.69  21.41 Net all_halted_(LUT4...) (53,36) -> (52,35)
+Info:                          Sink g_core[0].u_core.state_(TRELLIS_FF...).M
+Info:      logic  0.26  21.66 Source g_core[0].u_core.state_(TRELLIS_FF...).OFX
+Info:    routing  0.27  21.93 Net g_core[0].u_core.state_(TRELLIS_FF...) (52,35) -> (52,35)
+Info:                          Sink g_core[0].u_core.state_(TRELLIS_FF...).M
+Info:      setup  0.00  21.93 Source g_core[0].u_core.state_(TRELLIS_FF...).M
+Info: 3.77 ns logic, 18.16 ns routing
+
+Info: Critical path report for cross-domain path 'posedge $glbnet$clk$TRELLIS_IO_IN' -> '<async>':
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source all_halted_(TRELLIS_FF...).Q
+Info:    routing  3.96  4.48 Net all_halted$TRELLIS_IO_OUT (54,35) -> (0,35)
+Info:                          Sink all_halted$tr_io.I
+Info: 0.52 ns logic, 3.96 ns routing
+
+Info: Max frequency for clock '$glbnet$clk$TRELLIS_IO_IN': 20.02 MHz (PASS at 10.00 MHz)

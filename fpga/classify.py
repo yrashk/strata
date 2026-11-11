@@ -64,11 +64,11 @@ def group(name, ctype=""):
         # the capability file, the save table, the checks, the granule
         # table copy (gt2, gt3) and its lookups, hand-over, revocation requests
         if r.startswith(("caps", "ctab", "ct_", "dom_", "give_", "take_", "cd_", "cs_",
-                         "gt2", "gt3", "gt_", "g_a", "g_d", "g_c", "live_", "ka")):
+                         "gt2", "gt3", "gt_", "g_a", "g_d", "g_c", "live_", "ka", "cap_", "xcap")):
             return "caps"
         if r.startswith("u_tu."):
             return "tu"
-        if r.startswith(("u_alu", "u_div", "alu_", "mul", "u_dec", "ir")) or r == "d" or r.startswith(("d.", "d_")):
+        if r.startswith(("u_alu", "u_mul", "u_div", "alu_", "mul", "u_dec", "ir")) or r == "d" or r.startswith(("d.", "d_")):
             return "alu"
         if r.startswith(("u_ils", "u_dls")):
             if ctype in ("DP16KD", "PDPW16KD"):
@@ -78,7 +78,7 @@ def group(name, ctype=""):
         return "exec"
     # the inboxes, gifts, and revocation: the granule tables (mt2, mt3),
     # their walker (w_*) and broadcast (gt_*), the requests (dom_*)
-    if b.startswith(("ib_", "dom_", "g_valid", "g_cap", "g_dst", "g_ack", "take_", "give_",
+    if b.startswith(("ib_", "g_take", "dom_", "g_valid", "g_cap", "g_dst", "g_ack", "take_", "give_",
                      "gt_", "mt2", "mt3", "w_")):
         return "caps"
     if b.startswith(("u_bus", "ext_t3", "u_t2", "g_t3_int", "m_", "t_", "u_dev.disk")):
@@ -92,6 +92,8 @@ def trusted(name, ctype):
     from the bus or the domain table back into the core's datapath)."""
     if name.startswith("$"):
         return False
+    if name.startswith("all_halted") and ctype not in EXACT:
+        return False                  # a top-level output: every core's state leads there
     return ctype in EXACT or name.startswith("g_core[") or hops(name) <= 6
 
 
