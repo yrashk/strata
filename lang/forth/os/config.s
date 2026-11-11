@@ -21,9 +21,15 @@
 ;                     .far section puts the boot stub copy and the Forth
 ;                     kernel there; compiled code follows.
 ;   0x10000..0x1FFFF  the text of INCLUDEd files (a stack: nested includes)
-;   0x20000..0x39FFF  the parcel, lent to a thread that needs a new image:
-;                     +0x8000 a copy of the compiled code (parcel offset ==
-;                     I-LS address), +0x10000 the D-LS snapshot
+;   0x08000..         (with one thread the mirror is only the kernel, up to
+;                     kboot: the code cache follows it in the I-LS)
+;   0x20000..0x39FFF  with threads: the parcel, lent to a thread that needs a
+;                     new image: +0x8000 a copy of the compiled code (parcel
+;                     offset == I-LS address), +0x10000 the D-LS snapshot.
+;                     With one thread: the unit store (UBASE..UEND), the code
+;                     units of everything compiled after the kernel, 2 KiB
+;                     each (unit 0 the gateway), paged into the code cache by
+;                     StrataOS (forth.s, "Code paging")
 ;   0x3A000..         the far heap (c6) behind far@ / far!. With threads, the
 ;                     job board (4 KiB) and each worker's page (32 KiB: its
 ;                     own code mirror) and message buffer (4 KiB) are cut
@@ -48,7 +54,7 @@ PL_WHDR   = PL_PAGE - 16                ; page offset of its start-up header (th
 PL_IOSZ   = 1024                        ; bytes of the transfer bounce buffer / a file read
 PL_KSZ    = 256                         ; bytes of console input per read
 PLAT_PAGE = 1                           ; 1: new code goes into code units StrataOS pages (forth.s, "Code paging")
-XSLOT     = 11                          ; units (and code-cache slots) of 2^XSLOT bytes: 1 KiB
+XSLOT     = 11                          ; units (and code-cache slots) of 2^XSLOT bytes: 2 KiB (README, "Code paging": why)
 UBASE     = A_PARCEL                    ; arena: the unit store (one thread: no parcel), unit 0 the gateway,
 UEND      = A_HEAP                      ;   up to the heap: 104 KiB
 TPV       = UBASE + 0x8000              ; tp: calls of the store's first 64 KiB are one addi + xcall

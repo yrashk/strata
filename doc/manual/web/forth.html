@@ -74,8 +74,9 @@ true jit-trace  : cube dup dup * * ; [jit: tput+tgetx 64 bytes -> I-LS 0x8160]  
   c!</code> into one instruction (a variable then <code>@</code> is one <code>ld</code> from an
   absolute address), turns a call just before <code>;</code> into a <b>jump</b> (tail calls;
   <code>recurse</code> in tail position is a loop) and keeps <code>do</code> loop indices in
-  registers. Under StrataOS, where code space is 32&nbsp;KiB, <em>compact code</em> makes the prologue
-  one <code>jal t0, k_enter</code> and a return one <code>j k_exit</code>.</p>
+  registers. Under StrataOS <em>compact code</em> makes the prologue one <code>jal t0, k_enter</code>
+  and a return one <code>j k_exit</code> (in a code unit: <code>jalr t0, gp, k_enter</code> and
+  <code>jalr zero, gp, k_exit</code>, below).</p>
 <p>Strata instructions name capability registers and transfer tags in immediate fields, so
   "transfer through capability register <i>n</i>" is sixteen instructions. <code>xexec ( a0 a1 a2
   insn -- a0' )</code> assembles the one wanted, installs it with a <code>ret</code> into one of eight
@@ -115,19 +116,22 @@ true jit-trace  : cube dup dup * * ; [jit: tput+tgetx 64 bytes -> I-LS 0x8160]  
   for good.</li>
 </ul>
 
-<h3 id="overlays">Code overlays, and an editor</h3>
-<p>Under StrataOS a program has 32&nbsp;KiB of I-LS, and about 8&nbsp;KiB of it are left after the
-  kernel and <code>core.fs</code>. A bigger one is written in <em>code overlays</em>
-  (<code>require overlay</code>, below): <code>overlays</code> reserves a region at the top of code
-  space, and every <code>overlay</code> is compiled into it and kept in far memory. Calling a word of
-  an overlay that is not in brings it in with two transfers, store to code mirror (through the
-  D-LS) and mirror to I-LS with <code>tgetx</code>; since StrataOS reloads the I-LS from the mirror
-  after a context switch, the region survives preemption. It is the hardware's code paging done by
-  the program, as compiled Forth runs only where it was compiled. The kernel compiles a call of an
-  overlay word through <code>ovjump</code> or <code>ovcall</code>, which brings the caller's overlay
-  back after it. <code>lang/forth/vi.fs</code>, the Forth port of StrataOS's editor
-  (<code>forth vi.fs FILE</code>), is nineteen overlays and 2&nbsp;KiB of resident code: the same keys,
-  screen and highlighting as the assembly <code>vi</code>, and it writes the same files.</p>
+<h3 id="paging">Code paging, and an editor</h3>
+<p>Under StrataOS a program has 32&nbsp;KiB of I-LS. A Forth of one thread keeps only its kernel
+  there (16&nbsp;KiB, reloaded from its code mirror after a context switch); every word compiled
+  after it, <code>core.fs</code> on, goes into a <em>code unit</em>, 2&nbsp;KiB of a store in far
+  memory (104&nbsp;KiB), and StrataOS pages the units into the rest of the I-LS, a code cache of
+  seven slots, as they are called: the hardware's slot mapping (<code>xslot</code>, <code>xcall</code>,
+  <code>xmiss</code>) with the operating system's miss handler. Such code runs in whatever slot its
+  unit got, so a call of another unit is an <code>xcall</code> by far address (its link is a <em>far
+  link</em>: the return pages the caller back in if it was evicted meanwhile), a call of the kernel
+  goes through <code>gp</code>, and a kernel word that may run paged code (<code>execute</code>,
+  <code>catch</code>, <code>evaluate</code>, ...) is reached through a gateway unit, so that it too
+  returns by a far link. A program needs no annotations to be bigger than the I-LS; a definition
+  must fit in a unit. <code>lang/forth/vi.fs</code>, the Forth port of StrataOS's editor
+  (<code>forth vi.fs FILE</code>), is about 60&nbsp;KiB of code this way: the same keys, screen and
+  highlighting as the assembly <code>vi</code>, and it writes the same files. With threads
+  (<code>forth -n N</code>) every word is resident, as before.</p>
 <h3 id="progs">The ports of StrataOS's programs</h3>
 <p>Twenty-two of StrataOS's programs are also Forth programs, run as <code>forth NAME.fs ARGS</code>
   with the same arguments, output, errors and exit codes: <code>seq cat upper wc grep hexdump touch rm

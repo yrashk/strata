@@ -365,7 +365,8 @@ GROUPS = [
      "the kernel's code-generation words. <code>do</code> loops keep their index and limit in "
      "<code>s2</code>/<code>s3</code>."),
     ("define", "Defining words", "Colon definitions compile to native code; <code>;</code> installs it in the I-LS "
-     "with a <code>tput</code> and a <code>tgetx</code>. Variables and constants compile as literals."),
+     "with a <code>tput</code> and a <code>tgetx</code> (under StrataOS, with one thread: a <code>tput</code> to "
+     "its code unit, which StrataOS pages in). Variables and constants compile as literals."),
     ("strings", "Strings and number formatting", "String literals live in data space; number formatting works on "
      "single cells."),
     ("io", "Input and output", "The console, through the platform layer (the console device on bare metal, the "
@@ -383,10 +384,10 @@ GROUPS = [
     ("net", "Networking", "StrataOS only: TCP and UDP through the <code>net</code> server (net.fs, udp.fs, loaded "
      "on demand or with <code>require net</code> / <code>require udp</code>); a socket is a handle. "
      "<code>httpd.fs</code> is a web server written with them."),
-    ("ovl", "Code overlays", "StrataOS, after <code>require overlay</code> (overlay.fs): parts of a program compiled "
-     "into one region at the top of code space, kept in far memory and brought in when a word of theirs is "
-     "called. The kernel compiles a call of an overlay word through <code>ovjump</code> or <code>ovcall</code>; "
-     "<code>lang/forth/vi.fs</code>, the editor, is nineteen overlays."),
+    ("paging", "Code paging", "StrataOS, one thread: every word compiled after the kernel (core.fs on) is in a "
+     "code unit of 2 KiB in far memory, called by <code>xcall</code>; StrataOS pages the units into the I-LS "
+     "(the code cache) when they are called, and puts them back after a context switch. A program may be "
+     "much bigger than the I-LS, with no annotations; a definition must fit in a unit."),
     ("progs", "The ports of os/progs", "StrataOS: sys.fs, the library of the Forth ports of StrataOS's "
      "programs (<code>forth seq.fs 20</code>, <code>forth ls.fs -t /src</code>, ...; lang/forth/progs/): "
      "the command line, standard input by lines, standard error and the exit code, messages to the file server "
@@ -414,7 +415,8 @@ BY_NAME = {
               "decimal hex source-id source-id-var \\ ( char [char] latest name>string name>xt name>size "
               "name>flags name>link immediate? >body",
     "compiler": "insn, slit, dotq, mark if, ahead, resolve prologue, epilogue, code@ code! install chere "
-                "(local) local? jit-trace kvar",
+                "(local) local? jit-trace kvar (lit?)",
+    "paging": "unit-stats xtliteral",
     "caps": "far@ far! farc@ farc! fflush finval xexec heap-cap tmp-cap far-size far-read far-write "
             "fcache-reset",
     "cores": "cores core# spawn await publish (reclaim) ?threads workers run-on par give take",
@@ -438,7 +440,7 @@ SECTION_GROUP = {
     "cores": "cores",
 }
 FILE_GROUP = {FORTH + "/tools.fs": "tools", FORTH + "/see.fs": "tools", FORTH + "/os/os.fs": "files",
-              FORTH + "/net.fs": "net", FORTH + "/udp.fs": "net", FORTH + "/overlay.fs": "ovl",
+              FORTH + "/net.fs": "net", FORTH + "/udp.fs": "net",
               FORTH + "/sys.fs": "progs", FORTH + "/bare/start.fs": "io"}
 
 
@@ -725,8 +727,6 @@ def avail_of(w, tools):
         return "os", "StrataOS only: loaded on demand, or <code>require %s</code>" % base
     if f.endswith("/sys.fs"):                         # (a disk file: StrataOS's)
         return "os", "StrataOS: in a port, or after <code>include /sys.fs</code>"
-    if f.endswith("/overlay.fs"):                     # (a disk file: StrataOS's)
-        return "os", "StrataOS: after <code>require overlay</code>"
     if f.endswith("/bare/start.fs"):
         return "bare", "bare metal only"
     if f.endswith("/tools.fs") or f.endswith("/see.fs") or f.endswith("/net.fs") or f.endswith("/udp.fs"):
@@ -802,7 +802,7 @@ def collect():
     kernel = kernel_words()
     files = [(FORTH + "/core.fs", "core"), (FORTH + "/tools.fs", "tools"), (FORTH + "/see.fs", "see"),
              (FORTH + "/os/os.fs", "os"), (FORTH + "/bare/start.fs", "bare"),
-             (FORTH + "/net.fs", "net"), (FORTH + "/udp.fs", "udp"), (FORTH + "/overlay.fs", "overlay"),
+             (FORTH + "/net.fs", "net"), (FORTH + "/udp.fs", "udp"),
              (FORTH + "/sys.fs", "sys")]
     words, by = [], {}
     for w in kernel:

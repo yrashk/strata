@@ -480,7 +480,8 @@ and **the parts of its Local Stores it uses**. On a switch the dispatcher:
    (sp..0x10000) — not the whole 64 KiB;
 5. restores the next thread: D-LS back in, **code reloaded from the
    process's image** in its arena (code is never saved: it is read-only),
-   code-cache units reloaded on demand, capabilities, registers, `eret`.
+   the code units its cache held put back into their slots and mapped
+   again, capabilities, registers, `eret`.
 
 Nothing waits for the transfers of steps 4 and 5. A far atomic, `cgive`
 and `csend` wait until none of the core's memory transfers is in flight
@@ -518,7 +519,20 @@ Two calls let a program reduce or correct what a switch does:
   a2 = length); from then on the dispatcher reloads the I-LS from the
   mirror instead of from the image on every switch-in. Keeping the mirror
   up to date is the program's job (it writes code there before installing
-  it anyway).
+  it anyway). A program whose generated code is paged (code units: Strata
+  Forth) declares only its resident part: the code cache starts after the
+  mirror.
+- **Code units.** A program's code cache (the I-LS after its resident code
+  or code mirror, slots of 2^xslot bytes into which the dispatcher pages
+  code units on an `xmiss`) is part of its state like its D-LS. The record
+  keeps the unit of every slot (PR_UNITS, written by `page_in`), and a
+  switch-in clears the previous process's map, copies each recorded unit
+  back into its slot and maps it again. Code in a unit calls resident code
+  with a plain link (`jalr`) and is interrupted with its pc in a slot: both
+  lead back into the slot, which must hold the same code then (before this,
+  a unit interrupted while another program ran on its core resumed in that
+  program's code). It costs the cache's bytes per switch-in, which the
+  switch counts in its KiB moved; `units` and `forth units.fs` show it.
 
 **What the next process may see.** What a switch leaves out (the D-LS
 above the data extent, below the live stack, a scratch range) still
@@ -540,8 +554,8 @@ a pattern, the other looking for it in its own at its first load and
 after each of 8 switches back.
 
 Not covered, and why:
-- **The I-LS** above a program's resident code still holds the previous
-  program's code and code-cache units. Nothing can read it: loads and
+- **The I-LS** above a program's resident code and its code units still
+  holds the previous program's code and code-cache units. Nothing can read it: loads and
   `tget` use the D-LS, `tgetx` only writes the I-LS, `ltag`/`linst` work
   on the D-LS tag table, and `xcall`/`xret` reach code only through the
   overlay map, which every switch-in clears. A program could only jump
@@ -652,12 +666,14 @@ the result filled in.
   | 4 | YIELD | let the core's other runnable threads run |
   | 5 | EXIT | a1 = exit code (`halt` also exits, with the code in a0) |
   | 6 | NOTIFY_WAIT | a2 = timeout: block until a notification (an interrupt; a child's exit for `proc`) → its bits, or -8 |
-  | 7 | SET_MIRROR | a1 = arena offset of the code mirror, a2 = its length (2.2) |
+  | 7 | SET_MIRROR | a1 = arena offset of the code mirror, a2 = its length (2.2): the code cache starts after it, and is emptied; → 0, a1 = NXMAP (the overlay map's entries) |
   | 8 | PARK | servers. The kernel keeps the request in c6 → its park id |
   | 9 | UNPARK | servers. a1 = park id: the request returns to c6 |
   | 10 | CLOCK | the clock capability is put in c7 again |
   | 11 | SET_SCRATCH | a1 = D-LS start, a2 = length (0: none) (2.2) |
   | 12 | SEND | a1 = endpoint register (1..7), a5 = attachment register (0..7, -1 none), a2..a4 as WAIT_REPLY: the dispatcher sends the attachment and then c5 through the endpoint, rings the doorbell and waits like WAIT_REPLY; -1 (nothing sent) if a register is empty or not a send endpoint |
+  | 13 | UNITS | → the code units the dispatcher paged in for this thread, a1 = the slots of its code cache that hold one |
+  | 14 | PAGE | a1 = a missed far address (utval of an xmiss), a2 = the pc of the miss (uepc): a program with its own trap handler (which gets its misses) hands one over; the dispatcher pages the unit in as for its own miss and resumes it at once → 0, or 1 if it cannot (2.2) |
 
   A server that cannot answer a request yet PARKs it and answers after a
   later UNPARK (a reader of an empty pipe, a WAIT for a running child, an
@@ -1507,14 +1523,14 @@ messages and the `:` and `/` lines take its place.
   then `vi FILE`) is the same editor written in Strata Forth
   (`lang/forth/vi.fs`, with `vi-text.fs` and `vi-edit.fs`; the README there
   has the details): the same keys, modes, highlighting and screen; given the
-  same keys it writes the same files. It is four times the code space a
-  Forth program has, so it is nineteen code overlays (`lang/forth/overlay.fs`)
-  brought into one region of the I-LS by transfers, through the code mirror
-  the dispatcher reloads after a switch. Its text is in Forth's far heap:
-  368 KiB of text at most, 96 KiB of undo history, 48 KiB in the register;
+  same keys it writes the same files. Its code (about 60 KiB) is several
+  times a program's I-LS: like everything Forth compiles, it is in code
+  units the dispatcher pages into Forth's code cache (the units above, and
+  the README's "Code paging"). Its text is in Forth's far heap:
+  400 KiB of text at most, 96 KiB of undo history, 48 KiB in the register;
   `.` repeats up to 64 keys. Its keyword tables come from the same generator
   (`tools/vi-syntax.py` -> `vi-syntax.fs`). Every start compiles it (about
-  6 M instructions); a 333 KiB file takes about 1.2 times vi's instructions
+  6 M instructions); a 333 KiB file takes about 1.3 times vi's instructions
   to open, a key in normal mode about the same.
 
 ## 3. Tests

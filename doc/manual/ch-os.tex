@@ -335,8 +335,9 @@ D-LS data & the thread's \term{data extent}, from address 0 to the end of its da
 D-LS stack & only the live part, from \reg{sp} to \hex{10000}\\
 I-LS code & never saved: it is read-only. It is reloaded with \insn{tgetx} from the image in the
   thread's arena, or from the program's code mirror\\
-Code cache, overlay map & not saved: the \insn{tgetx} that reloads the code invalidates the map, and
-  units are paged in again on demand\\
+Code cache, overlay map & the units the dispatcher paged in are recorded per thread, a slot each: on
+  switch-in the map is cleared and every recorded unit is copied back into its slot and mapped again,
+  so that an interrupted unit, and a return address into a slot, find their code where it was\\
 Software cache & its CSRs are restored; its tag table and lines are data and travel with the data extent\\
 \bottomrule
 \end{tabularx}
@@ -373,8 +374,11 @@ Two supervisor calls let a program reduce or correct what a switch does.
   with \insn{tgetx} from its arena. The image no longer describes the I-LS of such a program, and the
   dispatcher cannot read the I-LS to save it. The program therefore declares a \term{code mirror}: a
   range of its arena that holds a copy of its I-LS program range from \hex{8000}. From then on the
-  dispatcher reloads the code from the mirror on every switch-in. Keeping the mirror current is the
-  program's job, and costs nothing: the code is written to far memory before it is installed anyway.
+  dispatcher reloads the code from the mirror on every switch-in, and the code cache (code paging,
+  Section~\ref{sec:os-paging}) starts after it: a program that generates code and has it paged keeps
+  only its resident part in the mirror (Strata Forth, Section~\ref{sec:forth-paging}). Keeping the
+  mirror current is the program's job, and costs nothing: the code is written to far memory before it
+  is installed anyway.
 \end{description}
 
 \subsection{What the next process may see}\label{sec:os-isolate}
@@ -504,7 +508,9 @@ $-1$ for none.
 4 & YIELD & let the core's other runnable threads run\\
 5 & EXIT & \reg{a1} = exit code. \insn{halt} also exits, with the code in \reg{a0}\\
 6 & NOTIFY\_WAIT & \reg{a2} = timeout. Blocks until a notification; returns its bits, or $-8$\\
-7 & SET\_MIRROR & \reg{a1} = arena offset of the code mirror, \reg{a2} = its length (Section~\ref{sec:os-switch})\\
+7 & SET\_MIRROR & \reg{a1} = arena offset of the code mirror, \reg{a2} = its length
+  (Section~\ref{sec:os-switch}); the code cache starts after it, and is emptied. Returns 0, and
+  \reg{a1} = $\textit{NXMAP}$, the overlay map's entries\\
 8 & PARK & servers. The request in \reg{c6} is kept by the kernel; returns its id\\
 9 & UNPARK & servers. \reg{a1} = id; the parked request returns to \reg{c6}\\
 10 & CLOCK & the clock capability is put in \reg{c7} again\\
@@ -514,6 +520,11 @@ $-1$ for none.
   then the buffer in \reg{c5} through the endpoint, with nothing of this core in between, rings the
   destination and waits as WAIT\_REPLY does. $-1$, with nothing sent, if a register is empty or is not a
   send endpoint\\
+13 & UNITS & returns the code units the dispatcher has paged in for the thread, and in \reg{a1} the
+  slots of its code cache that hold one\\
+14 & PAGE & \reg{a1} = a missed far address, \reg{a2} = the pc of the miss: a program with its own trap
+  handler, which gets its misses, hands one to the dispatcher, which pages the unit in as for a miss
+  of its own and resumes the program at once; 0, or 1 if it cannot (Section~\ref{sec:os-paging})\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -895,16 +906,21 @@ to the dispatcher, which:
 \item takes the far address from \csr{tval} (clearing bit~63 for a return), and rejects the miss if
   \csr{xslot} is 0, the program no longer holds \reg{c0}, \reg{c0}'s base is not a multiple of the
   slot size (\insn{xmap} needs aligned units), or the unit is not a whole slot inside it;
-\item uses the I-LS from the end of the program's resident code, rounded up to a slot, to \hex{10000}
-  as the code cache, at most one slot per overlay map entry ($\textit{NXMAP}$, which the kernel takes
-  from the platform table), replaced round robin;
-\item loads the unit into the victim slot with \insn{tgetx}, maps it with \insn{xmap} and resumes the
-  program at the instruction that missed.
+\item uses the I-LS from the end of the program's resident code (or of its code mirror, if that ends
+  later), rounded up to a slot, to \hex{10000} as the code cache, at most one slot per overlay map
+  entry ($\textit{NXMAP}$, which the kernel takes from the platform table), replaced round robin, never
+  the slot of the instruction that missed;
+\item loads the unit into the victim slot with \insn{tgetx}, records it as that slot's unit, maps it
+  with \insn{xmap} and resumes the program at the instruction that missed.
 \end{itemize}
-A miss the dispatcher cannot serve ends the program with a fault of cause \cause{xmiss}. The
-\texttt{units} program runs 24 one-KiB units through sixteen slots (eight on an eight-entry platform) with call chains seven deep and
-checks its result against the same computation done by resident code. After a context switch the
-cache is empty and refills on demand.
+A miss the dispatcher cannot serve ends the program with a fault of cause \cause{xmiss}. A program
+with its own trap handler gets its misses there and passes them on with svc PAGE (Strata Forth does).
+The cache is part of the thread's state: after a context switch every recorded unit is back in its
+slot (Section~\ref{sec:os-switch}), so the unit that was running, and one that a plain return address
+leads back to (code in a unit may call resident code with \insn{jalr}), are where they were;
+\texttt{UNITS} counts the misses. The \texttt{units} program runs 24 one-KiB units through sixteen
+slots (eight on an eight-entry platform) with call chains seven deep and checks its result against the
+same computation done by resident code.
 
 \subsection{The kernel pages itself}\label{sec:os-kpaging}
 
@@ -1100,9 +1116,9 @@ its keys replayed); searches with \texttt{/} \texttt{?} \texttt{n} \texttt{N} (p
 \item[In Forth] \texttt{forth vi.fs} \textit{file} (or \texttt{include vi.fs} at the Forth prompt,
   then \texttt{vi} \textit{file}) is the same editor written in Strata Forth
   (\texttt{lang/forth/vi.fs}): the same keys, screen and highlighting; given the same keys it writes
-  the same files. It is about four times the code space a Forth program has under StrataOS, so it is
-  nineteen code overlays (Section~\ref{sec:forth-ovl}); its text, undo history and register are in
-  Forth's far heap (368, 96 and 48~KiB).
+  the same files. Its code is several times a program's I-LS; like everything Forth compiles under
+  StrataOS, it is in code units that the dispatcher pages (Section~\ref{sec:forth-paging}). Its text,
+  undo history and register are in Forth's far heap (400, 96 and 48~KiB).
 \end{description}
 
 \section{The window server}\label{sec:os-ws}

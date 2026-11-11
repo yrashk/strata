@@ -86,8 +86,9 @@
 ; fault, an inbox instruction to emulate) it saves the current thread's
 ; registers, and when it picks another one it saves c0..c7 into the save
 ; table and the used D-LS into the save area, and loads the next one: D-LS
-; back, code reloaded from the image (or the SET_MIRROR copy), capabilities,
-; registers. Switches and bytes moved are counted per process (ps shows them).
+; back, code reloaded from the image (or the SET_MIRROR copy), the code units of
+; its code cache put back in their slots (PR_UNITS), capabilities, registers.
+; Switches and bytes moved are counted per process (ps shows them).
 ; A thread owns c0..c7 across switches; c8..c15 stay its own only while it is
 ; not switched out (the dispatcher borrows c8, c9 and gives them back).
 ; Trap-and-emulate: user-mode ctake, cpoll and tany (bit 16) trap (priv); the
