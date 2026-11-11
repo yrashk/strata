@@ -294,5 +294,12 @@ system's logic cells execute with its registers and trap CSRs is about
 core control 8.5%, the overlay map 6%, the bus and memories 4%, the
 Transfer Unit 3%, the ALU, multiplier, divider and decoder 3%.
 
+The site's hardware page (`site/hardware/`, https://yrashk.com/strata/hardware/)
+shows them from copies that are ordinary files, because the Pages workflow
+checks out without LFS: `die-ecp5-1.webp` and `die-ecp5-1-placed.webp` are
+the 1600-pixel WebPs, the `-2800` ones the same pictures 2800 pixels wide
+(from the PNGs, Pillow, WebP quality 88). After a new run, copy them again
+and update the page's numbers, which name the commit they are from.
+
 `doc/figures/` has Yosys schematics: the divider and the UART at gate level,
 and the system top level.
