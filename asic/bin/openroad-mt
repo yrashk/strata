@@ -1,0 +1,22 @@
+#!/bin/sh
+# OpenROAD with a thread count: LibreLane runs openroad without -threads
+# (one thread) except in detailed routing; asic/run.sh points
+# _LLN_OVERRIDE_OPENROAD here so global placement, CTS, global routing and
+# the resizer use ASIC_THREADS threads too.
+#
+# ASIC_OR_PRE (debugging): a Tcl file sourced before LibreLane's script,
+# e.g. one with "set_debug_level RSZ repair_net 1".
+if [ -n "${ASIC_OR_PRE:-}" ]; then
+  for last in "$@"; do :; done
+  wrap=$(mktemp /tmp/or-pre.XXXXXX)
+  printf 'source {%s}\nsource {%s}\n' "$ASIC_OR_PRE" "$last" > "$wrap"
+  n=$#
+  i=0
+  for a in "$@"; do
+    i=$((i + 1))
+    [ $i -eq 1 ] && set --
+    [ $i -lt $n ] && set -- "$@" "$a"
+  done
+  exec openroad -threads "${ASIC_THREADS:-8}" "$@" "$wrap"
+fi
+exec openroad -threads "${ASIC_THREADS:-8}" "$@"
