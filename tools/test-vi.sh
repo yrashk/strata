@@ -2,8 +2,8 @@
 # The editor (vi) on the emulator. Boots StrataOS with a scripted console
 # (keys as the terminal sends them) and drives vi through files: inserting,
 # moving, deleting lines, yanking and putting, undo and redo, ., searching,
-# :w to a new name, :q!, counts and operators, a file bigger than the D-LS
-# (seq 10000: 48 KiB) and the 333 KiB shell source, :set nu, :syntax off,
+# :w to a new name, :q!, counts and operators, a file bigger than the whole
+# D-LS (seq 15000: 77 KiB) and the 333 KiB shell source, :set nu, :syntax off,
 # :e. The files it wrote are shown with cat (and wc, grep), and that output,
 # with vi's screens taken out, is compared with tools/test-vi.out. Then the
 # raw screens are searched for the highlighting of an .s and an .fs file
@@ -74,7 +74,7 @@ CB=$(printf '\002'); CC=$(printf '\003'); CG=$(printf '\007')
   printf ':wq\n'
   printf 'cat p1\n'
   # a file bigger than the D-LS: lines deleted, added, put; scrolling
-  printf 'seq 10000 > big\n'
+  printf 'seq 15000 > big\n'
   printf 'vi big\n'
   printf '5000GddGoend%s' "$E"
   printf 'gg/9999\nx'
@@ -141,4 +141,4 @@ r = open(sys.argv[1], "rb").read()
 vi, cc, end = r.find(b"vi cc1"), r.find(b"^C"), r.rfind(b"\x1b[H\x1b[2J")
 sys.exit(0 if 0 <= vi < cc < end < r.rfind(b"\nkept\n") else 1)
 PY
-printf '%-14s OK    editing, undo, search, :w, a 48 KiB file, highlighting (asm, Forth), Ctrl-C\n' vi
+printf '%-14s OK    editing, undo, search, :w, a 77 KiB file, highlighting (asm, Forth), Ctrl-C\n' vi

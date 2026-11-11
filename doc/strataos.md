@@ -1409,7 +1409,7 @@ messages and the `:` and `/` lines take its place.
 - `tools/test-vi.sh`: the editor. A scripted session (`-j -T virtual`)
   edits files with inserts, motions, counts, operators, yank and put,
   undo, redo and `.`, searches, `:w NAME`, `:q!`, `:e`, options, a file
-  bigger than the D-LS (`seq 10000`: 48 KiB) and the 333 KiB shell
+  bigger than the whole D-LS (`seq 15000`: 77 KiB) and the 333 KiB shell
   source; the files it wrote (`cat`, `wc`, `grep`), with vi's screens
   taken out, are compared with `tools/test-vi.out`, and the screens are
   checked for the SGR colours of an `.s` and an `.fs` file (a Forth `(`

@@ -28,11 +28,13 @@ strata$ cat p1
 new firsxzyt
 beg beloweQ
 foo(bar[1], baz{2}
-strata$ seq 10000 > big
+strata$ seq 15000 > big
 strata$ vi big
 strata$ wc < big; grep end < big; grep 9999 < big; grep 5000 < big; grep 4999 < big
-8000 8000 38892
+13000 13000 68892
 end
+15000
+14999
 strata$ vi /src/sh.s
 strata$ vi n1
 strata$ vi n1
