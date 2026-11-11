@@ -192,6 +192,22 @@ main.dbg.docked { max-width: 2200px; }
 .screen-box canvas.smooth { image-rendering: auto; }  /* below one device pixel: average, don't drop strokes */
 .screen-box canvas:focus { box-shadow: 0 0 0 1px var(--amber); }
 
+/* the console and the screen as floating windows (debug.js floatable):
+   fixed where they were put, whatever the page's scroll; the bar drags,
+   the corner resizes */
+.panel.floating {
+  position: fixed; z-index: 40; margin: 0; clip-path: none; resize: both; overflow: hidden;
+  display: flex; flex-direction: column; min-width: 300px; min-height: 140px; max-width: 100vw; max-height: 100vh;
+  box-shadow: 0 0 0 1px var(--cyan), 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+.panel.floating .tag { cursor: move; user-select: none; touch-action: none; flex: none; background: rgba(12, 22, 38, 0.97); }
+.panel.floating .tag em { display: none; }
+.panel.floating .term-box { flex: 1; min-height: 0; display: flex; }
+.panel.floating #term { flex: 1; height: auto; min-height: 0; }
+.panel.floating .screen-box { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.panel.floating .screen-box canvas { width: auto; max-width: none; margin: 0; }
+.screen.floating.collapsed { min-height: 0; resize: none; }
+
 .dbg .notes { margin-top: 32px; }
 .dbg .notes h3 { margin: 0 0 6px; font-size: 19px; color: #fff; }
 .dbg .notes li { font-size: 15px; opacity: 0.88; }

@@ -58,6 +58,7 @@
   <div class="bar run" role="toolbar" aria-label="Run control">
     <div class="ctl">
       <button class="small key" data-do="continue" title="Continue (c)">▶ Continue</button>
+      <button class="small key" data-do="continue" data-fast="1" title="Catch up: run at full speed without recording (the JIT; breakpoints still stop it, more slowly) until Pause; the history starts again there (F)">⏩ Fast</button>
       <button class="small key" data-do="pause" title="Pause (Esc)">❚❚ Pause</button>
       <button class="small key" data-do="stepi" title="One instruction of the current core (s)">Step</button>
       <button class="small key" data-do="next" title="Step over a call (n)">Next</button>
@@ -83,14 +84,18 @@
   </section>
 
   <section id="screen-panel" class="panel screen collapsed" aria-label="Framebuffer">
-    <div class="tag"><span>▸ SCREEN</span><em id="geom">opens when the program draws</em></div>
+    <div class="tag"><span>▸ SCREEN</span><em id="geom">opens when the program draws</em>
+      <div class="view"><button class="seg" id="screen-float" title="A floating window: it stays put while the page scrolls; drag its bar, resize its corner">⧉ Float</button></div>
+    </div>
     <div id="screen-box" class="screen-box">
       <canvas id="screen" width="1280" height="800" tabindex="0" aria-label="The framebuffer; focus it to type, point at it to move the guest's pointer"></canvas>
     </div>
   </section>
 
-  <section class="panel" aria-label="Console">
-    <div class="tag"><span>▸ CONSOLE</span><em>click and type (Ctrl-C is the break key); keys and the mouse go through the engine, so going back replays them</em></div>
+  <section class="panel con" id="con-panel" aria-label="Console">
+    <div class="tag"><span>▸ CONSOLE</span><em>click and type (Ctrl-C is the break key); keys and the mouse go through the engine, so going back replays them</em>
+      <div class="view"><button class="seg" id="con-float" title="A floating window: it stays put while the page scrolls; drag its bar, resize its corner">⧉ Float</button></div>
+    </div>
     <div class="term-box"><div id="term"></div></div>
   </section>
 
@@ -175,7 +180,10 @@
         length; device reads that wait (console input, the timer's WAIT) stay in flight, and their tags
         stay busy, until the device completes them. Stalls are the rounds a core could not make its step.</li>
       <li>Keys: <b>c</b> continue, <b>Esc</b> pause, <b>s</b> step, <b>n</b> next, <b>f</b> finish,
-        <b>r</b> round, <b>S</b> / <b>R</b> / <b>C</b> the same backwards, <b>[</b> <b>]</b> the current core.</li>
+        <b>r</b> round, <b>S</b> / <b>R</b> / <b>C</b> the same backwards, <b>F</b> fast, <b>[</b> <b>]</b> the current core.</li>
+      <li><b>⏩ Fast</b> catches up: it runs without recording, at full speed with the JIT when no breakpoint is set,
+        until you pause (or a breakpoint, the end); the recorded history is dropped and starts again where it
+        stops. Boot StrataOS or let <code>ws</code> draw its splash that way, then debug from there.</li>
     </ul>
   </section>
 </main>

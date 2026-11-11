@@ -83,7 +83,7 @@ while the machine runs is refused: `pause` first.
 
 | Request | Runs until |
 |---|---|
-| `continue` | a breakpoint, a watchpoint, `pause`, or the machine's end |
+| `continue` | a breakpoint, a watchpoint, `pause`, or the machine's end. With `fast: true`: not recorded (see below) |
 | `stepi {core, n}` | core `core` has made `n` steps (an instruction, or a trap taken); the other cores run their slots of the same rounds. With `{pid}` instead of `core` (StrataOS): steps of whichever core runs that process in user mode, across switches and cores. |
 | `next {core}` | as `stepi`, but over a call: to the instruction after it |
 | `finish {core}` | the core reaches the address in its `ra` |
@@ -93,15 +93,21 @@ while the machine runs is refused: `pause` first.
 | `pause` | stops a running machine at the next slot (or, with the JIT, between quanta) |
 
 A plain `continue` with no breakpoint or watchpoint set, on a run that is
-not recorded for time travel (the JIT, the real-time timer), runs at full
-speed (`machine_round()`: the JIT or the fast loop); transfers and gifts are
+not recorded for time travel (the real-time timer, the network), runs at
+full speed (`machine_round()`: the JIT with `-J`); transfers and gifts are
 not logged meanwhile. Everything else runs the engine's exact loop.
+
+`continue {fast: true}` catches up on a recorded run: the history is
+dropped, the machine runs unrecorded (at full speed when no breakpoint or
+watchpoint is set, else the exact loop without snapshots) and, when it
+stops, recording starts again at that point (at the next round's start if
+it stopped inside a round). Going back then reaches no further than that.
 
 ### Time travel
 
-Only on a deterministic run: `-T virtual`, no JIT (`-j`, or the default
-with `-T virtual`), no network. They stop at once (the answer is followed
-by a `stopped` event).
+Only on a deterministic run: `-T virtual`, no network. A recorded run
+steps one instruction at a time; the JIT (`-J`) serves only fast continues.
+They stop at once (the answer is followed by a `stopped` event).
 
 | Request | Goes back to |
 |---|---|
