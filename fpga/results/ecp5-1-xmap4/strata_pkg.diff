@@ -1,0 +1,4 @@
+22c22
+<   localparam int NXMAP     = 16;       // overlay map entries
+---
+>   localparam int NXMAP     = 4;       // overlay map entries

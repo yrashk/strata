@@ -129,6 +129,9 @@ def main():
     ap.add_argument("--tile", type=int, default=32, help="pixels per tile")
     ap.add_argument("--title", default="Strata: one core on a Lattice ECP5-85F")
     ap.add_argument("--note", action="append", default=[], help="a line under the title (repeatable)")
+    ap.add_argument("--wires", type=float, default=1.2, help="brightness of the routed wires")
+    ap.add_argument("--haze", type=float, default=0.4, help="brightness of the blurred routing glow")
+    ap.add_argument("--glow", type=float, default=0.7, help="opacity of the routing layer")
     ap.add_argument("--fabric", default=os.path.join(HERE, "ecp5", "lfe5u-85f-bels.json"))
     a = ap.parse_args()
 
@@ -188,7 +191,9 @@ def main():
                 break
 
     # routing / glow, in die pixels
-    glow = np.zeros((dh, dw, 3), np.float32)
+    best = np.zeros((dh, dw), np.float32)
+    owner = np.zeros((dh, dw), np.int8)
+    total = np.zeros((dh, dw), np.float32)
     span_re = re.compile(r"^([HV])0([0126])([NSEW])(\d\d)(\d\d)$")
     dirs = {"N": (0, -1), "S": (0, 1), "E": (1, 0), "W": (-1, 0)}
     segs = []        # x0, y0, x1, y1, group
@@ -250,13 +255,26 @@ def main():
                 ok = (lp[:, 0] < dw) & (lp[:, 1] < dh)
                 acc += 0.6 * np.bincount(lp[ok, 1].astype(np.int64) * dw + lp[ok, 0].astype(np.int64),
                                          minlength=dh * dw).astype(np.float32)
-            acc = acc.reshape(dh, dw)
-            col = np.array(GCOL[gi], np.float32) / 255.0
-            glow += acc[:, :, None] * col[None, None, :]
-        fine = blur(glow, 0.9)
-        soft = blur(glow, T * 0.45)
-        layer = 1.0 - np.exp(-(fine * 0.55 + soft * 5.0))
-        layer *= 0.85
+            acc = blur(acc.reshape(dh, dw)[:, :, None], 0.9)[:, :, 0]
+            # each pixel takes the colour of the group with the most wire
+            # there (a mix of all eight would be grey), its brightness the
+            # total amount of wire
+            better = acc > best
+            best = np.where(better, acc, best)
+            owner = np.where(better, gi, owner)
+            total += acc
+        pal = np.array(GCOL, np.float32) / 255.0
+        col = pal[owner]
+        # exposure from the data: the busiest 1% of the die saturates
+        nz = total[total > 0]
+        total /= max(1e-6, float(np.percentile(nz, 99))) if nz.size else 1.0
+        fine = col * total[:, :, None]
+        soft = blur(fine, T * 0.45)
+        sl = soft.max(axis=2)
+        nz = sl[sl > 0]
+        soft /= max(1e-6, float(np.percentile(nz, 99))) if nz.size else 1.0
+        layer = 1.0 - np.exp(-(a.wires * fine + a.haze * soft))
+        layer *= a.glow
     else:
         layer = None
 
@@ -433,7 +451,7 @@ def main():
         ut("MULT18X18D", "multipliers")
         fm = report.get("fmax", {})
         for k, v in fm.items():
-            nums.append(("Fmax", f"{v['achieved']:.1f} MHz", f"target {v['constraint']:.0f}"))
+            nums.append(("Fmax", f"{v['achieved']:.1f} MHz", f"target {v['constraint']:.0f} MHz"))
             break
     xr = ox + dw + pad
     yy = top_m * 0.14
