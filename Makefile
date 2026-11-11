@@ -21,6 +21,10 @@
 #   make wasm       the emulator as WebAssembly for the site's play page (emcc)
 #   make test-wasm  that build under node against the native interpreter (node, emcc)
 #   make web-docs   the manual's instruction set and architecture outline as web pages
+#   make dbg        strata-dbg, the text debugger (part of `make all`)
+#   make debug-NAME debug an example with strata-dbg, e.g. make debug-pipeline
+#   make debug-os   boot StrataOS under strata-dbg (StrataOS-aware: info processes, break process NAME)
+#   make debug-web  the web debugger against the desktop engine: http://localhost:4444/debug/
 
 CC      ?= cc
 CFLAGS  ?= -std=gnu11 -O2 -Wall -Wextra
@@ -45,13 +49,18 @@ EMU     := $(BUILD)/strata-emu -c $(NCORES)
 
 .PHONY: all examples test clean lint run run-emu boot boot-net boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
 
-all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl $(BUILD)/netrelay
+all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl $(BUILD)/netrelay $(BUILD)/strata-dbg
 
 # the browser's relay to the real network (the play page's "relay" mode): the
 # simulators' user-mode NAT behind a small WebSocket server
 $(BUILD)/netrelay: tools/netrelay.c common/netnat.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ tools/netrelay.c
+
+# the text debugger (dbg/): a front-end of strata-emu's debug engine (emu/debug.c)
+$(BUILD)/strata-dbg: dbg/strata-dbg.c common/json.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ dbg/strata-dbg.c
 
 $(BUILD)/sasm: asm/sasm.c asm/isa.h
 	@mkdir -p $(BUILD)
@@ -123,6 +132,25 @@ show-rtl-%: $(BUILD)/strata-rtl $(BUILD)/examples/%.stx
 
 show-%: $(BUILD)/strata-emu $(BUILD)/examples/%.stx
 	@$(EMU) -T real -H $(BUILD)/examples/$*.stx
+
+# ---- the debuggers (emu/debug.c, dbg/, site/debug/) --------------------------
+# Deterministic runs (-j -T virtual) keep a history for time travel.
+.PHONY: dbg debug-os debug-web test-dbg
+dbg: $(BUILD)/strata-dbg $(BUILD)/strata-emu
+
+debug-%: $(BUILD)/strata-dbg $(BUILD)/strata-emu $(BUILD)/examples/%.stx
+	@$(BUILD)/strata-dbg -c $(NCORES) -j -T virtual $(BUILD)/examples/$*.stx
+
+debug-os: $(BUILD)/strata-dbg $(BUILD)/strata-emu os
+	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
+	@$(BUILD)/strata-dbg -c 8 -j -T virtual -g none -d $(BUILD)/disk-run.img --os $(BUILD) $(BUILD)/bootrom.stx
+
+DEBUG_WEB ?= pipeline
+debug-web: $(BUILD)/strata-emu $(BUILD)/examples/$(DEBUG_WEB).stx
+	@$(BUILD)/strata-emu -c 4 -j -T virtual -g none --debug 4444 --www site $(BUILD)/examples/$(DEBUG_WEB).stx
+
+test-dbg: $(BUILD)/strata-dbg $(BUILD)/strata-emu examples os
+	BUILD=$(BUILD) ./tools/test-dbg.sh
 
 # ---- firmware, OS and disk image -------------------------------------------
 OS_FILES := $(wildcard os/files/*)
