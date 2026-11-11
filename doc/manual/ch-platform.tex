@@ -27,7 +27,7 @@ fixes another, its load area (Section~\ref{sec:boot}).
 
 The framebuffer window is ordinary memory in every architectural respect: it is reached by transfers
 and atomics through capabilities cut from the memory root, it can be split, given, shared and placed
-in a revocation domain, and the part of it the display does not scan out is free for any use. The
+revocable, and the part of it the display does not scan out is free for any use. The
 cluster store (T2, space 2) is 256~KiB with no fixed regions.
 
 \section{Device space}

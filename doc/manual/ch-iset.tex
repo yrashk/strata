@@ -33,7 +33,7 @@ with which a core waits for events (Section~\ref{sec:events}).
 \chapter{Capability instructions}\label{ch:i-cap}
 The capability instructions occupy two opcodes, CAP (\hex{34}) and CAP2 (\hex{35}), and are selected
 by \field{funct}\texttt{<3:0>}. CAP holds the operations on segments and inboxes; CAP2 holds revocation
-domains (\insn{cdom}, \insn{crevoke}, \insn{cundom}) and endpoints (\insn{csend}, \insn{crecv},
+revocation by address (\insn{cdom}, \insn{crevoke}, \insn{cundom}) and endpoints (\insn{csend}, \insn{crecv},
 \insn{cmkep}). The rules they implement are described in Chapters~\ref{ch:caps} and \ref{ch:intercore}.
 None may overwrite a live linear capability (Section~\ref{sec:nooverwrite}). \insn{csave},
 \insn{crestore}, \insn{cdom}, \insn{crevoke}, \insn{cundom} and \insn{cmkep} are privileged and trap with

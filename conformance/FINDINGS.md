@@ -97,3 +97,17 @@ The suite expects capinv. Fix the design document.
   - HALT, ch-traps.tex, ch-intercore.tex: halt drains device reads too
     (also in user mode, before the halt trap); a break read must be
     released first.
+
+## F9. Fifteen revocation domains limited StrataOS to 14 processes - REPLACED
+The ISA had 16 revocation domains (a 4-bit field in every capability, 0 =
+none); StrataOS gave each 1 MiB arena one and the framebuffer another.
+Decided: revocation by address. T3 and T2 are divided into 256 KiB
+granules with a 16-bit generation and a head bit each; a capability
+carries a revocable flag and the generation of its base's granule. cdom
+makes a granule-aligned range revocable, crevoke / cundom revoke the
+revoker's range (every unit it touches, whole), and a revoker can be cut
+and joined at granule boundaries, so one revoker covers many regions.
+dom.s was rewritten (alignment traps, units and cjoin, revoker pieces,
+gifts and the save table, T2, 40 regions); mc.s revokes a whole granule.
+Edge case, decided and tested: a zero-length piece cut at the very end of
+a region has its base in the next granule and lives and dies with it.

@@ -14,7 +14,7 @@ the hands of devices; they never appear in memory.
   \node[f,minimum width=27mm,right=0pt of s] (p) {perms\\\scriptsize\perm{V} \perm{D} \perm{A} \perm{X} \perm{W} \perm{R}};
   \node[f,minimum width=25mm,right=0pt of p] (b) {base\\\scriptsize 64};
   \node[f,minimum width=25mm,right=0pt of b] (l) {len\\\scriptsize 64};
-  \node[f,minimum width=10mm,right=0pt of l] (d) {dom\\\scriptsize 4};
+  \node[f,minimum width=10mm,right=0pt of l] (d) {rv\\\scriptsize 1};
   \node[f,minimum width=12mm,right=0pt of d] (g) {gen\\\scriptsize 16};
 \end{tikzpicture}
 \caption{Logical contents of a capability. The in-register representation is implementation-defined.}
@@ -30,10 +30,11 @@ the hands of devices; they never appear in memory.
   it is a node number. \textit{len} is in bytes and need not be a multiple of 8. A segment of length zero
   is valid: it permits no access but can be split, joined, given and taken like any other.
 \item[perms] A set of the six permissions of Table~\ref{tab:perms}.
-\item[dom] The revocation domain the capability belongs to, 1--15, or 0 for none
-  (Section~\ref{sec:domains}).
-\item[gen] The domain's generation when the capability was made. A capability whose generation is
-  no longer its domain's is dead.
+\item[rv] Whether the capability is \term{revocable} (Section~\ref{sec:domains}).
+\item[gen] For a revocable capability, the generation of the \term{granule} that holds its base, as it
+  was when the capability was made. A revocable capability whose generation is no longer its
+  granule's is dead. For a revoker (\perm{V}), the permissions \insn{crevoke} and \insn{cundom} give;
+  for any other capability, 0.
 \end{description}
 
 \begin{table}[htbp]
@@ -47,14 +48,14 @@ the hands of devices; they never appear in memory.
 2 & \perm{X} & \insn{tgetx}: far $\to$ I-LS; \insn{xmap}, \insn{xcall}\\
 3 & \perm{A} & far atomics (\insn{tamo}) only\\
 4 & \perm{D} & duplication: the capability is \term{copyable} rather than linear\\
-5 & \perm{V} & revoker: \insn{crevoke} and \insn{cundom} on its domain; grants no access\\
+5 & \perm{V} & revoker: \insn{crevoke} and \insn{cundom} over its range; grants no access\\
 \bottomrule
 \end{tabularx}
 \end{table}
 
 \insn{cbase}, \insn{clen} and \insn{cperms} read the fields into integer registers; \insn{cperms}
-returns \texttt{space << 8 | perms}. \insn{cvalid} tests whether a capability is live. The domain and
-generation cannot be read. No instruction converts an integer into a capability that grants access to
+returns \texttt{space << 8 | perms}. \insn{cvalid} tests whether a capability is live. The revocable
+flag and the generation cannot be read. No instruction converts an integer into a capability that grants access to
 memory: capabilities can be inspected but never forged.
 
 \section{Live capabilities}\label{sec:live}
@@ -63,18 +64,18 @@ A capability can be used only while it is \term{live}:
 
 \begin{pseudo}
 func Live(c)
-    if not c.valid or c.dom == 0 then return c.valid; end
-    if c.V then return DOM[c.dom].alive; end        // a revoker outlives revocations
-    return DOM[c.dom].alive and DOM[c.dom].gen == c.gen;
+    if not c.valid or not c.rv then return c.valid; end   // revokers are never revocable
+    g = Granule(c.space, c.base);                         // none past the end of the space
+    return g != none and GEN[g] == c.gen;
 end
 \end{pseudo}
 
 Every instruction that uses a capability checks \texttt{Live} at the moment it executes and traps with
 \cause{capinv} if the check fails. A capability with a stale generation is \term{dead}: it still
 occupies its register or slot, but it behaves exactly like an empty one. It cannot be used,
-\insn{cvalid} reports 0, and it may be overwritten like an empty register. Revoking a domain therefore
-needs no search for copies: advancing the domain's generation kills every capability made under the
-old one, wherever it is.
+\insn{cvalid} reports 0, and it may be overwritten like an empty register. Revocation therefore
+needs no search for copies: advancing a granule's generation kills every revocable capability based
+in it that was made under an older one, wherever it is.
 
 \section{Linear and copyable capabilities}\label{sec:linear}
 
@@ -96,7 +97,9 @@ capability (\insn{crestrict} only removes permissions, \insn{cjoin} requires equ
 \end{rule*}
 
 Revocation is the one operation that creates a writable capability for memory that already had one,
-and it first kills the old one (Section~\ref{sec:domains}), so the rule holds across revocation.
+and it first kills the old one: every revocable capability based in the units it touches, which are
+all the capabilities that can reach the revoked range (Section~\ref{sec:domains}), so the rule holds
+across revocation.
 
 Device and core-control capabilities are exempt: the device root \reg{c3}, the console capability
 \reg{c2} and the core-control capability \reg{c4} are copyable and writable, so several cores may hold
@@ -137,16 +140,16 @@ linear capability visible in the program text.
 \insn{cshare cd, cs} & perms $(\perm{R}\cup\perm{X})\cap p$, plus \perm{D} & empty if linear\\
 \insn{catomic cd, cs} & perms exactly \perm{A}\perm{D}; source must be writable T2/T3 & empty\\
 \insn{cclear cd} & empty & ---\\
-\insn{cdom cd, cs} & \reg{cd}: working capability in a new domain & revoker (\perm{V})\\
+\insn{cdom cd, cs} & \reg{cd}: revocable working capability for the region & revoker (\perm{V})\\
 \insn{crevoke cd, cs} & \reg{cd}: fresh working capability; all older ones dead & revoker kept\\
-\insn{cundom cd, cs} & \reg{cd}: untagged capability for the region; domain freed & empty\\
+\insn{cundom cd, cs} & \reg{cd}: plain capability for the region; all older ones dead & empty\\
 \insn{cmkep cd, rx} & \reg{cd}: endpoint for node \reg{rx} & ---\\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-Every derived capability keeps the domain and generation of its source, so everything cut from a
-domain's working capability dies with it.
+Every derived capability keeps the revocable flag and generation of its source, so everything cut
+from a working capability dies when the granules it came from are revoked.
 
 \subsection{Sharing}
 \insn{cshare} turns a capability into a non-writable, copyable one, keeping \perm{R} and \perm{X}. The
@@ -155,24 +158,27 @@ capability, then \insn{cshare} it and hand copies to every core. The boot ROM do
 OS image (Section~\ref{sec:boot}). \insn{cshare} first waits until none of the core's memory
 transfers is in flight, so every write through the writable capability has landed before any copy exists.
 
-For memory outside any revocation domain, sharing is \emph{irrevocable}: the writable capability is
-consumed and can never be reconstructed, because no operation adds \perm{W}. For memory in a domain,
-the domain's owner ends the sharing with \insn{crevoke} or \insn{cundom}, which kills every share and
-returns a writable capability.
+For memory that is not revocable, sharing is \emph{irrevocable}: the writable capability is
+consumed and can never be reconstructed, because no operation adds \perm{W}. For revocable memory,
+the holder of the revoker ends the sharing with \insn{crevoke} or \insn{cundom}, which kills every
+share and returns a writable capability.
 
 \subsection{Atomic segments}
 \insn{catomic} turns a writable memory capability into an atomic-only, copyable one. Any number of
 cores may hold it, and they can access the segment only with \insn{tamo}, which is indivisible. This
 is how shared mutable state, such as a counter, a lock word or a mailbox, is created. The conversion
-first waits for the core's in-flight memory transfers. Like sharing, it is irrevocable outside a
-domain and ends with the domain inside one.
+first waits for the core's in-flight memory transfers. Like sharing, it is irrevocable for memory
+that is not revocable and ends with a revocation otherwise.
 
 \subsection{Splitting and joining}
 \insn{csplit} at offset $x$ requires $0 \le x \le \textit{len}$ and $x$ a multiple of 8; either piece may
 be empty. \insn{cjoin}
 is its inverse and checks that the two pieces are adjacent \emph{in order}, in the same space, with
-identical permissions, in the same revocation domain (or both in none); the result keeps the domain
-and generation of \reg{cd}. Together with
+identical permissions, the same revocable flag and the same generation, and, for revocable pieces,
+that \reg{cs} does not begin a unit (Section~\ref{sec:domains}): its base is not the first byte of a
+granule whose head bit is set. So pieces of two revocable regions never join, even when their
+generations happen to be equal. A revoker (\perm{V}) is cut only at multiples of the granule size
+(256~KiB); \insn{csplit} traps with \cause{capop} otherwise. Together with
 \insn{cgive} and \insn{ctake}, these express data-parallel work division: split an array into one piece
 per core, give the pieces away, take them back in core order and join them (the \texttt{parsum} and
 \texttt{mandel} examples).
@@ -193,45 +199,81 @@ windows are 8-byte aligned (Chapter~\ref{ch:platform}), so a capability can be c
 register, and transfers still reach single device bytes by offset. Lengths are not constrained: a
 capability for the one-byte console output port has length 1.
 
-\section{Revocation domains}\label{sec:domains}
+\section{Revocation by address}\label{sec:domains}
 
-A \term{revocation domain} lets the holder of a region of memory lend it out, in any number of pieces,
-shares and atomic segments, to any number of cores, and take all of it back with one instruction. The
-machine has one domain table shared by all cores, with entries 1--15 (Table~\ref{tab:domtab}).
+Revocation lets the holder of a region of memory lend it out, in any number of pieces, shares and
+atomic segments, to any number of cores, and take all of it back with one instruction. It works by
+address: T3 and T2 are divided into \term{granules} of 256~KiB (T3, 64~MiB, has 256; T2, 256~KiB, has
+one), and the machine keeps, for every granule, an entry shared by all cores (Table~\ref{tab:domtab}).
 
 \begin{table}[htbp]
 \centering\small
-\caption{A revocation-domain table entry \texttt{DOM[d]}}\label{tab:domtab}
+\caption{A granule's entry}\label{tab:domtab}
 \begin{tabularx}{\linewidth}{@{}l l X@{}}
 \toprule
 \textbf{Field} & \textbf{Size} & \textbf{Meaning}\\\midrule
-alive & 1 bit & the domain is allocated\\
-gen & 16 bits & the current generation; capabilities of the domain made under another generation are dead\\
-region & & space, permissions, base and length of the capability the domain was created from\\
+\texttt{GEN[g]} & 16 bits & the current generation; a revocable capability based in the granule and made under another one is dead\\
+\texttt{HEAD[g]} & 1 bit & a \term{unit} begins here (below)\\
 \bottomrule
 \end{tabularx}
 \end{table}
 
+A capability is \term{revocable} or not. A revocable capability carries the generation its base's
+granule had when it was made, and it is live only while the granule still has it
+(Section~\ref{sec:live}). Revoking a range of granules advances their generations, which kills every
+revocable capability \emph{based} in the range, however it was derived and wherever it is. Capabilities
+derived from a revocable one never reach outside the range it was made for: they are cut from it, and
+\insn{cjoin} never joins across units.
+
+The granules a \insn{cdom} or a revocation covers as one form a \term{unit}: the first granule of
+every unit has its head bit set, and so has the granule just after the end of a range \insn{cdom}
+made revocable. Units do not change what is live; they bound what is revoked together and what may be
+joined. Whenever a range is revoked, every unit it touches is revoked whole, because a capability of
+that unit may reach into the range from outside it.
+
 \begin{description}[leftmargin=1em,style=nextline]
-\item[\insref{cdom} \texttt{cd, cs}] takes a writable, linear T2 or T3 capability that belongs to no
-  domain, allocates the lowest free domain, advances its generation and records the region. \reg{cd}
-  receives the \term{working capability} (the same segment and permissions, tagged with the domain and
-  generation); \reg{cs} becomes the \term{revoker}, a linear capability for the same segment with
-  permission \perm{V} only. The revoker grants no access to memory.
-\item[\insref{crevoke} \texttt{cd, cs}] advances the generation of the revoker's domain. Every
-  capability of the domain made before, in any register, save table, inbox or device, is dead from this
-  instruction on. \reg{cd} receives a fresh working capability for the whole region with its original
-  permissions, and the revoker remains.
-\item[\insref{cundom} \texttt{cd, cs}] advances the generation, frees the domain and consumes the revoker;
-  \reg{cd} receives an untagged capability for the whole region. The memory is back to ordinary,
-  undomained use.
+\item[\insref{cdom} \texttt{cd, cs}] takes a live, writable, linear, non-revocable T2 or T3 capability
+  whose base and length are multiples of 256~KiB (and the length not 0), and makes its range one
+  unit: every granule of it gets the generation one past the highest any of them had, so no older
+  capability can match it. \reg{cd} receives the \term{working capability} (the same segment and
+  permissions, revocable, with that generation); \reg{cs} becomes the \term{revoker}, a linear,
+  non-revocable capability for the same segment with permission \perm{V} only, which remembers the
+  working capability's permissions. The revoker grants no access to memory.
+\item[\insref{crevoke} \texttt{cd, cs}] revokes the revoker's range: every unit it touches gets the
+  generation one past the highest among them, the range becomes a unit of its own, and so does what
+  is left of each touched unit on either side. Every revocable capability based in those units, in any
+  register, save table, inbox or device, is dead from this instruction on. \reg{cd} receives a fresh
+  working capability for the revoker's range, with the permissions the revoker remembers; the revoker
+  remains.
+\item[\insref{cundom} \texttt{cd, cs}] revokes in the same way, consumes the revoker and puts a plain
+  (non-revocable) capability for the range in \reg{cd}. The memory is back to ordinary use.
 \end{description}
 
-The three are privileged. A supervisor that runs a program in a domain lends it the working capability
-and keeps the revoker in its save table; whatever the program does with the memory (split it, share it,
-make parts atomic, give pieces to other cores), \insn{cundom} recovers all of it when the program ends.
-A revoker is itself live as long as its domain is allocated, whatever the generation. Because a
-generation is 16 bits wide, it repeats after 65,536 revocations of one domain.
+The three are privileged. A supervisor that runs a program in a revocable region lends it the working
+capability and keeps the revoker in its save table; whatever the program does with the memory (split
+it, share it, make parts atomic, give pieces to other cores), \insn{crevoke} or \insn{cundom} recovers
+all of it when the program ends.
+
+\begin{rule*}{Revokers}
+A revoker is a linear capability with \perm{V} and is never revocable itself: no revocation kills it,
+and \insn{cundom} consumes it. It is cut (\insn{csplit}) only at multiples of 256~KiB and joined
+(\insn{cjoin}) only with an adjacent revoker that remembers the same permissions. A piece revokes its
+own range: a supervisor can keep one revoker for a large region and revoke any granule-aligned part
+of it by cutting the revoker there, revoking the piece and joining the pieces again. Because the
+units a revocation touches are revoked whole, the rule that at most one live writable capability
+covers any byte (Section~\ref{sec:linear}) holds.
+\end{rule*}
+
+The number of revocable regions is limited only by memory. A generation is 16 bits wide: a dead
+capability could come back to life once its granule's generation has advanced through all 65,536
+values while the capability is still held. A revocation of one unit advances its generation by one; a
+revocation or \insn{cdom} that spans granules with different generations advances them all to one
+past the highest, which can advance a granule by more than one.
+
+A revocable capability's liveness is decided by the granule holding its base. A piece of length zero
+cut at the very end of a range therefore has its base in the next granule: it lives and dies with
+that granule (it grants no access in either case), and a revocable capability based past the end of
+its space is never live.
 
 \section{Endpoints}\label{sec:endpoints}
 
@@ -274,6 +316,6 @@ block device & while it performs a command & returned to a core's inbox on compl
 \end{center}
 
 A capability disappears for good when it is cleared, when the core holding it halts, or when it is
-overwritten as a copyable or dead capability. It becomes dead, wherever it is, when its domain is
-revoked or dissolved. Memory whose only linear capability disappears is unreachable for the rest of the
-run, unless it belongs to a domain whose revoker survives.
+overwritten as a copyable or dead capability. A revocable capability becomes dead, wherever it is, when
+the granule its base lies in is revoked. Memory whose only linear capability disappears is unreachable
+for the rest of the run, unless it is revocable and its revoker survives.

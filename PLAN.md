@@ -545,6 +545,20 @@ Ideas to evaluate:
 - [ ] Prototype the most promising one or two; report the switch cost (KiB
   moved, cycles) and how many threads per core each one gives.
 
+## R. Revocation by address (replaces the 15 revocation domains)
+
+- [x] ISA: 256 KiB granules of T3/T2 with a 16-bit generation and a head bit each;
+  capabilities carry `rv` + `gen` instead of `dom` + `gen`; cdom / crevoke / cundom
+  redefined (whole granules, units, revoker pieces cut and joined at granule
+  boundaries); cjoin refuses where a unit begins. Emulator, RTL (per-core LUT-RAM
+  copies, a walker in the top level), conformance (dom.s, mc.s), manual, spec.
+- [x] StrataOS: one revocable arena pool, a granule bitmap, arenas of any size
+  (MEMORY length, SPAWN mode >> 16, sh `-m N`), revoked by address at exit; 64 arena
+  slots and kernel process records; proc / fs / ws / ps tables at 64.
+- [x] tools/test-procs.sh: 35 processes at once on 15 cores, twice, memory reused.
+- [ ] More than 3 threads per worker core (the save-table budget) - not done.
+- [ ] System memory beyond 64 MiB in the emulator - not done.
+
 ## File ownership while agents run in parallel
 
 - **Step 4 (OS):** os/, firmware/, tools/mkdisk.c,

@@ -71,11 +71,23 @@ beat per cycle; an atomic is a read-modify-write of one word. A device with noth
 refresh) answers \emph{retry} before any data, so a pending device read does not hold the bus: the TU
 tries it again later, and the rest of the machine runs meanwhile.
 
-\subsection{Revocation domains and core control}
-The fifteen-entry revocation-domain table lives in the top level and is shared by all cores. Each core
-receives every domain's alive bit and generation, so its \texttt{Live} check is combinational. A core
-executing \insn{cdom}, \insn{crevoke} or \insn{cundom} requests the table; one request is granted per
-cycle, lowest-numbered core first, and a core that is not granted stalls in EX. Core-control space is
+\subsection{Revocation granules and core control}
+The granule table (a 16-bit generation and a head bit for each of the 256 granules of T3 and the one of
+T2, Section~\ref{sec:domains}) exists once in the top level and once in every core. Each core's copy is
+LUT-RAM with three asynchronous read ports, so its \texttt{Live} checks stay combinational: port A
+serves the operand capability (\reg{cs} of a capability instruction, the transfer's, atomic's or
+overlay's capability otherwise; never both in one instruction), port D the destination register and
+port C the save-table slot. Only the top level writes the table: a core executing \insn{cdom},
+\insn{crevoke} or \insn{cundom} raises a request and stalls in EX; the top level serves the
+lowest-numbered requester with a walker that reads its master copy and writes one granule per cycle,
+broadcasting every write to all the copies (for \insn{crevoke}: back to the head of the first touched
+unit, a read pass to the end of the last, a write pass), and then signals the core, which writes its
+capability registers and retires. A walk costs about two cycles per granule of the touched units; other
+cores keep running meanwhile. The alternative, one shared table behind a pipeline stage, would add an
+arbitrated port to every capability check of every core; three small read ports per core (256 entries
+of 17 bits) are cheaper. On xc7 (\texttt{fpga/synth.sh xc7 1}) the one-core system takes 47,059 LUTs
+of logic and 214 LUT-RAM cells, against 48,240 and 172 with the fifteen-domain table it replaced, which
+held a full region register per domain: about 1,000 LUT sites fewer in all. Core-control space is
 a far-bus target in the top level: a \insn{tput} through a core-control capability raises the stop request of the core whose doubleword it
 writes with bit~0 set.
 
@@ -202,7 +214,7 @@ halt states and per-core instruction traces as the reference emulator; a complet
 scripted session produces the same output (Section~\ref{sec:compare}); and every test of the
 conformance suite passes with the reference emulator's signature (Section~\ref{sec:conformance}). The
 RTL implements every feature of this edition, including supervisor and user modes with banked trap
-state, \insn{svc} and the user-mode inbox rule, revocation domains, endpoints, core control,
+state, \insn{svc} and the user-mode inbox rule, revocation by address, endpoints, core control,
 \insn{tany}, pending device reads and their ordering rules, the 8-byte alignment of capabilities, the
 timer and the framebuffer controller, sixteen-entry overlay mapping with \csr{xslot}, far links and
 \insn{xret}, per-sender inbox queues, \csr{takefrom}, the no-overwrite rule, and the publication rule.

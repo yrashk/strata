@@ -105,10 +105,9 @@ the program), gives the program only the capabilities it should have, and points
 its handler. In user mode \insn{cgive} cannot leave the window and the window cannot be changed, so
 the program cannot address cores outside it, nor the block device unless the window includes node $N$.
 The capabilities it holds are its only authority over memory and devices; the capability save table,
-the domain operations and the creation of endpoints are out of its reach. To let the program reach a
+the revocation operations and the creation of endpoints are out of its reach. To let the program reach a
 node outside its window, the supervisor gives it an endpoint for that node. To take its memory back
-regardless of where the program has passed it, the supervisor lends it memory inside a revocation
-domain. To take its core back, the supervisor sends a stop request through core control
+regardless of where the program has passed it, the supervisor lends it revocable memory. To take its core back, the supervisor sends a stop request through core control
 (Section~\ref{sec:corectl}).
 
 \subsection{The inbox in user mode}\label{sec:userinbox}

@@ -89,10 +89,10 @@
 {{table:tab:csrs}}
 
 {{section:ch-state.tex:Shared state}}
-<p>All cores share T2, T3, the devices and the 15-entry revocation-domain table. Nothing else is
-  shared: no core can read another core’s registers, Local Stores, save table or inbox. The only ways
-  to affect another core are far memory (through capabilities), gifts, revoking a domain whose
-  capabilities it holds, and a stop request through core control.</p>
+<p>All cores share T2, T3, the devices and the granule table (a generation and a head bit for each
+  256 KiB of memory). Nothing else is shared: no core can read another core’s registers, Local Stores,
+  save table or inbox. The only ways to affect another core are far memory (through capabilities),
+  gifts, revoking memory whose capabilities it holds, and a stop request through core control.</p>
 
 {{section:sec:reset}}
 <p>Every core starts in supervisor mode at <code>pc</code> = 0, with all registers, tags, the overlay map,
@@ -167,14 +167,14 @@
 {{capfmt}}
 {{table:tab:perms}}
 <p><code class="insn">cbase</code>, <code class="insn">clen</code> and <code class="insn">cperms</code> read
-  the fields into integer registers; the domain and generation cannot be read. No instruction converts
+  the fields into integer registers; the revocable flag and the generation cannot be read. No instruction converts
   an integer into a capability that grants access to memory.</p>
 
 {{section:sec:live}}
 {{pseudo:ch-caps.tex:func Live}}
 <p>Every instruction that uses a capability checks <code>Live</code> when it executes and traps with
   <span class="cause">capinv</span> if it fails. A capability with a stale generation is
-  <b class="term">dead</b>: it behaves exactly like an empty register. Revoking a domain therefore
+  <b class="term">dead</b>: it behaves exactly like an empty register. Revocation therefore
   needs no search for copies.</p>
 
 {{section:sec:linear}}
@@ -190,21 +190,23 @@
 
 {{section:ch-caps.tex:Deriving capabilities}}
 {{table:tab:capops}}
-<p>Every derived capability keeps the domain and generation of its source, so everything cut from a
-  domain’s working capability dies with it. <code class="insn">cshare</code> publishes data that will
+<p>Every derived capability keeps the revocable flag and generation of its source, so everything cut
+  from a working capability dies when its granules are revoked. <code class="insn">cshare</code> publishes data that will
   never change again; <code class="insn">catomic</code> creates shared mutable state such as a counter or
   a lock word; <code class="insn">csplit</code>, <code class="insn">cgive</code>, <code class="insn">ctake</code>
   and <code class="insn">cjoin</code> express data-parallel work division.</p>
 {{rule:ch-caps.tex:Capabilities are 8-byte aligned}}
 
 {{section:sec:domains}}
-<p>A <b class="term">revocation domain</b> lets the holder of a region of memory lend it out, in any
+<p><b class="term">Revocation by address</b> lets the holder of a region of memory lend it out, in any
   number of pieces, shares and atomic segments, to any number of cores, and take all of it back with
-  one instruction. The machine has one domain table shared by all cores, with entries 1–15.</p>
+  one instruction. Memory is divided into 256 KiB granules, each with a generation shared by all
+  cores; a revocable capability carries the generation of its base’s granule, and revoking a range
+  advances its granules’ generations. The number of revocable regions is limited only by memory.</p>
 {{table:tab:domtab}}
 {{desc:ch-caps.tex:cdom}}
-<p>A supervisor that runs a program in a domain lends it the working capability and keeps the
-  revoker in its save table; <code class="insn">cundom</code> recovers all of the memory when the
+<p>A supervisor that runs a program in revocable memory lends it the working capability and keeps the
+  revoker in its save table; <code class="insn">crevoke</code> or <code class="insn">cundom</code> recovers all of the memory when the
   program ends, wherever the program passed it.</p>
 
 {{section:sec:endpoints}}

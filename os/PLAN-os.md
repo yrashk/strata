@@ -43,12 +43,19 @@ tools/test-break.sh, tools/test-preempt.sh, tools/test-as.sh (StrataOS part), Ma
 - Arena layout (N threads): [0,P) program, P = 0xD0000 - (N-1)*48K; thread k≥1 save
   areas below 0xD0000; image [0xD0000,0xF0000) (128 KiB max); thread 0 save 0xF0000;
   buffer 0xFF000; start-up block 0x7F000. Arenas are scrubbed (zeroed) at MEMORY.
+  Since revocation by address an arena is any run of 256 KiB granules (1 MiB by
+  default, MEMORY's length / SPAWN mode >> 16 / sh `-m N` for more); the offsets above
+  are from its layout base (E bytes in for an arena of 1 MiB + E), c0 grows by E.
+  The arena pool ([1,15) + [16,48) MiB) is two revocable regions; core 0 keeps their
+  revokers (K_POOL, K_POOL2), a granule bitmap (K0_GMAP), 64 arena slots (K0_AR) and
+  the owner of every granule in the KST (G_GPID, for pid_of), and revokes an arena by
+  cutting the revoker at its bounds (u_arcap).
 - A bare-metal thread's saved D-LS is all of 0..0x9FFF (as keeps tables there); a
   StrataOS program's is its data section.
 - Core 0's resident code is at I-LS 0x7000+ (overlay.s writes 0x7000..0x707F on workers).
 - clock.s / gfx.s are left off the disk (they need the device root).
 - dev's GRANT_FB: only to the pid registered as "ws" (proc WHOIS); the kernel lends the
-  framebuffer from its own revocation domain (FBLEND) and revokes it when the holder ends.
+  framebuffer, a revocable region of its own (FBLEND), and revokes it when the holder ends.
 - Interrupts: SIGNAL to a catching process: proc answers its held WAIT with -2 or
   remembers it for the next WAIT, sends CANCEL(pid) to tty and pipe (held reads → -2),
   and NOTIFY to the kernel (wakes sleeps / NOTIFY_WAIT). Non-catching → DESTROY.
@@ -164,8 +171,8 @@ tools/test-break.sh, tools/test-preempt.sh, tools/test-as.sh (StrataOS part), Ma
   may drop that call; an unknown op answers -1). The API is unchanged: dev op 26, the
   memory arrives in c6 and the controller ports 0x4000..0x400F in c7 (sys.s:
   sys_grantfb()). What changed: dev asks proc who is registered as "ws" (proc op 39
-  WHOIS) and answers -5 to anyone else; the kernel keeps the framebuffer in a revocation
-  domain of its own and lends it (kernel op 10 FBLEND, dev only) to that pid; when the
+  WHOIS) and answers -5 to anyone else; the kernel keeps the framebuffer as a revocable
+  region of its own and lends it (kernel op 10 FBLEND, dev only) to that pid; when the
   holder ends, however it ends, the kernel revokes it, so every capability cut from it
   dies and the next `ws` gets a fresh one. -7 while a live process holds it.
 - [x] **R3: svc 12 SEND = send with attachment.** a1 = endpoint register (1..7), a5 =

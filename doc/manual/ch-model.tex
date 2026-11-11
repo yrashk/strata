@@ -49,8 +49,8 @@ An implementation must maintain four invariants.
 \item[I4. Publishing hand-overs.] \insn{cgive}, \insn{csend}, \insn{cshare}, \insn{catomic} and
   \insn{tamo} take effect only when none of the issuing core's transfers to T2 or T3 is in flight;
   \insn{halt} only after all of its transfers, device transfers included, have completed. Revocation (\insn{crevoke},
-  \insn{cundom}) takes effect on every core at once: no use of a capability of the domain begins after
-  it.
+  \insn{cundom}) takes effect on every core at once: no use of a capability it kills begins after
+  it retires.
 \end{description}
 
 I1, I2 and I4 are obligations on the hardware. I3 is maintained by the instruction set itself:
@@ -59,9 +59,11 @@ I1, I2 and I4 are obligations on the hardware. I3 is maintained by the instructi
 \item no instruction copies a linear capability or adds \perm{W} or \perm{A} to one; \insn{csplit}
   produces disjoint pieces; \insn{cjoin} consumes an operand; \insn{cdom} turns one writable
   capability into one writable working capability and a revoker that grants no access;
-\item \insn{crevoke} and \insn{cundom} kill every capability of a domain before creating the single
-  writable capability they return, and a domain's region was covered by exactly one writable
-  capability when \insn{cdom} created it;
+\item \insn{crevoke} and \insn{cundom} kill every revocable capability based in the units they touch,
+  which are all the capabilities that can reach the revoked range (capabilities derived from a
+  revocable one stay inside its unit, and \insn{cjoin} never joins across units), before creating
+  the single writable capability they return; and a range was covered by exactly one writable
+  capability when \insn{cdom} made it revocable;
 \item \insn{cshare} and \insn{catomic} consume the writable capability they convert (they require
   \perm{R}/\perm{X} and \perm{W} respectively, and drop \perm{W}), so a byte moves from case one to case
   two or three, never back;
@@ -99,15 +101,14 @@ later transfers of $k$ touching the same Local Store bytes act after $T$. Fetche
 unique live writable capability for $B$, so only core $k$'s own transfers can change $B$ while $k$ holds
 $C$, and by I2 they act in issue order; or (ii) no live writable capability for $B$ exists, so $B$ is
 immutable and the time of the read is irrelevant. In case (i), a hand-over of $C$ by $k$ takes effect only
-after $T$ has completed (I4), so no write by the next holder precedes $T$'s read; a revocation of $C$'s
-domain is ordered after $T$ as described for writes below. Either way $T$ reads what it
+after $T$ has completed (I4), so no write by the next holder precedes $T$'s read; a revocation of $C$ is ordered after $T$ as described for writes below. Either way $T$ reads what it
 would at $p$.
 
 \emph{Far writes become visible only through hand-over.} If $T$ writes $B$, core $k$ holds the unique
 writable capability for $B$ (I3). Another core can access $B$ only after obtaining a capability for it,
-which requires $k$ to give away, share or convert $C$ (or a capability containing $B$), or the domain
-owner to revoke it. By I4 a hand-over happens only after $T$ has completed. A revoker runs on another
-core and does not wait for $k$; a supervisor revokes a program's domain only after the program has
+which requires $k$ to give away, share or convert $C$ (or a capability containing $B$), or the holder of
+its revoker to revoke it. By I4 a hand-over happens only after $T$ has completed. A revoker runs on another
+core and does not wait for $k$; a supervisor revokes a program's memory only after the program has
 stopped and its core has drained (\insn{halt} waits for every transfer, and the StrataOS dispatcher
 waits for a process's transfers before it reports the process's end), which orders $T$ before the
 revocation. So every other core that reads $B$ does so after $T$'s write, as
@@ -195,8 +196,8 @@ identical halt states and identical per-core instruction traces.
 \item \textbf{Termination.} Theorem 1 relates finished executions; a program can deadlock in
   $\mathcal{S}$ (all cores waiting in \insn{ctake}/\insn{cgive}) and on hardware alike.
 \item \textbf{Revocation} is an external event for the cores whose capabilities die: a program that
-  uses a capability of a domain while its supervisor revokes the domain traps with \cause{capinv} or
-  not, depending on timing. StrataOS revokes a process's domain only after all of its threads have
+  uses a revocable capability while its supervisor revokes it traps with \cause{capinv} or
+  not, depending on timing. StrataOS revokes a process's arena only after all of its threads have
   stopped.
 \item \textbf{Operating systems that preempt.} A time-shared program is stopped and resumed at moments
   that depend on the timer. Theorem 1 still holds for each program, because a context switch saves and

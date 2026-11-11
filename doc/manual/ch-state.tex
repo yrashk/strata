@@ -96,12 +96,12 @@ CSR 17 is reserved: it reads as zero and writes to it are ignored.
 
 \section{Shared state}
 
-All cores share T2, T3, the devices and the \term{revocation-domain table}: 15 entries (numbered 1--15;
-0 means ``no domain''), each holding whether the domain is alive, its 16-bit generation, and the region
-and permissions it was created for (Section~\ref{sec:domains}). Nothing else is shared: in particular, no
-core can read another core's registers, Local Stores, save table or inbox. The only ways to affect
-another core are far memory (through capabilities), gifts (\insn{cgive}, \insn{csend}), revoking a
-domain whose capabilities it holds, and a stop request through core control.
+All cores share T2, T3, the devices and the \term{granule table}: for each 256~KiB granule of T3 (256
+of them) and of T2 (one), a 16-bit generation and a head bit (Section~\ref{sec:domains}). Nothing else
+is shared: in particular, no core can read another core's registers, Local Stores, save table or
+inbox. The only ways to affect another core are far memory (through capabilities), gifts
+(\insn{cgive}, \insn{csend}), revoking memory whose capabilities it holds, and a stop request through
+core control.
 
 \section{Reset state}\label{sec:reset}
 
@@ -109,7 +109,7 @@ At reset every core starts with:
 \begin{itemize}
 \item supervisor mode with \csr{status}.SPP = 1 (\csr{status} reads 3);
 \item \reg{pc} = 0, all integer registers zero, all other CSRs zero, all tags free, the overlay map and
-  inbox empty, and the save table empty; every revocation domain free;
+  inbox empty, and the save table empty; every granule's generation 0 and head bit clear;
 \item its I-LS and D-LS loaded from the boot image (the same image on every core; see the STX2 format,
   Section~\ref{sec:stx});
 \item the reset capabilities of Table~\ref{tab:resetcaps}. All other capability registers are empty.
@@ -133,4 +133,4 @@ At reset every core starts with:
 The sizes are those of the prototype platform (Section~\ref{sec:memmap}); software reads them from
 the platform table. Since \reg{c0} and \reg{c1} are linear and exist only on core 0, every byte of T2 and
 T3 starts out owned by exactly one core. Other cores obtain memory only when core 0 gives it to them. No reset
-capability belongs to a revocation domain.
+capability is revocable.

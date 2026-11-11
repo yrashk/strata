@@ -9,7 +9,7 @@ exists today, what is known to be missing or rough, and what is planned.
 
 **The architecture**
 - A 64-bit ISA: Local Stores instead of caches, a Transfer Unit with
-  completion tags, far atomics, linear capabilities, revocation domains,
+  completion tags, far atomics, linear capabilities, revocation by address,
   endpoints, supervisor and user modes, explicit code paging, `tany`
   instead of interrupts, core control as the one forced preemption.
 - The Architecture Reference Manual (built by CI from `doc/manual/`).
@@ -52,7 +52,7 @@ exists today, what is known to be missing or rough, and what is planned.
 - It is large: the two-core system needs a bigger FPGA than the common
   hobby boards carry. Most of the logic is not the datapath but the code
   map, the banked CSRs, the capability register file and save table, the
-  inbox queues and the revocation-domain table.
+  inbox queues and the granule table (revocation by address).
 - On FPGA there is no video output; the framebuffer is memory only.
 - The DRAM adapter makes one access per 8-byte beat.
 
