@@ -21,10 +21,13 @@ package strata_pkg;
   localparam int CTAB      = 256;      // capability save table entries (common/platform.h CTAB_DEF)
   localparam int CTW       = $clog2(CTAB); // a slot number
   localparam int NXMAP     = 16;       // overlay map entries
-  // Far addresses and capability bounds are held in FW bits: every
-  // capability satisfies base + len <= its space's size, the largest space
-  // being system memory, so FW bits hold any far address or length exactly
-  localparam int FW        = $clog2(T3_BYTES) + 1;
+  // Far addresses and capability bounds are held in FW bits. Every way of
+  // making a capability keeps base + len <= its space's size (the reset
+  // capabilities, csplit, cjoin, cmkep: base <= NCORES, length 1), and the
+  // largest space is system memory, so FW bits hold any capability's base,
+  // its length (up to the whole space) and any far address inside it.
+  localparam int SPACE_MAX = T3_BYTES > T2_BYTES ? T3_BYTES : T2_BYTES; // >= device, core, endpoint spaces
+  localparam int FW        = $clog2(SPACE_MAX) + 1;
   localparam int GRAN_SHIFT = 18;      // revocation granules of T2 and T3: 256 KiB
   localparam int NG3       = T3_BYTES >> GRAN_SHIFT;   // T3 granules
   localparam int NG2       = T2_BYTES >> GRAN_SHIFT;   // T2 granules
@@ -48,16 +51,27 @@ package strata_pkg;
   localparam int P_D = 4;   // duplicable (never together with W)
   localparam int P_V = 5;   // revoker: crevoke / cundom over its range
 
+  // A capability register. The architecture's base and length are 64-bit
+  // values; this implementation holds them in FW bits (see FW above).
   typedef struct packed {
-    logic        valid;
-    logic [2:0]  space;
-    logic [5:0]  perms;
-    logic [63:0] base;
-    logic [63:0] len;
-    logic        rv;             // revocable: live while its granule's generation is gen
-    logic [15:0] gen;            // revocable: the generation of its base's granule when made;
+    logic          valid;
+    logic [2:0]    space;
+    logic [5:0]    perms;
+    logic [FW-1:0] base;
+    logic [FW-1:0] len;
+    logic          rv;           // revocable: live while its granule's generation is gen
+    logic [15:0]   gen;          // revocable: the generation of its base's granule when made;
                                  // a revoker (V): the permissions crevoke / cundom give
   } cap_t;
+
+  // a 64-bit register compared with a capability's FW-bit length (or a
+  // value below it): any bit above FW-1 makes it larger
+  function automatic logic ge_w(input logic [63:0] r, input logic [FW-1:0] l);
+    return r[63:FW] != 0 || r[FW-1:0] >= l;
+  endfunction
+  function automatic logic gt_w(input logic [63:0] r, input logic [FW-1:0] l);
+    return r[63:FW] != 0 || r[FW-1:0] > l;
+  endfunction
 
   localparam cap_t CAP_NULL = '0;
 

@@ -95,6 +95,7 @@ module strata_core
   logic [63:0] x [32];
 
   cap_t        caps [NCAPS];
+  cap_t        cap_a;           // read port A (see the capability helpers)
   // the capability save table: contents in LUT-RAM (no reset), validity in flip-flops.
   // The slot is csave / crestore's immediate (0..63) or, for csavex / crestorex,
   // x[rx] (rb), which must be below CTAB (ct_oor: capop)
@@ -148,7 +149,7 @@ module strata_core
     end
   // the granule of a capability's base exists (a base past the end of its space has none)
   function automatic logic g_in(input cap_t k);
-    return (k.space == SP_T3 && k.base < 64'(T3_BYTES)) || (k.space == SP_T2 && k.base < 64'(T2_BYTES));
+    return (k.space == SP_T3 && k.base < FW'(T3_BYTES)) || (k.space == SP_T2 && k.base < FW'(T2_BYTES));
   endfunction
   function automatic logic g_live(input cap_t k, input logic [16:0] g);
     return k.valid && (!k.rv || (g_in(k) && g[15:0] == k.gen));
@@ -277,7 +278,7 @@ module strata_core
   cap_t        xcap;
   logic [7:0]  xf_fault;
   logic [63:0] xf_tval;
-  assign xcap = caps[d.cs];
+  assign xcap = cap_a;          // the operand of transfers, atomics, overlays (port A)
   // transfer operands: ra = LS address, rb = far offset, rc = length
   always_comb begin
     logic [5:0]  need;
@@ -292,8 +293,8 @@ module strata_core
     else if ((xcap.space == SP_DEV || xcap.space == SP_CORE) && d.xf_sub == XF_GETX) xf_fault = C_PERM;
     else if (xcap.space == SP_CORE && d.xf_sub != XF_PUT)    xf_fault = C_PERM;
     else if (xcap.space != SP_DEV && ((ra | rb | rc) & 7) != 0) xf_fault = C_XALIGN;
-    else if (xcap.space == SP_DEV ? rb >= xcap.len
-             : (rb > xcap.len || rc > xcap.len - rb))        xf_fault = C_BOUNDS;
+    else if (xcap.space == SP_DEV ? ge_w(rb, xcap.len)
+             : (gt_w(rb, xcap.len) || gt_w(rc, xcap.len - rb[FW-1:0]))) xf_fault = C_BOUNDS;
     else if (ra > limit || rc > limit - ra) begin            xf_fault = C_LSFAULT; xf_tval = ra; end
   end
 
@@ -304,7 +305,7 @@ module strata_core
     if (!live_a)                               amo_fault = C_CAPINV;
     else if (!xcap.perms[P_A])                     amo_fault = C_PERM;
     else if (ra[2:0] != 0)                         amo_fault = C_XALIGN;
-    else if (xcap.len < 8 || ra > xcap.len - 8)    amo_fault = C_BOUNDS;
+    else if (xcap.len < 8 || gt_w(ra, xcap.len - FW'(8))) amo_fault = C_BOUNDS;
   end
 
   // ================================================================ Transfer Unit
@@ -344,7 +345,7 @@ module strata_core
   strata_tu u_tu (
     .clk, .rst,
     .iss_valid(tu_iss_valid), .iss_kind(d.xf_sub), .iss_tag(d.tag), .iss_ls(ra),
-    .iss_space(xcap.space), .iss_far(xcap.base + rb), .iss_len(rc), .iss_ready(tu_iss_ready),
+    .iss_space(xcap.space), .iss_far(xcap.base + rb[FW-1:0]), .iss_len(rc), .iss_ready(tu_iss_ready),
     .iss_hz(tu_iss_hz),
     .tag_busy, .idle(tu_idle), .mem_idle(tu_mem_idle),
     .hz_addr, .hz_len, .hz_rd_stall, .hz_wr_stall, .hz_pc(pc), .hz_fetch_stall,
@@ -358,12 +359,17 @@ module strata_core
   );
 
   // ================================================================ capability helpers
+  // Two read ports: A, the operand (cs for capability instructions, the
+  // transfer / atomic / overlay capability otherwise), and D, the
+  // destination cd (also csend's endpoint)
   cap_t       cs_cap, cd_cap;
-  logic [3:0] cd_i, cs_i;
+  logic [3:0] cd_i, cs_i, a_i;
   logic       cs_linear, cd_ok;
   assign cd_i      = d.rd[3:0];
   assign cs_i      = d.rs1[3:0];
-  assign cs_cap    = caps[cs_i];
+  assign a_i       = d.kind == K_CAP || d.kind == K_CAP2 ? cs_i : d.cs;
+  assign cap_a     = caps[a_i];
+  assign cs_cap    = cap_a;
   assign cd_cap    = caps[cd_i];
   assign cs_linear = !cs_cap.perms[P_D];
   // a destination may be overwritten only when it is empty or copyable
@@ -372,7 +378,7 @@ module strata_core
   // the three granule-table lookups
   cap_t        ka;
   logic [16:0] g_d, g_c;
-  assign ka      = d.kind == K_CAP || d.kind == K_CAP2 ? cs_cap : xcap;
+  assign ka      = cap_a;
   assign g_a     = ka.space == SP_T2 ? gt2[G2W'(ka.base >> GRAN_SHIFT)] : gt3[G3W'(ka.base >> GRAN_SHIFT)];
   assign g_d     = cd_cap.space == SP_T2 ? gt2[G2W'(cd_cap.base >> GRAN_SHIFT)]
                                          : gt3[G3W'(cd_cap.base >> GRAN_SHIFT)];
@@ -387,10 +393,10 @@ module strata_core
   // cgive names a node relative to the core window; csend names it through an endpoint
   cap_t        ep_cap;
   logic        is_send, is_recv;
-  assign ep_cap    = d.kind == K_CAP2 && d.cap_fn == C2_SEND ? caps[d.rd[3:0]] : caps[d.rs1[3:0]];
+  assign ep_cap    = d.kind == K_CAP2 && d.cap_fn == C2_SEND ? cd_cap : cs_cap;
   assign is_send   = state == S_EX && d.kind == K_CAP2 && d.cap_fn == C2_SEND;
   assign is_recv   = state == S_EX && d.kind == K_CAP2 && d.cap_fn == C2_RECV;
-  assign give_node = is_send ? ep_cap.base : rb + csr_corebase;
+  assign give_node = is_send ? 64'(ep_cap.base) : rb + csr_corebase;
   logic        dst_halted;
   always_comb begin
     dst_halted = 0;
@@ -434,7 +440,7 @@ module strata_core
   logic          xk_hi0, xk_big, xk_a, xk_b;
   logic [3:0]    xm_i, xm_li;
   logic [16:0]   xm_lk_off;
-  assign xc_key  = d.flag ? {1'b0, ra[62:0]} : 64'(FW'(xcap.base[FW-1:0] + ra[FW-1:0]));
+  assign xc_key  = d.flag ? {1'b0, ra[62:0]} : 64'(xcap.base + ra[FW-1:0]);   // ra < len: exact
   assign xs_mask = xslot >= 6'(FW) ? '0 : {FW{1'b1}} << xslot;     // the bits K - F must not have
   assign xl_mask = xslot >= 6'd16 ? '0 : 16'hffff << xslot;
   assign xk_hi0  = xc_key[63:FW] == 0;
@@ -491,7 +497,7 @@ module strata_core
   assign am_req   = state == S_EX && d.kind == K_TAMO && amo_fault == 0 && tu_mem_idle;
   assign am_op    = d.amo_op;
   assign am_space = xcap.space;
-  assign am_addr  = xcap.base + ra;
+  assign am_addr  = 64'(xcap.base + ra[FW-1:0]);        // inside the capability (amo_fault)
   assign am_wdata = rb;
   assign am_cmp   = rc;
 
@@ -639,6 +645,14 @@ module strata_core
   endtask
 
   always_ff @(posedge clk) begin
+    // the capability writes of this cycle: at most one to cd and one to cs
+    // (an instruction that writes both has cd != cs), done at the end
+    logic cdw, csw;
+    cap_t cdn, csn;
+    cdw = 0;
+    csw = 0;
+    cdn = CAP_NULL;
+    csn = CAP_NULL;
     if (rst) begin
       state <= S_F0;
       pc    <= '0;
@@ -650,12 +664,12 @@ module strata_core
       // reset capabilities: core 0 owns all memory and the device root;
       // every core may write the console
       if (COREID == 0) begin
-        caps[0] <= '{valid: 1, space: SP_T3,   perms: 6'b000111, base: 0, len: 64'(T3_BYTES), rv: 0, gen: 0};
-        caps[1] <= '{valid: 1, space: SP_T2,   perms: 6'b000111, base: 0, len: 64'(T2_BYTES), rv: 0, gen: 0};
-        caps[3] <= '{valid: 1, space: SP_DEV,  perms: 6'b010011, base: 0, len: DEV_LEN, rv: 0, gen: 0};
-        caps[4] <= '{valid: 1, space: SP_CORE, perms: 6'b010010, base: 0, len: 64'(NCORES * 8), rv: 0, gen: 0};
+        caps[0] <= '{valid: 1, space: SP_T3,   perms: 6'b000111, base: 0, len: FW'(T3_BYTES), rv: 0, gen: 0};
+        caps[1] <= '{valid: 1, space: SP_T2,   perms: 6'b000111, base: 0, len: FW'(T2_BYTES), rv: 0, gen: 0};
+        caps[3] <= '{valid: 1, space: SP_DEV,  perms: 6'b010011, base: 0, len: FW'(DEV_LEN), rv: 0, gen: 0};
+        caps[4] <= '{valid: 1, space: SP_CORE, perms: 6'b010010, base: 0, len: FW'(NCORES * 8), rv: 0, gen: 0};
       end
-      caps[2] <= '{valid: 1, space: SP_DEV, perms: 6'b010010, base: 0, len: 64'd1, rv: 0, gen: 0};
+      caps[2] <= '{valid: 1, space: SP_DEV, perms: 6'b010010, base: 0, len: FW'(1), rv: 0, gen: 0};
       csr_cycle     <= '0;
       csr_instret   <= '0;
       s_cause       <= '0;
@@ -767,22 +781,25 @@ module strata_core
                   if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   else if (cd_i != cs_i && !cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else begin
-                    caps[cd_i] <= d.cap_fn == CF_MOV ? cs_cap
-                                  : '{valid: 1, space: cs_cap.space, perms: cs_cap.perms & rb[5:0],
-                                      base: cs_cap.base, len: cs_cap.len, rv: cs_cap.rv, gen: cs_cap.gen};
-                    if (cd_i != cs_i && cs_linear) caps[cs_i] <= CAP_NULL;
+                    cdw = 1;
+                    cdn = cs_cap;
+                    if (d.cap_fn == CF_RESTR) cdn.perms = cs_cap.perms & rb[5:0];
+                    if (cd_i != cs_i && cs_linear) csw = 1;
                     retire(pc + 4);
                   end
                 end
                 CF_SPLIT: begin
                   if (!live_a) trap(C_CAPINV, 64'(cs_i));
-                  else if (cd_i == cs_i || rb > cs_cap.len || rb[2:0] != 0 || !cd_ok   // 8-aligned;
+                  else if (cd_i == cs_i || gt_w(rb, cs_cap.len) || rb[2:0] != 0 || !cd_ok   // 8-aligned;
                            || (cs_cap.perms[P_V] && rb[GRAN_SHIFT-1:0] != 0)) trap(C_CAPOP, rb); // a revoker: granules
                   else begin
-                    caps[cd_i] <= '{valid: 1, space: cs_cap.space, perms: cs_cap.perms,
-                                    base: cs_cap.base + rb, len: cs_cap.len - rb,
-                                    rv: cs_cap.rv, gen: cs_cap.gen};
-                    caps[cs_i].len <= rb;
+                    cdw = 1;
+                    cdn = cs_cap;
+                    cdn.base = cs_cap.base + rb[FW-1:0];
+                    cdn.len  = cs_cap.len - rb[FW-1:0];
+                    csw = 1;
+                    csn = cs_cap;
+                    csn.len = rb[FW-1:0];
                     retire(pc + 4);
                   end
                 end
@@ -790,12 +807,14 @@ module strata_core
                   if (!live_a || !live_cd) trap(C_CAPINV, 64'(cs_i));
                   else if (cd_i == cs_i || cd_cap.space != cs_cap.space || cd_cap.perms != cs_cap.perms
                            || cd_cap.rv != cs_cap.rv || cd_cap.gen != cs_cap.gen
-                           || cd_cap.base + cd_cap.len != cs_cap.base
+                           || cd_cap.base + cd_cap.len != cs_cap.base    // (no wrap: both inside the space)
                            // never across units: not where one begins (a HEAD granule boundary)
                            || (cs_cap.rv && cs_cap.base[GRAN_SHIFT-1:0] == 0 && g_a[16])) trap(C_CAPOP, 64'(cs_i));
                   else begin
-                    caps[cd_i].len <= cd_cap.len + cs_cap.len;
-                    caps[cs_i]     <= CAP_NULL;
+                    cdw = 1;
+                    cdn = cd_cap;
+                    cdn.len = cd_cap.len + cs_cap.len;
+                    csw = 1;
                     retire(pc + 4);
                   end
                 end
@@ -805,10 +824,10 @@ module strata_core
                   else if (cd_i != cs_i && !cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else if (!tu_mem_idle) stall();
                   else begin
-                    caps[cd_i] <= '{valid: 1, space: cs_cap.space,
-                                    perms: (cs_cap.perms & 6'b000101) | 6'b010000,
-                                    base: cs_cap.base, len: cs_cap.len, rv: cs_cap.rv, gen: cs_cap.gen};
-                    if (cd_i != cs_i && cs_linear) caps[cs_i] <= CAP_NULL;
+                    cdw = 1;
+                    cdn = cs_cap;
+                    cdn.perms = (cs_cap.perms & 6'b000101) | 6'b010000;
+                    if (cd_i != cs_i && cs_linear) csw = 1;
                     retire(pc + 4);
                   end
                 end
@@ -818,17 +837,18 @@ module strata_core
                   else if (cd_i != cs_i && !cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else if (!tu_mem_idle) stall();
                   else begin
-                    caps[cd_i] <= '{valid: 1, space: cs_cap.space, perms: 6'b011000,
-                                    base: cs_cap.base, len: cs_cap.len, rv: cs_cap.rv, gen: cs_cap.gen};
-                    if (cd_i != cs_i) caps[cs_i] <= CAP_NULL;
+                    cdw = 1;
+                    cdn = cs_cap;
+                    cdn.perms = 6'b011000;
+                    if (cd_i != cs_i) csw = 1;
                     retire(pc + 4);
                   end
                 end
                 CF_BASE, CF_LEN, CF_PERMS: begin
                   if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   else begin
-                    wr(d.rd, d.cap_fn == CF_BASE ? cs_cap.base
-                           : d.cap_fn == CF_LEN ? cs_cap.len
+                    wr(d.rd, d.cap_fn == CF_BASE ? 64'(cs_cap.base)
+                           : d.cap_fn == CF_LEN ? 64'(cs_cap.len)
                            : {53'b0, cs_cap.space, 2'b0, cs_cap.perms});
                     retire(pc + 4);
                   end
@@ -841,7 +861,7 @@ module strata_core
                     trap(C_CAPOP, rb);
                   else if (give_bad) trap(C_CAPOP, give_node);
                   else if (give_valid && give_ack) begin
-                    if (cs_linear) caps[cs_i] <= CAP_NULL;
+                    if (cs_linear) csw = 1;
                     retire(pc + 4);
                   end else stall();
                 end
@@ -849,19 +869,20 @@ module strata_core
                   if (inbox_priv) trap(C_PRIV, {32'b0, ir});
                   else if (!cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else if (take_hit) begin
-                    caps[cd_i]   <= take_cap;
+                    cdw = 1;
+                    cdn = take_cap;
                     csr_takefrom <= 64'(take_from) - csr_corebase;
                     retire(pc + 4);
                   end else stall();
                 end
-                CF_CLEAR: begin caps[cd_i] <= CAP_NULL; retire(pc + 4); end
+                CF_CLEAR: begin cdw = 1; retire(pc + 4); end
                 CF_SAVE: begin
                   if (user) trap(C_PRIV, {32'b0, ir});     // the save table is the supervisor's
                   else if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   else if (live_ct && !ct_entry.perms[P_D]) trap(C_CAPOP, 64'(d.slot));
                   else begin
                     ctab_v[ct_i] <= 1;                   // (the data is written by ct_we below)
-                    if (cs_linear) caps[cs_i] <= CAP_NULL;
+                    if (cs_linear) csw = 1;
                     retire(pc + 4);
                   end
                 end
@@ -870,7 +891,8 @@ module strata_core
                   else if (!live_ct) trap(C_CAPINV, 64'(d.slot));
                   else if (!cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else begin
-                    caps[cd_i] <= ct_entry;
+                    cdw = 1;
+                    cdn = ct_entry;
                     if (!ct_entry.perms[P_D]) ctab_v[ct_i] <= 0;
                     retire(pc + 4);
                   end
@@ -951,12 +973,12 @@ module strata_core
               else if (d.flag) begin xm_v[d.rd[3:0]] <= 0; retire(pc + 4); end
               else if (!live_a) trap(C_CAPINV, 64'(d.cs));
               else if (!xcap.perms[P_X]) trap(C_PERM, 64'(d.cs));
-              else if (rb >= xcap.len) trap(C_BOUNDS, rb);
+              else if (ge_w(rb, xcap.len)) trap(C_BOUNDS, rb);
               else if (ra[1:0] != 0 || ra >= 64'(ILS_BYTES)) trap(C_LSFAULT, ra);
               else begin
                 xm_v[d.rd[3:0]]   <= 1;
                 xm_sp[d.rd[3:0]]  <= xcap.space;
-                xm_far[d.rd[3:0]] <= xcap.base[FW-1:0] + rb[FW-1:0];  // rb < len: exact
+                xm_far[d.rd[3:0]] <= xcap.base + rb[FW-1:0];          // rb < len: exact
                 xm_ils[d.rd[3:0]] <= ra[15:0];
                 retire(pc + 4);
               end
@@ -970,7 +992,7 @@ module strata_core
               end
               else if (!live_a) trap(C_CAPINV, 64'(d.cs));
               else if (!xcap.perms[P_X]) trap(C_PERM, 64'(d.cs));
-              else if (ra >= xcap.len) trap(C_BOUNDS, ra);
+              else if (ge_w(ra, xcap.len)) trap(C_BOUNDS, ra);
               else if (!xm_hit) trap(C_XMISS, xc_key);
               else begin wr(d.rd, xm_link); retire(xm_target); end
             end
@@ -982,7 +1004,7 @@ module strata_core
                   else if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   else if (give_bad) trap(C_CAPOP, give_node);
                   else if (give_valid && give_ack) begin
-                    if (cs_linear) caps[cs_i] <= CAP_NULL;
+                    if (cs_linear) csw = 1;
                     retire(pc + 4);
                   end else stall();
                 end
@@ -990,7 +1012,8 @@ module strata_core
                   if (!ep_cap.valid || ep_cap.space != SP_EP || !ep_cap.perms[P_R]) trap(C_CAPINV, 64'(cs_i));
                   else if (!cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else if (take_hit) begin
-                    caps[cd_i]   <= take_cap;
+                    cdw = 1;
+                    cdn = take_cap;
                     csr_takefrom <= 64'(take_from) - csr_corebase;
                     retire(pc + 4);
                   end else stall();
@@ -1000,7 +1023,8 @@ module strata_core
                   else if (!cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else if (rb > 64'(NCORES)) trap(C_CAPOP, rb);
                   else begin
-                    caps[cd_i] <= '{valid: 1, space: SP_EP, perms: 6'b010011, base: rb, len: 64'd1, rv: 0, gen: 0};
+                    cdw = 1;
+                    cdn = '{valid: 1, space: SP_EP, perms: 6'b010011, base: FW'(rb), len: FW'(1), rv: 0, gen: 0};
                     retire(pc + 4);
                   end
                 end
@@ -1011,7 +1035,7 @@ module strata_core
                   else if (live_ct && !ct_entry.perms[P_D]) trap(C_CAPOP, rb);
                   else begin
                     ctab_v[ct_i] <= 1;                   // (the data is written by ct_we)
-                    if (cs_linear) caps[cs_i] <= CAP_NULL;
+                    if (cs_linear) csw = 1;
                     retire(pc + 4);
                   end
                 end
@@ -1021,7 +1045,8 @@ module strata_core
                   else if (!live_ct) trap(C_CAPINV, rb);
                   else if (!cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else begin
-                    caps[cd_i] <= ct_entry;
+                    cdw = 1;
+                    cdn = ct_entry;
                     if (!ct_entry.perms[P_D]) ctab_v[ct_i] <= 0;
                     retire(pc + 4);
                   end
@@ -1035,17 +1060,28 @@ module strata_core
                   else if (!c2_ok) trap(C_CAPOP, 64'(cs_i));          // an empty revoker
                   else if (dom_done) begin
                     if (d.cap_fn == C2_DOM) begin
-                      caps[cd_i] <= '{valid: 1, space: cs_cap.space, perms: cs_cap.perms, base: cs_cap.base,
-                                      len: cs_cap.len, rv: 1, gen: dom_gen};
-                      caps[cs_i] <= '{valid: 1, space: cs_cap.space, perms: 6'b100000, base: cs_cap.base,
-                                      len: cs_cap.len, rv: 0, gen: {10'b0, cs_cap.perms}};
+                      cdw = 1;
+                      cdn = cs_cap;
+                      cdn.rv  = 1;
+                      cdn.gen = dom_gen;
+                      csw = 1;
+                      csn = cs_cap;
+                      csn.perms = 6'b100000;
+                      csn.rv    = 0;
+                      csn.gen   = {10'b0, cs_cap.perms};
                     end else if (d.cap_fn == C2_REVOKE) begin
-                      caps[cd_i] <= '{valid: 1, space: cs_cap.space, perms: cs_cap.gen[5:0],
-                                      base: cs_cap.base, len: cs_cap.len, rv: 1, gen: dom_gen};
+                      cdw = 1;
+                      cdn = cs_cap;
+                      cdn.perms = cs_cap.gen[5:0];
+                      cdn.rv    = 1;
+                      cdn.gen   = dom_gen;
                     end else begin
-                      caps[cd_i] <= '{valid: 1, space: cs_cap.space, perms: cs_cap.gen[5:0],
-                                      base: cs_cap.base, len: cs_cap.len, rv: 0, gen: 16'd0};
-                      caps[cs_i] <= CAP_NULL;
+                      cdw = 1;
+                      cdn = cs_cap;
+                      cdn.perms = cs_cap.gen[5:0];
+                      cdn.rv    = 0;
+                      cdn.gen   = 16'd0;
+                      csw = 1;
                     end
                     retire(pc + 4);
                   end else stall();                      // the top level is walking the table
@@ -1102,6 +1138,8 @@ module strata_core
         S_HALT: ;
         default: state <= S_F0;
       endcase
+      if (cdw) caps[cd_i] <= cdn;
+      if (csw) caps[cs_i] <= csn;
     end
   end
 endmodule

@@ -31,7 +31,7 @@ module strata_tu
   input  logic [3:0]  iss_tag,
   input  logic [63:0] iss_ls,
   input  logic [2:0]  iss_space,
-  input  logic [63:0] iss_far,
+  input  logic [FW-1:0] iss_far,   // inside the capability: FW bits
   input  logic [63:0] iss_len,
   output logic        iss_ready,
   output logic        iss_hz,       // the command's D-LS range overlaps an in-flight device read
@@ -82,7 +82,7 @@ module strata_tu
   logic [3:0]    q_tag  [QD];
   logic [63:0]   q_ls   [QD];
   logic [2:0]    q_sp   [QD];
-  logic [63:0]   q_far  [QD];
+  logic [FW-1:0] q_far  [QD];
   logic [63:0]   q_len  [QD];
 
   logic [1:0] head, tail;
@@ -99,7 +99,8 @@ module strata_tu
   logic [63:0] pf_o [2];     // the LS offset each prefetched word belongs to
 
   logic [2:0]  h_kind;
-  logic [63:0] h_ls, h_far, h_len;
+  logic [63:0] h_ls, h_len;
+  logic [FW-1:0] h_far;
   logic [2:0]  h_sp;
   logic        h_dev, h_put, h_getx;
   logic [63:0] step;
@@ -161,7 +162,7 @@ module strata_tu
   assign b_req   = es == E_REQ;
   assign b_we    = h_put;
   assign b_space = h_sp;
-  assign b_addr  = h_far + off;
+  assign b_addr  = 64'(h_far + off[FW-1:0]);   // still inside the capability
   assign b_beats = h_dev ? 24'(h_len - off) : 24'((h_len - off) >> 3);
   assign b_byte  = h_dev;
 

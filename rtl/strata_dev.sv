@@ -652,7 +652,7 @@ module strata_dev
 
   assign m_req      = gs == G_WREQ || gs == G_RREQ;
   assign m_we       = gs == G_WREQ;
-  assign m_addr     = gcap.base + boff + (wi << 3);
+  assign m_addr     = 64'(FW'(gcap.base + boff[FW-1:0] + FW'(wi << 3)));   // inside the capability (G_CHECK)
   assign m_wvalid   = gs == G_WDATA;
   assign m_wdata    = dq;
   assign disk_rd    = gs == G_RDISK;
@@ -713,7 +713,7 @@ module strata_dev
             if (op != 8'd1 && op != 8'd2 && op != 8'd3) status <= 16'd1;
             else if (op != 8'd3 && (nblk > 32'd256 || lba > 64'(DISK_WORDS / 64)
                                     || 64'(nblk) > 64'(DISK_WORDS / 64) - lba)) status <= 16'd2;
-            else if (op != 8'd3 && (boff > gcap.len || bytes > gcap.len - boff || boff[2:0] != 0)) status <= 16'd3;
+            else if (op != 8'd3 && (boff > 64'(gcap.len) || bytes > 64'(gcap.len) - boff || boff[2:0] != 0)) status <= 16'd3;
             else if (op != 8'd3 && gcap.space != SP_T2 && gcap.space != SP_T3) status <= 16'd4;
             else if (op == 8'd1 && !gcap.perms[P_W]) status <= 16'd4;
             else if (op == 8'd2 && !gcap.perms[P_R]) status <= 16'd4;

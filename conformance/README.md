@@ -44,6 +44,7 @@ found and how it was decided.
 | `pendxfer`, `pend` | transfers ordered after an in-flight device read (F5); CCR.PTRAP for loads, stores, `ltag`, `linst` |
 | `haltdrain` | `halt` drains device reads (F3) |
 | `xmap` | xmap/xunmap/xcall/xret/xslot, xmiss |
+| `wide` | 64-bit offsets, lengths and split points against capability bounds: bits above the space's size count (transfers, device ports, `tamo`, `csplit`, `xmap`/`xcall`); the last word of system memory |
 | `timer` | FREQ/NOW/DEADLINE/WAIT, latching; VSYNC, PRESENT; device bounds |
 | `devspan` | byte-per-beat device transfers across registers |
 | `console`, `break`, `brkrel`, `inrel` | output, input, end of input, Ctrl-C (`-b`), one release for every break read (F4) and for waiting input reads |
