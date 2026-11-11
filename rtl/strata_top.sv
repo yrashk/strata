@@ -4,8 +4,9 @@
 // device space, plus the capability inboxes. Node numbers for cgive/ctake:
 // cores 0..NCORES-1, block device 0 = NCORES (NCORES <= 15: 16 senders, the
 // width of the cpoll / tany masks). Each core's inbox holds up to
-// two gifts per sender; `ctake cd, rs` takes the oldest from one sender,
-// `ctake cd` the oldest from the lowest-numbered sender that has one.
+// two gifts per sender and accepts one gift per cycle; `ctake cd, rs` takes
+// the oldest from one sender, `ctake cd` the oldest from the lowest-numbered
+// sender that has one.
 
 module strata_top
   import strata_pkg::*;
@@ -297,19 +298,33 @@ module strata_top
   // ================================================================ inboxes
   // Each core's inbox keeps a small queue per sender (SQ deep), so a sender
   // can never fill the inbox and block a gift that `ctake cd, rs` waits for.
-  localparam int SQ = 2;
-  cap_t       ib_cap [NCORES][NS][SQ];
-  logic [1:0] ib_n   [NCORES][NS];
+  // The queues of one core share one small RAM (entry s * SQ + k: sender s's
+  // k-th slot) with one write port and an asynchronous read port, plus a
+  // head and a count per sender: a core takes at most one gift per cycle
+  // (the lowest-numbered sender with room; the others wait a cycle).
+  localparam int SQ  = 2;
+  localparam int SQW = $clog2(SQ);
+  localparam int IBW = $clog2(NS * SQ);
+  logic [SQW-1:0] ib_h [NCORES][NS];   // the oldest gift's slot
+  logic [1:0]     ib_n [NCORES][NS];   // gifts held
+  logic [NCORES-1:0]         ib_we;
+  logic [NCORES-1:0][7:0]    ib_ws;    // the sender written
 
-  // gifts: every sender with room in its queue at the destination is accepted;
-  // the block device's single queue takes the lowest-numbered sender
+  // gifts: per destination core, the lowest-numbered sender with room in its
+  // queue there is accepted; the block device's single queue likewise
   always_comb begin
     g_ack       = '0;
     dev_in_push = 0;
     dev_in_cap  = CAP_NULL;
-    for (int s = 0; s < NS; s++)
-      for (int c = 0; c < NCORES; c++)
-        if (g_valid[s] && int'(g_dst[s]) == c && ib_n[c][s] < 2'(SQ)) g_ack[s] = 1;
+    ib_we       = '0;
+    ib_ws       = '0;
+    for (int c = 0; c < NCORES; c++)
+      for (int s = 0; s < NS; s++)
+        if (!ib_we[c] && g_valid[s] && int'(g_dst[s]) == c && ib_n[c][s] < 2'(SQ)) begin
+          g_ack[s] = 1;
+          ib_we[c] = 1;
+          ib_ws[c] = 8'(s);
+        end
     for (int s = 0; s < NS; s++)
       if (!dev_in_push && dev_in_ready && g_valid[s] && int'(g_dst[s]) == NCORES) begin
         g_ack[s]    = 1;
@@ -329,7 +344,10 @@ module strata_top
 
   logic [NCORES-1:0][7:0] take_s;
   for (genvar c = 0; c < NCORES; c++) begin : g_take
-    logic [NS-1:0] nz;
+    cap_t           ram [NS * SQ];
+    logic [NS-1:0]  nz;
+    logic [IBW-1:0] wa, ra;
+    cap_t           wd;
     for (genvar s = 0; s < NS; s++) begin : g_nz
       assign nz[s] = ib_n[c][s] != 0;
     end
@@ -337,34 +355,45 @@ module strata_top
     assign take_s[c]    = take_any[c] ? lowest(nz) : take_src[c];
     assign take_from[c] = take_s[c];
     always_comb begin
+      logic [SQW-1:0] h, k;
       take_hit[c] = 0;
-      take_cap[c] = CAP_NULL;
-      for (int s = 0; s < NS; s++)
+      ra = '0;
+      h  = '0;
+      k  = '0;
+      wd = CAP_NULL;
+      wa = '0;
+      for (int s = 0; s < NS; s++) begin
         if (take_s[c] == 8'(s) && nz[s]) begin
           take_hit[c] = take_req[c];
-          take_cap[c] = ib_cap[c][s][0];
+          h  = ib_h[c][s];
+          ra = IBW'(s * SQ) + IBW'(h);
         end
+        if (ib_ws[c] == 8'(s)) begin
+          k  = SQW'(ib_h[c][s] + SQW'(ib_n[c][s]));       // the tail
+          wa = IBW'(s * SQ) + IBW'(k);
+          wd = g_cap[s];
+        end
+      end
     end
+    assign take_cap[c] = ram[ra];
+    always_ff @(posedge clk) if (ib_we[c]) ram[wa] <= wd;
   end
 
   always_ff @(posedge clk) begin
     if (rst) begin
       for (int c = 0; c < NCORES; c++)
-        for (int s = 0; s < NS; s++) ib_n[c][s] <= '0;
+        for (int s = 0; s < NS; s++) begin
+          ib_n[c][s] <= '0;
+          ib_h[c][s] <= '0;
+        end
     end else begin
       for (int c = 0; c < NCORES; c++)
         for (int s = 0; s < NS; s++) begin
-          logic       pop, push;
-          logic [1:0] n;
+          logic pop, push;
           pop  = take_pop[c] && int'(take_s[c]) == s;
-          push = g_valid[s] && int'(g_dst[s]) == c && ib_n[c][s] < 2'(SQ);
-          n    = ib_n[c][s];
-          if (pop) begin
-            for (int k = 0; k < SQ - 1; k++) ib_cap[c][s][k] <= ib_cap[c][s][k+1];
-            n = n - 1;
-          end
-          if (push) ib_cap[c][s][n[0]] <= g_cap[s];        // n is 0 or 1 here
-          ib_n[c][s] <= n + (push ? 2'd1 : 2'd0);
+          push = ib_we[c] && int'(ib_ws[c]) == s;
+          if (pop) ib_h[c][s] <= ib_h[c][s] + SQW'(1);
+          ib_n[c][s] <= ib_n[c][s] + (push ? 2'd1 : 2'd0) - (pop ? 2'd1 : 2'd0);
         end
     end
   end
