@@ -33,14 +33,16 @@
 
 \ core.fs and this file were compiled with INLINE-LIMIT at 4 (the platform's
 \ start-up value): only one-instruction primitives were copied, the rest are
-\ called, which saves about 2.5 KiB of the 32 KiB of code space. What is
-\ compiled from now on gets the usual inlining (net.fs and httpd.fs lower it).
+\ called. With one thread they are in code units (forth.s, "Code paging"),
+\ paged into the I-LS as they are called; with threads they are resident, in
+\ the 32 KiB of code space, which this saves about 2.5 KiB of. What is
+\ compiled from now on gets the usual inlining.
 16 inline-limit !
 
 \ ---- greeting (the console only; not for `forth FILE` or `forth -e ...`) --------------
 \ Defined, run and forgotten: (mark) remembers the dictionary, (release)
 \ forgets everything defined since (this is how the tools come and go).
-$10000 chere - unused (mark)                    \ what is free, measured before the banner's own code
+37 kvar cell+ @ chere - unused (mark)           \ what is free, measured before the banner's own code
 : .banner ( code data -- )
   ." Strata Forth 0.1 (native code, " cores . cores 1 = if ." thread" else ." threads" then
   ." , StrataOS 0.1) " swap . ." code bytes free, " . ." data bytes free" cr ;

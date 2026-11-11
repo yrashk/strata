@@ -43,8 +43,8 @@ usage: sched [N | Nus | Nms] (#us .. #ms)
 [exit #]
 ==== units
 strata$ units
-units: # functions in # code overlays, chains # calls deep
+units: # functions of # KiB, chains # calls deep
 paged sum = #
 resident sum= #
 check: ok
-[# overlays brought in]
+[# code units paged in]

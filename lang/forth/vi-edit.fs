@@ -3,8 +3,7 @@
 \ =============================================================================
 \ Included by vi.fs (which describes the editor); not a program of its own.
 
-\ ==== overlay 8: the undo history and the register ================================================
-overlay
+\ ---- the undo history and the register -----------------------------------------------------------
 : fl-put ( far u -- size )                      \ a line record {u64 length, bytes} from tbuf (bytes at +8)
   dup tbuf ! 15 + -8 and >r tbuf swap r@ far-write htag twait r> ;
 : fl-get ( far -- u size )                      \ and back: its length (the bytes at tbuf + 8), its size
@@ -53,8 +52,7 @@ overlay
   loop drop ;
 : y-chars ( a u -- ) tuck tbuf 8 + swap move  f-y swap fl-put drop  0 y-kind ! 1 y-cnt ! ;
 
-\ ==== overlay 9: insert mode ======================================================================
-overlay
+\ ---- insert mode ---------------------------------------------------------------------------------
 : ir-load ( -- ) cy @ lbuf lget lblen !  1 lblive !  cy @ mark-row ; \ the cursor's line into lbuf
 : ir-commit ( -- )                              \ lbuf back; the change ends with the cursor's line
   cy @ lbuf lblen @ lput drop  0 lblive !  cy @ mark-row  cy @ chg-a @ - 1+ chg-end ;
@@ -84,8 +82,7 @@ overlay
 : c-ins ( -- ) cy @ 1 chg-begin ins-run ;
 : c-open ( n -- ) dup 0 chg-begin  dup lbuf 0 lins drop  dup cy !  0 cx !  mark-from  ins-run ;
 
-\ ==== overlay 10: changing ========================================================================
-overlay
+\ ---- changing ------------------------------------------------------------------------------------
 : op-chars ( from to op -- )                    \ the cursor line's bytes [from, to): into the register,
   { x0 x1 op }  x0 cx !  cy @ lbuf lget lblen !  lbuf x0 + x1 x0 - y-chars \ and (d c) out of the line
   op 'y' = if exit then
@@ -109,8 +106,7 @@ overlay
   cy @ 1 chg-begin  cy @ lbuf lget lblen !  lbuf cx @ + cnt1 @ rot fill
   cx @ cnt1 @ + 1- cx !  cy @ lbuf lblen @ lput drop  1 chg-end  cy @ mark-row ;
 
-\ ==== overlay 11: joining, putting ================================================================
-overlay
+\ ---- joining, putting ----------------------------------------------------------------------------
 : c-J ( -- )                                    \ J: lines joined, the leading blanks gone, a space between
   cnt1 @ 1- 1 max  nl @ cy @ - 1- min  dup 0> 0= if drop exit then
   cy @ over 1+ chg-begin  cy @ lbuf lget lblen !
@@ -137,8 +133,7 @@ overlay
   cy @ 1 chg-begin  f-y fl-get drop  cy @ lbuf lget dup lblen !
   if swap cx @ + else nip cx @ then put-at ;
 
-\ ==== overlay 12: files ===========================================================================
-overlay
+\ ---- files ---------------------------------------------------------------------------------------
 : buf-reset ( -- )                              \ no text, every chunk free, no history, the cursor home
   nchmax @ dup nfree !  0 ?do nchmax @ 1- i - fstk i + c! loop
   -1 cidx ! -1 lc-n !  0 cdirty ! 0 nch ! 0 nl ! 0 cy ! 0 cx ! 0 top ! 0 lcol ! 0 hs-n ! 0 hs-s !
@@ -179,8 +174,7 @@ overlay
   dup dw-lines swap fs-close 0= if m" cannot write: " m-add false exit then
   0 msgl ! '"' m-chr m-add '"' m-chr m-size m+"  written" true ;
 
-\ ==== overlay 13: the : line ======================================================================
-overlay
+\ ---- the : line ----------------------------------------------------------------------------------
 : readline ( c -- u|-1 )                        \ a line typed on the status row (in cmdbuf); -1: abandoned
   0 { p n }
   begin rows @ 1- 0 o-goto  p emit cmdbuf n type o-el
@@ -228,8 +222,7 @@ overlay
   ':' readline dup 0> 0= if drop exit then  cmdbuf swap 2dup 0 skip-bl /string
   2dup number? if nip nip 1- mo-line mv-y @ dup cy ! fnb cx ! exit then  ex-run ;
 
-\ ==== overlay 14: searching =======================================================================
-overlay
+\ ---- searching -----------------------------------------------------------------------------------
 : sfind ( a u from dir -- i|-1 )                \ where the text searched for starts: the first at or
   { a u from dir }  u patl @ -                  \   after (the last at or before) from
   dir 0< if from over min else from 0 max then to from
@@ -251,8 +244,7 @@ overlay
   ?dup if dup patl ! cmdbuf patbuf rot move then
   dup sdir ! search if mv-y @ cy ! mv-x @ cx ! then ;
 
-\ ==== overlay 15: words and brackets (w b e %) ====================================================
-overlay
+\ ---- words and brackets (w b e %) ----------------------------------------------------------------
 : pos-get ( -- c len ) p-y @ lfind dup p-x @ > if over p-x @ + c@ else 10 then rot drop swap ;
 : pos-cls ( -- k )                              \ 0 blank (a line's end too), 1 a word's byte, 2 other, 3 an empty line
   pos-get swap dup 10 = if drop 0= 3 and exit then nip ct dup 16 and if drop 0 exit then 3 and if 1 else 2 then ;
@@ -285,8 +277,7 @@ overlay
   begin pos-get p-x @ > 0= if drop false exit then brk? dup 0< while drop 1 p-x +! repeat
   dup brk + c@ over 1 xor brk + c@ rot 1 and 0= pair-go ;
 
-\ ==== overlay 16: motions =========================================================================
-overlay
+\ ---- motions -------------------------------------------------------------------------------------
 : xcol ( a u col -- i )                         \ the last byte that starts at or before col (0: none)
   0 0 { a u col c i }
   begin i 1+ u < while  c a i + c@ 9 = if 7 or then 1+  dup col > if drop i exit then  to c  i 1+ to i
@@ -296,30 +287,39 @@ overlay
 : mo-jk ( line -- 2 ) mo-line  1 mv-w !  mv-y @ lfind want @ xcol mv-x ! 2 ;
 : mo-fl ( line -- 2 ) mo-line  mv-y @ fnb mv-x ! 2 ;
 : mo-p ( kind -- kind ) p-y @ mv-y ! p-x @ mv-x ! ;
+: mo-lines ( n k -- kind true | n k false )     \ the motions by characters and lines
+  case
+    'h' of mo-h true endof  8 of mo-h true endof  127 of mo-h true endof
+    'l' of mo-l true endof  bl of mo-l true endof
+    'j' of mv-y @ + mo-jk true endof  14 of mv-y @ + mo-jk true endof
+    'k' of mv-y @ swap - mo-jk true endof  16 of mv-y @ swap - mo-jk true endof
+    10 of mv-y @ + mo-fl true endof  13 of mv-y @ + mo-fl true endof  '+' of mv-y @ + mo-fl true endof
+    '-' of mv-y @ swap - mo-fl true endof
+    false over
+  endcase ;
+: mo-words ( n k -- kind true | n k false )     \ w b e, and the motions within the line
+  case
+    'w' of 0 ?do w-fwd loop 0 mo-p true endof
+    'b' of 0 ?do w-back loop 0 mo-p true endof
+    'e' of 0 ?do w-end loop 1 mo-p true endof
+    '0' of drop 0 mv-x ! 0 true endof
+    '^' of drop mv-y @ fnb mv-x ! 0 true endof
+    '$' of drop cur-text nip 1- 0 max mv-x !  2 mv-w ! 1 true endof
+    false over
+  endcase ;
 : motion ( k -- kind )                          \ -1 none (or it failed), 0 to a byte, 1 to a byte (inclusive),
   cy @ dup mv-y ! p-y !  cx @ dup mv-x ! p-x !  0 mv-w !  cnt1 @ swap \ 2 to a line: mv-y mv-x (mv-w: 1 j k, 2 $)
+  mo-lines if exit then  mo-words if exit then
   case
-    'h' of mo-h endof  8 of mo-h endof  127 of mo-h endof  'l' of mo-l endof  bl of mo-l endof
-    'j' of mv-y @ + mo-jk endof  14 of mv-y @ + mo-jk endof
-    'k' of mv-y @ swap - mo-jk endof  16 of mv-y @ swap - mo-jk endof
-    10 of mv-y @ + mo-fl endof  13 of mv-y @ + mo-fl endof  '+' of mv-y @ + mo-fl endof
-    '-' of mv-y @ swap - mo-fl endof
-    '0' of drop 0 mv-x ! 0 endof
-    '^' of drop mv-y @ fnb mv-x ! 0 endof
-    '$' of drop cur-text nip 1- 0 max mv-x !  2 mv-w ! 1 endof
     'G' of drop cnt @ 1- dup 0< if drop nl @ 1- then mo-fl endof
     'g' of drop getkey 'g' = if cnt @ 1- 0 max mo-fl else -1 then endof
-    'w' of 0 ?do w-fwd loop 0 mo-p endof
-    'b' of 0 ?do w-back loop 0 mo-p endof
-    'e' of 0 ?do w-end loop 1 mo-p endof
     '%' of drop m-pair if 1 mo-p else -1 then endof
     'n' of drop sdir @ search if 0 else -1 then endof
     'N' of drop sdir @ negate search if 0 else -1 then endof
     nip -1 swap
   endcase ;
 
-\ ==== overlay 17: operators, scrolling ============================================================
-overlay
+\ ---- operators, scrolling ------------------------------------------------------------------------
 : kmapk ( k -- k' ) dup $100 < if exit then $101 - dup 10 u< if kmap + c@ else drop 0 then ;
 : count? ( n k -- n k f ) dup '0' - 10 u< over '0' <> 3 pick 0<> or and ; \ a digit of a count?
 : op-span ( op kind -- )                        \ d c y over a motion to a byte
@@ -340,32 +340,42 @@ overlay
   over -1 = if nip else over -2 = if nip trows @ + 1- else drop cy @ + then then
   cy !  1 dall !  fix-cursor  cy @ fnb cx ! ;
 
-\ ==== overlay 18: normal mode =====================================================================
-overlay
+\ ---- normal mode ---------------------------------------------------------------------------------
+: nc-ins ( k -- k|0 )                           \ the commands that insert or delete (0: it was one)
+  case
+    'i' of c-ins 0 endof  'a' of cur-text nip if 1 cx +! then c-ins 0 endof
+    'I' of cy @ fnb cx ! c-ins 0 endof  'A' of cur-text nip cx ! c-ins 0 endof
+    'o' of cy @ 1+ c-open 0 endof  'O' of cy @ c-open 0 endof
+    'x' of c-x 0 endof  'X' of c-bs 0 endof  'D' of 'd' c-DC 0 endof  'C' of 'c' c-DC 0 endof
+    's' of c-s 0 endof  'S' of 'c' op-lcnt 0 endof  'Y' of 'y' op-lcnt 0 endof
+    dup
+  endcase ;
+: nc-edit ( k -- k|0 )                          \ operators, putting, undoing (0: it was one)
+  case
+    'd' of 'd' c-op 0 endof  'c' of 'c' c-op 0 endof  'y' of 'y' c-op 0 endof
+    'r' of c-r 0 endof  'J' of c-J 0 endof  'p' of 1 put 0 endof  'P' of 0 put 0 endof
+    'u' of c-u 0 endof  18 of c-redo 0 endof
+    '.' of dot-len @ ?dup if rq-len ! 0 rq-pos ! cnt1 @ 1- dotn ! 1 rep ! then 0 endof
+    dup
+  endcase ;
+: nc-other ( k -- k|0 )                         \ the others, but for motions (0: it was one)
+  case
+    ':' of c-colon 0 endof  '/' of 1 c-find 0 endof  '?' of -1 c-find 0 endof
+    4 of trows @ 2/ dup scroll 0 endof  21 of trows @ 2/ negate dup scroll 0 endof
+    6 of trows @ 2 - -1 scroll 0 endof  2 of trows @ 2 - negate -2 scroll 0 endof
+    12 of 1 clear ! 1 dall ! esc[ ." 999;999H" esc[ ." 6n" 0 endof
+    7 of m-name m-size 0 endof
+    'Z' of getkey 'Z' = if 0 x-bang ! 0 x-argl ! ex-x then 0 endof
+    3 of m" Type :q and Enter to exit vi" 0 endof
+    $1c of 1 quit ! 0 endof
+    dup
+  endcase ;
 : ncmd ( -- )                                   \ one command: a count, a key, what it does
   0 begin getkey 0 msgl ! count? while '0' - swap 10 * + repeat
   swap dup cnt ! 1 max cnt1 !  1 setw !  kmapk
-  case
-    'i' of c-ins endof  'a' of cur-text nip if 1 cx +! then c-ins endof
-    'I' of cy @ fnb cx ! c-ins endof  'A' of cur-text nip cx ! c-ins endof
-    'o' of cy @ 1+ c-open endof  'O' of cy @ c-open endof
-    'x' of c-x endof  'X' of c-bs endof  'D' of 'd' c-DC endof  'C' of 'c' c-DC endof  's' of c-s endof
-    'S' of 'c' op-lcnt endof  'Y' of 'y' op-lcnt endof
-    'd' of 'd' c-op endof  'c' of 'c' c-op endof  'y' of 'y' c-op endof
-    'r' of c-r endof  'J' of c-J endof  'p' of 1 put endof  'P' of 0 put endof
-    'u' of c-u endof  18 of c-redo endof
-    '.' of dot-len @ ?dup if rq-len ! 0 rq-pos ! cnt1 @ 1- dotn ! 1 rep ! then endof
-    ':' of c-colon endof  '/' of 1 c-find endof  '?' of -1 c-find endof
-    4 of trows @ 2/ dup scroll endof  21 of trows @ 2/ negate dup scroll endof
-    6 of trows @ 2 - -1 scroll endof  2 of trows @ 2 - negate -2 scroll endof
-    12 of 1 clear ! 1 dall ! esc[ ." 999;999H" esc[ ." 6n" endof
-    7 of m-name m-size endof
-    'Z' of getkey 'Z' = if 0 x-bang ! 0 x-argl ! ex-x then endof
-    3 of m" Type :q and Enter to exit vi" endof
-    $1c of 1 quit ! endof
-    dup motion dup 0< 0= if mv-y @ cy ! mv-x @ cx !
-      mv-w @ ?dup if 0 setw ! 2 = if bigcol want ! then then then drop
-  endcase ;
+  nc-ins ?dup 0= if exit then  nc-edit ?dup 0= if exit then  nc-other ?dup 0= if exit then
+  motion dup 0< 0= if mv-y @ cy ! mv-x @ cx !
+    mv-w @ ?dup if 0 setw ! 2 = if bigcol want ! then then then drop ;
 
 : vi-loop ( -- )                                \ show, then one command, until :q
   begin refresh
@@ -373,16 +383,16 @@ overlay
     0 rec-len !  0 chg !  ncmd
     chg @ rep @ 0= and if rec-len @ dup dot-len ! recbuf dotbuf rot 2* move then
   quit @ until ;
-resident
 
-\ ==== overlay 19: starting and leaving ============================================================
-overlay
-: vi-main ( a u -- )                            \ edit that file (u = 0: an empty buffer)
+\ ---- starting and leaving ------------------------------------------------------------------------
+: vi-init ( -- )                                \ the console, the editor's state
   hdl @ 3 = dup con ! if 1 0 0 19 3 (msg) drop then \ the console in raw mode (a pipe is already)
   1 0 0 22 1 (msg) drop                         \ interrupts come as READs that return -2
   80 cols !  24 rows !  0 numw !  size-upd  1 synon !  1 clear !  0 quit !  0 msgl !  0 ins !  0 lblive !
   0 kb-pos !  0 kb-len !  0 k-pend !  0 rq-pos !  0 rq-len !  0 dotn !  0 dot-len !  0 y-cnt !  0 patl !
-  1 sdir !  0 dirty !
+  1 sdir !  0 dirty ! ;
+: vi-main ( a u -- )                            \ edit that file (u = 0: an empty buffer)
+  vi-init
   esc[ ." 999;999H" esc[ ." 6n" flush           \ the size: the answer comes while the file is read
   120 min do-load
   100 rd-wait if kbuf kb-pos @ + c@ 27 = if getkey dup $10b = if drop else k-pend ! then then then
@@ -393,5 +403,4 @@ overlay
 : cmd-word ( a u -- rest u' word u2 )           \ the next word of the command line
   begin dup if over c@ bl = else false then while 1 /string repeat
   2dup begin dup if over c@ bl <> else false then while 1 /string repeat 2swap drop 2 pick over - ;
-resident
 
