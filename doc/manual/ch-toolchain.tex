@@ -216,7 +216,14 @@ printable characters as themselves; Enter \hex{0A}, Backspace \hex{7F}, Tab \hex
 the arrows \texttt{ESC [ A}/\texttt{B}/\texttt{C}/\texttt{D} (up, down, right, left); Home
 \texttt{ESC [ H}; End \texttt{ESC [ F}; Delete \texttt{ESC [ 3 \textasciitilde}; Page Up and Page Down
 \texttt{ESC [ 5 \textasciitilde} and \texttt{ESC [ 6 \textasciitilde}; Ctrl+letter as 1--26, except
-Ctrl+C, which is the break key (Section~\ref{sec:console}); Alt+key as ESC followed by the key's bytes.
+Ctrl+C, which is the break key (Section~\ref{sec:console}); Alt+key in the xterm modified-key forms:
+Alt with a character as \texttt{ESC [ 27 ; 3 ;} \textit{code} \texttt{\textasciitilde} (the character's
+code in decimal, Shift applied: Alt+Shift+Q is 81; Alt+Enter is 13), Alt with an arrow, Home or End as
+\texttt{ESC [ 1 ; 3 A}/\texttt{B}/\texttt{C}/\texttt{D}/\texttt{H}/\texttt{F}, and Alt with Delete,
+Page Up or Page Down as \texttt{ESC [} \textit{n} \texttt{; 3 \textasciitilde}. Not ESC followed by the key
+(``meta sends escape''): those are also the bytes of Esc and then the key, which a reader of a byte
+stream could only tell apart by time. Nobody types the modified forms by hand, so the window server
+takes only them as its Alt bindings, and Esc and then a key is just that.
 The terminal remains an input source at the same time.
 
 \subsection{The JIT}\label{sec:jit}

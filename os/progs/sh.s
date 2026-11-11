@@ -285,7 +285,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "  seq grep wc upper spin as units sh\n" ; (continued)
          .ascii "  vi FILE           the editor (vi keys; :wq writes and leaves)\n" ; (continued)
          .ascii "  examples: hello mandel parsum race ...\n" ; (continued)
-         .ascii "windows: ws starts the window server (Alt = Alt or Esc, then the key)\n" ; (continued)
+         .ascii "windows: ws starts the window server; its keys, in the screen:\n" ; (continued)
          .ascii "  Alt+Enter new terminal    Alt+P or Alt+Space launch a program\n" ; (continued)
          .ascii "  Alt+1..4, Alt+arrows      focus a window\n" ; (continued)
          .ascii "  Alt+Q close the window    Alt+Shift+Q quit ws, back to this shell\n" ; (continued)

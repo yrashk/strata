@@ -162,7 +162,9 @@ take the same flags, except where noted.
 
 A window opens the first time a program writes into the framebuffer. While
 it has focus, keys go to the console input as a terminal would send them
-(Alt sends an ESC prefix; Ctrl-C is the break key).
+(Alt+key as ESC [ 27 ; 3 ; code ~, Alt+arrows ESC [ 1 ; 3 X, the xterm
+modified-key forms, so Esc and then a key is never Alt; Ctrl-C is the break
+key).
 
 ## Examples
 
@@ -288,7 +290,8 @@ linear, a client draws into a band of its own memory and *lends* it to the
 server with each damage request; the server copies the rows into the
 window's surface and gives the band back.
 
-Keys (Alt is sent as an ESC prefix): Alt+Enter a new terminal, Alt+P (or
+Keys (Alt+key has bytes of its own, so Esc and then a key is just that:
+vi's Esc then `p` is a put): Alt+Enter a new terminal, Alt+P (or
 Alt+Space) the launch palette, Alt+1..4 and Alt+arrows focus, Alt+Q close,
 Alt+Shift+Q back to the shell, Alt+? the key help (also shown when the
 splash ends; any key or click dismisses it).

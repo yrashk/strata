@@ -64,8 +64,8 @@
 ; 30 ms makes a sequence. The console server reads one byte ahead for a
 ; reader that polls in raw mode (os/servers/tty.s), which is what lets vi
 ; wait for it; in a window, the server's terminal gets a key's bytes
-; together. (The window server itself takes Esc followed at once by p, q,
-; Space, Enter, 1-4 or an arrow as its Alt bindings.)
+; together. (The window server's Alt bindings have bytes of their own,
+; ESC [ 27 ; 3 ; code ~, spec 1.4: Esc and then p is Esc and p in vi.)
 ;
 ; Ctrl-C: vi catches interrupts (sys_catch), so the tty's or the window
 ; server's interrupt makes its read return -2 instead of ending it; that is

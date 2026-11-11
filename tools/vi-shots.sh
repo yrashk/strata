@@ -7,19 +7,19 @@
 # tools/test-ws.sh does: `ws` from the shell, then in its first terminal vi
 # on a file, a few keys, and Alt+Shift+H, which halts the machine with the
 # desktop on the screen; -F keeps the last frame (PPM), which is written out
-# as a PNG (python3, no other modules). In the script, ESC W makes ws ignore
-# the keyboard for a second (time for vi to start and draw); the space
-# after the first ones dismisses the key help. No key here follows an ESC:
-# ws would take ESC and a key together as an Alt binding.
+# as a PNG (python3, no other modules). In the script, Alt+Shift+W
+# (ESC [ 27 ; 3 ; 87 ~, spec 1.4) makes ws ignore the keyboard for a second
+# (time for vi to start and draw); the space after the first ones dismisses
+# the key help. Alt+Shift+H is ESC [ 27 ; 3 ; 72 ~.
 set -e
 BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
 T=$BUILD/vi-shots
 mkdir -p $T
-W='\033W'
+W='\033[27;3;87~'                       # Alt+Shift+W
 shot() {                                # shot NAME KEYS: the frame after KEYS typed in a terminal
-  printf "ws\n$W$W$W${W} $2$W$W$W\033H" > $T/$1.keys
+  printf "ws\n$W$W$W${W} $2$W$W$W\033[27;3;72~" > $T/$1.keys
   cp "$DISK" $T/disk.img
   $BUILD/strata-emu -c 12 -g none -m 60000000000 -F $T/$1.ppm -d $T/disk.img -i $T/$1.keys "$ROM" > $T/$1.out 2>&1 || {
     echo "vi-shots: the emulator failed ($1)"; tail -5 $T/$1.out; exit 1; }

@@ -1096,11 +1096,14 @@ The screen reads as an instrument panel of the machine and makes its explicitnes
   the process running on it and dark when idle; the system core and server cores are marked. A context
   switch on a core makes its cell pulse. Beside it are the window list, uptime, the process count,
   context switches per second and the clock.
-\item \textbf{Keys} (Alt is sent as an ESC prefix). Alt+Enter opens a terminal; Alt+Space opens the
+\item \textbf{Keys} (Alt+key as the window's keyboard sends it, \texttt{ESC [ 27 ; 3 ;} \textit{code}
+  \texttt{\textasciitilde}; Alt+arrows \texttt{ESC [ 1 ; 3} \textit{X}). Alt+Enter opens a terminal; Alt+Space opens the
   command palette, a \texttt{launch} line with completion of program names; Alt+1--4 and Alt+arrows move
   the focus; Alt+Q closes the focused window; Alt+Shift+Q quits the window server; Alt+? shows a panel
   of these bindings, which also appears when the splash ends (any key or click dismisses it). Every
-  other key is an event for the focused window, and Ctrl-C interrupts its process.
+  other key is an event for the focused window: Esc and then a key is Esc and that key, whatever the
+  timing, and an Alt+key the server does not bind arrives as ESC and the key. Ctrl-C interrupts the
+  window's process.
 \item \textbf{The pointer} (Section~\ref{sec:pointer}). The device's waiting read belongs to
   \texttt{tty}, alone on its core, which hands the events over with the keys (a READ with mode bit 1).
   \texttt{ws} draws a cursor; a click focuses the tile under it, runs a program from the palette or

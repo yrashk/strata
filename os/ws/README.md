@@ -11,7 +11,8 @@ make ws-perf     # instruction counts (= emulator cycles), see below
 make ws-check    # damage-driven frames == full redraws, at every shot frame
 ```
 
-Demo keys (Alt = ESC prefix, spec 1.4): Alt+P or Alt+Space palette (type, Tab,
+Demo keys (Alt+key = ESC [ 27 ; 3 ; code ~, Alt+arrows ESC [ 1 ; 3 X, spec
+1.4; `keys.s` decodes them): Alt+P or Alt+Space palette (type, Tab,
 Up/Down, Enter launches wmandel / wclock / a terminal), Alt+1..4 and
 Alt+arrows focus, Alt+Enter a terminal, Alt+Q close the focused tile,
 Alt+Shift+Q quit. Other keys are echoed by the focused terminal.
@@ -111,10 +112,13 @@ programs get 32 KiB from 0x8000).
 | `ws.s` | the server: main loop (RECEIVE with a timeout), protocol 40–46, keys, events, windows, the data source (proc CORES / PS / SCHED) |
 | `hw_os.s` | machine layer on StrataOS: REGISTER, GRANT_FB, the keyboard buffer (which brings the pointer's events too), and ws's own small kernel interface (it does not include sys.s: no room) |
 | `pointer.s` | the cursor and the key help (drawing; also in the demo) |
+| `keys.s` | the keyboard's bytes as keys: plain bytes, Esc, ESC [ sequences, and the Alt forms ESC [ 27 ; 3 ; code ~ and ESC [ 1 ; 3 X (also in the demo) |
 | `os/lib/wsclient.s` | the protocol for clients: wc_open, wc_band, wc_damage, wc_event, wc_text, wc_fill, wc_title, wc_close |
 | `os/progs/{ws,term,wmandel,wclock}.s` | the programs on the disk |
 
-Keys (Alt = ESC prefix): Alt+Enter a terminal; Alt+P or Alt+Space the
+Keys (`keys.s`; Alt+key = ESC [ 27 ; 3 ; code ~, so Esc and then a key is
+just that, and an Alt+key ws does not bind reaches the client as ESC and the
+key): Alt+Enter a terminal; Alt+P or Alt+Space the
 palette; Alt+1..4 and Alt+arrows focus; Alt+Q close; Ctrl-C interrupts
 the focused window's program; Alt+Shift+Q quit to the shell; Alt+Shift+H
 halt; Alt+? the key help (shown when the splash ends; any key or click
