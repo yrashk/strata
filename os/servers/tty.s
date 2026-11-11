@@ -17,7 +17,10 @@
 ;            Cooked mode: input is echoed and edited (Backspace); a READ
 ;            returns one line (with its newline), or what was typed before
 ;            Ctrl-D (0x04); 0 = end of input. Raw mode: no echo, whatever is
-;            there (at least one byte). CR becomes LF in both.
+;            there (at least one byte); a READ that does not block and finds
+;            nothing (-3) has one byte read ahead, so a reader that polls
+;            (vi telling Esc from an arrow's ESC [ A) gets it. CR becomes LF
+;            in both.
 ;            Mode bit1 = pointer events too (raw mode, ws): the READ is also
 ;            answered when pointer events wait; the answer's mode field says
 ;            how many (0..8), and they follow the data at offset 32 of it, 8
@@ -571,7 +574,7 @@ or_r:
         la    t0, srv_hdr               ; do-not-block?
         ld    t1, 24(t0)                ; ...
         andi  t1, t1, 1                 ; ...
-        bnez  t1, reply                 ; -3
+        bnez  t1, or_nb                 ; -3
         li    s1, 0                     ; a free wait entry
 or_f:
         li    t0, NWAIT                 ; ...
@@ -604,6 +607,18 @@ or_take:
         j     loop                      ; (answered later, lowest entry first)
 or_busy:
         li    a0, -7                    ; too many waiting readers
+        j     reply                     ; ...
+or_nb:  la    t0, rawm                  ; nothing yet, and the reader does not wait. Raw
+        ld    t0, 0(t0)                 ;   mode (nothing is echoed): one byte is read
+        beqz  t0, reply                 ;   ahead, so a reader that polls sees the rest
+        la    t0, inarm                 ;   of an escape sequence (vi, after an ESC)
+        ld    t0, 0(t0)                 ; (not twice, nor after the end of input)
+        bnez  t0, reply                 ; ...
+        la    t0, eofs                  ; ...
+        ld    t0, 0(t0)                 ; ...
+        bnez  t0, reply                 ; ...
+        call  arm_in                    ; ...
+        li    a0, -3                    ; nothing yet
         j     reply                     ; ...
 
 ; try_read(a0 = wanted) -> a0 = bytes copied into the request (c6), 0 at end
