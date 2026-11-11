@@ -38,7 +38,7 @@ enum { SYS_HALT = 0, SYS_ERET = 1, SYS_SVC = 2 };
 /* trap cause of svc (the full list: common/stx.h stx_cause_names) */
 enum { CAUSE_SVC = 14 };
 /* second capability group (OP_CAP2, funct[3:0]) */
-enum { C2_DOM, C2_REVOKE, C2_UNDOM, C2_SEND, C2_RECV, C2_MKEP };
+enum { C2_DOM, C2_REVOKE, C2_UNDOM, C2_SEND, C2_RECV, C2_MKEP, C2_SAVEX, C2_RESTOREX };
 
 enum { CSR_CYCLE, CSR_INSTRET, CSR_CAUSE, CSR_EPC, CSR_TVAL, CSR_TVEC, CSR_CCR,
        CSR_COREID, CSR_TTAG, CSR_TDATA, CSR_TGEOM, CSR_NCORES, CSR_SCRATCH,

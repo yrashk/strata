@@ -68,19 +68,20 @@ exists today, what is known to be missing or rough, and what is planned.
 - The in-browser emulator is an interpreter.
 
 **StrataOS**
-- A worker core holds at most 11 threads: a switched-out thread's memory
-  capabilities live in the core's 64-entry capability save table (a pool
-  of slots shared with the queues; endpoints and device capabilities are
-  rebuilt instead), 4 slots reserved per thread.
+- A worker core holds at most 16 threads: a switched-out thread's memory
+  capabilities live in the core's capability save table (256 entries; a
+  pool of slots shared with the queues; endpoints and device capabilities
+  are rebuilt instead), 10 slots reserved per thread: all it can hold. With
+  a 64-entry table (a platform parameter) 11 threads, 4 slots each.
 - Capability registers c8..c15 do not survive a context switch.
 - It needs at least 6 cores; at most 32 processes and 24 arenas of 1 MiB;
   a program's code is 32 KiB (more through code paging), its data 40 KiB.
-- Fixed-size queues: a server's core queues 8 requests (more are refused
-  with an error), and a core queues 11 capabilities in transit between
-  threads, all of them in the 12 slots of the save-table pool that are not
-  reserved for threads; a flood beyond that loses capabilities. A thread
-  holding more than 4 memory capabilities takes extra slots from the same
-  part; when none is left it is not switched out until one frees up.
+- Fixed-size queues: a server's core queues 16 requests (more are refused
+  with an error), and a core queues 16 capabilities in transit between
+  threads; a flood beyond that loses capabilities. (With a 64-entry save
+  table all queues share 12 slots, and a thread holding more than 4 memory
+  capabilities takes its extra slots from them; when none is left it is
+  not switched out until one frees up.)
 - `halt` waits for a pending console read (see above).
 - The file system is flat: contiguous files, 128 directory entries, files
   being written held in a 128 KiB region.
@@ -124,13 +125,12 @@ program is the next step.
   the words reachable from `main`.
 - Large programs: rarely used words as code units, paged on demand.
 
-**More threads per core.** Done in the kernel: the save table is a pool of
-slots shared by the threads and the queues, and a switched-out thread keeps
-only its memory capabilities there (endpoints and device capabilities are
-rebuilt on switch-in), so a core holds 11 threads instead of 3. Still open:
-- a bigger save table in the hardware (a register-indexed `csave` /
-  `crestore` and a platform-defined table size), weighed against its FPGA
-  cost; with it, every thread could have its worst case reserved;
+**More threads per core.** Done: the save table is a pool of slots shared
+by the threads and the queues, a switched-out thread keeps only its memory
+capabilities there (endpoints and device capabilities are rebuilt on
+switch-in), and the table has 256 entries (a platform parameter; `csavex` /
+`crestorex` reach slots past 63), so a core holds 16 threads instead of 3,
+each with its worst case reserved. Still open:
 - servers sharing cores (a request addressed to a process, not to a core),
   so that StrataOS runs on fewer than 6 cores;
 - sealed capabilities that the kernel can spill to memory it alone can

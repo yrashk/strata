@@ -556,7 +556,7 @@ enum {
   F_XF, F_TWAIT, F_TPOLL, F_AMO,
   F_C_CDCS, F_C_CDCSRX, F_C_RDCS, F_C_CSRX, F_C_CD, F_C_CSSLOT, F_C_CDSLOT,
   F_CSRR, F_CSRW, F_SYS, F_LTAG, F_LINST, F_XMAP, F_XUNMAP, F_XCALL, F_XRET,
-  F_C2_CDCS, F_C2_SEND, F_C2_MKEP,
+  F_C2_CDCS, F_C2_SEND, F_C2_MKEP, F_C2_CSRX,
 };
 
 typedef struct { const char *name; int fmt, op, fn, nops; } Insn;
@@ -607,6 +607,7 @@ static const Insn insns[] = {
   {"cdom", F_C2_CDCS, OP_CAP2, C2_DOM, 2}, {"crevoke", F_C2_CDCS, OP_CAP2, C2_REVOKE, 2},
   {"cundom", F_C2_CDCS, OP_CAP2, C2_UNDOM, 2}, {"crecv", F_C2_CDCS, OP_CAP2, C2_RECV, 2},
   {"csend", F_C2_SEND, OP_CAP2, C2_SEND, 2}, {"cmkep", F_C2_MKEP, OP_CAP2, C2_MKEP, 2},
+  {"csavex", F_C2_CSRX, OP_CAP2, C2_SAVEX, 2}, {"crestorex", F_C2_MKEP, OP_CAP2, C2_RESTOREX, 2},
 };
 
 static const Insn *find_insn(const char *m) {
@@ -685,7 +686,8 @@ static void assemble_insn(const Insn *in, char **o, int n) {
   case F_XRET: emit_insn(enc_r(in->op, 0, xreg(o[0]), 0, 1 << 4)); break;
   case F_C2_CDCS: emit_insn(enc_r(in->op, creg(o[0]), creg(o[1]), 0, in->fn)); break;
   case F_C2_SEND: emit_insn(enc_r(in->op, creg(o[1]), creg(o[0]), 0, in->fn)); break; /* csend cs, ce */
-  case F_C2_MKEP: emit_insn(enc_r(in->op, creg(o[0]), 0, xreg(o[1]), in->fn)); break;
+  case F_C2_MKEP: emit_insn(enc_r(in->op, creg(o[0]), 0, xreg(o[1]), in->fn)); break; /* also crestorex cd, rx */
+  case F_C2_CSRX: emit_insn(enc_r(in->op, 0, creg(o[0]), xreg(o[1]), in->fn)); break;  /* csavex cs, rx */
   }
 }
 

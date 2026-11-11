@@ -689,7 +689,9 @@ ins("cap", "CCLEAR", "Capability clear", L_R(OP["CAP"], rd=CD, rs1=None, rs2=Non
 ins("cap", "CSAVE", "Capability save to table",
     L_R(OP["CAP"], rd=None, rs1=CS, rs2=None, funct=cap_funct(12, slot=True)), ["csave cs, slot"],
     r"Stores capability \reg{cs} in slot \field{slot} (0--63) of the per-core capability save table. "
-    r"A linear capability is moved; a copyable one is copied. The save table belongs to the supervisor.",
+    r"A linear capability is moved; a copyable one is copied. The save table belongs to the supervisor. "
+    r"The immediate reaches only slots 0--63; \insn{csavex} reaches every slot of the table, whose size "
+    r"$\textit{CTAB}$ the platform table gives (256 by default).",
     """if Mode == User then Trap(priv, instr); end
 cap = C[cs];
 if not Live(cap) then Trap(capinv, cs); end
@@ -704,7 +706,8 @@ if Linear(cap) then C[cs] = NULLCAP; end""",
 ins("cap", "CRESTORE", "Capability restore from table",
     L_R(OP["CAP"], rd=CD, rs1=None, rs2=None, funct=cap_funct(13, slot=True)), ["crestore cd, slot"],
     r"Loads capability register \reg{cd} from save-table slot \field{slot}. A linear capability leaves the "
-    r"slot empty; a copyable one stays in the slot as well. Supervisor mode only.",
+    r"slot empty; a copyable one stays in the slot as well. Supervisor mode only. The immediate reaches only "
+    r"slots 0--63; \insn{crestorex} reaches every slot.",
     """if Mode == User then Trap(priv, instr); end
 cap = CTAB[slot];
 if not Live(cap) then Trap(capinv, slot); end
@@ -720,7 +723,7 @@ def cap2_funct(fn):
     return [(10, 4, b(0, 7), "z"), (3, 0, b(fn, 4), "f")]
 
 
-ILL_C2 = ("illegal", r"bit 25 or bit 20 is 1, or \field{funct}\texttt{<3:0>} $>$ 5", "instruction word")
+ILL_C2 = ("illegal", r"bit 25 or bit 20 is 1, or \field{funct}\texttt{<3:0>} $>$ 7", "instruction word")
 CE_RD = [(25, 25, "0", "f"), (24, 21, "ce", "v")]
 CE_RS = [(20, 20, "0", "f"), (19, 16, "ce", "v")]
 REVOKER_INV = ("capinv", r"\texttt{C[cs]} is not a revoker: not live, or lacks \perm{V}", r"\texttt{cs}")
@@ -854,6 +857,45 @@ C[cd] = Cap(valid: TRUE, space: EP, perms: {R, W, D}, base: X[rx], len: 1, dom: 
     notes=r"An endpoint conveys no access to memory: transfers through it trap with \cause{perm}. It is the only "
           r"capability an instruction creates from an integer, which is why making one is privileged.",
     fmt="R", opname="CAP2", funct="5")
+
+ins("cap", "CSAVEX", "Capability save to table, register slot",
+    L_R(OP["CAP2"], rd=None, rs1=CS, rs2="rx", funct=cap2_funct(6)), ["csavex cs, rx"],
+    r"Stores capability \reg{cs} in save-table slot \reg{rx}, which may be any slot of the table "
+    r"($0 \le \reg{rx} < \textit{CTAB}$, the table's size from the platform table: 256 by default, at least 64). "
+    r"Otherwise it is \insn{csave}: a linear capability is moved, a copyable one copied; slots 0--63 are the "
+    r"ones \insn{csave} names with its immediate. Supervisor mode only.",
+    """if Mode == User then Trap(priv, instr); end
+s = UInt(X[rx]);
+if s >= CTAB then Trap(capop, X[rx]); end
+cap = C[cs];
+if not Live(cap) then Trap(capinv, cs); end
+if not Replaceable(CTAB[s]) then Trap(capop, X[rx]); end
+CTAB[s] = cap;
+if Linear(cap) then C[cs] = NULLCAP; end""",
+    [ILL_C2, PRIV, ("capop", r"$\texttt{X[rx]} \ge \textit{CTAB}$ (checked first)", r"\texttt{X[rx]}"), CAPINV_CS,
+     ("capop", r"\texttt{CTAB[X[rx]]} holds a live non-\perm{D} capability", r"\texttt{X[rx]}")],
+    notes=r"The whole 64-bit value of \reg{rx} is the slot: a value of $2^{16}$ is out of range, not slot 0. "
+          r"A supervisor that keeps more capabilities than 64 (StrataOS keeps every switched-out thread's "
+          r"memory capabilities on its core) uses this form; the immediate forms are for fixed slots.",
+    fmt="R", opname="CAP2", funct="6")
+ins("cap", "CRESTOREX", "Capability restore from table, register slot",
+    L_R(OP["CAP2"], rd=CD, rs1=[(20, 20, "0", "f"), (19, 16, b(0, 4), "z")], rs2="rx", funct=cap2_funct(7)),
+    ["crestorex cd, rx"],
+    r"Loads capability register \reg{cd} from save-table slot \reg{rx} ($0 \le \reg{rx} < \textit{CTAB}$). "
+    r"Otherwise it is \insn{crestore}: a linear capability leaves the slot empty, a copyable one stays. "
+    r"Supervisor mode only.",
+    """if Mode == User then Trap(priv, instr); end
+s = UInt(X[rx]);
+if s >= CTAB then Trap(capop, X[rx]); end
+cap = CTAB[s];
+if not Live(cap) then Trap(capinv, X[rx]); end
+if not Replaceable(C[cd]) then Trap(capop, cd); end
+C[cd] = cap;
+if Linear(cap) then CTAB[s] = NULLCAP; end""",
+    [ILL_C2, PRIV, ("capop", r"$\texttt{X[rx]} \ge \textit{CTAB}$ (checked first)", r"\texttt{X[rx]}"),
+     ("capinv", r"\texttt{CTAB[X[rx]]} is not live", r"\texttt{X[rx]}"),
+     ("capop", r"\texttt{C[cd]} holds a live non-\perm{D} capability", r"\texttt{cd}")],
+    fmt="R", opname="CAP2", funct="7")
 
 # ---------------------------------------------------------------- system
 ins("sys", "CSRR", "Read control and status register",

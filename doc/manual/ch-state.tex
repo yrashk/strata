@@ -13,7 +13,7 @@ This chapter lists all state visible to software on one core, and the shared sta
 \reg{x0}--\reg{x31} & $32 \times 64$ bits & Integer registers. \reg{x0} reads as zero; writes to it are discarded.\\
 \reg{pc} & 64 bits & Address of the current instruction in the I-LS. Always a multiple of 4 when fetched.\\
 \reg{c0}--\reg{c15} & 16 capabilities & Capability registers (Chapter~\ref{ch:caps}).\\
-\texttt{CTAB[0..63]} & 64 capabilities & Capability save table, reached only by \insn{csave}/\insn{crestore}.\\
+\texttt{CTAB[0..}$\textit{CTAB}$\texttt{-1]} & 256 capabilities (the platform's $\textit{CTAB}$, $\ge 64$) & Capability save table, reached only by \insn{csave}/\insn{crestore} (slots 0--63) and \insn{csavex}/\insn{crestorex} (every slot).\\
 \reg{tg0}--\reg{tg15} & 16 tags & Transfer tags: each is busy while a transfer issued with it is in flight.\\
 \texttt{XMAP[0..15]} & 16 entries & Overlay map: (valid, space, far address, I-LS address).\\
 Inbox & 2 per sender & one FIFO queue of capabilities per sending node, filled by \insn{cgive} and \insn{csend}.\\
@@ -54,8 +54,11 @@ names of Table~\ref{tab:abi}; Appendix~\ref{app:abi} gives the calling conventio
 \subsection{Capability registers and the save table}
 
 The sixteen capability registers \reg{c0}--\reg{c15} each hold either a capability or nothing
-(\term{empty}, the null capability). Every far access names one. The 64-entry \term{capability save
-table} gives the supervisor somewhere to keep capabilities while a program owns the registers; it is
+(\term{empty}, the null capability). Every far access names one. The \term{capability save
+table} gives the supervisor somewhere to keep capabilities while a program owns the registers. Its size
+$\textit{CTAB}$ is a property of the platform, given by the platform table's header
+(Section~\ref{sec:stpd}): 256 entries by default, at least 64. \insn{csave} and \insn{crestore} name
+slots 0--63 with an immediate, \insn{csavex} and \insn{crestorex} any slot with a register. The table is
 not addressable memory, so capabilities can never be read or written as data, and user-mode code cannot
 reach it. Capabilities are described in Chapter~\ref{ch:caps}.
 

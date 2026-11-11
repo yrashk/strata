@@ -530,9 +530,11 @@ Ideas to evaluate:
   device capabilities are rebuilt on switch-in) and a one-thread process's
   image and save area are one capability, so a typical switched-out thread
   holds 3 slots. 11 threads per core (doc/strataos.md 2.1).
-- [ ] **A bigger or per-thread save table (ISA/RTL).** Grow the table
-  (LUT-RAM cost), or bank it per hardware context. Weigh the FPGA cost
-  (the 2-core xc7 build is already ~90k LUTs).
+- [x] **A bigger save table (ISA/RTL).** 256 entries (a platform
+  parameter, in the platform table's header), `csavex` / `crestorex` with
+  the slot in a register (CAP2 6, 7; capop past the end); emulator, RTL,
+  sasm, as, conformance `ctab`, manual. The kernel reserves every thread's
+  worst case (10 slots) and takes 16 threads per core.
 - [ ] **Capabilities in memory, sealed (ISA).** A `cseal`/`cunseal` pair
   that stores a capability into a kernel-only T2/T3 region (a tagged-memory
   page or a kernel table indexed by handle) so the kernel can spill any
@@ -559,7 +561,7 @@ Ideas to evaluate:
   (MEMORY length, SPAWN mode >> 16, sh `-m N`), revoked by address at exit; 64 arena
   slots and kernel process records; proc / fs / ws / ps tables at 64.
 - [x] tools/test-procs.sh: 35 processes at once on 15 cores, twice, memory reused.
-- [x] More than 3 threads per worker core: the save table is a pool (11 threads per core;
+- [x] More than 3 threads per worker core: the save table is a pool (16 threads per core, 11 with 64 slots;
   endpoints and device capabilities rebuilt on switch-in, not saved); see S2.
 - [ ] System memory beyond 64 MiB in the emulator - not done.
 

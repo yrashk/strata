@@ -57,7 +57,9 @@
  *
  * Platform table ("STPD"), little endian:
  *   header 32 B: magic "STPD", u16 version, u16 entry size, u16 entries,
- *                u16 cores, u32 total length, u32 checksum, 12 B reserved
+ *                u16 cores, u32 total length, u32 checksum, u16 entries
+ *                of each core's capability save table (CTAB; 0 means 64),
+ *                10 B reserved
  *   entry  32 B: u16 type, u16 index, u16 space, u16 node (cgive target,
  *                0xffff if none), u64 info, u64 base, u64 size
  *   checksum = sum of all bytes with the checksum field zero, mod 2^32 */
@@ -136,6 +138,12 @@ enum { PTR_MOVE = 1, PTR_BUTTON, PTR_WHEEL, PTR_ENTER, PTR_LEAVE }; /* event kin
 #define BLK_MAXCMD 256u /* blocks per command */
 #define BLK_QDEPTH 4u
 
+/* the capability save table: entries per core (csave / crestore with an
+ * immediate reach slots 0..63, csavex / crestorex any slot below CTAB) */
+#define CTAB_DEF 256u /* the default, and the RTL's */
+#define CTAB_MIN 64u
+#define CTAB_MAX 256u
+
 /* block commands and statuses */
 #define BLK_OP_READ 1
 #define BLK_OP_WRITE 2
@@ -161,8 +169,9 @@ static inline void plat_entry(uint8_t *e, int type, int index, int space, int no
   plat_put(e + 24, size, 8);
 }
 
-/* Fills buf[PLAT_LEN] for a framebuffer of fb_w x fb_h pixels. */
-static inline void plat_build_fb(uint8_t *buf, int ncores, uint64_t disk_blocks, unsigned fb_w, unsigned fb_h) {
+/* Fills buf[PLAT_LEN] for a framebuffer of fb_w x fb_h pixels and a save table of ctab entries. */
+static inline void plat_build_fb(uint8_t *buf, int ncores, uint64_t disk_blocks, unsigned fb_w, unsigned fb_h,
+                                 unsigned ctab) {
   memset(buf, 0, PLAT_LEN);
   memcpy(buf, "STPD", 4);
   plat_put(buf + 4, 1, 2);
@@ -170,6 +179,7 @@ static inline void plat_build_fb(uint8_t *buf, int ncores, uint64_t disk_blocks,
   plat_put(buf + 8, PLAT_ENTRIES, 2);
   plat_put(buf + 10, (uint64_t)ncores, 2);
   plat_put(buf + 12, PLAT_LEN, 4);
+  plat_put(buf + 20, ctab, 2);
   uint8_t *e = buf + 32;
   plat_entry(e + 0 * 32, PT_MEMORY, 0, 3, 0xffff, 0, T3_BYTES, 0);
   plat_entry(e + 1 * 32, PT_MEMORY, 1, 2, 0xffff, 0, T2_BYTES, 0);
@@ -188,7 +198,7 @@ static inline void plat_build_fb(uint8_t *buf, int ncores, uint64_t disk_blocks,
 
 /* Fills buf[PLAT_LEN] with the default framebuffer geometry. */
 static inline void plat_build(uint8_t *buf, int ncores, uint64_t disk_blocks) {
-  plat_build_fb(buf, ncores, disk_blocks, FB_DEF_WIDTH, FB_DEF_HEIGHT);
+  plat_build_fb(buf, ncores, disk_blocks, FB_DEF_WIDTH, FB_DEF_HEIGHT, CTAB_DEF);
 }
 
 /* Parses -r WxH; false if malformed or out of range. */

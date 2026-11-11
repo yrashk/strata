@@ -219,7 +219,7 @@ Chapter~\ref{ch:encoding}. Table~\ref{tab:insindex} lists every instruction.
   node, and its supervisor must hand it the buffer that comes back.
 \item[Cores] At most 15 cores: fifteen cores and the block device are the sixteen inbox senders that
   the masks of \insn{cpoll} and \insn{tany} describe.
-\item[StrataOS] The limits of Table~\ref{tab:os-limits} apply: 11 threads per core, 1~MiB arenas,
+\item[StrataOS] The limits of Table~\ref{tab:os-limits} apply: 16 threads per core (11 with a 64-slot save table), 1~MiB arenas,
   eight handles. A thread's \reg{c8}--\reg{c15} do not survive a context switch. An attachment is paired
   with the next message from the same core, so a process that sends attachments must be alone on its
   core or tolerate the pairing. A file being written is limited to 128~KiB, and the directory to 128

@@ -76,8 +76,12 @@
 {{section:ch-state.tex:Per-core state}}
 {{table:tab:state}}
 {{table:tab:abi}}
-<p>The 64-entry capability save table is not addressable memory: capabilities can never be read or
-  written as data, and user-mode code cannot reach it. Each transfer names one of sixteen tags; a tag
+<p>The capability save table (256 entries by default; its size is a platform parameter, published in
+  the platform table's header) is not addressable memory: capabilities can never be read or
+  written as data, and user-mode code cannot reach it. <a href="../isa/#insn-csave"><code class="insn">csave</code></a> and
+  <a href="../isa/#insn-crestore"><code class="insn">crestore</code></a> name slots 0&ndash;63 with an immediate;
+  <a href="../isa/#insn-csavex"><code class="insn">csavex</code></a> and
+  <a href="../isa/#insn-crestorex"><code class="insn">crestorex</code></a> take the slot from a register and reach every one. Each transfer names one of sixteen tags; a tag
   is busy from issue to completion, and because transfers are as-if-synchronous, tags affect only
   <em>when</em> a core waits, never what it computes.</p>
 

@@ -18,7 +18,8 @@ package strata_pkg;
 
   localparam int NTAGS     = 16;
   localparam int NCAPS     = 16;
-  localparam int CTAB      = 64;       // capability save table entries
+  localparam int CTAB      = 256;      // capability save table entries (common/platform.h CTAB_DEF)
+  localparam int CTW       = $clog2(CTAB); // a slot number
   localparam int NXMAP     = 16;       // overlay map entries
   localparam int GRAN_SHIFT = 18;      // revocation granules of T2 and T3: 256 KiB
   localparam int NG3       = T3_BYTES >> GRAN_SHIFT;   // T3 granules
@@ -108,7 +109,7 @@ package strata_pkg;
 
   // second capability group (OP_CAP2, funct[3:0])
   localparam logic [3:0] C2_DOM = 4'd0, C2_REVOKE = 4'd1, C2_UNDOM = 4'd2, C2_SEND = 4'd3,
-                         C2_RECV = 4'd4, C2_MKEP = 4'd5;
+                         C2_RECV = 4'd4, C2_MKEP = 4'd5, C2_SAVEX = 4'd6, C2_RESTOREX = 4'd7;
 
   // ALU funct (OP_ALU, funct[5:0])
   localparam logic [3:0] ALU_ADD = 4'd0,  ALU_SUB  = 4'd1,  ALU_AND  = 4'd2,  ALU_OR   = 4'd3;

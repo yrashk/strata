@@ -304,6 +304,14 @@ greater length.
   (256 KiB granules, a generation each): there is no fixed number of
   revocable regions, so the number of processes is limited by memory.
 
+- **A bigger save table.** Each core's capability save table has CTAB
+  slots, a platform parameter in the platform table's header (u16 at offset
+  20; 256 by default, at least 64; `strata-emu -S N`). `csavex cs, rx` and
+  `crestorex cd, rx` (CAP2 functions 6 and 7) take the slot from a register
+  and reach all of them; `csave` / `crestore` keep their 6-bit immediate
+  (slots 0..63). A slot >= CTAB traps capop with tval = x[rx], before any
+  other check but privilege. Supervisor only, like the immediate forms.
+
 ### 2.1 Shape
 
 - **Kernel = the system core (core 0) + a dispatcher on every worker core.**
@@ -382,37 +390,43 @@ greater length.
   threads go on the run of N contiguous server-free cores whose busiest
   core is least loaded. SPAWN can pin a process to a core (the shell's
   `-c N`).
-- **Eleven threads per worker core.** A switched-out thread's capabilities
+- **Sixteen threads per worker core.** A switched-out thread's capabilities
   must stay on its core (capabilities never live in memory), in the core's
-  64-slot capability save table. Seven slots are the dispatcher's own; the
-  other 57 are a **pool** shared by the threads and the queues (the
-  server's queued and parked requests, the attachments and gifts waiting for
-  their messages). A thread takes slots only for what cannot be rebuilt:
-  memory capabilities (its memory c0, its message buffer c5, one capability
-  for its image and save area, which are adjacent, or two for a thread of a
-  multi-threaded process, and whatever memory it holds in c1..c7). Endpoints
-  (a node and permissions) are minted again on switch-in and device
-  capabilities (the clock in c7, a console port) are cut again from the
-  device root, so a typical thread holds 3 slots, a loaded one 1. Every
-  thread record has **4 slots reserved** (the server's 5), 11 × 4 + 1 = 45:
-  the first slots a thread takes never fail, so placing a thread on a core
-  with a free record is placing it where its slots are. The other 12 are
-  the **general part**: extra slots of a thread (at most 8, so 4 always stay
-  for the queues) and the queue entries. A full general part refuses a
-  request (back with -1, as a full queue does), a PARK (-1), drops an
-  attachment, and keeps a thread whose extra capability finds no slot
-  loaded until one frees up. A thread can only fill the general part by
-  holding more than 4 memory capabilities. Core 0 places a thread only on a
-  core with a free record and a free job record; CREATE fails with -5
-  otherwise. `cores` shows each core's free slots. Other limits: 64
-  processes and 64 arenas (the kernel's, `proc`'s, `fs`'s and `ws`'s
-  tables), memory (a 46 MiB arena pool), 8 handles per process. With 15
-  cores memory binds first (`tools/test-procs.sh` runs 35 processes at
-  once); with 6, the fewest StrataOS needs, 35 run at once as well, 11 on
-  each of the three cores that take programs (proc and tty are alone on
-  theirs). With the fixed split of old (24 slots for c0..c7 of three
-  threads, 16 for requests, 11 for attachments) a core held three threads,
-  and 6 cores 11 processes.
+  capability save table: 256 slots on the default platform (its size is in
+  the platform table's header; `csavex` / `crestorex` reach every slot,
+  `csave` / `crestore` with an immediate slots 0..63). Seven slots, 57..63,
+  are the dispatcher's own; the other 249 are a **pool** shared by the
+  threads and the queues (the server's queued and parked requests, the
+  attachments and gifts waiting for their messages). A thread takes slots
+  only for what cannot be rebuilt: memory capabilities (its memory c0, its
+  message buffer c5, one capability for its image and save area, which are
+  adjacent, or two for a thread of a multi-threaded process, and whatever
+  memory it holds in c1..c7). Endpoints (a node and permissions) are minted
+  again on switch-in and device capabilities (the clock in c7, a console
+  port) are cut again from the device root, so a typical thread holds 3
+  slots, a loaded one 1. Every thread record has **10 slots reserved**, all
+  a thread can ever need (save area, image share, c0..c7): 16 × 10 = 160,
+  and the 89 others, the **general part**, hold the queue entries (48 at
+  most). Nothing runs out, so placing a thread on a core with a free record
+  is placing it where its slots are. Core 0 places a thread only on a core
+  with a free record and a free job record; CREATE fails with -5
+  otherwise. `cores` shows each core's free slots.
+  The kernel sizes the pool from the platform table at boot. With a 64-slot
+  table (`strata-emu -S 64`) a core takes 11 threads with 4 slots reserved
+  each (the server 5) and 12 general slots: a thread's extra slots (at most
+  8, so the queues keep 4) and the queue entries share them, and a full
+  general part refuses a request (back with -1, as a full queue does), a
+  PARK (-1), drops an attachment, and keeps a thread whose extra capability
+  finds no slot loaded until one frees up.
+  Other limits: 64 processes and 64 arenas (the kernel's, `proc`'s, `fs`'s
+  and `ws`'s tables), memory (a 46 MiB arena pool), 8 handles per process.
+  With 15 cores memory binds first (`tools/test-procs.sh` runs 35 processes
+  at once); with 6, the fewest StrataOS needs, the three cores that take
+  programs (proc and tty are alone on theirs) hold 16 threads each, 50
+  processes, so memory binds there too (the test runs 43 at once; 35 with
+  a 64-slot table). With the fixed split of old (24 slots for c0..c7 of
+  three threads, 16 for requests, 11 for attachments) a core held three
+  threads, and 6 cores 11 processes.
 
 ### 2.2 Context switches: the cost is explicit
 

@@ -47,7 +47,7 @@
 ;   0x1900 keyword hash heads                   0x1B00 small scratch buffers
 ;   0x2000 source window   0x2400 line buffer   0x2800 output windows
 ;   0x2C00 li sizes        0x3000 symbol hash heads
-;   0x3800..0xA000 record heap (keywords, then symbols)
+;   0x3800..0xA000 record heap (keywords, then symbols; bare metal: to 0xE000)
 ;   stack: down from 0x10000 (StrataOS gives it to the running program)
 
 ; ---- encoding constants (mirrors asm/isa.h) ----------------------------------
@@ -144,6 +144,7 @@ SYMHASH  = 0x3000                       ; 1024 symbol chain heads (u16)
 SYMMASK  = 1023                         ; symbol hash mask
 HEAP     = 0x3800                       ; record heap start
 HEAPEND  = 0xA000                       ; record heap end (StrataOS data limit)
+HEAPEND_BARE = 0xE000                   ; ... on bare metal (8 KiB of stack above it)
 
 ; ---- arena layouts in system memory (offsets within c0) ------------------------
 IN_OS    = 0x80000                      ; StrataOS: input
@@ -189,6 +190,7 @@ R_NAME   = 12                           ; name bytes follow
 ; =============================================================================
         .align 8                        ; variables are 64-bit words
 v_mode:   .dword 0                      ; 1 = under StrataOS, 0 = bare metal
+v_hend:   .dword HEAPEND                ; record heap end (bare metal: HEAPEND_BARE)
 v_org:    .dword 0                      ; text origin
 v_inbase: .dword 0                      ; arena offset of the source
 v_inlen:  .dword 0                      ; source length
@@ -384,6 +386,10 @@ kwtab:                                  ; keyword table (copied into the keyword
         .byte K_OP, F_CDCS, 2, 0x35, 4  ; second capability group, recv
         .asciz "cmkep"                  ; make an endpoint capability
         .byte K_OP, F_MKEP, 2, 0x35, 5  ; second capability group, mkep
+        .asciz "csavex"                 ; capability -> table slot x[rs]
+        .byte K_OP, F_CSRX, 2, 0x35, 6  ; second capability group, save (cs in rs1, slot in rs2)
+        .asciz "crestorex"              ; table slot x[rs] -> capability
+        .byte K_OP, F_MKEP, 2, 0x35, 7  ; second capability group, restore (cd, slot in rs2)
         .asciz "tany"                   ; wait for any of tags or the inbox
         .byte K_OP, F_RRK, 2, 0x36, 0   ; opcode 0x36
         .asciz "csrr"                   ; read a CSR
@@ -710,6 +716,8 @@ st_os:                                  ; StrataOS: arena layout of `run`
         j     fail                      ; report
 st_bare:                                ; bare metal: our own layout of system memory
         sd    zero, v_mode(zero)        ; mode 0: bare metal
+        li    t0, HEAPEND_BARE          ; the whole D-LS below the stack for records
+        sd    t0, v_hend(zero)          ; ...
         sd    zero, v_org(zero)         ; text origin 0
         li    t0, IN_BARE               ; input offset in system memory
         sd    t0, v_inbase(zero)        ; remember
@@ -1987,7 +1995,7 @@ insert:                                 ; routine entry (leaf)
         srli  t1, t1, 3                 ; rounded up
         slli  t1, t1, 3                 ; to 8 bytes
         add   t2, t0, t1                ; new heap top
-        li    t3, HEAPEND               ; heap limit
+        ld    t3, v_hend(zero)          ; heap limit
         bltu  t3, t2, in_full           ; no room
         sd    t2, v_heap(zero)          ; claim it
         sd    a5, R_VAL(t0)             ; value

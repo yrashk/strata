@@ -28,8 +28,9 @@ tools/test-break.sh, tools/test-preempt.sh, tools/test-as.sh (StrataOS part), Ma
 - User attachments: svc 12 SEND (sys_msga): attachment + message sent by the dispatcher
   in one step. (`csend cX, cE` then `csend c5, cE` is reliable only from processes alone
   on their core: proc, F_SOLO, still does that.)
-- Max 11 threads per worker core (NSLOT; the save table is a pool: 4 slots reserved per
-  thread record, the server 5, 12 general for queues and extra slots). Placement: servers on empty cores;
+- Max 16 threads per worker core (NSLOT; the save table is a pool: 10 slots reserved per
+  thread record with the default 256-entry table, 89 general for the queues; with a
+  64-entry table 11 threads, 4 slots reserved, the server 5, 12 general). Placement: servers on empty cores;
   ordinary 1-thread processes prefer cores with a server (score = processes + 1 if no
   server); N threads on N contiguous non-server cores with the least-loaded busiest core.
 - No exclusive cores (user decision): bare programs and `-n N` = N threads, window
@@ -161,7 +162,7 @@ tools/test-break.sh, tools/test-preempt.sh, tools/test-as.sh (StrataOS part), Ma
   the requests sent to that core. It stays an ordinary child (WAIT, `kill`, Ctrl-C work;
   `ps` shows "ws (server)"). When it ends (exit, kill, fault) the kernel clears the
   core's server slot, its registry name goes (LOOKUP "ws" -> -4), and `ws` can be run
-  again. Other processes then time-share ws's core like any server core (11 threads per
+  again. Other processes then time-share ws's core like any server core (16 threads per
   core in all, ws included).
   REGISTER is now checked (spec 2.4): -5 unless the caller was started as a server (boot
   servers, `ws`); -7 if another live process holds the name.

@@ -247,9 +247,9 @@ strata$ ws                          # the window server takes the screen
   disk is 16 MiB.
 - **Cores.** `make boot` boots 12 cores: the system core, five servers and
   six cores free for threads. The minimum is 6 (the shell then shares a
-  server's core). A worker core holds up to 11 threads (its capability save
-  table is a pool of slots; endpoints and device capabilities are rebuilt
-  on switch-in rather than saved).
+  server's core). A worker core holds up to 16 threads (its 256-entry
+  capability save table is a pool of slots; endpoints and device
+  capabilities are rebuilt on switch-in rather than saved).
 
 Boot goes: boot ROM (firmware) → platform table → block device → boot
 header → the kernel into every core's Local Stores. The kernel loads
@@ -405,12 +405,12 @@ the main points:
 
 - It has never run on hardware. The RTL is not pipelined, and the 2-core
   system is large for a hobby FPGA.
-- A worker core holds at most 11 threads (the 64-slot capability save
-  table, shared by the threads and the queues), and StrataOS needs at
-  least 6 cores (one server per core). The number of processes is
-  otherwise limited by memory (a 46 MiB arena pool, 1 MiB per process by
-  default) and by 64-entry kernel and server tables: 15 cores, and 6, run
-  35 processes at once (`tools/test-procs.sh`).
+- A worker core holds at most 16 threads (the kernel's process records;
+  the 256-entry capability save table reserves all their capabilities),
+  and StrataOS needs at least 6 cores (one server per core). The number of
+  processes is otherwise limited by memory (a 46 MiB arena pool, 1 MiB per
+  process by default) and by 64-entry kernel and server tables: 15 cores
+  run 35 processes at once, 6 cores 43 (`tools/test-procs.sh`).
 - A console read cannot be cancelled, so `halt` may wait for one more key
   when a program was waiting for input.
 - The file system has tags instead of directories (`ls /src/demo` lists

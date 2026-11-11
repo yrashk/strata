@@ -4,8 +4,9 @@
 ;
 ; What it checks (common/platform.h)
 ;   * Header (32 bytes): "STPD", u16 version 1, u16 entry size 32, u16
-;     entries 9, u16 cores, u32 total length 320, u32 checksum, 12 bytes
-;     reserved (zero).
+;     entries 9, u16 cores, u32 total length 320, u32 checksum, u16 entries
+;     of the capability save table (256, the default), 10 bytes reserved
+;     (zero).
 ;   * checksum = the sum of all 320 bytes with the checksum field taken as
 ;     zero, mod 2^32.
 ;   * The nine entries (u16 type, u16 index, u16 space, u16 node, u64 info,
@@ -59,8 +60,8 @@ main:
         or    a1, a1, t0                ; expected
         call  chk                       ; check
         lwu   s2, 16(s1)                ; s2 = the stored checksum
-        lwu   a0, 20(s1)                ; reserved
-        li    a1, 0                     ; zero
+        lwu   a0, 20(s1)                ; the save table's entries (and 2 reserved bytes)
+        li    a1, 256                   ; the default
         call  chk                       ; check
         ld    a0, 24(s1)                ; reserved
         li    a1, 0                     ; zero

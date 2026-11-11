@@ -12,7 +12,7 @@
 ;   * Illegal (tval = the instruction word): every unassigned opcode, SYS
 ;     with an unknown imm16, svc in supervisor mode, a transfer sub-op > 2,
 ;     tamo with an unknown op or nonzero reserved bits, a capability op whose
-;     capability-register field has bit 4 set, CAP2 functions > 5, xmap with
+;     capability-register field has bit 4 set, CAP2 functions > 7, xmap with
 ;     an index >= 16.
 ;   * Two register banks of trap state: in supervisor mode cause/epc/tval/
 ;     tvec name the supervisor's, in user mode the user's (ucause/uepc/utval/
@@ -229,10 +229,10 @@ ill_26: .word 0x34 << 26 | 18 << 16 | 6 ; cbase (fn 6) with cs field = 18
         la    a1, ill_26                ; expected epc
         li    a2, 0x34 << 26 | 18 << 16 | 6 ; expected tval
         call  chkt                      ; check
-ill_27: .word 0x35 << 26 | 6            ; CAP2 function 6 (0..5 assigned)
+ill_27: .word 0x35 << 26 | 8            ; CAP2 function 8 (0..7 assigned)
         li    a0, C_ILLEGAL             ; expected cause
         la    a1, ill_27                ; expected epc
-        li    a2, 0x35 << 26 | 6        ; expected tval
+        li    a2, 0x35 << 26 | 8        ; expected tval
         call  chkt                      ; check
 ill_28: .word 0x3d << 26 | 16 << 21     ; xmap with index 16 (0..15)
         li    a0, C_ILLEGAL             ; expected cause
@@ -426,6 +426,16 @@ upc6:   cmkep c5, t0                    ; making an endpoint: privileged
         li    a0, C_PRIV                ; expected cause
         la    a1, upc6                  ; expected epc
         li    a2, 0x35 << 26 | 5 << 21 | 5 << 11 | 5 ; expected tval: cmkep c5, t0
+        call  chkt                      ; check
+upc7:   csavex c2, t0                   ; the register-indexed forms are the supervisor's too
+        li    a0, C_PRIV                ; expected cause
+        la    a1, upc7                  ; expected epc
+        li    a2, 0x35 << 26 | 2 << 16 | 5 << 11 | 6 ; expected tval: csavex c2, t0
+        call  chkt                      ; check
+upc8:   crestorex c5, t0                ; ...
+        li    a0, C_PRIV                ; expected cause
+        la    a1, upc8                  ; expected epc
+        li    a2, 0x35 << 26 | 5 << 21 | 5 << 11 | 7 ; expected tval: crestorex c5, t0
         call  chkt                      ; check
         li    t0, 1                     ; t0 = core 1
 ugv:    cgive c2, t0                    ; user mode with no core window: nobody to give to

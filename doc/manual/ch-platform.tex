@@ -113,7 +113,8 @@ little-endian.
 10 & u16 & number of cores $N$\\
 12 & u32 & total length of the table in bytes (320)\\
 16 & u32 & checksum: sum of all bytes of the table, with this field taken as zero, mod $2^{32}$\\
-20 & u8[12] & reserved, zero\\
+20 & u16 & $\textit{CTAB}$: entries of every core's capability save table (64--256; 256 by default). 0 in an older table means 64\\
+22 & u8[10] & reserved, zero\\
 \bottomrule
 \end{tabular}
 \end{table}

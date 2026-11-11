@@ -37,6 +37,7 @@ found and how it was decided.
 | `alu`, `ls`, `branch` | generated (`gen/gen_*.py`): every ALU op, load/store width and branch |
 | `traps` | causes, epc/tval, the two trap banks, routing, privilege, the inbox rule, stop |
 | `caps` | reset capabilities; cmov/csplit/cjoin/cshare/catomic/crestrict/csave/crestore |
+| `ctab` | the save table beyond slot 63: csavex/crestorex, its size from the platform table, the same slots as the immediate forms, linearity and replacement, out of range (capop, tval = the register's value, checked first), 192 capabilities in slots 64..255 |
 | `capalign` | a capability's base alignment (F6) |
 | `dom` | revocation by address: cdom/crevoke/cundom, granule alignment, units and cjoin, revoker pieces, generations through split/share/save/gifts, 40 regions; endpoints, self-gifts |
 | `xfer` | transfer hazards, tags, faults and their order, `tamo` |
@@ -47,7 +48,7 @@ found and how it was decided.
 | `devspan` | byte-per-beat device transfers across registers |
 | `console`, `break`, `brkrel`, `inrel` | output, input, end of input, Ctrl-C (`-b`), one release for every break read (F4) and for waiting input reads |
 | `blk` | the block device: identify, write/read/flush, errors, the completion queue |
-| `plat` | the platform table: layout, checksum, every entry |
+| `plat` | the platform table: layout (the save table's size in the header), checksum, every entry |
 | `ptr` | the pointer: STATE, EVENT order and packing, release by a write |
 | `mc` | gifts between cores, per-sender queues, `ctake` from, `cpoll`, `tany` on the inbox, windows, revocation across cores, stop, a halted target |
 | `reserved` | reserved CSRs, CCR bits, ignored fields |

@@ -213,15 +213,15 @@ loaded. The shell's \texttt{-c N} pins a process to core $N$.
 \begin{tabularx}{\linewidth}{@{}X l@{}}
 \toprule
 \textbf{Resource} & \textbf{Limit}\\\midrule
-Threads resident on one worker core & 11 (each with 4 save-table slots reserved, the server 5)\\
+Threads resident on one worker core & 16, each with 10 save-table slots reserved (with a 64-slot table: 11, with 4, the server 5)\\
 Threads of one process & 6\\
 Processes & memory: one arena each, 1~MiB by default, from a 46~MiB pool; 64 at most (kernel, \texttt{proc}, \texttt{fs} and \texttt{ws} tables)\\
 Arenas & 64 (the kernel's arena slots); each 1--255~MiB, whole 256~KiB granules\\
 Program image; code and code cache; data; stack & 128~KiB; 32~KiB; 40~KiB; 8~KiB\\
 Handles per process & 8\\
 Message data & 4032 bytes\\
-Requests queued at a server's core; requests parked by a server & 8; 8 (all queues: 12 save-table slots)\\
-Capabilities queued at a core as attachments and gifts between threads & 11\\
+Requests queued at a server's core; requests parked by a server & 16; 16\\
+Capabilities queued at a core as attachments and gifts between threads & 16\\
 Pipes; bytes buffered per pipe & 8; 2~KiB\\
 Files in the directory; tags on the disk & 128; 64\\
 \bottomrule
@@ -230,17 +230,21 @@ Files in the directory; tags on the disk & 128; 64\\
 
 With 15 cores memory binds first: \texttt{tools/test-procs.sh} runs 35 processes at once. With 6
 cores, the fewest StrataOS runs on, proc and tty have a core each and the three other server cores
-take 11 threads each, so 35 processes run at once there as well; with three threads per core, as
-before the save-table pool, 6 cores held 11 processes. Before revocation by address there were 15
+take 16 threads each: 50 processes, and memory (46 one-MiB arenas) binds first again;
+\texttt{tools/test-procs.sh} runs 43 at once there. With a 64-slot save table a core takes 11 threads
+(35 processes on 6 cores), and with three threads per core, as before the save-table pool, 6 cores
+held 11 processes. Before revocation by address there were 15
 revocation domains, one per arena, so at most 14 processes.
 
 \subsection{The save-table pool}\label{sec:os-pool}
 
 Capabilities never live in memory, so a switched-out thread's \reg{c0}--\reg{c7} stay on its core, in
-the capability save table. A dispatcher keeps 7 slots for its own capabilities (the shared table,
-core control, the clock, the console, the device root and the two registers it borrows from the
-running thread); the other 57 are a \term{pool} shared by the threads and the queues, with a bitmap
-of the slots taken. A thread takes slots only for what cannot be rebuilt:
+the capability save table: 256 slots on the default platform ($\textit{CTAB}$, from the platform
+table), reached with \insn{csavex} and \insn{crestorex}. A dispatcher keeps 7 slots for its own
+capabilities (the shared table, core control, the clock, the console, the device root and the two
+registers it borrows from the running thread), at 57--63 where the immediate forms reach them; the
+other 249 are a \term{pool} shared by the threads and the queues, with a bitmap of the slots taken. A
+thread takes slots only for what cannot be rebuilt:
 \begin{itemize}
 \item memory: its memory \reg{c0}, its message buffer \reg{c5}, and its image and save area, which
   are adjacent in its arena and for a thread alone in its process are one capability (a thread of a
@@ -253,12 +257,17 @@ of the slots taken. A thread takes slots only for what cannot be rebuilt:
   length and permissions, linear or copyable as it was.
 \end{itemize}
 A typical thread therefore holds 3 slots while it is switched out and 1 while it runs. Every thread
-record has 4 slots reserved (the server's record 5), $11 \times 4 + 1 = 45$, and the first slots a
-thread takes are charged to its reservation, so they never fail: a free thread record on a core
-means free slots too, and the system core places a thread only on a core with a free record (and
-a free job record). The remaining 12 are the \term{general part}, for the queue entries (requests,
-parked requests, attachments and gifts) and the extra slots of a thread that holds more than 4
-memory capabilities; threads may take at most 8 of them, so the queues always have 4. A full general
+record has 10 slots reserved, all a thread could ever need (a save area, an image share and all eight
+registers), and a thread's slots are charged to its reservation, so they never fail: a free thread
+record on a core means free slots too, and the system core places a thread only on a core with a free
+record (and a free job record); CREATE fails with $-5$ otherwise. $16 \times 10 = 160$; the other 89
+are the \term{general part}, for the queue entries (requests, parked requests, attachments and gifts:
+48 at most), so nothing ever runs out.
+
+The kernel sizes all of this from the platform table at boot. With a 64-slot table (the emulator's
+\texttt{-S 64}) the pool is 57 slots and a core takes 11 threads with 4 slots reserved each (the
+server's record 5); the 12 general slots then hold the queue entries and the extra slots of a thread
+that holds more than 4 memory capabilities (at most 8, so the queues always have 4). A full general
 part refuses a request (it goes back with result $-1$, like a full queue), a PARK ($-1$), drops an
 attachment, and keeps a thread whose extra capability finds no slot loaded until a slot frees up.
 \texttt{cores} shows the free slots of every core.

@@ -120,7 +120,7 @@ module strata_decode
         d.cs   = funct[3:0];
       end
       OP_CAP2: begin
-        d.kind = (funct[3:0] <= C2_MKEP && !ir[25] && !ir[20]) ? K_CAP2 : K_ILLEGAL;
+        d.kind = (funct[3:0] <= C2_RESTOREX && !ir[25] && !ir[20]) ? K_CAP2 : K_ILLEGAL;
       end
       OP_TANY: d.kind = K_TANY;
       OP_XCALL: begin

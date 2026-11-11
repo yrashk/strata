@@ -35,7 +35,7 @@
 
 #define MAXCORES 15 /* + the block device = 16 inbox senders, the width of cpoll/tany masks */
 #define NCAPS 16
-#define CTAB 64
+#define CTABMAX CTAB_MAX /* save-table entries at most; ctab_size of them exist (-S) */
 #define NXMAP 16
 #define NGRAN3 (T3_BYTES >> GRAN_SHIFT) /* revocation granules of T3 */
 #define NGRAN2 (T2_BYTES >> GRAN_SHIFT) /* ... and of T2 (after T3's in the table) */
@@ -121,7 +121,7 @@ typedef struct {
   int id;
   bool halted, blocked, traced;
   uint64_t pc, x[32];
-  Cap caps[NCAPS], ctab[CTAB];
+  Cap caps[NCAPS], ctab[CTABMAX];
   bool xm_v[NXMAP];
   uint8_t xm_sp[NXMAP];
   uint64_t xm_far[NXMAP], xm_ils[NXMAP];
@@ -175,6 +175,7 @@ static uint64_t net_lstat;      /* network STATUS, latched when its byte 0 is re
 
 static Core cores[MAXCORES];
 static int ncores = 4;
+static uint64_t ctab_size = CTAB_DEF; /* capability save-table entries per core (-S) */
 static uint8_t *t2, *t3;
 static FILE *trace;
 static bool faulted;
@@ -998,7 +999,7 @@ static bool step(Core *c) {
 
   case OP_CAP2: {
     unsigned fn = funct & 15, cd = rd & 15, cs = rs1 & 15;
-    if ((rd | rs1) & 16 || fn > C2_MKEP) { trap(c, C_ILLEGAL, ir); return true; }
+    if ((rd | rs1) & 16 || fn > C2_RESTOREX) { trap(c, C_ILLEGAL, ir); return true; }
     if (c->user && fn != C2_SEND && fn != C2_RECV) { trap(c, C_PRIV, ir); return true; }
     Cap s = c->caps[cs], dcap = c->caps[cd];
     switch (fn) {
@@ -1068,6 +1069,20 @@ static bool step(Core *c) {
       if (!DEST_OK(dcap)) { trap(c, C_CAPOP, cd); return true; }
       if (b > (uint64_t)ncores) { trap(c, C_CAPOP, b); return true; }
       c->caps[cd] = (Cap){true, SP_EP, P_R | P_W | P_D, b, 1, 0, 0};
+      break;
+    case C2_SAVEX: /* csavex cs, rx: csave with the slot in x[rx], any slot of the table */
+      if (b >= ctab_size) { trap(c, C_CAPOP, b); return true; }
+      if (!live(s)) { trap(c, C_CAPINV, cs); return true; }
+      if (!DEST_OK(c->ctab[b])) { trap(c, C_CAPOP, b); return true; }
+      c->ctab[b] = s;
+      if (!(s.perms & P_D)) c->caps[cs] = (Cap){0};
+      break;
+    case C2_RESTOREX: /* crestorex cd, rx: crestore from slot x[rx] */
+      if (b >= ctab_size) { trap(c, C_CAPOP, b); return true; }
+      if (!live(c->ctab[b])) { trap(c, C_CAPINV, b); return true; }
+      if (!DEST_OK(dcap)) { trap(c, C_CAPOP, cd); return true; }
+      c->caps[cd] = c->ctab[b];
+      if (!(c->ctab[b].perms & P_D)) c->ctab[b] = (Cap){0};
       break;
     }
     break;
@@ -1545,7 +1560,7 @@ static int machine_round(void) {
 #define USAGE                                                                                         \
   "usage: strata-emu [-c ncores] [-t trace.txt] [-m max_steps] [-d disk.img] [-i input.txt]\n"       \
   "                  [-P pointer.txt] [-b steps] [-T real|virtual] [-g none] [-F frame.ppm]\n"             \
-  "                  [-z scale] [-r WxH]\n"                                                         \
+  "                  [-z scale] [-r WxH] [-S entries]\n"                                              \
   "                  [-H] [-N mode] [-J|-j] image.stx\n"                                                                     \
   "  -c N        cores (1..15, default 4)\n"                                                          \
   "  -t FILE     write an instruction trace\n"                                                        \
@@ -1554,6 +1569,7 @@ static int machine_round(void) {
   "  -i FILE     console input from FILE (default: the terminal / stdin)\n"                          \
   "  -P FILE     scripted pointer input (see common/display.h)\n"                                   \
   "  -b N        press Ctrl-C after N steps\n"                                                        \
+  "  -S N        capability save-table entries per core (64..256, default 256)\n"                     \
   "  -T MODE     timer: real (host microseconds, default) or virtual (rounds / 100)\n"               \
   "  -g none     never open a window (PRESENT still records the frame)\n"                            \
   "  -F FILE     at exit, write the frame as of the last PRESENT as a binary PPM\n"                          \
@@ -1581,6 +1597,10 @@ int main(int argc, char **argv) {
     bool more = i + 1 < argc;
     if (!strcmp(argv[i], "-d") && more) disk_path = argv[++i];
     else if (!strcmp(argv[i], "-b") && more) opt_break_at = strtoull(argv[++i], NULL, 0);
+    else if (!strcmp(argv[i], "-S") && more) {
+      ctab_size = strtoull(argv[++i], NULL, 0);
+      if (ctab_size < CTAB_MIN || ctab_size > CTAB_MAX) { fputs("strata-emu: -S: 64..256\n", stderr); return 2; }
+    }
     else if (!strcmp(argv[i], "-i") && more) in_path = argv[++i];
     else if (!strcmp(argv[i], "-P") && more) {
       if (!host_ptr_script_open(argv[++i])) { perror(argv[i]); return 2; }
@@ -1624,7 +1644,7 @@ int main(int argc, char **argv) {
   host_clock_start();
   host_display_init(gfx, scale, ppm, fb_w, fb_h);
   disk = stx_disk_load(disk_path, &disk_blocks);
-  plat_build_fb(plat_rom, ncores, disk_blocks, fb_w, fb_h);
+  plat_build_fb(plat_rom, ncores, disk_blocks, fb_w, fb_h, ctab_size);
   blk_ident(blk_rom, disk_blocks);
   t2 = img.t2;
   t3 = img.t3;

@@ -95,15 +95,15 @@ module strata_core
   logic [63:0] x [32];
 
   cap_t        caps [NCAPS];
-  // the capability save table: contents in LUT-RAM (no reset), validity in flip-flops
+  // the capability save table: contents in LUT-RAM (no reset), validity in flip-flops.
+  // The slot is csave / crestore's immediate (0..63) or, for csavex / crestorex,
+  // x[rx] (rb), which must be below CTAB (ct_oor: capop)
   cap_t        ctab [CTAB];
   logic [CTAB-1:0] ctab_v;
   cap_t        ct_rd, ct_entry;
-  logic        ct_we;
+  logic        ct_we, ct_x, ct_oor;
+  logic [CTW-1:0] ct_i;
   cap_t        ct_wd;
-  assign ct_rd    = ctab[d.slot];
-  assign ct_entry = ctab_v[d.slot] ? ct_rd : CAP_NULL;
-  always_ff @(posedge clk) if (ct_we) ctab[d.slot] <= ct_wd;
 
   logic        xm_v   [NXMAP];
   logic [2:0]  xm_sp  [NXMAP];
@@ -209,6 +209,13 @@ module strata_core
   logic [63:0] ra, rb, rc;          // the three register read ports
   assign ra = x[d.pa];
   assign rb = x[d.pb];
+  // the save table's read port and write (declared above)
+  assign ct_x     = d.kind == K_CAP2 && (d.cap_fn == C2_SAVEX || d.cap_fn == C2_RESTOREX);
+  assign ct_i     = ct_x ? rb[CTW-1:0] : CTW'(d.slot);
+  assign ct_oor   = ct_x && rb >= 64'(CTAB);
+  assign ct_rd    = ctab[ct_i];
+  assign ct_entry = ctab_v[ct_i] ? ct_rd : CAP_NULL;
+  always_ff @(posedge clk) if (ct_we) ctab[ct_i] <= ct_wd;
   assign rc = x[d.pc];
 
   // ================================================================ ALU, divider
@@ -529,8 +536,9 @@ module strata_core
   end
   assign div_start = state == S_EX && is_div;
   // capability-table write: csave stores the source capability
-  assign ct_we = state == S_EX && d.kind == K_CAP && d.cap_fn == CF_SAVE && !user && live_a
-                 && !(live_ct && !ct_entry.perms[P_D]);
+  assign ct_we = state == S_EX && ((d.kind == K_CAP && d.cap_fn == CF_SAVE) ||
+                                   (d.kind == K_CAP2 && d.cap_fn == C2_SAVEX && !ct_oor))
+                 && !user && live_a && !(live_ct && !ct_entry.perms[P_D]);
   assign ct_wd = cs_cap;
 
   // ================================================================ sequential
@@ -805,7 +813,7 @@ module strata_core
                   else if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   else if (live_ct && !ct_entry.perms[P_D]) trap(C_CAPOP, 64'(d.slot));
                   else begin
-                    ctab_v[d.slot] <= 1;                 // (the data is written by ct_we below)
+                    ctab_v[ct_i] <= 1;                   // (the data is written by ct_we below)
                     if (cs_linear) caps[cs_i] <= CAP_NULL;
                     retire(pc + 4);
                   end
@@ -816,7 +824,7 @@ module strata_core
                   else if (!cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else begin
                     caps[cd_i] <= ct_entry;
-                    if (!ct_entry.perms[P_D]) ctab_v[d.slot] <= 0;
+                    if (!ct_entry.perms[P_D]) ctab_v[ct_i] <= 0;
                     retire(pc + 4);
                   end
                 end
@@ -946,6 +954,28 @@ module strata_core
                   else if (rb > 64'(NCORES)) trap(C_CAPOP, rb);
                   else begin
                     caps[cd_i] <= '{valid: 1, space: SP_EP, perms: 6'b010011, base: rb, len: 64'd1, rv: 0, gen: 0};
+                    retire(pc + 4);
+                  end
+                end
+                C2_SAVEX: begin                          // csavex cs, rx
+                  if (user) trap(C_PRIV, {32'b0, ir});
+                  else if (ct_oor) trap(C_CAPOP, rb);
+                  else if (!live_a) trap(C_CAPINV, 64'(cs_i));
+                  else if (live_ct && !ct_entry.perms[P_D]) trap(C_CAPOP, rb);
+                  else begin
+                    ctab_v[ct_i] <= 1;                   // (the data is written by ct_we)
+                    if (cs_linear) caps[cs_i] <= CAP_NULL;
+                    retire(pc + 4);
+                  end
+                end
+                C2_RESTOREX: begin                       // crestorex cd, rx
+                  if (user) trap(C_PRIV, {32'b0, ir});
+                  else if (ct_oor) trap(C_CAPOP, rb);
+                  else if (!live_ct) trap(C_CAPINV, rb);
+                  else if (!cd_ok) trap(C_CAPOP, 64'(cd_i));
+                  else begin
+                    caps[cd_i] <= ct_entry;
+                    if (!ct_entry.perms[P_D]) ctab_v[ct_i] <= 0;
                     retire(pc + 4);
                   end
                 end

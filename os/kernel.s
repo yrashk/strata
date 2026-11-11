@@ -68,12 +68,13 @@
 ; on N contiguous worker cores (no server cores), seen through the
 ; corebase/corecount window, so bare-metal examples run unchanged: each
 ; thread is scheduled on its own core, and `cgive` between threads is direct.
-; Each core runs up to NSLOT (11) threads of different processes. A switched-out
-; thread's c0..c7 stay in the core's capability save table, whose slots are a
-; pool shared with the queues (see "worker capability save table" below): only
-; memory capabilities take slots (endpoints and device capabilities are rebuilt),
-; so a thread typically holds 3: its memory c0, its buffer c5 and one capability
-; for its image and save area. Every thread record has 4 slots reserved.
+; Each core runs up to 16 threads of different processes (NSLOT; 11 with a 64-slot
+; save table). A switched-out thread's c0..c7 stay in the core's capability save
+; table (256 slots by default), whose slots are a pool shared with the queues
+; (see "worker capability save table" below): only memory capabilities take
+; slots (endpoints and device capabilities are rebuilt), so a thread typically
+; holds 3: its memory c0, its buffer c5 and one capability for its image and
+; save area. Every thread record has 10 slots reserved: all it could ever need.
 ; The worker's DISPATCHER (the supervisor code below) runs them: on every trap
 ; (svc, the preemption stop, a doorbell, a code-unit miss, halt, a
 ; fault, an inbox instruction to emulate) it saves the current thread's
@@ -163,12 +164,15 @@ G_HALT   = 0x20                         ; 1: the machine is stopping
 G_HALTED = 0x28                         ; workers that reached w_halt (core 0 waits for them)
 G_PBASE  = 0x30                         ; the arena pool's base
 G_PGRAN  = 0x38                         ; its granules
+G_CTAB   = 0x40                         ; capability save-table slots per core (platform table)
+G_NSLOT  = 0x48                         ; threads a worker core takes (w_params)
 G_GPID   = 0x100                        ; 256 words: the process owning pool granule g (0: none)
 NGPID    = 256                          ; (64 MiB of pool at most)
 NARENA   = 64                           ; arena slots (K0_AR); every process has one
 GRAN     = 0x40000                      ; a revocation granule: 256 KiB
 GSHIFT   = 18                           ; ...
-NSLOT    = 11                           ; threads per core: process records (save table below)
+NSLOT    = 16                           ; process records per worker (save table below; G_NSLOT
+                                        ;   says how many threads a core takes)
 CAREA    = 0x900                        ; per-core areas: CAREA + core * CA_SIZE (15 cores)
 CA_SIZE  = 0x400                        ; ...
 CA_RUN   = 0x00                         ; runnable processes on the core (dispatcher writes)
@@ -224,26 +228,36 @@ F_DEVCAPS = 16                          ; gets the device root (c6) and framebuf
 F_SOLO   = 32                           ; alone on its core (pending device reads: tty)
 
 ; ---- worker capability save table -----------------------------------------------
-; Slots 0..NPOOL-1 are a POOL shared by the threads (each one's save area, image
-; share and the capabilities of c0..c7 it holds while switched out) and the
-; queues (requests, parked requests, attachments and gifts); a bitmap (w_pool)
-; says which are taken. The slots from NPOOL on are the dispatcher's own.
-; Every thread record has PRES slots reserved (the server's record PRES + 1):
-; a thread's first slots are charged to its reservation and never fail. Its
-; further slots, and every queue entry, come from the GENERAL part (NGEN
-; slots): queues may take all of it, threads all but the last QRES. A full
-; general part refuses a request (given back with -1), a PARK (-1), an
-; attachment (dropped) and a switch-out (the thread stays loaded). Only what
-; cannot be rebuilt takes a slot: an endpoint (node, perms) is minted again on
-; switch-in and a device capability (the clock, a console port) is cut from
-; the device root again; memory is saved.
-NPOOL    = 57                           ; pool slots 0..56
-PRES     = 4                            ; reserved per thread record (the server: + 1)
-NGEN     = NPOOL - NSLOT * PRES - 1     ; the general part: 12
-QRES     = 4                            ; of which threads leave the last QRES to the queues
-NREQ     = 8                            ; queued requests for the server (a power of two)
-NPARK    = 8                            ; parked requests (PARK)
-NATT     = 11                           ; the queue: attachments, gifts between threads,
+; The table has CTAB slots (the platform table says how many: 64..256; 256 by
+; default). csave / crestore with an immediate reach slots 0..63, csavex /
+; crestorex (the slot in a register) all of them; the dispatcher uses the
+; latter through csv8 / crs8. Slots 57..63 are the dispatcher's own (below);
+; the others, 0..56 and 64..CTAB-1 (w_npool of them), are a POOL shared by the
+; threads (each one's save area, image share and the capabilities of c0..c7 it
+; holds while switched out) and the queues (requests, parked requests,
+; attachments and gifts); a bitmap (w_pool) says which are taken.
+; Every thread record has w_pres slots reserved (and, on a small table, the
+; server's record one more): a thread's first slots are charged to its
+; reservation and never fail. Its further slots, and every queue entry, come
+; from the GENERAL part (w_ngen slots): queues may take all of it, threads all
+; but the last QRES. Only what cannot be rebuilt takes a slot: an endpoint
+; (node, perms) is minted again on switch-in and a device capability (the
+; clock, a console port) is cut from the device root again; memory is saved.
+; With CTAB = 256, NSLOT threads with PRES_B = 10 each (save area, image share
+; and all of c0..c7: every capability a thread can hold) leave 89 general
+; slots for at most NREQ + NPARK + NATT = 48 queue entries: nothing ever runs
+; out. With a small table (64 slots) NSLOT_S = 11 threads have PRES_S = 4
+; each, the server 5, and 12 are general: a full general part then refuses a
+; request (given back with -1), a PARK (-1), an attachment (dropped) and a
+; switch-out (the thread stays loaded).
+NPOOL0   = 57                           ; pool slots below the dispatcher's (0..56)
+PRES_B   = 10                           ; a big table: reserved per thread record
+PRES_S   = 4                            ; a small one (the server's record: + 1)
+NSLOT_S  = 11                           ; a small one's threads per core
+QRES     = 4                            ; general slots threads leave to the queues
+NREQ     = 16                           ; queued requests for the server (a power of two)
+NPARK    = 16                           ; parked requests (PARK)
+NATT     = 16                           ; the queue: attachments, gifts between threads,
                                         ;   requests' attachments
 T_P8     = 57                           ; the running process's c8, c9 while the
 T_P9     = 58                           ;   dispatcher borrows them
@@ -310,14 +324,13 @@ PR_SSL   = 600                          ; pool slot | charge << 8 of its save ar
 PR_ISL   = 608                          ; ... of its image share (the same capability as the
                                         ;   save area for a thread alone in its process)
 PR_SOB   = 616                          ; offset of the save area in that capability
-PR_EPS   = 624                          ; cores for c1..c4 (J_EPS)
-PR_CAP   = 632                          ; 8 words: what became of c0..c7 when it was switched
+PR_CAP   = 624                          ; 8 words: what became of c0..c7 when it was switched
                                         ;   out (or while a capability arrives for it then):
                                         ;   0 nothing; 1 | (slot | charge << 8) << 8 saved in
                                         ;   the pool; 2 | perms << 2 | node << 8 an endpoint;
                                         ;   3 | perms << 2 | base << 8 | len << 32 a device
                                         ;   capability (the latter two are rebuilt, not saved)
-PR_SIZE  = 696                          ; ...
+PR_SIZE  = 688                          ; ...
 S_FREE   = 0                            ; slot states
 S_LOAD   = 1                            ; job posted, capabilities arriving
 S_READY  = 2                            ; runnable
@@ -469,15 +482,13 @@ probe_fail:
         eret                            ; back into the kernel
 
 ; =============================================================================
-; Save-table helpers (slot numbers are immediates, so these jump into tables)
+; Save-table helpers (the slot in a register: csavex / crestorex)
 ; =============================================================================
 
 ; csv8(a0 = slot): c8 -> save-table slot a0
 csv8:
-        la    t0, csv_tab               ; 8 bytes per entry
-        slli  t1, a0, 3                 ; ...
-        add   t0, t0, t1                ; ...
-        jr    t0                        ; (the entry returns)
+        csavex c8, a0                   ; ...
+        ret                             ; ...
 
 ; crs8(a0 = slot) -> a0 = 0 and the capability in c8, or -1 if the slot was
 ; empty or its capability died (c8 then empty)
@@ -487,17 +498,38 @@ crs8:
         li    t0, 1                     ; arm the probe
         la    t1, w_probe               ; ...
         sd    t0, 0(t1)                 ; ...
-        la    t0, crs_tab               ; the entry
-        slli  t1, a0, 3                 ; ...
-        add   t0, t0, t1                ; ...
-        mv    t2, ra                    ; (the entry returns through ra)
-        jalr  ra, t0, 0                 ; crestore c8, a0 (skipped if it traps)
-        mv    ra, t2                    ; ...
+        crestorex c8, a0                ; (skipped if it traps)
         la    t1, w_probe               ; disarm
         sd    zero, 0(t1)               ; ...
         ld    a0, w_probefail-GPBASE(gp) ; failed?
         sub   a0, zero, a0              ; 0 or -1
         ret                             ; done
+
+; w_params(a0 = the save table's slots, CTAB) -> a0 = threads per worker core:
+; the pool and its reservations (w_npool, w_pres, w_pbonus, w_ngen). Core 0
+; calls it for placement, every worker for its own pool.
+w_params:
+        addi  a0, a0, -7                ; the pool: all but the dispatcher's 7
+        sd    a0, w_npool-GPBASE(gp)    ; ...
+        li    t0, NSLOT * PRES_B + 32   ; room to reserve every capability of NSLOT threads?
+        blt   a0, t0, wpa_s             ; ...
+        li    t1, PRES_B                ; yes: nothing can run out
+        li    t2, 0                     ; ...
+        li    t3, NSLOT                 ; ...
+        j     wpa_set                   ; ...
+wpa_s:
+        li    t1, PRES_S                ; no (64 slots): 4 each, the server 5
+        li    t2, 1                     ; ...
+        li    t3, NSLOT_S               ; ...
+wpa_set:
+        sd    t1, w_pres-GPBASE(gp)     ; ...
+        sd    t2, w_pbonus-GPBASE(gp)   ; ...
+        mul   t4, t1, t3                ; general = pool - threads x reservation - bonus
+        add   t4, t4, t2                ; ...
+        sub   t4, a0, t4                ; ...
+        sd    t4, w_ngen-GPBASE(gp)     ; ...
+        mv    a0, t3                    ; ...
+        ret                             ; ...
 
 ; ---- the save-table pool (worker) -------------------------------------------------------
 ; pool_get(a0 = thread record, or 0 for a queue entry) -> a0 = a free pool slot
@@ -506,20 +538,24 @@ crs8:
 pool_get:
         beqz  a0, pg_gen                ; a queue entry: the general part
         ld    t0, PR_NSL(a0)            ; slots charged to its reservation so far
-        ld    t1, PR_FLAGS(a0)          ; its reservation: PRES, the server's one more
+        ld    t1, PR_FLAGS(a0)          ; its reservation: w_pres, the server's w_pbonus more
         andi  t1, t1, F_SERVER          ; ...
         srli  t1, t1, 1                 ; ...
-        addi  t1, t1, PRES              ; ...
+        ld    t2, w_pbonus-GPBASE(gp)   ; ...
+        and   t1, t1, t2                ; ...
+        ld    t2, w_pres-GPBASE(gp)     ; ...
+        add   t1, t1, t2                ; ...
         bge   t0, t1, pg_over           ; used up: an extra slot
         addi  t0, t0, 1                 ; charged to it
         sd    t0, PR_NSL(a0)            ; ...
         li    t4, 1 << 8                ; (charge 1)
         j     pg_find                   ; ...
 pg_over:
-        li    t1, NGEN - QRES           ; a thread leaves the last QRES to the queues
+        ld    t1, w_ngen-GPBASE(gp)     ; a thread leaves the last QRES to the queues
+        addi  t1, t1, -QRES             ; ...
         j     pg_g2                     ; ...
 pg_gen:
-        li    t1, NGEN                  ; queues may take all of the general part
+        ld    t1, w_ngen-GPBASE(gp)     ; queues may take all of the general part
 pg_g2:
         ld    t0, w_gen-GPBASE(gp)      ; general slots taken
         bge   t0, t1, pg_none           ; no more
@@ -530,19 +566,26 @@ pg_find:
         ld    t0, w_pused-GPBASE(gp)    ; one more taken
         addi  t0, t0, 1                 ; ...
         sd    t0, w_pused-GPBASE(gp)    ; ...
-        ld    t0, w_pool-GPBASE(gp)     ; the lowest free slot (the counts make sure
-        li    a0, 0                     ;   there is one: reservations + NGEN = NPOOL)
-pg_l:
-        srl   t1, t0, a0                ; ...
-        andi  t1, t1, 1                 ; ...
-        beqz  t1, pg_take               ; ...
+        li    a0, -1                    ; the lowest free pool entry (the counts make sure
+pg_l:                                   ;   there is one: reservations + general = w_npool)
         addi  a0, a0, 1                 ; ...
-        j     pg_l                      ; ...
-pg_take:
-        li    t1, 1                     ; mark it taken
-        sll   t1, t1, a0                ; ...
-        or    t0, t0, t1                ; ...
-        sd    t0, w_pool-GPBASE(gp)     ; ...
+        srli  t0, a0, 6                 ; its bitmap word
+        slli  t0, t0, 3                 ; ...
+        la    t1, w_pool                ; ...
+        add   t0, t1, t0                ; ...
+        ld    t1, 0(t0)                 ; ...
+        andi  t2, a0, 63                ; its bit
+        srl   t3, t1, t2                ; ...
+        andi  t3, t3, 1                 ; ...
+        bnez  t3, pg_l                  ; taken
+        li    t3, 1                     ; mark it taken
+        sll   t3, t3, t2                ; ...
+        or    t1, t1, t3                ; ...
+        sd    t1, 0(t0)                 ; ...
+        li    t1, NPOOL0                ; entry -> slot: 0..56, then 64.. (past the dispatcher's)
+        bltu  a0, t1, pg_s              ; ...
+        addi  a0, a0, 7                 ; ...
+pg_s:
         or    a0, a0, t4                ; slot | charge << 8
         ret                             ; ...
 pg_none:
@@ -551,13 +594,22 @@ pg_none:
 
 ; pool_put(a0 = slot | charge << 8, a1 = the record charged if charge 1): free it
 pool_put:
-        andi  t0, a0, 255               ; the slot
+        andi  t0, a0, 255               ; the slot -> its pool entry
+        li    t1, NPOOL0                ; ...
+        bltu  t0, t1, pp_e              ; ...
+        addi  t0, t0, -7                ; ...
+pp_e:
+        srli  t2, t0, 6                 ; its bitmap word
+        slli  t2, t2, 3                 ; ...
+        la    t1, w_pool                ; ...
+        add   t2, t1, t2                ; ...
+        andi  t0, t0, 63                ; its bit
         li    t1, 1                     ; ...
         sll   t1, t1, t0                ; ...
-        ld    t2, w_pool-GPBASE(gp)     ; ...
-        or    t2, t2, t1                ; clear its bit
-        xor   t2, t2, t1                ; ...
-        sd    t2, w_pool-GPBASE(gp)     ; ...
+        ld    t0, 0(t2)                 ; clear it
+        or    t0, t0, t1                ; ...
+        xor   t0, t0, t1                ; ...
+        sd    t0, 0(t2)                 ; ...
         ld    t2, w_pused-GPBASE(gp)    ; one fewer taken
         addi  t2, t2, -1                ; ...
         sd    t2, w_pused-GPBASE(gp)    ; ...
@@ -709,265 +761,6 @@ wft_cut:
         cclear c9                       ; ...
         crestrict c8, c8, t2            ; ...
         ret                             ; ...
-
-csv_tab:
-        csave c8, 0                     ; 0
-        ret                             ; .
-        csave c8, 1                     ; 1
-        ret                             ; .
-        csave c8, 2                     ; 2
-        ret                             ; .
-        csave c8, 3                     ; 3
-        ret                             ; .
-        csave c8, 4                     ; 4
-        ret                             ; .
-        csave c8, 5                     ; 5
-        ret                             ; .
-        csave c8, 6                     ; 6
-        ret                             ; .
-        csave c8, 7                     ; 7
-        ret                             ; .
-        csave c8, 8                     ; 8
-        ret                             ; .
-        csave c8, 9                     ; 9
-        ret                             ; .
-        csave c8, 10                    ; 10
-        ret                             ; .
-        csave c8, 11                    ; 11
-        ret                             ; .
-        csave c8, 12                    ; 12
-        ret                             ; .
-        csave c8, 13                    ; 13
-        ret                             ; .
-        csave c8, 14                    ; 14
-        ret                             ; .
-        csave c8, 15                    ; 15
-        ret                             ; .
-        csave c8, 16                    ; 16
-        ret                             ; .
-        csave c8, 17                    ; 17
-        ret                             ; .
-        csave c8, 18                    ; 18
-        ret                             ; .
-        csave c8, 19                    ; 19
-        ret                             ; .
-        csave c8, 20                    ; 20
-        ret                             ; .
-        csave c8, 21                    ; 21
-        ret                             ; .
-        csave c8, 22                    ; 22
-        ret                             ; .
-        csave c8, 23                    ; 23
-        ret                             ; .
-        csave c8, 24                    ; 24
-        ret                             ; .
-        csave c8, 25                    ; 25
-        ret                             ; .
-        csave c8, 26                    ; 26
-        ret                             ; .
-        csave c8, 27                    ; 27
-        ret                             ; .
-        csave c8, 28                    ; 28
-        ret                             ; .
-        csave c8, 29                    ; 29
-        ret                             ; .
-        csave c8, 30                    ; 30
-        ret                             ; .
-        csave c8, 31                    ; 31
-        ret                             ; .
-        csave c8, 32                    ; 32
-        ret                             ; .
-        csave c8, 33                    ; 33
-        ret                             ; .
-        csave c8, 34                    ; 34
-        ret                             ; .
-        csave c8, 35                    ; 35
-        ret                             ; .
-        csave c8, 36                    ; 36
-        ret                             ; .
-        csave c8, 37                    ; 37
-        ret                             ; .
-        csave c8, 38                    ; 38
-        ret                             ; .
-        csave c8, 39                    ; 39
-        ret                             ; .
-        csave c8, 40                    ; 40
-        ret                             ; .
-        csave c8, 41                    ; 41
-        ret                             ; .
-        csave c8, 42                    ; 42
-        ret                             ; .
-        csave c8, 43                    ; 43
-        ret                             ; .
-        csave c8, 44                    ; 44
-        ret                             ; .
-        csave c8, 45                    ; 45
-        ret                             ; .
-        csave c8, 46                    ; 46
-        ret                             ; .
-        csave c8, 47                    ; 47
-        ret                             ; .
-        csave c8, 48                    ; 48
-        ret                             ; .
-        csave c8, 49                    ; 49
-        ret                             ; .
-        csave c8, 50                    ; 50
-        ret                             ; .
-        csave c8, 51                    ; 51
-        ret                             ; .
-        csave c8, 52                    ; 52
-        ret                             ; .
-        csave c8, 53                    ; 53
-        ret                             ; .
-        csave c8, 54                    ; 54
-        ret                             ; .
-        csave c8, 55                    ; 55
-        ret                             ; .
-        csave c8, 56                    ; 56
-        ret                             ; .
-        csave c8, 57                    ; 57
-        ret                             ; .
-        csave c8, 58                    ; 58
-        ret                             ; .
-        csave c8, 59                    ; 59
-        ret                             ; .
-        csave c8, 60                    ; 60
-        ret                             ; .
-        csave c8, 61                    ; 61
-        ret                             ; .
-        csave c8, 62                    ; 62
-        ret                             ; .
-        csave c8, 63                    ; 63
-        ret                             ; .
-crs_tab:
-        crestore c8, 0                  ; 0
-        ret                             ; .
-        crestore c8, 1                  ; 1
-        ret                             ; .
-        crestore c8, 2                  ; 2
-        ret                             ; .
-        crestore c8, 3                  ; 3
-        ret                             ; .
-        crestore c8, 4                  ; 4
-        ret                             ; .
-        crestore c8, 5                  ; 5
-        ret                             ; .
-        crestore c8, 6                  ; 6
-        ret                             ; .
-        crestore c8, 7                  ; 7
-        ret                             ; .
-        crestore c8, 8                  ; 8
-        ret                             ; .
-        crestore c8, 9                  ; 9
-        ret                             ; .
-        crestore c8, 10                 ; 10
-        ret                             ; .
-        crestore c8, 11                 ; 11
-        ret                             ; .
-        crestore c8, 12                 ; 12
-        ret                             ; .
-        crestore c8, 13                 ; 13
-        ret                             ; .
-        crestore c8, 14                 ; 14
-        ret                             ; .
-        crestore c8, 15                 ; 15
-        ret                             ; .
-        crestore c8, 16                 ; 16
-        ret                             ; .
-        crestore c8, 17                 ; 17
-        ret                             ; .
-        crestore c8, 18                 ; 18
-        ret                             ; .
-        crestore c8, 19                 ; 19
-        ret                             ; .
-        crestore c8, 20                 ; 20
-        ret                             ; .
-        crestore c8, 21                 ; 21
-        ret                             ; .
-        crestore c8, 22                 ; 22
-        ret                             ; .
-        crestore c8, 23                 ; 23
-        ret                             ; .
-        crestore c8, 24                 ; 24
-        ret                             ; .
-        crestore c8, 25                 ; 25
-        ret                             ; .
-        crestore c8, 26                 ; 26
-        ret                             ; .
-        crestore c8, 27                 ; 27
-        ret                             ; .
-        crestore c8, 28                 ; 28
-        ret                             ; .
-        crestore c8, 29                 ; 29
-        ret                             ; .
-        crestore c8, 30                 ; 30
-        ret                             ; .
-        crestore c8, 31                 ; 31
-        ret                             ; .
-        crestore c8, 32                 ; 32
-        ret                             ; .
-        crestore c8, 33                 ; 33
-        ret                             ; .
-        crestore c8, 34                 ; 34
-        ret                             ; .
-        crestore c8, 35                 ; 35
-        ret                             ; .
-        crestore c8, 36                 ; 36
-        ret                             ; .
-        crestore c8, 37                 ; 37
-        ret                             ; .
-        crestore c8, 38                 ; 38
-        ret                             ; .
-        crestore c8, 39                 ; 39
-        ret                             ; .
-        crestore c8, 40                 ; 40
-        ret                             ; .
-        crestore c8, 41                 ; 41
-        ret                             ; .
-        crestore c8, 42                 ; 42
-        ret                             ; .
-        crestore c8, 43                 ; 43
-        ret                             ; .
-        crestore c8, 44                 ; 44
-        ret                             ; .
-        crestore c8, 45                 ; 45
-        ret                             ; .
-        crestore c8, 46                 ; 46
-        ret                             ; .
-        crestore c8, 47                 ; 47
-        ret                             ; .
-        crestore c8, 48                 ; 48
-        ret                             ; .
-        crestore c8, 49                 ; 49
-        ret                             ; .
-        crestore c8, 50                 ; 50
-        ret                             ; .
-        crestore c8, 51                 ; 51
-        ret                             ; .
-        crestore c8, 52                 ; 52
-        ret                             ; .
-        crestore c8, 53                 ; 53
-        ret                             ; .
-        crestore c8, 54                 ; 54
-        ret                             ; .
-        crestore c8, 55                 ; 55
-        ret                             ; .
-        crestore c8, 56                 ; 56
-        ret                             ; .
-        crestore c8, 57                 ; 57
-        ret                             ; .
-        crestore c8, 58                 ; 58
-        ret                             ; .
-        crestore c8, 59                 ; 59
-        ret                             ; .
-        crestore c8, 60                 ; 60
-        ret                             ; .
-        crestore c8, 61                 ; 61
-        ret                             ; .
-        crestore c8, 62                 ; 62
-        ret                             ; .
-        crestore c8, 63                 ; 63
-        ret                             ; .
 
 ; preg_put(a0 = register 0..7): c8 -> that capability register. a0 = 0, or -1
 ; (c8 dropped) if the register holds a live linear capability
@@ -1185,6 +978,9 @@ wboot:
         li    a0, G_NCORES              ; ...
         call  kst_rd                    ; ...
         sd    a0, w_ncores-GPBASE(gp)   ; ...
+        li    a0, G_CTAB                ; the save table's size: the pool
+        call  kst_rd                    ; ...
+        call  w_params                  ; ...
         j     w_sched                   ; and wait for work
 
 ; ---- the trap entry ---------------------------------------------------------------------
@@ -2286,7 +2082,7 @@ wpb_gd:
         li    a0, CA_POOL               ; free pool slots (STATS, `cores`)
         call  carea                     ; ...
         ld    t0, w_pused-GPBASE(gp)    ; ...
-        li    a1, NPOOL                 ; ...
+        ld    a1, w_npool-GPBASE(gp)    ; ...
         sub   a1, a1, t0                ; ...
         call  kst_wr                    ; ...
         ld    s2, 16(sp)                ; ...
@@ -2973,10 +2769,31 @@ wnj_z:
         li    a1, J_A2                  ; ...
         call  jfield                    ; ...
         sd    a0, PR_REGS+96(s2)        ; ...
-        mv    a0, s3                    ; endpoints for c1..c4 (w_start)
+        ld    t0, PR_FLAGS(s2)          ; a StrataOS program's thread 0: endpoints in
+        andi  t0, t0, F_SYS             ;   c1..c4, described (w_stow) as cmkep makes them,
+        beqz  t0, wnj_sp                ;   restricted to W D: rebuilt when it is loaded
+        ld    t0, PR_WIN(s2)            ; ...
+        srli  t0, t0, 16                ; ...
+        andi  t0, t0, 255               ; ...
+        bnez  t0, wnj_sp                ; ...
+        mv    a0, s3                    ; the cores for c1..c4
         li    a1, J_EPS                 ; ...
         call  jfield                    ; ...
-        sd    a0, PR_EPS(s2)            ; ...
+        addi  t1, s2, PR_CAP + 8        ; t1 = c1's descriptor
+        li    t2, 4                     ; ...
+wnj_ep:
+        andi  t3, a0, 255               ; this one's core (255: none)
+        li    t4, 255                   ; ...
+        beq   t3, t4, wnj_epn           ; ...
+        slli  t3, t3, 8                 ; 2 | (W | D) << 2 | node << 8
+        ori   t3, t3, 2 | (2 | 16) << 2 ; ...
+        sd    t3, 0(t1)                 ; ...
+wnj_epn:
+        srli  a0, a0, 8                 ; next
+        addi  t1, t1, 8                 ; ...
+        addi  t2, t2, -1                ; ...
+        bnez  t2, wnj_ep                ; ...
+wnj_sp:
         li    t0, STACKTOP              ; sp
         sd    t0, PR_REGS+16(s2)        ; ...
         la    t0, u_exit                ; ra: returning ends the program like halt
@@ -3128,26 +2945,7 @@ w_start:
         srli  t0, t0, 16                ; ...
         andi  t0, t0, 255               ; ...
         bnez  t0, wst_ready             ; ...
-        li    s3, 1                     ; endpoints c1..c4 from the job record
-wst_ep:
-        li    t0, 5                     ; ...
-        bge   s3, t0, wst_clock         ; ...
-        ld    a0, PR_EPS(s2)            ; the core for c_s3
-        addi  t0, s3, -1                ; byte s3 - 1
-        slli  t0, t0, 3                 ; ...
-        srl   a0, a0, t0                ; ...
-        andi  a0, a0, 255               ; ...
-        li    t0, 255                   ; none?
-        beq   a0, t0, wst_epn           ; ...
-        cmkep c8, a0                    ; an endpoint for that core
-        li    t0, 2 | 16                ; send-only, copyable
-        crestrict c8, c8, t0            ; ...
-        mv    a0, s1                    ; -> c_s3
-        mv    a1, s3                    ; ...
-        call  w_give                    ; ...
-wst_epn:
-        addi  s3, s3, 1                 ; next
-        j     wst_ep                    ; ...
+        ; (c1..c4: w_newjob described them)
 wst_clock:
         li    a0, T_CLOCK               ; c7 = the clock
         call  crs8                      ; ...
@@ -4500,9 +4298,13 @@ w_rslot:   .space NREQ * 8              ; its pool slot (pool_get)
 w_park:    .space NPARK * 8             ; park slot used: the request's sender + 1
 w_pslot:   .space NPARK * 8             ; its pool slot
 w_c6from:  .dword 0                     ; sender of the request the server holds in c6
-w_pool:    .dword 0                     ; save-table pool: bit s: slot s is taken
-w_pused:   .dword 0                     ; slots taken
+w_pool:    .space 32                    ; save-table pool: bit e: entry e is taken (pool_get)
+w_pused:   .dword 0                     ; entries taken
 w_gen:     .dword 0                     ; of which from the general part
+w_npool:   .dword 0                     ; pool entries (w_params)
+w_pres:    .dword 0                     ; slots reserved per thread record
+w_pbonus:  .dword 0                     ; one more for the server's record (a small table)
+w_ngen:    .dword 0                     ; the general part
 w_devlen:  .dword 0                     ; the device root's length and permissions
 w_devperm: .dword 0                     ;   (device capabilities are cut from it again)
 w_att:     .space NATT * 16             ; attachments: sender + 1, base
@@ -4529,6 +4331,8 @@ k_outn:    .dword 0                     ; core 0: EXITED messages waiting
 k_hashigh: .dword 0                     ; core 0: the boot ROM gave a second heap piece
 k_hasfb:   .dword 0                     ; core 0: there is a framebuffer window
 k_fbpid:   .dword 0                     ; core 0: the process the framebuffer is lent to (0 none)
+k_ctab:    .dword 0                     ; core 0: the capability save table's slots (platform table)
+k_nslot:   .dword 0                     ; core 0: threads a worker core takes (w_params)
 k_pbase:   .dword 0                     ; core 0: the arena pool's base
 k_pgran:   .dword 0                     ; core 0: its span in granules (both parts, the gap between them)
 k_pfree:   .dword 0                     ; core 0: of which free
@@ -4565,10 +4369,9 @@ k_hdr2:    .space 64                    ; core 0: a header being sent
 cr_far:    .dword 0                     ; image: far section addr | len << 32
 cr_farof:  .dword 0                     ; image: far section's arena offset
 w_procs:   .space NSLOT * PR_SIZE       ; worker: process records
+k0stack_top = w_procs + 1024            ; core 0's stack: in the records (it has none)
            .space 1536                  ; the dispatcher's stack
 kstack_top:                             ; (it grows down from here)
-           .space 1024                  ; core 0's stack
-k0stack_top:                            ; ...
            .space 256                   ; a panic stack
 kpstack_top:                            ; ...
 s_panic:   .ascii "\nStrataOS: kernel fault: cause "
