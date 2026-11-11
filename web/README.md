@@ -12,6 +12,9 @@ python3 -m http.server --directory build/web-site   # then /play/ (?run=os|osws|
 make test-wasm      # the wasm build under node against the native interpreter, and the JIT fuzzer
 ```
 
+The same build runs the web debugger (`site/debug/`, /debug/ on the site):
+see "The debugger" below.
+
 ## Structure
 
 - **`web/web.c`** includes `emu/emu.c` (one translation unit: it sees the
@@ -39,6 +42,30 @@ make test-wasm      # the wasm build under node against the native interpreter, 
   keys); input and the break key are always live. Built with `-DNO_SDL`.
 - **`tools/wasm-run.js`** runs the same module under node with the desktop
   flags (the tests).
+
+## The debugger
+
+The web debugger (`site/debug/`) uses the debug engine of `emu/emu.c`
+(`emu/debug.c`, compiled into the same module) in one of two places:
+
+- **In the page.** `site/debug/dbg-worker.js` loads `../play/strata-emu.js`,
+  writes an example's image, its map (`sasm -g`) and the sources the map
+  names into the module's file system (`make wasm` copies the examples of
+  `DEBUG_EXAMPLES` to `build/web/debug/`), and starts it with `--debug wasm
+  -j -T virtual` (deterministic, so time travel works). Then it relays the
+  page's requests to `web_dbg(line)`, runs `web_dbg_run(ms)` while the
+  machine runs (0: call again; > 0: idle; < 0: stopped) and posts
+  `web_dbg_events()` (console output, stops) to the page. The protocol is
+  the desktop's: [`doc/debug-protocol.md`](../doc/debug-protocol.md).
+  `tools/wasm-dbg.js` drives the same exports under node (`make test-dbg`).
+- **Against the desktop.** `strata-emu --debug PORT --www site` serves the
+  page and upgrades a WebSocket on the same port; the page asks
+  `/dbg-info`, finds the engine and talks to it (`make debug-web`, then
+  http://localhost:4444/debug/). `?ws=HOST:PORT` names an engine elsewhere.
+
+`?ex=NAME&do=...` loads an example and runs a short script (`break:LOC`,
+`continue`, `stepi:N`, `round`, `rstepi`, `rcontinue`, `goto:T`, `core:N`,
+`watch:LOC:LEN`, `delete`, `wait:MS`): links and screenshots.
 
 ## Networking
 
