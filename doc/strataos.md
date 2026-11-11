@@ -463,6 +463,27 @@ and **the parts of its Local Stores it uses**. On a switch the dispatcher:
    process's image** in its arena (code is never saved: it is read-only),
    code-cache units reloaded on demand, capabilities, registers, `eret`.
 
+Nothing waits for the transfers of steps 4 and 5. A far atomic, `cgive`
+and `csend` wait until none of the core's memory transfers is in flight
+(the publication rule), so the dispatcher makes every atomic of a switch
+(the switch and byte counters, the published slot states and runnable
+count, the running pid) before its first transfer; the sizes are known by
+then. The save is not waited for either: one core's transfers take
+effect, on the Local Store side as well as the far side, in issue order
+(invariant I2 of the manual's execution model), so the restore that
+follows cannot overtake it, and a store that would overwrite bytes the
+save still reads waits (I1). The next thread's code goes first (it is
+the I-LS, which the save does not read), then the save (tg14 data, tg15
+stack), then the restore (tg12 data, tg13 stack; a first load's data
+and a code mirror on tg14); with tags of their own no issue waits for a
+busy tag, only, past the fourth, for room in the Transfer Unit's
+four-entry queue, i.e. for the code and then the save to have moved.
+The thread then runs while its
+D-LS and code stream in: by the as-if-synchronous rule it cannot tell,
+since a load, store or fetch that touches bytes still arriving waits for
+them. (A program that issues a transfer on one of those tags right after
+a switch merely waits for the dispatcher's; `tpoll` may show it busy.)
+
 Two calls let a program reduce or correct what a switch does:
 
 - **Scratch ranges.** `svc` 11 SET_SCRATCH (a1 = D-LS start, a2 = length;

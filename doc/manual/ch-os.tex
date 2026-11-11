@@ -351,6 +351,17 @@ It also times itself with \csr{cycle}: \texttt{cores} shows, per core, its cycle
 deciding to switch to having issued the next thread's restore) and per trap (from the trap to the
 \insn{eret} that resumes a thread, idle time not counted).
 
+The dispatcher waits for none of these transfers. A far atomic, \insn{cgive} and \insn{csend} wait until
+none of the core's memory transfers is in flight (the publication rule), so every atomic of a switch
+(the counters, the published slot states, the running process) is made before its first transfer, when
+the sizes are already known. The save need not complete before the restore begins, because one core's
+transfers take effect on the Local Store side, as on the far side, in issue order (invariant I2,
+Chapter~\ref{ch:model}); a store that would overwrite bytes still being read waits (I1). The save
+and the restore use transfer tags of their own (\reg{tg12}--\reg{tg15}), so that no issue waits for a
+busy tag, and the thread is resumed while its D-LS and code are still arriving: by the
+as-if-synchronous rule (Section~\ref{sec:asif}) it cannot tell, since every access to bytes in flight
+waits for them.
+
 Two supervisor calls let a program reduce or correct what a switch does.
 
 \begin{description}[leftmargin=1em,style=nextline]
