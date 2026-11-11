@@ -52,6 +52,12 @@ Notes on reading the table:
   stand-in 8 (16). On the ECP5 the capability save table is 5 more per core.
 - One more core costs about 47,000 LUTs, 11,000 flip-flops, 32 RAMB36 and
   30 DSP slices on 7-series.
+- Revocation by address (the granule table, `doc/manual/ch-impl.tex`)
+  replaced the 15-entry revocation-domain table: 1 core on xc7 went from
+  48,240 LUTs, 12,681 flip-flops and 172 LUT-RAM cells (the RTL just before)
+  to 47,059 LUTs, 12,450 flip-flops and 214 LUT-RAM cells (each core's copy
+  of the 256-entry table, three read ports, is LUT-RAM; so is the top
+  level's master copy).
 
 ### Where the LUTs go
 
@@ -66,7 +72,7 @@ all; the flattened run above is a little smaller):
 | - `strata_alu` | 1,304 | 0 | plus 16 DSP48E1 |
 | - `strata_div` | 452 | 396 | iterative |
 | - `strata_decode` | 142 | 0 | |
-| `strata_top` | 3,278 | 2,267 | inbox queues, domain table, core control |
+| `strata_top` | 3,278 | 2,267 | inbox queues, domain table (now the granule walker), core control |
 | `strata_dev` | 1,440 | 1,578 | console UART, disk, timer, framebuffer registers |
 | `strata_mem`, T2 and T3 | 1,181 | 419 | |
 | `strata_bus` | 846 | 170 | |
