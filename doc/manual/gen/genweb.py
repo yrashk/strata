@@ -47,7 +47,7 @@ def insn_id(key):
 # ---------------------------------------------------------------- the page shell
 NAV = [("../#idea", "Idea", None), ("../arch/", "Architecture", "arch"), ("../isa/", "Instructions", "isa"),
        ("../forth/", "Forth", "forth"), ("../hardware/", "Hardware", None), ("../play/", "Play", None),
-       ("../code/", "Source", None)]
+       ("../debug/", "Debug", None), ("../code/", "Source", None)]
 
 
 def page(here, title, desc, side, main, head="", tail=""):
@@ -420,6 +420,49 @@ def link_sources(page_html, files):
 
 
 # ---------------------------------------------------------------- main
+# The assembler's pseudo-instructions (the manual's Table tab:pseudo), as the
+# disassemblers print them: what each one is, for insns.json.
+PSEUDO = {
+    "nop": "No operation (pseudo: addi x0, x0, 0)",
+    "mv": "Copy a register (pseudo: addi rd, rs, 0)",
+    "neg": "Negate (pseudo: sub rd, x0, rs)",
+    "seqz": "Set if zero (pseudo: sltiu rd, rs, 1)",
+    "snez": "Set if not zero (pseudo: sltu rd, x0, rs)",
+    "li": "Load an immediate (pseudo: addi, or lui; ori, or a longer sequence)",
+    "la": "Load an address (pseudo: lui rd, hi; ori rd, rd, lo)",
+    "j": "Jump (pseudo: jal x0, label)",
+    "call": "Call a function (pseudo: jal ra, label)",
+    "ret": "Return from a function (pseudo: jalr x0, ra, 0)",
+    "jr": "Jump to a register (pseudo: jalr x0, rs, 0)",
+    "tfence": "Wait for every transfer (pseudo: twait 0xffff)",
+    "beqz": "Branch if zero (pseudo: beq rs, x0, l)",
+    "bnez": "Branch if not zero (pseudo: bne rs, x0, l)",
+    "bltz": "Branch if negative (pseudo: blt rs, x0, l)",
+    "bgez": "Branch if zero or positive (pseudo: bge rs, x0, l)",
+    "bgtz": "Branch if positive (pseudo: blt x0, rs, l)",
+    "blez": "Branch if zero or negative (pseudo: bge x0, rs, l)",
+    "bgt": "Branch if greater (pseudo: blt rt, rs, l)",
+    "ble": "Branch if less or equal (pseudo: bge rt, rs, l)",
+    "bgtu": "Branch if greater, unsigned (pseudo: bltu rt, rs, l)",
+    "bleu": "Branch if less or equal, unsigned (pseudo: bgeu rt, rs, l)",
+}
+
+
+def insns_json(labels, anchors):
+    """isa/insns.json: every mnemonic's one-line title and its anchor on these
+    pages (the web debugger's hover help, site/debug/)."""
+    import html as H
+    import json
+    ctx = T.Ctx(labels, "isa", anchors, PDF, lambda k: "#" + insn_id(k))
+    out = {}
+    for e in geninsns.INSNS:
+        title = H.unescape(re.sub(r"<[^>]+>", "", T.tex_to_html(e["title"], ctx)))
+        out[insn_key(e)] = {"t": title, "u": "isa/#" + insn_id(insn_key(e))}
+    for (mn, t) in PSEUDO.items():
+        out.setdefault(mn, {"t": t, "u": "arch/#tab-pseudo"})
+    return json.dumps(out, indent=0, sort_keys=True)
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
@@ -434,6 +477,8 @@ def main():
         f.write(link_sources(isa_page(labels, anchors), files))
     with open(os.path.join(out, "arch", "index.html"), "w") as f:
         f.write(link_sources(arch_page(labels, anchors), files))
+    with open(os.path.join(out, "isa", "insns.json"), "w") as f:
+        f.write(insns_json(labels, anchors) + "\n")
     for name in ("docs.css", "docs.js"):
         shutil.copyfile(os.path.join(WEB, name), os.path.join(out, name))
     for svg in sorted(os.listdir(os.path.join(ROOT, "doc", "figures"))):

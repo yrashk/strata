@@ -37,17 +37,20 @@ found and how it was decided.
 | `alu`, `ls`, `branch` | generated (`gen/gen_*.py`): every ALU op, load/store width and branch |
 | `traps` | causes, epc/tval, the two trap banks, routing, privilege, the inbox rule, stop |
 | `caps` | reset capabilities; cmov/csplit/cjoin/cshare/catomic/crestrict/csave/crestore |
+| `ctab` | the save table beyond slot 63: csavex/crestorex, its size from the platform table, the same slots as the immediate forms, linearity and replacement, out of range (capop, tval = the register's value, checked first), 192 capabilities in slots 64..255 |
 | `capalign` | a capability's base alignment (F6) |
 | `dom` | revocation by address: cdom/crevoke/cundom, granule alignment, units and cjoin, revoker pieces, generations through split/share/save/gifts, 40 regions; endpoints, self-gifts |
 | `xfer` | transfer hazards, tags, faults and their order, `tamo` |
 | `pendxfer`, `pend` | transfers ordered after an in-flight device read (F5); CCR.PTRAP for loads, stores, `ltag`, `linst` |
 | `haltdrain` | `halt` drains device reads (F3) |
-| `xmap` | xmap/xunmap/xcall/xret/xslot, xmiss |
+| `ltag` | ltag/linst: hits, misses, replacement, the counter out of range; lsfault (ways 0, misaligned, past the D-LS) with the 64-bit entry address, entry addresses that wrap around |
+| `xmap` | xmap/xunmap/xcall/xret/xslot, xmiss; slot-aligned units (xalign), the low bits of an entry ignored under a larger xslot, odd and huge slots, far links with high bits |
+| `wide` | 64-bit offsets, lengths and split points against capability bounds: bits above the space's size count (transfers, device ports, `tamo`, `csplit`, `xmap`/`xcall`); the last word of system memory |
 | `timer` | FREQ/NOW/DEADLINE/WAIT, latching; VSYNC, PRESENT; device bounds |
 | `devspan` | byte-per-beat device transfers across registers |
 | `console`, `break`, `brkrel`, `inrel` | output, input, end of input, Ctrl-C (`-b`), one release for every break read (F4) and for waiting input reads |
 | `blk` | the block device: identify, write/read/flush, errors, the completion queue |
-| `plat` | the platform table: layout, checksum, every entry |
+| `plat` | the platform table: layout (the save table's and the overlay map's sizes in the header), checksum, every entry |
 | `ptr` | the pointer: STATE, EVENT order and packing, release by a write |
 | `mc` | gifts between cores, per-sender queues, `ctake` from, `cpoll`, `tany` on the inbox, windows, revocation across cores, stop, a halted target |
 | `reserved` | reserved CSRs, CCR bits, ignored fields |

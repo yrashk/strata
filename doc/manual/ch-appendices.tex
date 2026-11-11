@@ -51,7 +51,7 @@ architectural requirement.
 3 & capinv & the named capability register or save slot is not live (empty, or revocable and its granule revoked); \insn{crevoke}/\insn{cundom} without a revoker; \insn{csend}/\insn{crecv} without a suitable endpoint & transfers and atomics: the far offset; capability and overlay instructions: the register or slot number\\
 4 & perm & missing permission; transfer through an endpoint; \insn{tgetx} through device or core-control space; \insn{tget} through core-control space; \insn{catomic} outside T2/T3 & far offset (transfers, atomics) or register number\\
 5 & bounds & far range outside the segment; overlay offset $\geq$ length & the far offset\\
-6 & xalign & memory transfer operands or atomic offset not multiples of 8 & the far offset\\
+6 & xalign & memory transfer operands or atomic offset not multiples of 8; \insn{xmap} far address not a multiple of $2^{\csr{xslot}}$ & the far offset\\
 7 & ifault & fetch from a misaligned \reg{pc} or one $\geq$ 65536 & \reg{pc}\\
 8 & xmiss & \insn{xcall} target, or \insn{xret} far link, not mapped & the absolute far address; for \insn{xret}, the link (bit 63 set)\\
 9 & pend & with CCR.PTRAP, a load, store, \insn{ltag} or \insn{linst} that would stall on an in-flight range; a \insn{tget} or \insn{tput} whose D-LS range overlaps a pending device read & the Local Store address\\
@@ -219,7 +219,7 @@ Chapter~\ref{ch:encoding}. Table~\ref{tab:insindex} lists every instruction.
   node, and its supervisor must hand it the buffer that comes back.
 \item[Cores] At most 15 cores: fifteen cores and the block device are the sixteen inbox senders that
   the masks of \insn{cpoll} and \insn{tany} describe.
-\item[StrataOS] The limits of Table~\ref{tab:os-limits} apply: three threads per core, 1~MiB arenas,
+\item[StrataOS] The limits of Table~\ref{tab:os-limits} apply: 16 threads per core (11 with a 64-slot save table), 1~MiB arenas,
   eight handles. A thread's \reg{c8}--\reg{c15} do not survive a context switch. An attachment is paired
   with the next message from the same core, so a process that sends attachments must be alone on its
   core or tolerate the pairing. A file being written is limited to 128~KiB, and the directory to 128

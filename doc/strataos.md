@@ -252,8 +252,20 @@ controller's ports are at the fixed device address 0x4000.
     Delete ESC [ 3 ~; Page Up/Down ESC [ 5 ~ / ESC [ 6 ~;
   - Ctrl+letter = 1..26, **except Ctrl+C, which is the break key** (exactly
     like Ctrl-C at the terminal: it completes a pending break read);
-  - Alt+key = ESC followed by the key's bytes (xterm "meta sends escape").
-  The terminal keeps working as an input source at the same time.
+  - Alt+key in the xterm modified-key forms: Alt+ a character is
+    ESC [ 27 ; 3 ; *code* ~, *code* the character's code in decimal (Shift
+    and Caps Lock are in the character: Alt+Shift+Q is 81, `Q`; Alt+Enter
+    is 13); Alt+arrows ESC [ 1 ; 3 A/B/C/D, Alt+Home / End ESC [ 1 ; 3 H / F;
+    Alt+Delete, Page Up / Down ESC [ 3 ; 3 ~, ESC [ 5 ; 3 ~, ESC [ 6 ; 3 ~.
+    Not ESC followed by the key ("meta sends escape"): that is also what Esc
+    and then the key sends, and the input is a byte stream, so a program
+    could only tell them apart by time, and the bytes of one key can arrive
+    apart under load. Nobody types these forms by hand, so the window server
+    (2.8) takes only them as its Alt bindings, and Esc and then `p` is just
+    Esc and `p`. (Ctrl+Alt+letter is Alt with the control character, codes
+    1 to 26, except Ctrl+Alt+C, which is the break key.)
+  The terminal keeps working as an input source at the same time (its Alt,
+  from the host's terminal, is whatever that terminal sends).
 
 ### 1.5 ISA rules clarified by conformance
 
@@ -304,6 +316,25 @@ greater length.
   (256 KiB granules, a generation each): there is no fixed number of
   revocable regions, so the number of processes is limited by memory.
 
+- **The overlay map's size, and aligned units.** Each core's overlay map
+  has NXMAP entries, a platform parameter in the platform table's header
+  (u16 at offset 22; 16 by default, 4..16; `strata-emu -X N`, the RTL's
+  NXMAP parameter). An xmap / xunmap index >= NXMAP is an illegal
+  instruction. With xslot = n != 0, xmap needs a far address that is a
+  multiple of 2^n (xalign, tval = the offset, after the bounds check); a
+  lookup matches far >> n, so a unit's address must be aligned: the kernel's
+  units are 2 KiB-aligned in c12, and page_in refuses a program whose c0
+  base is not slot-aligned. The kernel publishes NXMAP in the KST
+  (G_NXMAP) for the workers' page_in.
+
+- **A bigger save table.** Each core's capability save table has CTAB
+  slots, a platform parameter in the platform table's header (u16 at offset
+  20; 256 by default, at least 64; `strata-emu -S N`). `csavex cs, rx` and
+  `crestorex cd, rx` (CAP2 functions 6 and 7) take the slot from a register
+  and reach all of them; `csave` / `crestore` keep their 6-bit immediate
+  (slots 0..63). A slot >= CTAB traps capop with tval = x[rx], before any
+  other check but privilege. Supervisor only, like the immediate forms.
+
 ### 2.1 Shape
 
 - **Kernel = the system core (core 0) + a dispatcher on every worker core.**
@@ -322,13 +353,14 @@ greater length.
     process, and the core's demand paging of code units.
 - **The kernel pages its own code.** Resident: I-LS 0x4000..0x7FFF on every
   core (core 0's own resident code, the event loop and the paging trap,
-  sits at 0x7000 and up; workers never run that part). Everything else
+  sits at 0x7700 and up; workers never run that part). Everything else
   (start-up, the operations of 2.4, exits, ticks) is **kernel code units**
   of 2 KiB in the kernel image's `.far` section (`os/kunits/*.s`), called
   with `xcall` through c12 and paged by the system core's own supervisor
-  trap handler into a kernel code cache of 16 slots at I-LS 0x8000..0xFFFF
-  of the system core, with the same `xslot`/`xmiss`/`xret` mechanism
-  programs use. The kernel counts the unit loads (INFO, `uptime`).
+  trap handler into a kernel code cache of NXMAP slots (one per overlay map
+  entry: 16 by default, read from the platform table's header at boot) from
+  I-LS 0x8000 of the system core, with the same `xslot`/`xmiss`/`xret`
+  mechanism programs use. The kernel counts the unit loads (INFO, `uptime`).
 - **Shared state.** The system core and the dispatchers share one 32 KiB
   table at the bottom of system memory (the KST), accessed only with far
   atomics: per-core counters, the published state of each core's thread
@@ -382,16 +414,43 @@ greater length.
   threads go on the run of N contiguous server-free cores whose busiest
   core is least loaded. SPAWN can pin a process to a core (the shell's
   `-c N`).
-- **Three threads per worker core.** A core's capability save table has 64
-  slots: 24 hold c0..c7 of three resident threads, 6 their save areas and
-  image shares, 16 the server's queued and parked requests, 11 the queue
-  of attachments and gifts, and 7 the dispatcher's own capabilities. A
-  server counts as one of its core's three threads. Other limits: 64
-  processes and 64 arenas (the kernel's, `proc`'s, `fs`'s and `ws`'s
-  tables), memory (a 46 MiB arena pool), 8 handles per process. With 15
-  cores the worker slots bind first: 33 processes besides the servers
-  (`tools/test-procs.sh` runs 35 at once). Before revocation by address
-  the 15 revocation domains allowed 14 processes.
+- **Sixteen threads per worker core.** A switched-out thread's capabilities
+  must stay on its core (capabilities never live in memory), in the core's
+  capability save table: 256 slots on the default platform (its size is in
+  the platform table's header; `csavex` / `crestorex` reach every slot,
+  `csave` / `crestore` with an immediate slots 0..63). Seven slots, 57..63,
+  are the dispatcher's own; the other 249 are a **pool** shared by the
+  threads and the queues (the server's queued and parked requests, the
+  attachments and gifts waiting for their messages). A thread takes slots
+  only for what cannot be rebuilt: memory capabilities (its memory c0, its
+  message buffer c5, one capability for its image and save area, which are
+  adjacent, or two for a thread of a multi-threaded process, and whatever
+  memory it holds in c1..c7). Endpoints (a node and permissions) are minted
+  again on switch-in and device capabilities (the clock in c7, a console
+  port) are cut again from the device root, so a typical thread holds 3
+  slots, a loaded one 1. Every thread record has **10 slots reserved**, all
+  a thread can ever need (save area, image share, c0..c7): 16 × 10 = 160,
+  and the 89 others, the **general part**, hold the queue entries (48 at
+  most). Nothing runs out, so placing a thread on a core with a free record
+  is placing it where its slots are. Core 0 places a thread only on a core
+  with a free record and a free job record; CREATE fails with -5
+  otherwise. `cores` shows each core's free slots.
+  The kernel sizes the pool from the platform table at boot. With a 64-slot
+  table (`strata-emu -S 64`) a core takes 11 threads with 4 slots reserved
+  each (the server 5) and 12 general slots: a thread's extra slots (at most
+  8, so the queues keep 4) and the queue entries share them, and a full
+  general part refuses a request (back with -1, as a full queue does), a
+  PARK (-1), drops an attachment, and keeps a thread whose extra capability
+  finds no slot loaded until one frees up.
+  Other limits: 64 processes and 64 arenas (the kernel's, `proc`'s, `fs`'s
+  and `ws`'s tables), memory (a 46 MiB arena pool), 8 handles per process.
+  With 15 cores memory binds first (`tools/test-procs.sh` runs 35 processes
+  at once); with 6, the fewest StrataOS needs, the three cores that take
+  programs (proc and tty are alone on theirs) hold 16 threads each, 50
+  processes, so memory binds there too (the test runs 43 at once; 35 with
+  a 64-slot table). With the fixed split of old (24 slots for c0..c7 of
+  three threads, 16 for requests, 11 for attachments) a core held three
+  threads, and 6 cores 11 processes.
 
 ### 2.2 Context switches: the cost is explicit
 
@@ -400,8 +459,11 @@ and **the parts of its Local Stores it uses**. On a switch the dispatcher:
 1. drains the thread's transfers (every tag but the dispatcher's own);
 2. saves x1..x31 and the thread's CSRs into its record (on every trap);
 3. saves the thread's capabilities. A thread owns **c0..c7** across
-   switches; they go into the core's capability save table, 8 slots per
-   resident thread. **c8..c15 are a thread's own only while it is not
+   switches; each one is either described (an endpoint: node and
+   permissions; a device capability: base, length and permissions, cut
+   from the device root again on switch-in, indistinguishable from the
+   original) or put into a slot of the core's save-table pool (2.1).
+   **c8..c15 are a thread's own only while it is not
    switched out** (the dispatcher borrows c8 and c9 during a trap and
    gives them back); they do not survive a switch;
 4. copies the used D-LS out to the thread's **save area** in its arena:
@@ -442,7 +504,7 @@ memory is E bytes larger, [−E, P). The start-up block stays at offset
 | [−E, P) | the program's memory (thread 0's c0): 832 KiB with one thread. 0x7F000: the start-up block `proc` writes (pid, parent, handles, command line), read once by `sys_init`. The image's **`.far` section is loaded here at its own offsets** (`.far` labels are arena offsets) |
 | [P, 0xD0000) | the save areas of threads N−1 .. 1 (48 KiB each) |
 | [0xD0000, 0xF0000) | the program image as `fs` loaded it (128 KiB at most); each thread's dispatcher keeps a read-only share and reloads code from it |
-| [0xF0000, 0xFC000) | thread 0's save area |
+| [0xF0000, 0xFC000) | thread 0's save area (with one thread, the image and the save area are one capability, kept in one save-table slot) |
 | [0xFF000, 0x100000) | the message buffer (c5) |
 
 A save area holds the data extent at 0.. (40 KiB at most) and the live
@@ -749,7 +811,10 @@ the status becomes 0. `as < hello.s > hi` works this way.
 
 **tty (c3)**: 1 READ (mode bit 0 = do not block; cooked: echo, Backspace,
 returns one line or what was typed before 0x04, 0 = end of input; raw: no
-echo, whatever bytes are there, at least one; CR → LF in both), 2 WRITE,
+echo, whatever bytes are there, at least one, and a READ that does not block
+and finds nothing (-3) has one byte read ahead, so a program that polls sees
+the rest of an escape sequence: `vi` telling Esc from an arrow's ESC [ A;
+CR → LF in both), 2 WRITE,
 4 CLOSE (0), 18 SETFG (handle = pid), 19 CONMODE (0 cooked, 1 raw); 36–38
 from `proc`. READ mode bit 1 (raw, for `ws`) asks for the pointer's events
 too: the READ is also answered when events wait, the answer's mode field
@@ -793,14 +858,20 @@ takes a timeout and a tag mask. `ws` and `sh` never busy-wait the CPU.
 - The shell catches interrupts, gives the console to a foreground job with
   SETFG and takes it back after, and SIGNALs the job when interrupted while
   waiting for it. The window server catches interrupts and forwards them
-  to the focused window's process.
+  to the focused window's process. `vi` catches them: Ctrl-C reaches it as
+  a read that returns -2, which it takes as the key Ctrl-C (2.12).
 
 ### 2.6 Terminal output subset
 
 Programs write plain bytes to stdout. The console passes them to the host
 terminal; `term` windows interpret this subset and ignore other
 escape sequences: `\n`, `\r`, `\b`, `\t`; ESC [ K; ESC [ n C / D; ESC [ 2 J;
-ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47.
+ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47;
+ESC [ ? 25 l / h (the cursor off / on while a program draws); ESC [ 6 n
+(where is the cursor: `term` answers ESC [ row ; column R on the program's
+standard input, as a terminal would type it; `vi` learns the window's size
+this way). Other sequences, private ones (ESC [ ? ...) too, are ignored
+whole.
 
 ### 2.7 The shell (`sh`)
 
@@ -840,8 +911,9 @@ ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47.
   devs, hexdump, cores,
   sched (`sched` shows the slice and switch rates; `sched 500us` / `sched 5ms`
   sets it; `rc` may set it at boot),
-  seq, grep, wc, upper, spin, as, units, and the examples (all but `clock`
-  and `gfx`, which need the device root that only `dev` holds).
+  seq, grep, wc, upper, spin, as, units, vi (the editor, 2.12), and the
+  examples (all but `clock` and `gfx`, which need the device root that only
+  `dev` holds).
 - Not there: globbing, `2>`; completion
   assumes an 80-column terminal, and a line longer than the terminal's
   width redraws wrongly.
@@ -899,14 +971,20 @@ shell):
   2 × 2 grid (at most 4).
 - Text drawing uses an original public-domain 8 × 16 cell font (plus a
   5 × 7 small-caps font for labels) and is available to clients (TEXT).
-- Keys (Alt = ESC prefix): Alt+Enter starts a new `term` window; Alt+Q
+- Keys (Alt+key as the window's keyboard sends it, 1.4: ESC [ 27 ; 3 ;
+  code ~, Alt+arrows ESC [ 1 ; 3 X): Alt+Enter starts a new `term` window; Alt+Q
   closes the focused window (its client gets a close event, and is killed
   after 400 ms if it does not go away); Alt+arrows / Alt+1..4 move focus;
   Alt+P or Alt+Space opens the command palette; Alt+Shift+Q quits the window server
   (the console returns to the shell); Alt+Shift+H halts the machine;
   Alt+Shift+W makes the server ignore the keyboard for a second (for
   scripted input in tests and demos); Alt+? shows the key help. Every
-  other key is an event for the focused window. Ctrl-C closes the palette, or SIGNALs the focused
+  other key is an event for the focused window: Esc followed by a key is
+  Esc and then that key, whatever the timing (an ESC with nothing after it
+  for 100 ms is the Esc key, not the start of ESC [); an Alt+key the server
+  does not bind reaches the window as ESC and the key (as a terminal's
+  "meta sends escape"), Alt+Home, End, Delete, Page Up or Down as the key
+  alone. Ctrl-C closes the palette, or SIGNALs the focused
   window's process.
 - Redraws only damaged areas and writes PRESENT once per batch.
 - With no window it opens a `term`.
@@ -990,7 +1068,8 @@ window whose process ends is removed.
   (`term COMMAND` types COMMAND into that shell first). It interprets the
   terminal subset of 2.6 (`os/ws/term.s` is its grid, parser and renderer),
   writes key events to the shell's input pipe, and turns Ctrl-C into SIGNAL
-  to the shell. It blocks in READ on the output pipe and asks the server
+  to the shell; a cursor position report a program asks for (ESC [ 6 n)
+  goes into that pipe too. It blocks in READ on the output pipe and asks the server
   (CREATE mode bit 0) to interrupt it when events wait: the READ returns
   -2 and the events are fetched without blocking. Nothing is polled.
 - **`wmandel`**: renders the Mandelbrot set, DAMAGEs rows as they finish,
@@ -1222,6 +1301,94 @@ host opens `http://localhost:8080/`.
   4 KiB buffer shared by DIR records, file chunks and PS records, the tag
   tables, 3 KiB of requests); code: 12.3 KiB of the 32 KiB I-LS.
 
+### 2.12 The editor (`vi`)
+
+`vi [FILE]` (`os/progs/vi.s`) edits a file in the manner of vi, on the
+console (an ANSI terminal: `make boot`, the browser's terminal) and in a
+`term` window (`make boot-ws`, Alt+Enter), with Strata assembly and Strata
+Forth in colour. FILE is a path (`/src/hello.s`, or a name under the current
+tag path); one that does not exist is created by `:w`. The screen is the
+text, a line a row (a long line scrolls the view sideways), and a status
+line: `-- INSERT --`, the file name, `[+]` when modified, line,column;
+messages and the `:` and `/` lines take its place.
+
+- Moving: `h j k l` and the arrows, `w b e`, `0 ^ $`, `gg G`, `NG`, `%`,
+  Enter `+ -`, Space, Backspace, Ctrl-D / Ctrl-U (half a screen), Ctrl-F /
+  Ctrl-B (a screen), Home/End, PgUp/PgDn. A count repeats or scales: `5j`,
+  `3dd`, `2dw`, `d3w`.
+- Inserting: `i a I A o O`; in insert mode Enter splits the line,
+  Backspace and Delete erase, the arrows move; Esc or Ctrl-C ends it.
+- Changing: `x X r D C s S J`, `d c y` with a motion (`dw cw d$ c$ dG y3j`
+  ...) or doubled for lines (`dd cc yy`), `Y`, `p P` (characters into the
+  line, or lines below / above), `u` (undo, many levels), Ctrl-R (redo), `.`
+  (the last change again: its keys are replayed). A motion to another line
+  makes `d c y` linewise when it is a line motion (`j k G gg`); a character
+  motion that leaves the line stops at its end or start (`dw` on the last
+  word, `cw` changes to the end of the word).
+- Searching: `/text` and `?text` (plain text), `n`, `N`; the search goes
+  round the end of the file and says so.
+- `:w`, `:w NAME` (the buffer keeps its name unless it had none), `:q`,
+  `:q!`, `:wq`, `:x` and `ZZ` (written only if modified), `:e NAME`, `:e!`,
+  `:N` (line N), `:set nu` / `:set nonu` (line numbers), `:syntax on` /
+  `:syntax off`. Ctrl-L asks the terminal its size and draws everything
+  again; Ctrl-G shows the file and its size.
+- **Highlighting.** `.s` is Strata assembly, `.fs` Strata Forth; another
+  name is plain unless the file carries the tag `src` (assembly) or `forth`.
+  The rules are the site's (`site/hl.js`): for assembly, comment lines and
+  `;` `#` `//` comments, labels, `NAME =` and CAPITALS, mnemonics by
+  category (ALU, memory, branch, transfer, capability, system, paging,
+  pseudo-instructions), directives (a word starting with "."), x and c
+  registers and transfer tags, CSR names after `csrr` / `csrw`, numbers,
+  strings and characters; for Forth, `\` and `( )` comments (a `(` comment
+  may run over lines: the state at the start of each row is kept, and a
+  change that alters it draws the rows below), `:` `;` and the defining
+  words with the names they define, control words, the Strata words,
+  numbers, strings and locals. The keyword tables are generated at build
+  time (`tools/vi-syntax.py` -> `build/vi-syntax.s`) from the sources the
+  site uses: `asm/sasm.c` and `lang/forth/README.md` through
+  `tools/web-code.py`, and `site/hl.js`'s Forth word lists. The site's
+  colours (`site/hl.css`) are mapped to the 16 SGR colours: comments 90,
+  labels 97, constants 92, ALU 96, memory 94, branches 95, transfers 33,
+  capabilities 93, system 31, paging 91, pseudo 36, directives 34, x
+  registers 37, c registers 93, CSRs 91, numbers 32, strings 35; Forth
+  definitions 31, names 97, control 95, defining words 34, Strata words 33,
+  locals 93.
+- **Screen size.** vi moves the cursor to row 999, column 999 and asks
+  ESC [ 6 n; an ANSI terminal (and `term`, 2.6) answers ESC [ row ; column R
+  with where the cursor stopped. Without an answer within 0.2 s, or when a
+  key comes first (a script), it is 80 × 24 (at most 62 × 250 are used).
+  Ctrl-L asks again; an answer is taken whenever it comes. A window that
+  changes size is not noticed until Ctrl-L.
+- **Keys.** The console delivers a key's bytes one at a time, so an Esc is
+  told from an escape sequence by time: a `[` within 30 ms (vi polls with
+  READs that do not block, which have `tty` read one byte ahead) makes a
+  sequence (the arrows, Home, End, Delete, PgUp, PgDn).
+- **Drawing.** Only what changed is sent: the rows of lines that changed
+  (and the rows below when lines come or go), the status line, the
+  cursor; the cursor is off while a frame is drawn. A scroll draws the
+  text rows again: the console's and the window's terminals share no
+  cheaper way to scroll (`term` redraws every row of its grid on a scroll
+  anyway). On exit the screen is cleared.
+- **Where the text lives.** In far memory (the arena), moved with
+  transfers; the D-LS holds one 2 KiB chunk, the line being edited and the
+  screen's state. Arena [0, 512 KiB): the text, in 256 chunks of 2 KiB,
+  each a run of whole lines with their newlines, in the order of a chunk
+  table (store number, bytes, lines) in the D-LS; a full chunk is split
+  where a line goes in, an emptied one is freed, and a small one takes in
+  the next. [512 KiB, 736 KiB): the undo history, a record per change (the
+  first line, the old lines and the new ones, the cursor before it); the
+  oldest records go when it is full. [736 KiB, 832 KiB): the register
+  (what `y d c x` took).
+- **Limits.** About 500 KiB of text (a file that does not fit is cut
+  short, and vi says so); lines of 1000 bytes at most (a longer one is
+  split when the file is read); 96 KiB in the register; a change bigger
+  than the 224 KiB history cannot be undone (the history before it goes).
+  `fs` holds a file being written in 128 KiB, so `:w` refuses a bigger
+  buffer before the file is touched; `/src/sh.s` (333 KiB) opens, but
+  cannot be written back. Every line is written with a newline after it.
+  No counts on inserts, no `f t`, no marks or named registers, no regular
+  expressions.
+
 ## 3. Tests
 
 - `make test` compares every example on the emulator and the RTL
@@ -1267,6 +1434,17 @@ host opens `http://localhost:8080/`.
   Cookie header) from the test disk `build/http-test/disk.img`, compared
   with `tools/test-http.out`; then two emulators over host UDP: a quick
   request is answered while a slow connection waits.
+- `tools/test-vi.sh`: the editor. A scripted session (`-j -T virtual`)
+  edits files with inserts, motions, counts, operators, yank and put,
+  undo, redo and `.`, searches, `:w NAME`, `:q!`, `:e`, options, a file
+  bigger than the whole D-LS (`seq 15000`: 77 KiB) and the 333 KiB shell
+  source; the files it wrote (`cat`, `wc`, `grep`), with vi's screens
+  taken out, are compared with `tools/test-vi.out`, and the screens are
+  checked for the SGR colours of an `.s` and an `.fs` file (a Forth `(`
+  comment carried over a line). A second boot sends Ctrl-C (`-b`) while
+  vi runs: it carries on. `tools/vi-shots.sh` (not run by `make test`)
+  takes pictures of vi in the window server's terminal:
+  `build/vi-shots/asm.png`, `forth.png`.
 - `tools/test-as.sh` (run on its own, not by `make test`): the self-hosted
   assembler against `sasm`, including a StrataOS boot that assembles and
   runs a program.

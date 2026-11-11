@@ -70,7 +70,7 @@ them.
 - [x] Platform table: PT_FB (5) and PT_TIMER (6), geometry in the info
   word.
 - [x] SDL2 window opened on the first PRESENT; keyboard mapping (Alt =
-  ESC prefix, Ctrl-C = break).
+  ESC [ 27 ; 3 ; code ~, Ctrl-C = break).
   - [x] Flags `-g none`, `-F frame.ppm`, `-z N`, `-H`, `-r WxH`.
 - [x] Shared host code in `common/display.h`. The emulator still builds with
   `-DNO_SDL`.
@@ -524,12 +524,17 @@ Ideas to evaluate:
   are given to a per-core (or system-core) "keeper" through the inbox / a
   server and taken back on switch-in. Unbounded, but costs messages per
   switch; measure.
-- [ ] **Fewer live capabilities per thread.** Let the dispatcher save only
-  the valid registers (cvalid), and encourage programs to keep spares in
-  their own save slots or joined into c0. Most threads hold 3–5.
-- [ ] **A bigger or per-thread save table (ISA/RTL).** Grow the table
-  (LUT-RAM cost), or bank it per hardware context. Weigh the FPGA cost
-  (the 2-core xc7 build is already ~90k LUTs).
+- [x] **Fewer live capabilities per thread.** Done: the save table is a
+  pool of slots shared by the threads and the queues (4 reserved per thread
+  record, 12 general); only memory capabilities take slots (endpoints and
+  device capabilities are rebuilt on switch-in) and a one-thread process's
+  image and save area are one capability, so a typical switched-out thread
+  holds 3 slots. 11 threads per core (doc/strataos.md 2.1).
+- [x] **A bigger save table (ISA/RTL).** 256 entries (a platform
+  parameter, in the platform table's header), `csavex` / `crestorex` with
+  the slot in a register (CAP2 6, 7; capop past the end); emulator, RTL,
+  sasm, as, conformance `ctab`, manual. The kernel reserves every thread's
+  worst case (10 slots) and takes 16 threads per core.
 - [ ] **Capabilities in memory, sealed (ISA).** A `cseal`/`cunseal` pair
   that stores a capability into a kernel-only T2/T3 region (a tagged-memory
   page or a kernel table indexed by handle) so the kernel can spill any
@@ -556,7 +561,8 @@ Ideas to evaluate:
   (MEMORY length, SPAWN mode >> 16, sh `-m N`), revoked by address at exit; 64 arena
   slots and kernel process records; proc / fs / ws / ps tables at 64.
 - [x] tools/test-procs.sh: 35 processes at once on 15 cores, twice, memory reused.
-- [ ] More than 3 threads per worker core (the save-table budget) - not done.
+- [x] More than 3 threads per worker core: the save table is a pool (16 threads per core, 11 with 64 slots;
+  endpoints and device capabilities rebuilt on switch-in, not saved); see S2.
 - [ ] System memory beyond 64 MiB in the emulator - not done.
 
 ## File ownership while agents run in parallel
@@ -635,10 +641,9 @@ Transcripts are in
 
 ## Known limitations / notes
 
-- The RTL is ~47k LUTs per core on Xilinx 7-series (yosys): one core fits
-  an Arty A7-100T, two need an XC7A200T (Nexys Video), and the six that
-  StrataOS needs fit none of the boards considered. The overlay map is 30%
-  of a core (fpga/README.md, "Where the LUTs go").
+- The RTL is ~30k LUTs for one core on Xilinx 7-series (yosys), each
+  further core ~28k (was ~47k): two fit an XC7A200T (Nexys Video), and the
+  six that StrataOS needs (168,694 LUTs) a Kintex-7 325T (fpga/README.md).
 - `strata_ram` carries `(* no_rw_check *)`: FPGA block RAM does not define
   a read of a byte written in the same cycle through the other port, and
   the hazard stalls are what make that unobservable. Keep it that way when

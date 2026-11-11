@@ -57,8 +57,9 @@ primary opcode \field{op}. The remaining bits follow one of six formats.
 \item[\field{off16}, \field{off21}] Signed offsets counted in instructions (multiplied by 4) relative to
   the address of the branch or jump itself.
 \item[\field{funct}] Selects the operation within an opcode. For CAP, bits 3:0 select the function, bit 4
-  is a flag (sender filter for \insn{ctake}) and bits 10:5 hold the save-table slot. For CAP2, bits 3:0
-  select the function and bits 10:4 are ignored. For XMAP and XCALL, bit 4 selects the second instruction
+  is a flag (sender filter for \insn{ctake}) and bits 10:5 hold the save-table slot (0--63; the
+  register forms \insn{csavex} and \insn{crestorex} take the slot from \reg{rx} in bits 15:11 instead and
+  reach the whole table). For CAP2, bits 3:0 select the function and bits 10:4 are ignored. For XMAP and XCALL, bit 4 selects the second instruction
   of the pair (\insn{xunmap}, \insn{xret}) and bits 3:0 hold \field{cs}.
 \end{description}
 
@@ -83,7 +84,7 @@ TAMO & \field{funct}\texttt{<2:0>} $\le$ 4, \field{funct}\texttt{<6:3>} = 0 & --
 CAP & bit 25 = 0 where bits 24:21 name a capability; bit 20 = 0 where bits 19:16 name a capability &
   unused register fields; \field{funct}\texttt{<10:5>} except as a save-table slot;
   \field{funct}\texttt{<4>} except for \insn{ctake}\\
-CAP2 & bits 25 and 20 = 0; \field{funct}\texttt{<3:0>} $\le$ 5 & \field{funct}\texttt{<10:4>}; unused register fields\\
+CAP2 & bits 25 and 20 = 0; \field{funct}\texttt{<3:0>} $\le$ 7 & \field{funct}\texttt{<10:4>}; unused register fields\\
 SYS & \field{imm16} $\le$ 2 & bits 25:16\\
 XMAP & map index (bits 25:21) $\le$ 15 & unused bits of \field{funct}; for \insn{xunmap}, bits 20:11\\
 XCALL & --- & unused bits of \field{funct} and unused register fields\\
@@ -108,7 +109,8 @@ TAMO & \field{funct}\texttt{<2:0>}, bits 6:3 zero & 0 add, 1 swap, 2 cas, 3 and,
 CAP & \field{funct}\texttt{<3:0>} & 0 cmov, 1 csplit, 2 cjoin, 3 cshare, 4 catomic, 5 crestrict,\\
  & & 6 cbase, 7 clen, 8 cperms, 9 cgive, 10 ctake, 11 cclear,\\
  & & 12 csave, 13 crestore, 14 cvalid, 15 cpoll\\
-CAP2 & \field{funct}\texttt{<3:0>} & 0 cdom, 1 crevoke, 2 cundom, 3 csend, 4 crecv, 5 cmkep; 6--15 illegal\\
+CAP2 & \field{funct}\texttt{<3:0>} & 0 cdom, 1 crevoke, 2 cundom, 3 csend, 4 crecv, 5 cmkep,\\
+ & & 6 csavex, 7 crestorex; 8--15 illegal\\
 SYS & \field{imm16} & 0 halt, 1 eret, 2 svc; all others illegal\\
 XMAP & \field{funct}\texttt{<4>} & 0 xmap, 1 xunmap\\
 XCALL & \field{funct}\texttt{<4>} & 0 xcall, 1 xret\\
@@ -224,6 +226,8 @@ The assembler expands the pseudo-instructions of Table~\ref{tab:pseudo} into rea
 nop & addi x0, x0, 0\\
 mv rd, rs & addi rd, rs, 0\\
 neg rd, rs & sub rd, x0, rs\\
+seqz rd, rs & sltiu rd, rs, 1\\
+snez rd, rs & sltu rd, x0, rs\\
 li rd, value & \textrm{1 instruction (}addi\textrm{) if it fits 16 signed bits; 2 (}lui; ori\textrm{) if it fits 32; else 6 (}lui; ori; slli 16; ori; slli 16; ori\textrm{)}\\
 la rd, symbol & lui rd, hi; ori rd, rd, lo \textrm{(always 2 instructions; 0 $\le$ value $<2^{31}$)}\\
 j label & jal x0, label\\

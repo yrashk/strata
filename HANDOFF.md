@@ -14,6 +14,9 @@ Strata: a prototype 64-bit ISA where memory is explicit I/O, with
 - StrataOS 0.1 (`os/`: microkernel, servers, shell, utilities, the window
   server `ws` and its clients), firmware (`firmware/`),
 - Strata Forth (`lang/forth/`, bare metal and as a StrataOS program),
+- the debuggers: a debug engine in the emulator (`emu/debug*.c`,
+  `strata-emu --debug`, protocol in `doc/debug-protocol.md`), the text
+  debugger `strata-dbg` (`dbg/`) and the web debugger (`site/debug/`),
 - a conformance suite (`conformance/`), the manual (`doc/manual/`, LaTeX),
 - the website (`site/`: landing page, in-browser emulator `play/`, source
   browser `code/`), deployed by `.github/workflows/pages.yml`.
@@ -75,14 +78,19 @@ Not verified:
   (`fpga/README.md` has the tables and a per-module breakdown; the ECP5
   problem was the D-LS: fixed with `(* no_rw_check *)` in
   `rtl/strata_ram.sv`). No place-and-route, so no timing.
-- About 47k LUTs per core on xc7. One core fits the Arty A7-100T, two need
-  an XC7A200T (Nexys Video). **StrataOS needs 6 cores (~293k LUTs): more
-  than any Artix-7.** `make fpga-images` still builds a StrataOS disk for
-  the 2-core Arty top, which cannot boot it.
-- Where to cut (measured): the overlay map is ~30% of a core (16 entries of
-  64-bit range compares), the capability registers ~14%.
-- The numbers predate the pointer device; rerun `fpga/synth.sh` after it
-  lands (2-core runs ~12 min, 6-core ~55 min).
+- One core is 30,011 LUTs on xc7 (was 50,606), each further core about
+  28k; ECP5 one core 41,219 LUT4 sites (was 80,999). Two cores fit an
+  XC7A200T (Nexys Video). **StrataOS needs 6 cores (168,694 LUTs): more than
+  any Artix-7, within a Kintex-7 325T.** `make fpga-images` still builds a
+  StrataOS disk for the 2-core Arty top, which cannot boot it.
+- How it got there (one commit per step, fpga/README.md has the numbers):
+  27-bit capability bounds and overlay far addresses, two capability read
+  ports, the save table in block RAM, LUT-RAM integer registers and
+  inboxes, multi-cycle multiply and ltag entry address, slot-aligned xmap
+  (an ISA change) and NXMAP as a platform parameter (`make test-small`
+  boots StrataOS with 8).
+- No place-and-route yet, so no timing (synthesis: 1 core ~2 min, 6 cores
+  ~11 min).
 
 ### Forth under StrataOS — works; docs/cleanup open
 - `forth`, `forth file.fs`, `forth -n N` run under the OS; tests pass.
@@ -90,6 +98,33 @@ Not verified:
   `lang/forth/README.md` (the StrataOS section may be stale), and that
   `lang/forth/demos/gfx.fs` runs (it once failed with `.cap: undefined
   word` when tools moved to `tools.fs` / `see.fs`).
+
+### The debuggers — done; what is open
+- Built: the engine (control, breakpoints and watchpoints, state, event
+  log, capability provenance, time travel with bounded memory, StrataOS
+  and Forth awareness), `sasm -g` maps for every image, `strata-dbg`
+  (gdb-like commands, `tui`, a pty for the guest's console), the web
+  debugger (in the page or over a WebSocket to `strata-emu --debug PORT`).
+  `tools/test-dbg.sh` (in `make test`) drives them.
+- The engine is included by `emu/emu.c` and observes from outside
+  `step()`; the only hooks in emu.c are in `far_wrote`, the block
+  device's disk write, `trap`, the console output port, and the halt /
+  fault messages (`emu/debug.h`). `Cap` got a 32-bit `id` (in its padding:
+  still 32 bytes); emu.c disables -Wmissing-field-initializers for the
+  capability literals that leave it 0. `machine_round` lost its idle
+  computation to `round_idle()`, which the engine shares.
+- When the ISA changes, the engine follows in three places: the
+  disassembler (`emu/debug_sym.c`), `pre_decode` / `stall_reason` /
+  `prov_after` (`emu/debug.c`) and the snapshot's list of machine state
+  (`Misc` in `emu/debug_tt.c`: every static that a run depends on must be
+  in it, or replays diverge; `info history` counts divergences).
+  NXMAP and CTAB are fixed for a run (-X / -S), so they are not in `Misc`;
+  `hello` reports both, `xmap` lists NXMAP entries, and the far address
+  of code in a mapped slot uses the unit's aligned start (`xm_unit` in
+  `emu/debug_sym.c`), as slot-aligned xmap defines it.
+- Open: the RTL behind the same protocol; a timing model; per-line
+  stepping; the timeline's axis is rounds, which jump when an idle
+  machine skips time (StrataOS).
 
 ### Smaller open items
 - Console input reads cannot be cancelled: `halt` typed in a `term` under
@@ -108,7 +143,7 @@ Not verified:
 - `os/ws/README.md` still has a "what remains" section from before the
   integration.
 - Stretch goals: `PLAN.md` section S (Forth ahead-of-time compiler, more
-  than 3 threads per core).
+  than 3 threads per core: done as the save-table pool and a 256-entry table, 16 per core).
 
 ## Plans and notes in the tree
 
@@ -138,6 +173,8 @@ make show-gfx        # the framebuffer window
 make ws-demo         # the window server's drawing code with a simulated OS
 make forth           # Forth on bare metal
 make web-site        # the site incl. the wasm emulator -> build/web-site
+make debug-pipeline   # strata-dbg on an example (debug-NAME); debug-os: StrataOS
+make debug-web        # the web debugger on the desktop engine: localhost:4444/debug/
 make manual          # the PDF (needs tectonic)
 ```
 

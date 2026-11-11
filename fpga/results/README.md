@@ -1,9 +1,8 @@
 # fpga/results: the last synthesis and place-and-route runs, kept
 
-`fpga/synth.sh` takes from about 12 minutes (one core) to about an hour (six
-cores), and `fpga/pnr.sh` (nextpnr) from minutes to hours, so the results of
-the last runs are kept here rather than only in `fpga/build/` (gitignored).
-Each directory is one `fpga/synth.sh FAMILY N` and what was done with it:
+`fpga/synth.sh` takes from about 2 minutes (one core) to about 11 minutes (six
+cores), so the results of the last runs are kept here rather than only in
+`fpga/build/` (gitignored). Each directory is one `fpga/synth.sh FAMILY N`:
 
 | File | What |
 |---|---|
@@ -20,32 +19,23 @@ The `.gz` and `.png` files are in Git LFS (`.gitattributes`): `git lfs pull`
 fetches them after a clone. The ECP5 netlist is 158 MB uncompressed (3.7 MB
 as kept); `gunzip -k` gives back what nextpnr reads.
 
-`xc7-2`, `xc7-6` and `ecp5-1` are of commit 0e51b8f (2026-11-10: with the
-pointer device, the console input release and the network device); `xc7-1`
-is of the RTL with revocation by address (the granule table instead of the
-15 revocation domains; it was 48,240 LUTs, 12,681 FF and 172 LUT-RAM cells
-at 0e51b8f), and has the 7-series netlist. All with Yosys 0.70 and sv2v from
-Homebrew on an arm64 Mac. The numbers are in `fpga/README.md`. The ECP5
-variants `ecp5-1-xmap12` and `ecp5-1-xmap4` and all the place-and-route
-runs below are of 0e51b8f too: they predate revocation by address.
+All the runs are of the RTL after the core-size work (plans (a) and (b),
+the commits after 0a4bd8a: narrow capability and overlay fields, fewer
+ports, block-RAM save table, LUT-RAM registers and inboxes, multi-cycle
+multiply and ltag entry address, slot-aligned xmap, NXMAP a platform
+parameter), with Yosys 0.70 and sv2v from Homebrew on an arm64 Mac. The
+numbers, and those of the intermediate steps, are in `fpga/README.md`.
+(The `xc7-2` run committed with the end of plan (a) was in fact of this
+RTL; plan (a)'s 2-core figure in `fpga/README.md` is from a run of that
+commit's RTL.)
 
 | Run | Result |
 |---|---|
-| `xc7-1` | 47,059 LUTs, 12,450 FF, 88 RAMB36 (+1 RAMB18), 30 DSP48E1, 214 LUT-RAM cells |
-| `xc7-2` | 94,130 LUTs, 23,636 FF, 120 RAMB36, 60 DSP48E1 |
-| `xc7-6` | 290,431 LUTs, 73,775 FF, 248 RAMB36, 180 DSP48E1 |
-| `ecp5-1` | 80,999 LUT4 sites (61,949 LUT4 + 9,525 carry cells), 12,866 FF, 181 DP16KD, 30 MULT18X18D |
-| `ecp5-1-xmap12` | `NXMAP=12 fpga/synth.sh ecp5 1`, the overlay map cut to 12 entries (`strata_pkg.diff`): 74,296 LUT4 sites (58,114 + 8,091 carry cells), 12,336 FF |
-| `ecp5-1-xmap4` | `NXMAP=4`, 4 entries: 63,429 LUT4 sites (52,827 + 5,301 carry cells), 11,284 FF |
-
-Place and route (`fpga/README.md`, "Place and route"), nextpnr-ecp5 0.11.1
-from the OSS CAD Suite 2026-11-10, LFE5U-85F CABGA381:
-
-| Run | Result |
-|---|---|
-| `ecp5-1` | `nextpnr-heap.log`: the default placer cannot legalise 99.6% of the logic cells; `nextpnr-sa.log`: the SA placer stalls (stopped after 10 minutes); `nextpnr-static.log`: the static placer places it, estimated 9.8 MHz; `placed-static.json.gz`, `die-placed.png` |
-| `ecp5-1-xmap12` | static placer, router1, 10 MHz target (`board.lpf`): **routed**, 14.46 MHz; `nextpnr.log.gz`, `report.json.gz`, `timing.txt` (the critical path, names shortened), `routed.json.gz`, `die.png`. `nextpnr-placed.log`: the earlier HeAP placement, which did not route |
-| `ecp5-1-xmap4` | the same flow: **routed**, 15.51 MHz; `nextpnr.log.gz`, `timing.txt` |
+| `xc7-1` | 30,011 LUTs, 6,869 FF, 88 RAMB36 (+4 RAMB18), 4 DSP48E1, 173 LUT-RAM cells (was 50,606 LUTs, 12,638 FF, 30 DSP48E1) |
+| `xc7-1-x8` | 29,078 LUTs, 6,495 FF (8 overlay map entries: `fpga/synth.sh xc7 1 8`) |
+| `xc7-2` | 58,066 LUTs, 11,713 FF, 120 RAMB36 (+7 RAMB18), 8 DSP48E1 (was 94,130 LUTs) |
+| `xc7-6` | 168,694 LUTs, 31,102 FF, 248 RAMB36 (+19 RAMB18), 24 DSP48E1 (was 290,431 LUTs, 73,775 FF) |
+| `ecp5-1` | 41,219 LUT4 sites (35,473 LUT4 + 2,873 carry cells), 6,831 FF, 180 DP16KD, 4 MULT18X18D (was 80,999 LUT4 sites) |
 
 After a change to the RTL, run `fpga/synth.sh` again and replace the
 directory of each configuration it ran.

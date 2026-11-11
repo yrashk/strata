@@ -11,6 +11,9 @@ package strata_pkg;
   localparam int T2_BYTES  = 262144;   // cluster store
   localparam int T3_BYTES  = 67108864; // system memory (64 MiB; the framebuffer window is the top 16 MiB)
 
+  // a Local Store address or length, up to the store's size
+  localparam int LSW       = $clog2(DLS_BYTES > ILS_BYTES ? DLS_BYTES : ILS_BYTES) + 1;
+
   localparam int DLS_WORDS = DLS_BYTES / 8;
   localparam int ILS_WORDS = ILS_BYTES / 8;
   localparam int T2_WORDS  = T2_BYTES / 8;
@@ -18,8 +21,17 @@ package strata_pkg;
 
   localparam int NTAGS     = 16;
   localparam int NCAPS     = 16;
-  localparam int CTAB      = 64;       // capability save table entries
-  localparam int NXMAP     = 16;       // overlay map entries
+  localparam int CTAB      = 256;      // capability save table entries (common/platform.h CTAB_DEF)
+  localparam int CTW       = $clog2(CTAB); // a slot number
+  localparam int NXMAP_DEF = 16;       // overlay map entries: the default (common/platform.h NXMAP_DEF);
+                                       // strata_core / strata_top take NXMAP (4..16) as a parameter
+  // Far addresses and capability bounds are held in FW bits. Every way of
+  // making a capability keeps base + len <= its space's size (the reset
+  // capabilities, csplit, cjoin, cmkep: base <= NCORES, length 1), and the
+  // largest space is system memory, so FW bits hold any capability's base,
+  // its length (up to the whole space) and any far address inside it.
+  localparam int SPACE_MAX = T3_BYTES > T2_BYTES ? T3_BYTES : T2_BYTES; // >= device, core, endpoint spaces
+  localparam int FW        = $clog2(SPACE_MAX) + 1;
   localparam int GRAN_SHIFT = 18;      // revocation granules of T2 and T3: 256 KiB
   localparam int NG3       = T3_BYTES >> GRAN_SHIFT;   // T3 granules
   localparam int NG2       = T2_BYTES >> GRAN_SHIFT;   // T2 granules
@@ -43,16 +55,27 @@ package strata_pkg;
   localparam int P_D = 4;   // duplicable (never together with W)
   localparam int P_V = 5;   // revoker: crevoke / cundom over its range
 
+  // A capability register. The architecture's base and length are 64-bit
+  // values; this implementation holds them in FW bits (see FW above).
   typedef struct packed {
-    logic        valid;
-    logic [2:0]  space;
-    logic [5:0]  perms;
-    logic [63:0] base;
-    logic [63:0] len;
-    logic        rv;             // revocable: live while its granule's generation is gen
-    logic [15:0] gen;            // revocable: the generation of its base's granule when made;
+    logic          valid;
+    logic [2:0]    space;
+    logic [5:0]    perms;
+    logic [FW-1:0] base;
+    logic [FW-1:0] len;
+    logic          rv;           // revocable: live while its granule's generation is gen
+    logic [15:0]   gen;          // revocable: the generation of its base's granule when made;
                                  // a revoker (V): the permissions crevoke / cundom give
   } cap_t;
+
+  // a 64-bit register compared with a capability's FW-bit length (or a
+  // value below it): any bit above FW-1 makes it larger
+  function automatic logic ge_w(input logic [63:0] r, input logic [FW-1:0] l);
+    return r[63:FW] != 0 || r[FW-1:0] >= l;
+  endfunction
+  function automatic logic gt_w(input logic [63:0] r, input logic [FW-1:0] l);
+    return r[63:FW] != 0 || r[FW-1:0] > l;
+  endfunction
 
   localparam cap_t CAP_NULL = '0;
 
@@ -108,7 +131,7 @@ package strata_pkg;
 
   // second capability group (OP_CAP2, funct[3:0])
   localparam logic [3:0] C2_DOM = 4'd0, C2_REVOKE = 4'd1, C2_UNDOM = 4'd2, C2_SEND = 4'd3,
-                         C2_RECV = 4'd4, C2_MKEP = 4'd5;
+                         C2_RECV = 4'd4, C2_MKEP = 4'd5, C2_SAVEX = 4'd6, C2_RESTOREX = 4'd7;
 
   // ALU funct (OP_ALU, funct[5:0])
   localparam logic [3:0] ALU_ADD = 4'd0,  ALU_SUB  = 4'd1,  ALU_AND  = 4'd2,  ALU_OR   = 4'd3;

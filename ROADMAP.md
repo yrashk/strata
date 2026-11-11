@@ -43,16 +43,33 @@ exists today, what is known to be missing or rough, and what is planned.
 - The emulator compiled to WebAssembly, with a terminal and a canvas for
   the framebuffer, and a browser for all the sources.
 
+**Debuggers**
+- A debug engine in the emulator (`strata-emu --debug`): breakpoints and
+  watchpoints that know the machine (transfers at issue and completion,
+  tags, capability operations, far ranges, processes), the state decoded
+  (tags in flight, pending device reads, stall reasons, capabilities and
+  their provenance, the save table, inboxes, the overlay map), an event
+  log, and time travel on deterministic runs. One JSON-lines protocol
+  (`doc/debug-protocol.md`) over stdio, TCP, WebSocket or the browser.
+- `strata-dbg`, a gdb-like text debugger with a split-screen view, and a
+  web debugger (`site/debug/`) with a transfer timeline, a Local Store map,
+  a provenance graph and a time slider, in the page or against the
+  desktop engine. Symbol and line maps from `sasm -g`; StrataOS and Forth
+  awareness.
+
 ## Known limitations
 
 **Hardware**
 - The design has never run on a board. The core is multi-cycle, not
-  pipelined, with 64-bit adders, comparators and a multiplier in single
-  cycles, so timing closure at a useful clock is an open question.
-- It is large: the two-core system needs a bigger FPGA than the common
-  hobby boards carry. Most of the logic is not the datapath but the code
-  map, the banked CSRs, the capability register file and save table, the
-  inbox queues and the granule table (revocation by address).
+  pipelined, with 64-bit adders and comparators in single cycles (the
+  multiplier and the ltag entry address now take several), so timing
+  closure at a useful clock is an open question.
+- One core is about 30k LUTs on 7-series (41k LUT4 sites on ECP5), each
+  further core about 28k: two cores fit an XC7A200T, but the six StrataOS
+  needs (168,694 LUTs) need a Kintex-7 325T or larger. What remains is
+  mostly the capability registers in flip-flops, execute's result paths,
+  the banked CSRs, the Transfer Unit's hazard compares and each core's
+  granule-table copy.
 - On FPGA there is no video output; the framebuffer is memory only.
 - The DRAM adapter makes one access per 8-byte beat.
 
@@ -68,15 +85,20 @@ exists today, what is known to be missing or rough, and what is planned.
 - The in-browser emulator is an interpreter.
 
 **StrataOS**
-- A worker core holds at most three threads: each thread's capability
-  registers c0..c7 live in the core's 64-entry capability save table while
-  it is switched out.
+- A worker core holds at most 16 threads: a switched-out thread's memory
+  capabilities live in the core's capability save table (256 entries; a
+  pool of slots shared with the queues; endpoints and device capabilities
+  are rebuilt instead), 10 slots reserved per thread: all it can hold. With
+  a 64-entry table (a platform parameter) 11 threads, 4 slots each.
 - Capability registers c8..c15 do not survive a context switch.
 - It needs at least 6 cores; at most 32 processes and 24 arenas of 1 MiB;
   a program's code is 32 KiB (more through code paging), its data 40 KiB.
-- Fixed-size queues: a server's core queues 8 requests (more are refused
-  with an error), and a core queues 11 capabilities in transit between
-  threads; a flood beyond that loses capabilities.
+- Fixed-size queues: a server's core queues 16 requests (more are refused
+  with an error), and a core queues 16 capabilities in transit between
+  threads; a flood beyond that loses capabilities. (With a 64-entry save
+  table all queues share 12 slots, and a thread holding more than 4 memory
+  capabilities takes its extra slots from them; when none is left it is
+  not switched out until one frees up.)
 - `halt` waits for a pending console read (see above).
 - The file system is flat: contiguous files, 128 directory entries, files
   being written held in a 128 KiB region.
@@ -100,6 +122,17 @@ exists today, what is known to be missing or rough, and what is planned.
 - It runs on the bare machine only, in supervisor mode: nothing can
   interrupt a runaway word.
 
+**The debuggers**
+- The emulator completes memory transfers at issue, so the debuggers see
+  only device reads in flight; a timeline of the RTL's real transfer
+  latencies would need the RTL simulator behind the same protocol.
+- Time travel needs a deterministic run (`-T virtual`, no JIT, no
+  network); the JIT is used only for a plain `continue` with no
+  breakpoints on a run that is not recorded.
+- The backtrace is a heuristic (there are no frame pointers); the
+  StrataOS view reads `proc`'s table only while `proc` owns its core's
+  Local Store (it is alone on its core).
+
 ## Next
 
 **Forth as a StrataOS program.** The kernel already has what a program
@@ -120,17 +153,16 @@ program is the next step.
   the words reachable from `main`.
 - Large programs: rarely used words as code units, paged on demand.
 
-**More threads per core.** Three is the save table's budget made visible.
-The options to measure before choosing:
-- park a switched-out thread's capabilities off-core, with a keeper;
-- save only the valid capability registers (most threads hold three to
-  five);
-- a bigger, or banked, save table in the hardware, weighed against its
-  FPGA cost;
+**More threads per core.** Done: the save table is a pool of slots shared
+by the threads and the queues, a switched-out thread keeps only its memory
+capabilities there (endpoints and device capabilities are rebuilt on
+switch-in), and the table has 256 entries (a platform parameter; `csavex` /
+`crestorex` reach slots past 63), so a core holds 16 threads instead of 3,
+each with its worst case reserved. Still open:
+- servers sharing cores (a request addressed to a process, not to a core),
+  so that StrataOS runs on fewer than 6 cores;
 - sealed capabilities that the kernel can spill to memory it alone can
   reach: the largest change and the most general;
-- a bound on what a blocked thread may hold, spilling the rest into a
-  table kept by the process server;
 - two-level scheduling: user-level threads inside one process sharing its
   capability registers, switched by a library without the kernel.
 
@@ -139,11 +171,22 @@ device read (or to complete it from another core, as the release port does
 for the break key), so that halting never waits for a key and a server can
 give the keyboard up cleanly.
 
-**A smaller FPGA footprint.** Find what the synthesis numbers are made of
-and reduce it: the code map's range comparators, memories that should
-infer as block RAM on every family, the save table and queues in LUT RAM.
-Then timing: pipeline the long paths or run a slower core clock beside the
-memory controller's. Then a first board bring-up.
+**A smaller FPGA footprint, then timing.** The core went from 47k to 30k
+LUTs (fpga/README.md has the steps), with two small ISA changes: `xmap`
+needs slot-aligned units, and the overlay map's size is a platform
+parameter (NXMAP, 16 by default, 8 for small FPGAs). The next candidates are the
+capability registers (LUT-RAM for the fields not needed in parallel), an
+I-LS-side alignment rule for overlay slots (the link and invalidation
+compares become equalities too), and fewer cores' worth of granule-table
+copies. Then timing: place and route, register the capability operand
+before EX, or run a slower core clock beside the memory controller's.
+Then a first board bring-up.
+
+**The debuggers, further.** The RTL simulator behind the debug protocol
+(real transfer latencies on the timeline; the same front-ends); a timing
+model for the emulator that keeps memory transfers in flight as the
+hardware would (legal under the as-if-synchronous rule: stalls only); data
+breakpoints on Forth's dictionary words; source-level stepping by line.
 
 **Video on FPGA.** Scan the framebuffer window out over HDMI/DVI, with
 PRESENT and VSYNC tied to the real display, and a keyboard, so that the
@@ -156,6 +199,3 @@ window server runs on hardware.
   host side (window, browser, scripted input) is written; the device model in
   the emulator and the RTL, and the window server's cursor, click-to-focus
   and wheel scrolling, are not.
-- **FPGA numbers.** The synthesis figures in `fpga/README.md` predate the
-  timer, framebuffer controller and later changes; block-RAM inference on
-  ECP5 needs fixing before its numbers mean anything.

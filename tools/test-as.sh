@@ -162,6 +162,8 @@ back:   beq a0, a1, start
         cclear c4
         csave c13, 63
         crestore c13, 62
+        csavex c13, a0
+        crestorex c12, t6
         csrr a0, cycle
         csrr a0, instret
         csrr a0, cause
@@ -395,6 +397,8 @@ xmap 16, a0, c0, a1
 xret
 csend c1
 cmkep c1, c2
+csavex c1, c2
+crestorex a0, a1
 tany a0
 csave c0, 64
 .byte 1\nnop

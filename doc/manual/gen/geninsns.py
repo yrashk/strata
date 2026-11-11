@@ -689,7 +689,9 @@ ins("cap", "CCLEAR", "Capability clear", L_R(OP["CAP"], rd=CD, rs1=None, rs2=Non
 ins("cap", "CSAVE", "Capability save to table",
     L_R(OP["CAP"], rd=None, rs1=CS, rs2=None, funct=cap_funct(12, slot=True)), ["csave cs, slot"],
     r"Stores capability \reg{cs} in slot \field{slot} (0--63) of the per-core capability save table. "
-    r"A linear capability is moved; a copyable one is copied. The save table belongs to the supervisor.",
+    r"A linear capability is moved; a copyable one is copied. The save table belongs to the supervisor. "
+    r"The immediate reaches only slots 0--63; \insn{csavex} reaches every slot of the table, whose size "
+    r"$\textit{CTAB}$ the platform table gives (256 by default).",
     """if Mode == User then Trap(priv, instr); end
 cap = C[cs];
 if not Live(cap) then Trap(capinv, cs); end
@@ -704,7 +706,8 @@ if Linear(cap) then C[cs] = NULLCAP; end""",
 ins("cap", "CRESTORE", "Capability restore from table",
     L_R(OP["CAP"], rd=CD, rs1=None, rs2=None, funct=cap_funct(13, slot=True)), ["crestore cd, slot"],
     r"Loads capability register \reg{cd} from save-table slot \field{slot}. A linear capability leaves the "
-    r"slot empty; a copyable one stays in the slot as well. Supervisor mode only.",
+    r"slot empty; a copyable one stays in the slot as well. Supervisor mode only. The immediate reaches only "
+    r"slots 0--63; \insn{crestorex} reaches every slot.",
     """if Mode == User then Trap(priv, instr); end
 cap = CTAB[slot];
 if not Live(cap) then Trap(capinv, slot); end
@@ -720,7 +723,7 @@ def cap2_funct(fn):
     return [(10, 4, b(0, 7), "z"), (3, 0, b(fn, 4), "f")]
 
 
-ILL_C2 = ("illegal", r"bit 25 or bit 20 is 1, or \field{funct}\texttt{<3:0>} $>$ 5", "instruction word")
+ILL_C2 = ("illegal", r"bit 25 or bit 20 is 1, or \field{funct}\texttt{<3:0>} $>$ 7", "instruction word")
 CE_RD = [(25, 25, "0", "f"), (24, 21, "ce", "v")]
 CE_RS = [(20, 20, "0", "f"), (19, 16, "ce", "v")]
 REVOKER_INV = ("capinv", r"\texttt{C[cs]} is not a revoker: not live, or lacks \perm{V}", r"\texttt{cs}")
@@ -855,6 +858,45 @@ C[cd] = Cap(valid: TRUE, space: EP, perms: {R, W, D}, base: X[rx], len: 1, dom: 
           r"capability an instruction creates from an integer, which is why making one is privileged.",
     fmt="R", opname="CAP2", funct="5")
 
+ins("cap", "CSAVEX", "Capability save to table, register slot",
+    L_R(OP["CAP2"], rd=None, rs1=CS, rs2="rx", funct=cap2_funct(6)), ["csavex cs, rx"],
+    r"Stores capability \reg{cs} in save-table slot \reg{rx}, which may be any slot of the table "
+    r"($0 \le \reg{rx} < \textit{CTAB}$, the table's size from the platform table: 256 by default, at least 64). "
+    r"Otherwise it is \insn{csave}: a linear capability is moved, a copyable one copied; slots 0--63 are the "
+    r"ones \insn{csave} names with its immediate. Supervisor mode only.",
+    """if Mode == User then Trap(priv, instr); end
+s = UInt(X[rx]);
+if s >= CTAB then Trap(capop, X[rx]); end
+cap = C[cs];
+if not Live(cap) then Trap(capinv, cs); end
+if not Replaceable(CTAB[s]) then Trap(capop, X[rx]); end
+CTAB[s] = cap;
+if Linear(cap) then C[cs] = NULLCAP; end""",
+    [ILL_C2, PRIV, ("capop", r"$\texttt{X[rx]} \ge \textit{CTAB}$ (checked first)", r"\texttt{X[rx]}"), CAPINV_CS,
+     ("capop", r"\texttt{CTAB[X[rx]]} holds a live non-\perm{D} capability", r"\texttt{X[rx]}")],
+    notes=r"The whole 64-bit value of \reg{rx} is the slot: a value of $2^{16}$ is out of range, not slot 0. "
+          r"A supervisor that keeps more capabilities than 64 (StrataOS keeps every switched-out thread's "
+          r"memory capabilities on its core) uses this form; the immediate forms are for fixed slots.",
+    fmt="R", opname="CAP2", funct="6")
+ins("cap", "CRESTOREX", "Capability restore from table, register slot",
+    L_R(OP["CAP2"], rd=CD, rs1=[(20, 20, "0", "f"), (19, 16, b(0, 4), "z")], rs2="rx", funct=cap2_funct(7)),
+    ["crestorex cd, rx"],
+    r"Loads capability register \reg{cd} from save-table slot \reg{rx} ($0 \le \reg{rx} < \textit{CTAB}$). "
+    r"Otherwise it is \insn{crestore}: a linear capability leaves the slot empty, a copyable one stays. "
+    r"Supervisor mode only.",
+    """if Mode == User then Trap(priv, instr); end
+s = UInt(X[rx]);
+if s >= CTAB then Trap(capop, X[rx]); end
+cap = CTAB[s];
+if not Live(cap) then Trap(capinv, X[rx]); end
+if not Replaceable(C[cd]) then Trap(capop, cd); end
+C[cd] = cap;
+if Linear(cap) then CTAB[s] = NULLCAP; end""",
+    [ILL_C2, PRIV, ("capop", r"$\texttt{X[rx]} \ge \textit{CTAB}$ (checked first)", r"\texttt{X[rx]}"),
+     ("capinv", r"\texttt{CTAB[X[rx]]} is not live", r"\texttt{X[rx]}"),
+     ("capop", r"\texttt{C[cd]} holds a live non-\perm{D} capability", r"\texttt{cd}")],
+    fmt="R", opname="CAP2", funct="7")
+
 # ---------------------------------------------------------------- system
 ins("sys", "CSRR", "Read control and status register",
     [(31, 26, b(OP["CSRR"], 6), "f"), (25, 21, "rd", "v"), (20, 16, b(0, 5), "z"), (15, 0, "csr", "v")],
@@ -968,29 +1010,35 @@ ins("sys", "XMAP", "Overlay map",
     L_R(OP["XMAP"], rd=XIDX, rs1="rils", rs2="roff",
         funct=[(10, 5, b(0, 6), "z"), (4, 4, "0", "f"), (3, 0, "cs", "v")]),
     ["xmap idx, rils, cs, roff"],
-    r"Sets overlay-map entry \field{idx} (0--15) to map far address $\texttt{C[cs].base} + \reg{roff}$ to "
+    r"Sets overlay-map entry \field{idx} (0 to $\textit{NXMAP}-1$) to map far address $\texttt{C[cs].base} + \reg{roff}$ to "
     r"I-LS address \reg{rils}. Software calls this after loading the code with \insn{tgetx}. With "
     r"\csr{xslot} = 0 the entry maps that one far address; with \csr{xslot} = $n$ it maps the $2^n$-byte "
-    r"unit that starts there to the $2^n$-byte I-LS slot at \reg{rils}.",
+    r"unit that starts there to the $2^n$-byte I-LS slot at \reg{rils}, and the far address must be a "
+    r"multiple of $2^n$.",
     """cap = C[cs];
 if not Live(cap) then Trap(capinv, cs); end
 if not cap.X then Trap(perm, cs); end
 if UInt(X[roff]) >= cap.len then Trap(bounds, X[roff]); end
+if XSLOT != 0 and (cap.base + X[roff]) MOD (1 << XSLOT) != 0 then Trap(xalign, X[roff]); end
 if X[rils] MOD 4 != 0 or UInt(X[rils]) >= ILS_SIZE then Trap(lsfault, X[rils]); end
 XMAP[idx] = (valid: TRUE, space: cap.space, far: cap.base + X[roff], ils: X[rils]);""",
-    [("illegal", r"bit 25 is 1", "instruction word"),
+    [("illegal", r"$\field{idx} \geq \textit{NXMAP}$ (always when bit 25 is 1)", "instruction word"),
      ("capinv", r"\texttt{C[cs]} is not live", r"\texttt{cs}"),
      ("perm", r"\texttt{C[cs]} lacks \perm{X}", r"\texttt{cs}"),
      ("bounds", r"$\texttt{X[roff]} \geq \texttt{C[cs].len}$", r"\texttt{X[roff]}"),
+     ("xalign", r"$\csr{xslot} = n \neq 0$ and the far address is not a multiple of $2^n$", r"\texttt{X[roff]}"),
      ("lsfault", r"\texttt{X[rils]} misaligned or $\geq$ 65536", r"\texttt{X[rils]}")],
     notes=r"Entries are not checked for duplicates; a lookup uses the lowest-numbered matching entry. The map "
-          r"is per-core state and is available in user mode.",
+          r"is per-core state and is available in user mode. $\textit{NXMAP}$, the number of entries, is a "
+          r"property of the platform (4--16, 16 by default; the platform table's header says). The alignment "
+          r"is checked against \csr{xslot} when the entry is made; a lookup ignores the bits of the entry's far "
+          r"address below the current \csr{xslot}.",
     fmt="R", opname="XMAP", funct="funct<4> = 0")
 ins("sys", "XUNMAP", "Overlay unmap",
     [(31, 26, b(OP["XMAP"], 6), "f"), (25, 25, "0", "f"), (24, 21, "idx", "v"), (20, 5, b(0, 16), "z"),
      (4, 4, "1", "f"), (3, 0, b(0, 4), "z")],
-    ["xunmap idx"], r"Invalidates overlay-map entry \field{idx} (0--15).",
-    "XMAP[idx].valid = FALSE;", [("illegal", r"bit 25 is 1", "instruction word")],
+    ["xunmap idx"], r"Invalidates overlay-map entry \field{idx} (0 to $\textit{NXMAP}-1$).",
+    "XMAP[idx].valid = FALSE;", [("illegal", r"$\field{idx} \geq \textit{NXMAP}$ (always when bit 25 is 1)", "instruction word")],
     notes=r"\insn{tgetx} also invalidates every entry whose I-LS slot it overwrites.",
     fmt="R", opname="XMAP", funct="funct<4> = 1")
 ins("sys", "XCALL", "Overlay call",
@@ -1007,16 +1055,16 @@ if not Live(cap) then Trap(capinv, cs); end
 if not cap.X then Trap(perm, cs); end
 if UInt(X[roff]) >= cap.len then Trap(bounds, X[roff]); end
 key = cap.base + X[roff];
-sl = if XSLOT != 0 then 1 << XSLOT else 1;
+n = XSLOT;  sl = 1 << n;                                   // n = 0: exact mapping
 e = lowest entry with XMAP[e].valid and XMAP[e].space == cap.space
-                      and XMAP[e].far <= key < XMAP[e].far + sl;
+                      and key >> n == XMAP[e].far >> n;     // the slot holding the far address
 if no such e then Trap(xmiss, key); end
 link = PC + 4;
-if XSLOT != 0 and a valid entry f has XMAP[f].ils <= PC < XMAP[f].ils + sl then   // lowest such f
-    link = (1 << 63) OR (XMAP[f].far + (PC + 4 - XMAP[f].ils));                    // far link
+if n != 0 and a valid entry f has XMAP[f].ils <= PC < XMAP[f].ils + sl then        // lowest such f
+    link = (1 << 63) OR ((XMAP[f].far AND NOT (sl - 1)) + (PC + 4 - XMAP[f].ils));  // far link
 end
 X[rd] = link;
-NextPC = XMAP[e].ils + (key - XMAP[e].far);""",
+NextPC = XMAP[e].ils + (key MOD sl);""",
     [("capinv", r"\texttt{C[cs]} is not live", r"\texttt{cs}"),
      ("perm", r"\texttt{C[cs]} lacks \perm{X}", r"\texttt{cs}"),
      ("bounds", r"$\texttt{X[roff]} \geq \texttt{C[cs].len}$", r"\texttt{X[roff]}"),
@@ -1039,10 +1087,10 @@ if a<63> == 0 then
     NextPC = a AND NOT 3;
 else
     key = ZeroExtend(a<62:0>, 64);
-    sl = if XSLOT != 0 then 1 << XSLOT else 1;
-    e = lowest entry with XMAP[e].valid and XMAP[e].far <= key < XMAP[e].far + sl;
+    n = XSLOT;
+    e = lowest entry with XMAP[e].valid and key >> n == XMAP[e].far >> n;
     if no such e then Trap(xmiss, a); end
-    NextPC = XMAP[e].ils + (key - XMAP[e].far);
+    NextPC = XMAP[e].ils + (key MOD (1 << n));
 end""",
     [("xmiss", r"a far link whose unit is not mapped", r"the link \texttt{X[rs1]}, bit~63 set")],
     notes=r"Code that may be called through \insn{xcall} from paged code returns with \insn{xret ra} instead of "

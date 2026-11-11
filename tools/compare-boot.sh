@@ -4,6 +4,9 @@
 #
 #   tools/compare-boot.sh build/bootrom.stx build/disk.img os/demo.txt
 #
+# EMU_ARGS: extra emulator flags that describe the same machine as the RTL
+# build (e.g. -X 8 for an RTL built with NXMAP=8).
+#
 # Both machines run with the virtual timer (-T virtual: NOW = emulator rounds
 # / 100, RTL cycles / 100) and no window (-g none).
 #
@@ -38,17 +41,17 @@ split_trace() { # $1 = fifo, $2 = output prefix
 }
 split_trace "$tmp/e.fifo" "$tmp/e" & pe=$!
 split_trace "$tmp/r.fifo" "$tmp/r" & pr=$!
-"$b/strata-emu" -j -c "$n" -T virtual -g none -m 4000000000 -d "$tmp/d1.img" -i "$3" -t "$tmp/e.fifo" "$1" >"$tmp/e.out" 2>"$tmp/e.err"
+"$b/strata-emu" -j -c "$n" ${EMU_ARGS:-} -T virtual -g none -m 4000000000 -d "$tmp/d1.img" -i "$3" -t "$tmp/e.fifo" "$1" >"$tmp/e.out" 2>"$tmp/e.err"
 erc=$?
 "$b/strata-rtl" -T virtual -g none -m 4000000000 -d "$tmp/d2.img" -i "$3" -t "$tmp/r.fifo" "$1" >"$tmp/r.out" 2>"$tmp/r.err"
 rrc=$?
 wait $pe $pr
 # normalise what depends on timing: ps rows keep pid, parent, core, cores and
-# name; cores lines keep processes and flags; uptime keeps nothing but itself;
+# name; cores lines keep processes and flags (not switches, KiB, free slots); uptime keeps nothing but itself;
 # sched keeps the slice, not the rates
 norm() {
   sed -E -e 's/^( +[0-9]+ +[0-9]+) +(running|ready|blocked|zombie) +([0-9]+ +[0-9]+) +[0-9]+ +[0-9]+ +(.*)$/\1 \3 \4/' \
-         -e 's/^(core [0-9]+): (running [0-9]+|idle), [0-9]+ runnable,(.*); [0-9]+ switches, [0-9]+ KiB moved$/\1:\3/' \
+         -e 's/^(core [0-9]+): (running [0-9]+|idle), [0-9]+ runnable,(.*); [0-9]+ switches, [0-9]+ KiB moved, [0-9]+ slots free$/\1:\3/' \
          -e 's/^up [0-9.]+ s, .*$/up .../' \
          -e 's/^(time slice: [0-9]+ us); .*$/\1/' "$1"
 }

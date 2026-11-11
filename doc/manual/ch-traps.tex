@@ -36,7 +36,7 @@ a core holds.
 \begin{tabularx}{\linewidth}{@{}l X@{}}
 \toprule
 \textbf{Operation} & \textbf{In user mode}\\\midrule
-\insn{csave}, \insn{crestore} & \cause{priv}: the capability save table belongs to the supervisor\\
+\insn{csave}, \insn{crestore}, \insn{csavex}, \insn{crestorex} & \cause{priv}: the capability save table belongs to the supervisor\\
 \insn{cdom}, \insn{crevoke}, \insn{cundom}, \insn{cmkep} & \cause{priv}: revocation and endpoints are the supervisor's\\
 \insn{csrr} of \csr{sscratch} or \csr{ipend} & \cause{priv}\\
 \insn{csrw} of \csr{status}, \csr{corebase}, \csr{corecount}, \csr{ucause}, \csr{uepc}, \csr{utval}, \csr{utvec}, \csr{sscratch}, \csr{ipend} & \cause{priv}\\
@@ -125,7 +125,7 @@ unchanged.
 3 & capinv & capability register or save slot is not live (empty, or revoked)\\
 4 & perm & capability lacks the permission or names the wrong kind of space\\
 5 & bounds & far range outside the segment\\
-6 & xalign & memory transfer or atomic not 8-byte aligned\\
+6 & xalign & memory transfer or atomic not 8-byte aligned; \insn{xmap} of a unit not aligned to its slot size\\
 7 & ifault & instruction fetch outside the I-LS or misaligned\\
 8 & xmiss & \insn{xcall} target, or \insn{xret} far link, not in the overlay map\\
 9 & pend & access to an in-flight range with CCR.PTRAP set (debug)\\

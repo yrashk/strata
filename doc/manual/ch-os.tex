@@ -149,7 +149,8 @@ $[0, P)$ & the program's own memory: thread 0 receives it in \reg{c0}. The image
 $[P, \hex{D0000})$ & the save areas of threads $N-1 \ldots 1$, 48~KiB each\\
 $[\hex{D0000}, \hex{F0000})$ & the program image as \texttt{fs} loaded it (at most 128~KiB); the dispatcher
   of each thread keeps a read-only share and reloads code from it\\
-$[\hex{F0000}, \hex{FC000})$ & thread 0's save area\\
+$[\hex{F0000}, \hex{FC000})$ & thread 0's save area. With one thread, the image and the save area are
+  one capability, $[\hex{D0000}, \hex{FC000})$, which the dispatcher keeps in one save-table slot\\
 $[\hex{FF000}, \hex{100000})$ & the message buffer (\reg{c5})\\
 \bottomrule
 \end{tabularx}
@@ -212,31 +213,64 @@ loaded. The shell's \texttt{-c N} pins a process to core $N$.
 \begin{tabularx}{\linewidth}{@{}X l@{}}
 \toprule
 \textbf{Resource} & \textbf{Limit}\\\midrule
-Threads resident on one worker core & 3\\
+Threads resident on one worker core & 16, each with 10 save-table slots reserved (with a 64-slot table: 11, with 4, the server 5)\\
 Threads of one process & 6\\
 Processes & memory: one arena each, 1~MiB by default, from a 46~MiB pool; 64 at most (kernel, \texttt{proc}, \texttt{fs} and \texttt{ws} tables)\\
 Arenas & 64 (the kernel's arena slots); each 1--255~MiB, whole 256~KiB granules\\
 Program image; code and code cache; data; stack & 128~KiB; 32~KiB; 40~KiB; 8~KiB\\
 Handles per process & 8\\
 Message data & 4032 bytes\\
-Requests queued at a server's core; requests parked by a server & 8; 8\\
-Capabilities queued at a core as attachments and gifts between threads & 11\\
+Requests queued at a server's core; requests parked by a server & 16; 16\\
+Capabilities queued at a core as attachments and gifts between threads & 16\\
 Pipes; bytes buffered per pipe & 8; 2~KiB\\
 Files in the directory; tags on the disk & 128; 64\\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-With 15 cores the worker slots bind first: tty and proc each have a core to themselves, which
-leaves 12 cores with three threads each, three of them taken by dev, fs and pipe; that is 33
-processes besides the servers, and \texttt{tools/test-procs.sh} runs 35 processes at once. Before
-revocation by address there were 15 revocation domains, one per arena, so at most 14 processes.
+With 15 cores memory binds first: \texttt{tools/test-procs.sh} runs 35 processes at once. With 6
+cores, the fewest StrataOS runs on, proc and tty have a core each and the three other server cores
+take 16 threads each: 50 processes, and memory (46 one-MiB arenas) binds first again;
+\texttt{tools/test-procs.sh} runs 43 at once there. With a 64-slot save table a core takes 11 threads
+(35 processes on 6 cores), and with three threads per core, as before the save-table pool, 6 cores
+held 11 processes. Before revocation by address there were 15
+revocation domains, one per arena, so at most 14 processes.
 
-Three threads per core is the capability save table's budget made visible. Of its 64 slots a
-dispatcher uses 24 for the capability registers \reg{c0}--\reg{c7} of three resident threads, 6 for
-their save areas and image shares, 16 for its server's queued and parked requests, 11 for the queue of
-attachments and gifts, and the remaining 7 for its own capabilities: the shared table, core control,
-the clock, the console, the device root and the two registers it borrows from the running thread.
+\subsection{The save-table pool}\label{sec:os-pool}
+
+Capabilities never live in memory, so a switched-out thread's \reg{c0}--\reg{c7} stay on its core, in
+the capability save table: 256 slots on the default platform ($\textit{CTAB}$, from the platform
+table), reached with \insn{csavex} and \insn{crestorex}. A dispatcher keeps 7 slots for its own
+capabilities (the shared table, core control, the clock, the console, the device root and the two
+registers it borrows from the running thread), at 57--63 where the immediate forms reach them; the
+other 249 are a \term{pool} shared by the threads and the queues, with a bitmap of the slots taken. A
+thread takes slots only for what cannot be rebuilt:
+\begin{itemize}
+\item memory: its memory \reg{c0}, its message buffer \reg{c5}, and its image and save area, which
+  are adjacent in its arena and for a thread alone in its process are one capability (a thread of a
+  multi-threaded process has a read-only share of the image and a save area of its own);
+\item not an endpoint: it is fully described by its node and permissions, and the dispatcher mints
+  it again with \insn{cmkep} and \insn{crestrict} on switch-in;
+\item not a device capability (the clock in \reg{c7}, a console port, the device root): the dispatcher
+  cuts it from the device root again (\insn{csplit} twice, \insn{crestrict}). Device capabilities and
+  endpoints are never revocable, so the rebuilt capability is the original: the same space, base,
+  length and permissions, linear or copyable as it was.
+\end{itemize}
+A typical thread therefore holds 3 slots while it is switched out and 1 while it runs. Every thread
+record has 10 slots reserved, all a thread could ever need (a save area, an image share and all eight
+registers), and a thread's slots are charged to its reservation, so they never fail: a free thread
+record on a core means free slots too, and the system core places a thread only on a core with a free
+record (and a free job record); CREATE fails with $-5$ otherwise. $16 \times 10 = 160$; the other 89
+are the \term{general part}, for the queue entries (requests, parked requests, attachments and gifts:
+48 at most), so nothing ever runs out.
+
+The kernel sizes all of this from the platform table at boot. With a 64-slot table (the emulator's
+\texttt{-S 64}) the pool is 57 slots and a core takes 11 threads with 4 slots reserved each (the
+server's record 5); the 12 general slots then hold the queue entries and the extra slots of a thread
+that holds more than 4 memory capabilities (at most 8, so the queues always have 4). A full general
+part refuses a request (it goes back with result $-1$, like a full queue), a PARK ($-1$), drops an
+attachment, and keeps a thread whose extra capability finds no slot loaded until a slot frees up.
+\texttt{cores} shows the free slots of every core.
 
 \section{Scheduling and preemption}\label{sec:os-preempt}
 
@@ -287,7 +321,9 @@ In-flight transfers & drained first: the dispatcher waits for every tag but its 
 CSRs & \csr{epc} of the trap, the user trap registers \csr{utvec}, \csr{uepc}, \csr{ucause}, \csr{utval},
   and \csr{xslot}, \csr{ccr}, \csr{scratch}, \csr{ttag}, \csr{tdata}, \csr{tgeom}: saved to and restored
   from the record. The core window is set from the record\\
-\reg{c0}--\reg{c7} & moved to the thread's eight slots of the capability save table and back\\
+\reg{c0}--\reg{c7} & endpoints and device capabilities described (node, or base and length, and
+  permissions) and rebuilt on switch-in; memory capabilities moved to slots of the save-table pool
+  (Section~\ref{sec:os-pool}) and back\\
 \reg{c8}--\reg{c15} & not preserved across a switch. They are the thread's own between switches (the
   dispatcher borrows \reg{c8} and \reg{c9} during a trap and returns them)\\
 D-LS data & the thread's \term{data extent}, from address 0 to the end of its data section, is copied
@@ -615,7 +651,9 @@ Store. Files are contiguous runs of blocks; a file being written is held in a 12
 \textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
 1 & READ & length; mode bit 0 = do not block. Cooked mode: input is echoed and edited with Backspace,
   and a READ returns one line with its newline, or what was typed before Ctrl-D; 0 = end of input.
-  Raw mode: no echo; whatever bytes are there, at least one. CR becomes LF in both\\
+  Raw mode: no echo; whatever bytes are there, at least one; a READ that does not block and finds
+  nothing has one byte read ahead, so a program that polls sees the rest of an escape sequence. CR
+  becomes LF in both\\
 2 & WRITE & data to the console\\
 4 & CLOSE & 0 (the console is never closed)\\
 18 & SETFG & handle = pid: Ctrl-C now interrupts that process\\
@@ -794,7 +832,8 @@ Chapter~\ref{ch:traps}: an event that is a transfer, messages, and core control.
 The shell catches interrupts. It gives the console to a foreground job with SETFG and takes it back
 afterwards; interrupted while it waits for a job, it SIGNALs every stage of the job; interrupted while
 reading a line, it abandons the line. The window server catches interrupts and forwards them to the
-process of the focused window.
+process of the focused window. The editor catches them too: its read returns $-2$, which it takes as
+the key Ctrl-C (Section~\ref{sec:os-vi}).
 
 \section{Code paging}
 
@@ -808,14 +847,16 @@ serves its own misses, in user mode, as the \texttt{overlay} example does. Other
 to the dispatcher, which:
 \begin{itemize}
 \item takes the far address from \csr{tval} (clearing bit~63 for a return), and rejects the miss if
-  \csr{xslot} is 0, the program no longer holds \reg{c0}, or the unit is not a whole slot inside it;
+  \csr{xslot} is 0, the program no longer holds \reg{c0}, \reg{c0}'s base is not a multiple of the
+  slot size (\insn{xmap} needs aligned units), or the unit is not a whole slot inside it;
 \item uses the I-LS from the end of the program's resident code, rounded up to a slot, to \hex{10000}
-  as the code cache, at most sixteen slots, replaced round robin;
+  as the code cache, at most one slot per overlay map entry ($\textit{NXMAP}$, which the kernel takes
+  from the platform table), replaced round robin;
 \item loads the unit into the victim slot with \insn{tgetx}, maps it with \insn{xmap} and resumes the
   program at the instruction that missed.
 \end{itemize}
 A miss the dispatcher cannot serve ends the program with a fault of cause \cause{xmiss}. The
-\texttt{units} program runs 24 one-KiB units through sixteen slots with call chains seven deep and
+\texttt{units} program runs 24 one-KiB units through sixteen slots (eight on an eight-entry platform) with call chains seven deep and
 checks its result against the same computation done by resident code. After a context switch the
 cache is empty and refills on demand.
 
@@ -828,8 +869,8 @@ the system core the event loop and the paging handler. Everything the system cor
 area and hands to core 0 as the far image share \reg{c12} (Section~\ref{sec:boot}).
 
 Resident code calls a unit with \insn{xcall ra, c12, t5}. A miss traps to the system core's own
-supervisor handler, which copies the unit into one of sixteen cache slots at I-LS
-\hex{8000}--\hex{FFFF}, round robin, maps it and retries: the mechanism programs use, applied by the
+supervisor handler, which copies the unit into one of $\textit{NXMAP}$ cache slots (sixteen by
+default) of 2~KiB from I-LS \hex{8000}, round robin, maps it and retries: the mechanism programs use, applied by the
 kernel to itself, with \csr{xslot} = 11. Units run at a cache address rather than where they were
 assembled, so they call resident code through a register, call other units with \insn{xcall}, and
 return with \insn{xret}, whose far link pages the caller back in if it was evicted meanwhile.
@@ -942,6 +983,7 @@ spin [N [C]] & burn CPU, printing a character now and then: $N$ times, or foreve
 units & demand-paged code (Section~\ref{sec:os-paging})\\
 as & the assembler (Section~\ref{sec:os-as})\\
 sh & the shell\\
+vi [FILE] & the editor (Section~\ref{sec:os-vi})\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -966,6 +1008,45 @@ strata$ sched 500us
 The pipeline is three processes and two pipes; the two \texttt{spin} processes share core 6 and
 \texttt{ps} shows the switches between them and the bytes those switches moved; \texttt{mandel} runs as
 three threads on three cores, its \insn{ctake}s emulated.
+
+\subsection{The editor}\label{sec:os-vi}
+\texttt{vi} \textit{file} (\texttt{os/progs/vi.s}) edits a file in the manner of vi, on the console and
+in a \texttt{term} window, with Strata assembly and Strata Forth in colour. It has normal, insert,
+command-line (\texttt{:}) and search (\texttt{/}, \texttt{?}) modes and a status line (the mode, the
+file, \texttt{[+]} when modified, line and column). It moves with \texttt{h j k l} and the arrows,
+\texttt{w b e}, \texttt{0 \^{} \$}, \texttt{gg G}, \textit{N}\texttt{G}, \texttt{\%} and Ctrl-D, U, F, B;
+inserts with \texttt{i a I A o O}; changes with \texttt{x X r D C s S J}, the operators \texttt{d c y}
+with a motion or doubled (\texttt{dw}, \texttt{cw}, \texttt{d\$}, \texttt{dd}, \texttt{3dd}),
+\texttt{Y}, \texttt{p P}, \texttt{u} (undo, many levels), Ctrl-R (redo) and \texttt{.} (the last change,
+its keys replayed); searches with \texttt{/} \texttt{?} \texttt{n} \texttt{N} (plain text); and takes
+\texttt{:w}, \texttt{:w} \textit{name}, \texttt{:q}, \texttt{:q!}, \texttt{:wq}, \texttt{:x},
+\texttt{:e} \textit{name}, \texttt{:}\textit{N}, \texttt{:set nu}, \texttt{:set nonu},
+\texttt{:syntax on} and \texttt{off}.
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[Highlighting] \texttt{.s} files are Strata assembly, \texttt{.fs} files Forth (another name: by
+  the file's tags \texttt{src} and \texttt{forth}). The rules and colours are the web site's
+  highlighter's, mapped to the terminal's 16 colours; a Forth \texttt{(} comment that runs over lines
+  is followed by keeping the state at the start of each row. The keyword tables (mnemonics by
+  category, CSR and register names, Forth words) are generated at build time by
+  \texttt{tools/vi-syntax.py} from the assembler's own tables, the Forth README and the site's
+  highlighter, so the editor, the site and the tools cannot disagree.
+\item[The screen's size] vi moves the cursor to row 999, column 999 and asks where it is
+  (\texttt{ESC [ 6 n}); the host's terminal and \texttt{term} answer with the bottom right corner.
+  Without an answer it is $80\times24$. Ctrl-L asks again.
+\item[The text in far memory] The text does not live in the D-LS: it is 256 chunks of 2~KiB in the
+  arena, each a run of whole lines, in the order of a chunk table; one chunk at a time is in the D-LS.
+  A full chunk is split where a line goes in, an empty one is freed, a small one takes in the next.
+  The undo history (a record per change: the old lines and the new) and the register are in the arena
+  too. A file of about 500~KiB fits, so the 333~KiB shell source opens; \texttt{fs} writes files of
+  128~KiB at most, and \texttt{:w} refuses more before it touches the file.
+\item[Drawing] Only the rows that changed, the status line and the cursor are sent, with the cursor
+  hidden meanwhile; a scroll draws the text rows again.
+\item[Keys and Ctrl-C] The console delivers a key's bytes one at a time, so Esc is told from an
+  arrow's \texttt{ESC [ A} by time: vi polls with READs that do not block (which have \texttt{tty}
+  read a byte ahead) for 30~ms. vi catches interrupts: Ctrl-C ends insert mode or cancels what is
+  being typed, and does not end the editor.
+\end{description}
 
 \section{The window server}\label{sec:os-ws}
 
@@ -1015,11 +1096,14 @@ The screen reads as an instrument panel of the machine and makes its explicitnes
   the process running on it and dark when idle; the system core and server cores are marked. A context
   switch on a core makes its cell pulse. Beside it are the window list, uptime, the process count,
   context switches per second and the clock.
-\item \textbf{Keys} (Alt is sent as an ESC prefix). Alt+Enter opens a terminal; Alt+Space opens the
+\item \textbf{Keys} (Alt+key as the window's keyboard sends it, \texttt{ESC [ 27 ; 3 ;} \textit{code}
+  \texttt{\textasciitilde}; Alt+arrows \texttt{ESC [ 1 ; 3} \textit{X}). Alt+Enter opens a terminal; Alt+Space opens the
   command palette, a \texttt{launch} line with completion of program names; Alt+1--4 and Alt+arrows move
   the focus; Alt+Q closes the focused window; Alt+Shift+Q quits the window server; Alt+? shows a panel
   of these bindings, which also appears when the splash ends (any key or click dismisses it). Every
-  other key is an event for the focused window, and Ctrl-C interrupts its process.
+  other key is an event for the focused window: Esc and then a key is Esc and that key, whatever the
+  timing, and an Alt+key the server does not bind arrives as ESC and the key. Ctrl-C interrupts the
+  window's process.
 \item \textbf{The pointer} (Section~\ref{sec:pointer}). The device's waiting read belongs to
   \texttt{tty}, alone on its core, which hands the events over with the keys (a READ with mode bit 1).
   \texttt{ws} draws a cursor; a click focuses the tile under it, runs a program from the palette or
@@ -1087,7 +1171,10 @@ Programs write plain bytes to standard output. On the console they go to the hos
 return, backspace and tab; \texttt{ESC [ K} (erase to end of line); \texttt{ESC [ n C} and
 \texttt{ESC [ n D} (cursor right and left); \texttt{ESC [ 2 J} and \texttt{ESC [ H} (clear, home);
 \texttt{ESC [ r ; c H} (position); and \texttt{ESC [ \ldots\ m} with 0, 1, 30--37, 90--97 and 40--47
-(colours). The shell's line editor uses only this subset.
+(colours), \texttt{ESC [ ? 25 l} and \texttt{h} (the cursor off and on while a program draws), and
+\texttt{ESC [ 6 n}, which \texttt{term} answers with \texttt{ESC [}\textit{ row}\texttt{ ;}\textit{
+column}\texttt{ R} on the program's standard input, as a terminal would type it. The shell's line
+editor uses only the first part of this subset; \texttt{vi} uses all of it.
 
 \section{Networking}\label{sec:os-net}
 

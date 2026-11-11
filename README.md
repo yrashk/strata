@@ -53,7 +53,8 @@ a conformance suite that holds them all to the same behaviour.
 |---|---|
 | `rtl/` | The SystemVerilog implementation: decoder, ALU, divider, Transfer Unit, far memory and arbiter, devices, the multi-cycle core, the multi-core top |
 | `sim/` | The Verilator harness: runs an `.stx` image on the RTL (`strata-rtl`) |
-| `emu/` | `emu.c`, the C architectural emulator and reference semantics (`strata-emu`); `emu/jit/`, its JIT for arm64 and x86-64 hosts |
+| `emu/` | `emu.c`, the C architectural emulator and reference semantics (`strata-emu`); `emu/jit/`, its JIT for arm64 and x86-64 hosts; `emu/debug*.c`, its debug engine (`--debug`) |
+| `dbg/` | `strata-dbg`, the text debugger: gdb-like, a front-end of the debug engine |
 | `asm/` | `sasm`, the two-pass assembler, and the shared encoding header `isa.h` |
 | `common/` | The image loader, the platform description and the display / keyboard code shared by both simulators |
 | `examples/` | Example programs for the bare machine, every line commented |
@@ -70,7 +71,7 @@ a conformance suite that holds them all to the same behaviour.
 | `tools/` | Test scripts (`compare.sh`, `compare-boot.sh`, `test-*.sh`), `mkdisk` (bootable disks), `mkhex` (FPGA memory images), `bench-jit.sh`, `web-code.py` |
 | `fpga/` | Synthesis script, LiteDRAM adapter, a board top, pin constraints |
 | `web/` | The WebAssembly build of the emulator for the site's play page |
-| `site/` | The project site: the landing page, `play/` (the in-browser emulator) and `code/` (the source browser) |
+| `site/` | The project site: the landing page, `play/` (the in-browser emulator), `debug/` (the web debugger) and `code/` (the source browser) |
 | `doc/` | The manual's LaTeX sources (`doc/manual/`), the StrataOS design specification (`doc/strataos.md`), schematics |
 | `.github/workflows/` | CI: builds the manual, the WebAssembly emulator and the site, and publishes them |
 
@@ -98,6 +99,8 @@ make ws-demo        # the window server's renderers against a simulated system
 make conformance    # the conformance suite on the interpreter, the JIT and the RTL
 make bench          # interpreter against JIT, wall time
 make web-site       # build/web-site/: the site with the in-browser emulator
+make debug-pipeline # step an example under strata-dbg (any example: debug-NAME)
+make debug-os       # boot StrataOS under strata-dbg
 ```
 
 - `make` builds for 8 cores (`make NCORES=12` for more; the RTL's core
@@ -159,7 +162,9 @@ take the same flags, except where noted.
 
 A window opens the first time a program writes into the framebuffer. While
 it has focus, keys go to the console input as a terminal would send them
-(Alt sends an ESC prefix; Ctrl-C is the break key).
+(Alt+key as ESC [ 27 ; 3 ; code ~, Alt+arrows ESC [ 1 ; 3 X, the xterm
+modified-key forms, so Esc and then a key is never Alt; Ctrl-C is the break
+key).
 
 ## Examples
 
@@ -236,6 +241,13 @@ strata$ ws                          # the window server takes the screen
 - **Utilities**: `ls cat cp mv rm touch df tag untag retag tags ps free
   uptime devs hexdump cores sched seq grep wc upper spin`, `units` (a program
   that pages its own code), and `as`.
+- **The editor** (`vi FILE`): vi keys (motions, counts, `d c y` operators,
+  put, many-level undo and redo, `.`, search, `:w :q :e :set nu`) on the
+  console or in a window, Strata assembly and Forth in the site's colours
+  (keyword tables generated from the assembler and Forth sources), the
+  screen's size asked of the terminal, and the text kept in far memory, so a
+  file far bigger than the 64 KiB Local Store opens (the 333 KiB shell
+  source does).
 - **Networking**: the `net` server (IPv4, ICMP, UDP, TCP, a DNS resolver)
   and `ping host nc tcpecho ifconfig netstat httpd`. `httpd &` serves the disk
   over HTTP: URLs are tag paths (`/src/demo/hello.s`, `/src/` lists the files
@@ -247,7 +259,9 @@ strata$ ws                          # the window server takes the screen
   disk is 16 MiB.
 - **Cores.** `make boot` boots 12 cores: the system core, five servers and
   six cores free for threads. The minimum is 6 (the shell then shares a
-  server's core). A worker core holds up to three threads.
+  server's core). A worker core holds up to 16 threads (its 256-entry
+  capability save table is a pool of slots; endpoints and device
+  capabilities are rebuilt on switch-in rather than saved).
 
 Boot goes: boot ROM (firmware) → platform table → block device → boot
 header → the kernel into every core's Local Stores. The kernel loads
@@ -276,7 +290,8 @@ linear, a client draws into a band of its own memory and *lends* it to the
 server with each damage request; the server copies the rows into the
 window's surface and gives the band back.
 
-Keys (Alt is sent as an ESC prefix): Alt+Enter a new terminal, Alt+P (or
+Keys (Alt+key has bytes of its own, so Esc and then a key is just that:
+vi's Esc then `p` is a put): Alt+Enter a new terminal, Alt+P (or
 Alt+Space) the launch palette, Alt+1..4 and Alt+arrows focus, Alt+Q close,
 Alt+Shift+Q back to the shell, Alt+? the key help (also shown when the
 splash ends; any key or click dismisses it).
@@ -346,6 +361,71 @@ one or the other. `make test-jit` checks the JIT against the interpreter on
 every example and the Forth tests, and `make bench` compares their speed.
 The in-browser build interprets.
 
+## Debugging
+
+The emulator has a debug engine (`strata-emu --debug`, `emu/debug.c`) and
+two front-ends for it: `strata-dbg`, a gdb-like text debugger, and a web
+debugger (`site/debug/`, on the site next to the play page, or served by the
+engine itself). They step like gdb, but they show what is particular to
+this machine: every core side by side, the 16 transfer tags of each core
+and the transfers in flight, pending device reads and what they wait for,
+why a core is stalled, capabilities decoded (live or revoked) with the
+history of each one, the save table, inboxes, the overlay map. Nothing in
+the ISA changes: breakpoints and watchpoints live in the emulator, and
+without `--debug` it runs exactly as before.
+
+```bash
+make debug-hello          # strata-dbg on an example (debug-NAME for any)
+make debug-os             # StrataOS, with process awareness
+make debug-web            # the engine on port 4444: http://localhost:4444/debug/ (DEBUG_WEB=NAME)
+make debug-web-os         # the same with StrataOS: the page's Run menu types at its shell
+build/strata-dbg -c 4 -j -T virtual build/examples/pipeline.stx
+```
+
+```
+(sdb) break print_str                    # also file.s:LINE, an address, `break process ls`
+(sdb) watch dls buf 8 core 1             # Local Store bytes, written by a store or a transfer
+(sdb) continue
+(sdb) info tags                          # the current core's tags: op, ranges, issue and completion
+(sdb) info pending                       # device reads in flight and what each one waits for
+(sdb) info cores                         # every core: where, what, and why it is stalled
+(sdb) reverse-stepi                      # time travel on deterministic runs (-T virtual)
+(sdb) prov c4                            # where a capability came from: split, given, taken...
+(sdb) tui                                # the cores side by side
+```
+
+- `sasm -g FILE` writes a symbol and line map; the Makefile writes one for
+  every image (`build/examples/NAME.map`, the boot ROM, the kernel, every
+  program on the disk), so the debuggers show labels and source lines, and
+  breakpoints take `label` and `file.s:LINE`. Under StrataOS (`--os build`)
+  they also show processes, which process each core runs, the kernel's
+  paged code units by name, and `break process NAME` stops when it runs;
+  `follow PID` makes `stepi` follow a thread across switches and cores.
+  Forth code is named by its dictionary.
+- Time travel needs a deterministic run (`-T virtual`, no network): the
+  engine keeps snapshots and a log of what came from outside, and goes back
+  by replaying: `reverse-stepi`, `reverse-continue`, `reverse-step-round`,
+  `reverse-tag tgN`, `goto TICK`. `ff` (fast) catches up without recording,
+  with the JIT under `-J`, and the history starts again where it stops: boot
+  StrataOS that way, then debug from there.
+- The guest's console never mixes with the debugger's: strata-dbg opens a
+  pty for it (`screen /dev/ttys012` in another terminal: what you type
+  there is the guest's input), or `--console FILE`.
+- The web debugger adds the transfer timeline (a row per core: transfers,
+  device reads in flight, stalls, gifts), a Local Store map, the
+  capability provenance graph and a time slider. In the page it runs the
+  WebAssembly emulator; served by `strata-emu --debug PORT` it drives the
+  desktop engine over a WebSocket.
+- The protocol (JSON lines over stdio, a TCP port with WebSocket, a Unix
+  socket, or the browser build's exports) is in
+  [`doc/debug-protocol.md`](doc/debug-protocol.md); `make test-dbg` runs
+  the debuggers' tests.
+
+The emulator completes memory transfers at the instant they issue (that is
+its reference semantics), so in a debugger only device reads stay in flight
+(the console, the timer's WAIT, VSYNC, the network); memory transfers show
+as instants on the timeline.
+
 ## Conformance
 
 `conformance/` is an architectural conformance suite: self-checking
@@ -369,14 +449,16 @@ in [`conformance/FINDINGS.md`](conformance/FINDINGS.md).
 ## FPGA
 
 The RTL is synthesizable (Yosys via `sv2v`; `fpga/synth.sh xc7|ecp5`).
-A core is about 47k LUTs on Xilinx 7-series: one core fits an Arty A7-100T,
-and the 2-core system (about 95k LUTs) needs an XC7A200T board such as the
-Digilent Nexys Video. On Lattice ECP5 one core takes about 74k of an
-85F's 84k LUT4s, and two cores do not fit. `fpga/arty/` is the board top
-(written for the Arty with two cores, which is too many for it), with
-LiteDRAM for the DDR3. StrataOS needs six cores, which is about 293k LUTs: more than any Artix-7
-or the common Kintex-7 boards hold. See
-`fpga/README.md` for the numbers and where the logic goes. Nothing has been
+The one-core system is about 30k LUTs on Xilinx 7-series (each further
+core about 28k): one core takes half an Arty A7-100T, and the 2-core
+system (58,066 LUTs) fits an XC7A200T board such as the Digilent Nexys
+Video. On Lattice ECP5 one core takes 41k of an 85F's 84k LUT4 sites;
+the block RAM of two cores' Local Stores does not fit it. `fpga/arty/` is
+the board top (two cores), with LiteDRAM for the DDR3. StrataOS needs six
+cores, which is 168,694 LUTs: more than any Artix-7, within a Kintex-7 325T.
+`make test-small` checks the configuration with 8 overlay map entries
+suggested for small FPGAs. See `fpga/README.md` for the numbers and where
+the logic goes. Nothing has been
 placed and routed, and it has not yet run on hardware.
 
 There is no video output on FPGA yet: the framebuffer is memory only, and
@@ -392,6 +474,8 @@ the console is a UART.
   locally: `make manual` (needs tectonic).
 - [`doc/strataos.md`](doc/strataos.md): the devices and StrataOS,
   as a specification.
+- [`doc/debug-protocol.md`](doc/debug-protocol.md): the debug engine's
+  protocol and the symbol map format.
 - [`ROADMAP.md`](ROADMAP.md): what exists, what is missing, what is next.
 - The sources: every line of assembly is commented, and each file starts
   with a description of what it does and why.
@@ -401,13 +485,14 @@ the console is a UART.
 Strata is a prototype. The longer list is in [`ROADMAP.md`](ROADMAP.md);
 the main points:
 
-- It has never run on hardware. The RTL is not pipelined, and the 2-core
-  system is large for a hobby FPGA.
-- A worker core holds at most three threads (the capability save table's
-  budget), and StrataOS needs at least 6 cores. The number of processes is
-  otherwise limited by memory (a 46 MiB arena pool, 1 MiB per process by
-  default) and by 64-entry kernel and server tables: 15 cores run 35
-  processes at once (`tools/test-procs.sh`).
+- It has never run on hardware. The RTL is not pipelined, and the 6 cores
+  StrataOS needs are more than a hobby FPGA holds.
+- A worker core holds at most 16 threads (the kernel's process records;
+  the 256-entry capability save table reserves all their capabilities),
+  and StrataOS needs at least 6 cores (one server per core). The number of
+  processes is otherwise limited by memory (a 46 MiB arena pool, 1 MiB per
+  process by default) and by 64-entry kernel and server tables: 15 cores
+  run 35 processes at once, 6 cores 43 (`tools/test-procs.sh`).
 - A console read cannot be cancelled, so `halt` may wait for one more key
   when a program was waiting for input.
 - The file system has tags instead of directories (`ls /src/demo` lists

@@ -33,6 +33,9 @@
 #include "../common/display.h"
 #include "../common/net.h"
 
+#ifndef NXMAP
+#define NXMAP NXMAP_DEF /* the RTL's NXMAP parameter (the Makefile passes both) */
+#endif
 #ifndef NCORES
 #define NCORES 4
 #endif
@@ -229,7 +232,7 @@ int main(int argc, char **argv) {
             DISK_WORDS / 64);
     return 2;
   }
-  plat_build_fb(plat, NCORES, DISK_WORDS / 64, fb_w, fb_h);
+  plat_build_fb(plat, NCORES, DISK_WORDS / 64, fb_w, fb_h, CTAB_DEF, NXMAP); /* rtl/strata_pkg.sv CTAB */
   if (!host_input_open(in_path)) { perror("input"); return 2; }
   host_clock_start();
   host_display_init(gfx, scale, ppm, fb_w, fb_h);

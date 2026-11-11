@@ -1,6 +1,6 @@
 /* sasm: two-pass assembler for the Strata prototype ISA.
  *
- *   sasm [-o out.stx] [-l] [-I dir] file.s
+ *   sasm [-o out.stx] [-l] [-g out.map] [-I dir] file.s
  *
  * Sections, each with its own address space starting at 0:
  *   .text     instruction Local Store (I-LS)
@@ -14,7 +14,9 @@
  * piece of the file is 8-byte aligned and can be moved with transfers.
  *
  *   -T addr   start .text at addr instead of 0 (programs run under StrataOS
- *             use -T 0x8000) */
+ *             use -T 0x8000)
+ *   -g file   also write a symbol and line map for the debuggers (see
+ *             write_map below; doc/debug-protocol.md describes the format) */
 #include <ctype.h>
 #include <errno.h>
 #include <stdarg.h>
@@ -22,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "isa.h"
 
@@ -556,7 +559,7 @@ enum {
   F_XF, F_TWAIT, F_TPOLL, F_AMO,
   F_C_CDCS, F_C_CDCSRX, F_C_RDCS, F_C_CSRX, F_C_CD, F_C_CSSLOT, F_C_CDSLOT,
   F_CSRR, F_CSRW, F_SYS, F_LTAG, F_LINST, F_XMAP, F_XUNMAP, F_XCALL, F_XRET,
-  F_C2_CDCS, F_C2_SEND, F_C2_MKEP,
+  F_C2_CDCS, F_C2_SEND, F_C2_MKEP, F_C2_CSRX,
 };
 
 typedef struct { const char *name; int fmt, op, fn, nops; } Insn;
@@ -607,6 +610,7 @@ static const Insn insns[] = {
   {"cdom", F_C2_CDCS, OP_CAP2, C2_DOM, 2}, {"crevoke", F_C2_CDCS, OP_CAP2, C2_REVOKE, 2},
   {"cundom", F_C2_CDCS, OP_CAP2, C2_UNDOM, 2}, {"crecv", F_C2_CDCS, OP_CAP2, C2_RECV, 2},
   {"csend", F_C2_SEND, OP_CAP2, C2_SEND, 2}, {"cmkep", F_C2_MKEP, OP_CAP2, C2_MKEP, 2},
+  {"csavex", F_C2_CSRX, OP_CAP2, C2_SAVEX, 2}, {"crestorex", F_C2_MKEP, OP_CAP2, C2_RESTOREX, 2},
 };
 
 static const Insn *find_insn(const char *m) {
@@ -685,7 +689,8 @@ static void assemble_insn(const Insn *in, char **o, int n) {
   case F_XRET: emit_insn(enc_r(in->op, 0, xreg(o[0]), 0, 1 << 4)); break;
   case F_C2_CDCS: emit_insn(enc_r(in->op, creg(o[0]), creg(o[1]), 0, in->fn)); break;
   case F_C2_SEND: emit_insn(enc_r(in->op, creg(o[1]), creg(o[0]), 0, in->fn)); break; /* csend cs, ce */
-  case F_C2_MKEP: emit_insn(enc_r(in->op, creg(o[0]), 0, xreg(o[1]), in->fn)); break;
+  case F_C2_MKEP: emit_insn(enc_r(in->op, creg(o[0]), 0, xreg(o[1]), in->fn)); break; /* also crestorex cd, rx */
+  case F_C2_CSRX: emit_insn(enc_r(in->op, 0, creg(o[0]), xreg(o[1]), in->fn)); break;  /* csavex cs, rx */
   }
 }
 
@@ -800,6 +805,67 @@ static int directive(const char *d, char *rest) {
 
 static FILE *listing;
 
+/* ------------------------------------------------------------ the debug map (-g) */
+
+/* Every source line that put bytes into a section: its section, the
+ * address of its first byte and the line (an index into lines[]). */
+typedef struct { int sect; uint32_t addr; int line; } MapLine;
+static MapLine *maplines;
+static int nmaplines, capmaplines;
+
+static void map_line(int sect, uint32_t addr, int li) {
+  if (nmaplines == capmaplines) {
+    capmaplines = capmaplines ? capmaplines * 2 : 1024;
+    maplines = realloc(maplines, capmaplines * sizeof *maplines);
+  }
+  maplines[nmaplines++] = (MapLine){sect, addr, li};
+}
+
+/* The map, a text file read by the debug engine (emu/debug_sym.c):
+ *   strata-map 1
+ *   root DIR                    the directory the source paths are relative to
+ *   image FILE                  the image this map describes
+ *   org ADDR                    where .text starts (-T)
+ *   file N PATH                 source file N
+ *   sym SECTION ADDR NAME       a label (text, data, far, cluster) or a
+ *                               constant (abs: `=`, .equ, .set)
+ *   line SECTION ADDR FILE LINE the first byte a source line emitted
+ * Addresses are hexadecimal; lines come in source order. */
+static const char *sect_map_name[NSECT] = {"text", "data", "far", "cluster"};
+
+static void write_map(const char *path, const char *image) {
+  FILE *f = fopen(path, "w");
+  if (!f) { fprintf(stderr, "sasm: cannot write %s: %s\n", path, strerror(errno)); exit(1); }
+  char cwd[2048];
+  fprintf(f, "strata-map 1\n");
+  if (getcwd(cwd, sizeof cwd)) fprintf(f, "root %s\n", cwd);
+  fprintf(f, "image %s\norg 0x%x\n", image, text_org);
+  /* the source files, numbered in order of first appearance */
+  const char **files = xmalloc(sizeof *files * (size_t)(nlines + 1));
+  int nfiles = 0;
+  int *fileof = xmalloc(sizeof *fileof * (size_t)(nlines + 1));
+  for (int i = 0; i < nlines; i++) {
+    int k = nfiles;
+    if (i && lines[i].file == lines[i - 1].file) k = fileof[i - 1];
+    else
+      for (int j = 0; j < nfiles; j++)
+        if (!strcmp(files[j], lines[i].file)) { k = j; break; }
+    if (k == nfiles) {
+      files[nfiles++] = lines[i].file;
+      fprintf(f, "file %d %s\n", k, lines[i].file);
+    }
+    fileof[i] = k;
+  }
+  for (int i = 0; i < nsyms; i++)
+    if (syms[i].defined)
+      fprintf(f, "sym %s 0x%llx %s\n", syms[i].sect >= 0 ? sect_map_name[syms[i].sect] : "abs",
+              (unsigned long long)syms[i].value, syms[i].name);
+  for (int i = 0; i < nmaplines; i++)
+    fprintf(f, "line %s 0x%x %d %d\n", sect_map_name[maplines[i].sect], maplines[i].addr,
+            fileof[maplines[i].line], lines[maplines[i].line].line);
+  fclose(f);
+}
+
 /* ------------------------------------------------------------ driver */
 
 static void strip_comment(char *s) {
@@ -870,6 +936,7 @@ static void run_pass(int p) {
       }
     }
 
+    if (pass == 2 && start_sect == cs && sects[cs].loc > start_loc) map_line(cs, start_loc, li);
     if (pass == 2 && listing) {
       Section *sec = &sects[start_sect];
       uint32_t end = start_sect == cs ? sec->loc : start_loc;
@@ -892,16 +959,17 @@ static void wr32(FILE *f, uint32_t v) {
 }
 
 static void usage(void) {
-  fprintf(stderr, "usage: sasm [-o out.stx] [-l] [-T text-origin] [-I dir] file.s\n");
+  fprintf(stderr, "usage: sasm [-o out.stx] [-l] [-g out.map] [-T text-origin] [-I dir] file.s\n");
   exit(2);
 }
 
 int main(int argc, char **argv) {
-  const char *in = NULL, *out = NULL;
+  const char *in = NULL, *out = NULL, *map = NULL;
   int want_list = 0;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "-o") && i + 1 < argc) out = argv[++i];
     else if (!strcmp(argv[i], "-l")) want_list = 1;
+    else if (!strcmp(argv[i], "-g") && i + 1 < argc) map = argv[++i];
     else if (!strcmp(argv[i], "-T") && i + 1 < argc) text_org = (uint32_t)strtoul(argv[++i], NULL, 0);
     else if (!strcmp(argv[i], "-I") && i + 1 < argc) { if (nincdirs < 16) incdirs[nincdirs++] = argv[++i]; }
     else if (argv[i][0] == '-') usage();
@@ -946,5 +1014,6 @@ int main(int argc, char **argv) {
     for (uint32_t k = 0; k < pad; k++) fputc(0, f);
   }
   fclose(f);
+  if (map) write_map(map, out);
   return 0;
 }

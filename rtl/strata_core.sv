@@ -1,13 +1,16 @@
 // Strata: one core (synthesizable).
 //
 // A multi-cycle implementation over block-RAM Local Stores:
+//   RST clear the integer registers and the save table after reset
 //   F0  present the instruction address to the I-LS (stall on an in-flight tgetx)
 //   F1  latch the instruction word
 //   EX  execute; stay here while stalled
+//   CT  save-table instructions: the slot read in EX is here
 //   LD  load data returns from the D-LS
+//   LG  ltag / linst: the set's entry address (one cycle), then its checks
 //   LT  tag-lookup sequencer (one table word per two cycles)
 //   LW  second write of `linst`
-//   DV  iterative division
+//   DV  multiplication (strata_mul, 3-4 cycles) and iterative division
 //   AM  far atomic in flight
 //
 // The core owns both Local Stores: port A is its own, port B belongs to the
@@ -20,6 +23,7 @@ module strata_core
 #(
   parameter int    COREID   = 0,
   parameter int    NCORES   = 4,
+  parameter int    NXMAP    = NXMAP_DEF,  // overlay map entries (4..16; the platform table says)
   parameter string ILS_INIT = "",
   parameter string DLS_INIT = ""
 )(
@@ -87,28 +91,37 @@ module strata_core
   output logic        halted
 );
   // ================================================================ state
-  typedef enum logic [3:0] {S_F0, S_F1, S_EX, S_LD, S_LT, S_LW, S_DV, S_AM, S_HALT} state_t;
+  typedef enum logic [3:0] {S_RST, S_F0, S_F1, S_EX, S_CT, S_LD, S_LG, S_LT, S_LW, S_DV, S_AM, S_HALT} state_t;
 
   state_t      state;
   logic [63:0] pc;
   logic [31:0] ir;
-  logic [63:0] x [32];
+  logic [63:0] x [32];          // LUT-RAM: one write port, three read ports; cleared by S_RST
 
   cap_t        caps [NCAPS];
-  // the capability save table: contents in LUT-RAM (no reset), validity in flip-flops
+  cap_t        cap_a;           // read port A (see the capability helpers)
+  // the capability save table: a block RAM with a registered read, its word
+  // a capability (an empty slot is CAP_NULL), cleared by S_RST. The slot is
+  // csave / crestore's immediate (0..63) or, for csavex / crestorex, x[rx]
+  // (rb), which must be below CTAB (ct_oor: capop). EX reads it; the
+  // instruction finishes in S_CT with the entry.
   cap_t        ctab [CTAB];
-  logic [CTAB-1:0] ctab_v;
-  cap_t        ct_rd, ct_entry;
-  logic        ct_we;
+  cap_t        ct_entry;
+  logic        ct_we, ct_x, ct_oor, ct_save;
+  logic [CTW-1:0] ct_i, ct_wa;
   cap_t        ct_wd;
-  assign ct_rd    = ctab[d.slot];
-  assign ct_entry = ctab_v[d.slot] ? ct_rd : CAP_NULL;
-  always_ff @(posedge clk) if (ct_we) ctab[d.slot] <= ct_wd;
+  // the reset sequencer's slot / register number
+  localparam int RSW = CTW > 5 ? CTW : 5;
+  localparam int RSN = CTAB > 32 ? CTAB : 32;
+  logic [RSW-1:0] rs_i;
 
-  logic        xm_v   [NXMAP];
-  logic [2:0]  xm_sp  [NXMAP];
-  logic [63:0] xm_far [NXMAP];
-  logic [63:0] xm_ils [NXMAP];
+  // the overlay map: a far address (below its space's size: xmap checks the
+  // bounds first) and an I-LS address (below ILS_BYTES) per entry
+  localparam int XW = $clog2(NXMAP);    // an entry number
+  logic          xm_v   [NXMAP];
+  logic [2:0]    xm_sp  [NXMAP];
+  logic [FW-1:0] xm_far [NXMAP];
+  logic [15:0]   xm_ils [NXMAP];
 
   logic [63:0] csr_cycle, csr_instret;
   // trap state, banked by mode: the supervisor's and the user program's
@@ -146,18 +159,18 @@ module strata_core
     end
   // the granule of a capability's base exists (a base past the end of its space has none)
   function automatic logic g_in(input cap_t k);
-    return (k.space == SP_T3 && k.base < 64'(T3_BYTES)) || (k.space == SP_T2 && k.base < 64'(T2_BYTES));
+    return (k.space == SP_T3 && k.base < FW'(T3_BYTES)) || (k.space == SP_T2 && k.base < FW'(T2_BYTES));
   endfunction
   function automatic logic g_live(input cap_t k, input logic [16:0] g);
     return k.valid && (!k.rv || (g_in(k) && g[15:0] == k.gen));
   endfunction
-  logic        live_a, live_cd, live_ct;   // ports A, D, C: the capability is live
+  logic        live_a, live_cd, live_ct;   // the operand, the destination, the slot: live
   logic [16:0] g_a;                        // port A's entry (its head bit: cjoin)
 
   // tag-lookup sequencer
   logic [3:0]  lt_k;
   logic        lt_ph;
-  logic [63:0] lt_key, lt_set, lt_ebase, lt_off, lt_victim;
+  logic [63:0] lt_key, lt_set, lt_sw, lt_ebase, lt_off, lt_victim;   // lt_sw = lt_set * ways
 
 `ifdef SIMULATION
   logic trace_on;
@@ -209,15 +222,46 @@ module strata_core
   logic [63:0] ra, rb, rc;          // the three register read ports
   assign ra = x[d.pa];
   assign rb = x[d.pb];
+  // the save table's read port and write (declared above)
+  assign ct_x     = d.kind == K_CAP2 && (d.cap_fn == C2_SAVEX || d.cap_fn == C2_RESTOREX);
+  assign ct_save  = (d.kind == K_CAP && d.cap_fn == CF_SAVE) || (d.kind == K_CAP2 && d.cap_fn == C2_SAVEX);
+  assign ct_i     = ct_x ? rb[CTW-1:0] : CTW'(d.slot);
+  assign ct_oor   = ct_x && rb >= 64'(CTAB);
+  assign ct_wa    = state == S_RST ? CTW'(rs_i) : ct_i;
+  always_ff @(posedge clk) begin
+    if (ct_we) ctab[ct_wa] <= ct_wd;
+    if (state == S_EX) ct_entry <= ctab[ct_i];       // S_CT's entry
+  end
   assign rc = x[d.pc];
 
   // ================================================================ ALU, divider
+  // the ALU's adder also makes load / store / jalr addresses and branch conditions
   logic [63:0] alu_y;
-  strata_alu u_alu (.op(d.alu_op), .a(ra), .b(d.kind == K_ALU ? rb : d.imm), .y(alu_y));
+  logic        alu_lt, alu_ltu;
+  strata_alu u_alu (.op(d.alu_op), .cmp(d.kind == K_BRANCH), .a(ra),
+                    .b(d.kind == K_ALU || d.kind == K_BRANCH ? rb : d.imm),
+                    .y(alu_y), .lt(alu_lt), .ltu(alu_ltu));
+
+  // next pc: in EX pc < ILS_BYTES (the fetch checked it), and branch / jal
+  // offsets are below 2^23 bytes, so 24 bits sign-extended are exact (a
+  // target outside the I-LS faults at its fetch with this full value)
+  logic [63:0] pc4, pc_br;
+  logic [23:0] pc_br24;
+  assign pc4     = 64'({1'b0, pc[15:0]} + 17'd4);
+  assign pc_br24 = {8'b0, pc[15:0]} + d.imm[23:0];
+  assign pc_br   = {{40{pc_br24[23]}}, pc_br24};
 
   logic        is_div, div_start, div_busy, div_done;
   logic [63:0] div_q, div_r;
   assign is_div = d.kind == K_ALU && d.alu_op inside {ALU_DIVU, ALU_REMU, ALU_DIV, ALU_REM};
+
+  logic         is_mul, mul_start, mul_done_lo, mul_done;
+  logic [127:0] mul_p;
+  assign is_mul    = d.kind == K_ALU && (d.alu_op == ALU_MUL || d.alu_op == ALU_MULHU);
+  assign mul_start = state == S_EX && is_mul;
+  strata_mul u_mul (
+    .clk, .rst, .start(mul_start), .a(ra), .b(rb), .done_lo(mul_done_lo), .done(mul_done), .prod(mul_p)
+  );
   strata_div u_div (
     .clk, .rst, .start(div_start), .is_signed(d.alu_op == ALU_DIV || d.alu_op == ALU_REM),
     .a(ra), .b(rb), .busy(div_busy), .done(div_done), .quo(div_q), .rem(div_r)
@@ -227,9 +271,10 @@ module strata_core
   logic [63:0] maddr, msz, mshift, mload;
   logic        mok;
   logic [7:0]  mmask;
-  assign maddr  = ra + d.imm;
+  assign maddr  = alu_y;                                   // ra + offset
   assign msz    = 64'd1 << d.msize;
-  assign mok    = maddr <= 64'(DLS_BYTES) - msz && (maddr & (msz - 1)) == 0;
+  // aligned and below DLS_BYTES (a power of two): the whole access is inside
+  assign mok    = maddr[63:$clog2(DLS_BYTES)] == 0 && (maddr[2:0] & 3'((4'd1 << d.msize) - 4'd1)) == 0;
   assign mshift = {58'b0, maddr[2:0], 3'b000};
   always_comb begin
     case (d.msize)
@@ -252,14 +297,16 @@ module strata_core
 
   // ================================================================ branches
   logic br_taken;
+  logic br_eq;
+  assign br_eq = ra == rb;
   always_comb begin
     case (d.br_op)
-      3'd0: br_taken = ra == rb;
-      3'd1: br_taken = ra != rb;
-      3'd2: br_taken = $signed(ra) <  $signed(rb);
-      3'd3: br_taken = $signed(ra) >= $signed(rb);
-      3'd4: br_taken = ra <  rb;
-      3'd5: br_taken = ra >= rb;
+      3'd0: br_taken = br_eq;
+      3'd1: br_taken = !br_eq;
+      3'd2: br_taken = alu_lt;
+      3'd3: br_taken = !alu_lt;
+      3'd4: br_taken = alu_ltu;
+      3'd5: br_taken = !alu_ltu;
       default: br_taken = 0;
     endcase
   end
@@ -268,13 +315,13 @@ module strata_core
   cap_t        xcap;
   logic [7:0]  xf_fault;
   logic [63:0] xf_tval;
-  assign xcap = caps[d.cs];
+  assign xcap = cap_a;          // the operand of transfers, atomics, overlays (port A)
   // transfer operands: ra = LS address, rb = far offset, rc = length
   always_comb begin
-    logic [5:0]  need;
-    logic [63:0] limit;
+    logic [5:0]     need;
+    logic [LSW-1:0] limit;
     need  = d.xf_sub == XF_GET ? 6'(1 << P_R) : d.xf_sub == XF_PUT ? 6'(1 << P_W) : 6'(1 << P_X);
-    limit = d.xf_sub == XF_GETX ? 64'(ILS_BYTES) : 64'(DLS_BYTES);
+    limit = d.xf_sub == XF_GETX ? LSW'(ILS_BYTES) : LSW'(DLS_BYTES);
     xf_fault = '0;
     xf_tval  = rb;
     if (!live_a)                                         xf_fault = C_CAPINV;
@@ -283,9 +330,10 @@ module strata_core
     else if ((xcap.space == SP_DEV || xcap.space == SP_CORE) && d.xf_sub == XF_GETX) xf_fault = C_PERM;
     else if (xcap.space == SP_CORE && d.xf_sub != XF_PUT)    xf_fault = C_PERM;
     else if (xcap.space != SP_DEV && ((ra | rb | rc) & 7) != 0) xf_fault = C_XALIGN;
-    else if (xcap.space == SP_DEV ? rb >= xcap.len
-             : (rb > xcap.len || rc > xcap.len - rb))        xf_fault = C_BOUNDS;
-    else if (ra > limit || rc > limit - ra) begin            xf_fault = C_LSFAULT; xf_tval = ra; end
+    else if (xcap.space == SP_DEV ? ge_w(rb, xcap.len)
+             : (gt_w(rb, xcap.len) || gt_w(rc, xcap.len - rb[FW-1:0]))) xf_fault = C_BOUNDS;
+    else if (ra[63:LSW] != 0 || ra[LSW-1:0] > limit || rc[63:LSW] != 0 || rc[LSW-1:0] > limit - ra[LSW-1:0]) begin
+                                                             xf_fault = C_LSFAULT; xf_tval = ra; end
   end
 
   // ================================================================ far atomics
@@ -295,21 +343,24 @@ module strata_core
     if (!live_a)                               amo_fault = C_CAPINV;
     else if (!xcap.perms[P_A])                     amo_fault = C_PERM;
     else if (ra[2:0] != 0)                         amo_fault = C_XALIGN;
-    else if (xcap.len < 8 || ra > xcap.len - 8)    amo_fault = C_BOUNDS;
+    else if (xcap.len < 8 || gt_w(ra, xcap.len - FW'(8))) amo_fault = C_BOUNDS;
   end
 
   // ================================================================ Transfer Unit
   logic        tu_iss_valid, tu_iss_ready, tu_iss_hz, tu_idle, tu_mem_idle;
   logic [15:0] tag_busy;
-  logic [63:0] hz_addr, hz_len;
+  logic [LSW-1:0] hz_addr, hz_len;   // (only meaningful inside the D-LS: see strata_tu)
   logic        hz_rd_stall, hz_wr_stall, hz_fetch_stall;
 
   assign tu_iss_valid = state == S_EX && d.kind == K_XFER && xf_fault == 0;
 
-  // tag-lookup geometry (computed from the current instruction's register)
+  // tag-lookup geometry. EX takes the line and set from the register; S_LG
+  // computes set * ways (shift-add: ways < 16) and the set's entry address
+  // ttag + set * (ways + 1) * 8 (full width: it is the lsfault tval) into
+  // registers in its first cycle, and checks them in the next.
   logic [5:0]  lt_lsh, lt_lsets;
   logic [3:0]  lt_ways;
-  logic [63:0] lt_line, lt_set_c, lt_ebase_c, lt_span;
+  logic [63:0] lt_line, lt_set_c, lt_sw_c, lt_ebase_c, lt_span;
   logic        lt_ok;
   assign lt_lsh     = csr_tgeom[5:0];
   assign lt_lsets   = csr_tgeom[11:6];
@@ -317,28 +368,30 @@ module strata_core
   assign lt_line    = ra >> lt_lsh;
   assign lt_set_c   = lt_line & ((64'd1 << lt_lsets) - 1);
   assign lt_span    = (64'(lt_ways) + 1) * 8;
-  assign lt_ebase_c = csr_ttag + lt_set_c * lt_span;
-  assign lt_ok      = lt_ways != 0 && lt_ebase_c[2:0] == 0 && lt_ebase_c <= 64'(DLS_BYTES) - lt_span;
+  assign lt_sw_c    = (lt_ways[0] ? lt_set      : 64'd0) + (lt_ways[1] ? lt_set << 1 : 64'd0) +
+                      (lt_ways[2] ? lt_set << 2 : 64'd0) + (lt_ways[3] ? lt_set << 3 : 64'd0);
+  assign lt_ebase_c = csr_ttag + ((lt_sw_c + lt_set) << 3);
+  assign lt_ok      = lt_ways != 0 && lt_ebase[2:0] == 0 && lt_ebase <= 64'(DLS_BYTES) - lt_span;
 
   always_comb begin
     hz_addr = '0;
     hz_len  = '0;
     if (state == S_EX && (d.kind == K_LOAD || d.kind == K_STORE)) begin
-      hz_addr = maddr;
-      hz_len  = msz;
-    end else if (state == S_EX && (d.kind == K_LTAG || d.kind == K_LINST)) begin
-      hz_addr = lt_ebase_c;
-      hz_len  = lt_span;
+      hz_addr = LSW'(maddr);
+      hz_len  = LSW'(msz);
+    end else if (state == S_LG && lt_ph) begin
+      hz_addr = LSW'(lt_ebase);
+      hz_len  = LSW'(lt_span);
     end
   end
 
   strata_tu u_tu (
     .clk, .rst,
-    .iss_valid(tu_iss_valid), .iss_kind(d.xf_sub), .iss_tag(d.tag), .iss_ls(ra),
-    .iss_space(xcap.space), .iss_far(xcap.base + rb), .iss_len(rc), .iss_ready(tu_iss_ready),
+    .iss_valid(tu_iss_valid), .iss_kind(d.xf_sub), .iss_tag(d.tag), .iss_ls(LSW'(ra)),
+    .iss_space(xcap.space), .iss_far(xcap.base + rb[FW-1:0]), .iss_len(LSW'(rc)), .iss_ready(tu_iss_ready),
     .iss_hz(tu_iss_hz),
     .tag_busy, .idle(tu_idle), .mem_idle(tu_mem_idle),
-    .hz_addr, .hz_len, .hz_rd_stall, .hz_wr_stall, .hz_pc(pc), .hz_fetch_stall,
+    .hz_addr, .hz_len, .hz_rd_stall, .hz_wr_stall, .hz_pc(LSW'(pc)), .hz_fetch_stall,
     .dls_en(tu_dls_en), .dls_we(tu_dls_we), .dls_addr(tu_dls_addr), .dls_wdata(tu_dls_wdata),
     .dls_rdata(tu_dls_rdata),
     .ils_en(tu_ils_en), .ils_addr(tu_ils_addr), .ils_wdata(tu_ils_wdata),
@@ -349,39 +402,47 @@ module strata_core
   );
 
   // ================================================================ capability helpers
+  // Two read ports: A, the operand (cs for capability instructions, the
+  // transfer / atomic / overlay capability otherwise), and D, the
+  // destination cd (also csend's endpoint)
   cap_t       cs_cap, cd_cap;
-  logic [3:0] cd_i, cs_i;
+  logic [3:0] cd_i, cs_i, a_i;
   logic       cs_linear, cd_ok;
   assign cd_i      = d.rd[3:0];
   assign cs_i      = d.rs1[3:0];
-  assign cs_cap    = caps[cs_i];
+  assign a_i       = d.kind == K_CAP || d.kind == K_CAP2 ? cs_i : d.cs;
+  assign cap_a     = caps[a_i];
+  assign cs_cap    = cap_a;
   assign cd_cap    = caps[cd_i];
   assign cs_linear = !cs_cap.perms[P_D];
   // a destination may be overwritten only when it is empty or copyable
   assign cd_ok     = !live_cd || cd_cap.perms[P_D];
 
-  // the three granule-table lookups
-  cap_t        ka;
-  logic [16:0] g_d, g_c;
-  assign ka      = d.kind == K_CAP || d.kind == K_CAP2 ? cs_cap : xcap;
+  // the two granule-table lookups, A and D: the operand and the destination;
+  // in S_CT the slot's entry takes the one its instruction does not need
+  // (csave: D, crestore: A), so all three are checked in the same cycle
+  cap_t        ka, kd;
+  logic [16:0] g_d;
+  logic        live_ka, live_kd;
+  assign ka      = state == S_CT && !ct_save ? ct_entry : cap_a;
+  assign kd      = state == S_CT && ct_save ? ct_entry : cd_cap;
   assign g_a     = ka.space == SP_T2 ? gt2[G2W'(ka.base >> GRAN_SHIFT)] : gt3[G3W'(ka.base >> GRAN_SHIFT)];
-  assign g_d     = cd_cap.space == SP_T2 ? gt2[G2W'(cd_cap.base >> GRAN_SHIFT)]
-                                         : gt3[G3W'(cd_cap.base >> GRAN_SHIFT)];
-  assign g_c     = ct_entry.space == SP_T2 ? gt2[G2W'(ct_entry.base >> GRAN_SHIFT)]
-                                           : gt3[G3W'(ct_entry.base >> GRAN_SHIFT)];
-  assign live_a  = g_live(ka, g_a);
-  assign live_cd = g_live(cd_cap, g_d);
-  assign live_ct = g_live(ct_entry, g_c);
+  assign g_d     = kd.space == SP_T2 ? gt2[G2W'(kd.base >> GRAN_SHIFT)] : gt3[G3W'(kd.base >> GRAN_SHIFT)];
+  assign live_ka = g_live(ka, g_a);
+  assign live_kd = g_live(kd, g_d);
+  assign live_a  = live_ka;                  // (csave in S_CT: the operand)
+  assign live_cd = live_kd;                  // (crestore in S_CT: the destination)
+  assign live_ct = ct_save ? live_kd : live_ka;
 
   logic [63:0] give_node;
   logic        give_bad;
   // cgive names a node relative to the core window; csend names it through an endpoint
   cap_t        ep_cap;
   logic        is_send, is_recv;
-  assign ep_cap    = d.kind == K_CAP2 && d.cap_fn == C2_SEND ? caps[d.rd[3:0]] : caps[d.rs1[3:0]];
+  assign ep_cap    = d.kind == K_CAP2 && d.cap_fn == C2_SEND ? cd_cap : cs_cap;
   assign is_send   = state == S_EX && d.kind == K_CAP2 && d.cap_fn == C2_SEND;
   assign is_recv   = state == S_EX && d.kind == K_CAP2 && d.cap_fn == C2_RECV;
-  assign give_node = is_send ? ep_cap.base : rb + csr_corebase;
+  assign give_node = is_send ? 64'(ep_cap.base) : rb + csr_corebase;
   logic        dst_halted;
   always_comb begin
     dst_halted = 0;
@@ -408,36 +469,78 @@ module strata_core
 
   // ================================================================ overlay map lookup
   // With xslot = 0 a map entry matches one far address exactly; with
-  // xslot = n it covers a 2^n-byte slot. xret looks up a far return link
+  // xslot = n it covers the 2^n-byte slot holding its far address (xmap
+  // requires that address to be a multiple of 2^n; the low bits of an entry
+  // made under a smaller xslot are ignored). xret looks up a far return link
   // (bit 63 set) the same way, in any space.
-  logic        xm_hit, xm_inslot;
-  logic [63:0] xm_target, xc_key, sl, xm_link;
-  assign sl     = xslot != 0 ? 64'd1 << xslot : 64'd1;
-  assign xc_key = d.flag ? {1'b0, ra[62:0]} : xcap.base + ra;
+  //
+  // So a key K hits entry F when K >> xslot == F >> xslot: per entry an
+  // FW-bit equality under a mask (an entry's far address is below the
+  // space's size), with one shared check that K has no bits above FW - 1 at
+  // or above xslot; no carry chains. The hit entry is muxed out and the
+  // target, its I-LS address plus K's offset in the slot, computed once in
+  // 64 bits, so a fetch fault on it reports the exact pc.
+  logic          xm_hit, xm_inslot;
+  logic [63:0]   xm_target, xc_key, xm_link, xs_hmask64;
+  logic [FW-1:0] xs_hmask, xm_far_lk, xm_lk_far;
+  logic [15:0]   xm_ils_sel, xm_ils_lk, xl_mask;
+  logic          xk_hi_ok;
+  logic [XW-1:0] xm_i, xm_li;
+  logic [16:0]   xm_lk_off;
+  assign xc_key     = d.flag ? {1'b0, ra[62:0]} : 64'(xcap.base + ra[FW-1:0]);   // ra < len: exact
+  assign xs_hmask64 = ~64'd0 << xslot;                              // the slot number's bits
+  assign xs_hmask   = xs_hmask64[FW-1:0];
+  assign xl_mask    = xslot >= 6'd16 ? '0 : 16'hffff << xslot;
+  assign xk_hi_ok   = (xc_key[63:FW] & xs_hmask64[63:FW]) == 0;       // F >> xslot has no such bits
   always_comb begin
-    xm_hit    = 0;
-    xm_target = '0;
+    logic [16:0] dl;
+    xm_hit = 0;
+    xm_i   = '0;
     for (int i = 0; i < NXMAP; i++)
-      if (!xm_hit && xm_v[i] && (d.flag || xm_sp[i] == xcap.space) &&
-          xc_key >= xm_far[i] && xc_key < xm_far[i] + sl) begin
-        xm_hit    = 1;
-        xm_target = xm_ils[i] + (xc_key - xm_far[i]);
+      if (!xm_hit && xm_v[i] && (d.flag || xm_sp[i] == xcap.space) && xk_hi_ok &&
+          ((xc_key[FW-1:0] ^ xm_far[i]) & xs_hmask) == 0) begin
+        xm_hit = 1;
+        xm_i   = XW'(i);
       end
-    // the link an xcall leaves: a far address when called from inside a mapped unit
+    // the link an xcall leaves: a far address when called from inside a
+    // mapped unit (pc < ILS_BYTES here: the fetch checked it)
     xm_inslot = 0;
-    xm_link   = pc + 4;
-    for (int i = 0; i < NXMAP; i++)
-      if (xslot != 0 && !xm_inslot && xm_v[i] && pc >= xm_ils[i] && pc < xm_ils[i] + sl) begin
+    xm_li     = '0;
+    for (int i = 0; i < NXMAP; i++) begin
+      dl = {1'b0, pc[15:0]} - {1'b0, xm_ils[i]};
+      if (xslot != 0 && !xm_inslot && xm_v[i] && !dl[16] && (dl[15:0] & xl_mask) == 0) begin
         xm_inslot = 1;
-        xm_link   = 64'h8000_0000_0000_0000 | (xm_far[i] + (pc + 4 - xm_ils[i]));
+        xm_li     = XW'(i);
       end
+    end
   end
+  assign xm_ils_sel = xm_ils[xm_i];
+  assign xm_target  = 64'(xm_ils_sel) + (xc_key & ~xs_hmask64);
+  assign xm_far_lk  = xm_far[xm_li];
+  assign xm_ils_lk  = xm_ils[xm_li];
+  assign xm_lk_off  = {1'b0, pc[15:0]} + 17'd4 - {1'b0, xm_ils_lk};      // pc + 4 - its slot's start
+  assign xm_lk_far  = (xm_far_lk & xs_hmask) + FW'(xm_lk_off);         // the unit's far start + that
+  assign xm_link    = xm_inslot ? {1'b1, 63'(xm_lk_far)} : pc4;
+  // xmap's far address, and whether it is a multiple of 2^xslot
+  logic [FW-1:0] xm_new_far;
+  assign xm_new_far = xcap.base + rb[FW-1:0];                        // rb < len: exact
+
+  // tgetx forgets the mappings into the I-LS range it replaces, [ra, ra + rc):
+  // xf_fault put it inside the I-LS, so 17 bits hold both ends
+  logic [16:0]      xv_end, xv_mask;
+  logic [NXMAP-1:0] xm_inv;
+  assign xv_end  = ra[16:0] + rc[16:0];
+  assign xv_mask = xslot == 0 ? ~17'd3 : xslot >= 6'd17 ? '0 : ~17'd0 << xslot;
+  always_comb
+    for (int i = 0; i < NXMAP; i++)
+      xm_inv[i] = {1'b0, xm_ils[i]} < xv_end &&
+                  (ra[16:0] < {1'b0, xm_ils[i]} || ((ra[16:0] - {1'b0, xm_ils[i]}) & xv_mask) == 0);
 
   // ================================================================ far-atomic port
   assign am_req   = state == S_EX && d.kind == K_TAMO && amo_fault == 0 && tu_mem_idle;
   assign am_op    = d.amo_op;
   assign am_space = xcap.space;
-  assign am_addr  = xcap.base + ra;
+  assign am_addr  = 64'(xcap.base + ra[FW-1:0]);        // inside the capability (amo_fault)
   assign am_wdata = rb;
   assign am_cmp   = rc;
 
@@ -493,14 +596,15 @@ module strata_core
   assign dom_n      = GW'(cs_cap.len >> GRAN_SHIFT);
 
   // ================================================================ Local Store port A
-  logic        lt_rd;
+  logic        lt_rd, pc_in;
+  assign pc_in   = pc[63:$clog2(ILS_BYTES)] == 0;                 // pc < ILS_BYTES
   logic [63:0] lt_rd_a, va, ca, nv;
   assign lt_rd_a = lt_ebase + 64'(lt_k) * 8;
   assign va      = lt_ebase + lt_victim * 8;                         // the victim's tag word
   assign ca      = lt_ebase + 64'(lt_ways) * 8;                      // the set's counter word
   assign nv      = lt_victim + 1 == 64'(lt_ways) ? 64'd0 : lt_victim + 1;
   always_comb begin
-    ia_en    = state == S_F0 && pc[1:0] == 0 && pc < 64'(ILS_BYTES) && !hz_fetch_stall;
+    ia_en    = state == S_F0 && pc[1:0] == 0 && pc_in && !hz_fetch_stall;
     ia_addr  = pc[15:3];
     da_en    = 0;
     da_we    = '0;
@@ -529,19 +633,19 @@ module strata_core
   end
   assign div_start = state == S_EX && is_div;
   // capability-table write: csave stores the source capability
-  assign ct_we = state == S_EX && d.kind == K_CAP && d.cap_fn == CF_SAVE && !user && live_a
-                 && !(live_ct && !ct_entry.perms[P_D]);
-  assign ct_wd = cs_cap;
+  // save-table write: csave stores the source capability, crestore of a
+  // linear entry empties the slot; S_RST empties every slot
+  assign ct_we = state == S_RST ||
+                 (state == S_CT && !user && !ct_oor &&
+                  (ct_save ? live_a && !(live_ct && !ct_entry.perms[P_D])
+                           : live_ct && cd_ok && !ct_entry.perms[P_D]));
+  assign ct_wd = state == S_CT && ct_save ? cs_cap : CAP_NULL;
 
   // ================================================================ sequential
   task automatic retire(input logic [63:0] next_pc);
     pc          <= next_pc;
     csr_instret <= csr_instret + 1;
     state       <= S_F0;
-  endtask
-
-  task automatic wr(input logic [4:0] r, input logic [63:0] v);
-    if (r != 0) x[r] <= v;
   endtask
 
   // A trap in user mode goes to the program's own handler when it installed
@@ -584,23 +688,37 @@ module strata_core
   endtask
 
   always_ff @(posedge clk) begin
+    // the capability writes of this cycle: at most one to cd and one to cs
+    // (an instruction that writes both has cd != cs), done at the end
+    logic cdw, csw;
+    cap_t cdn, csn;
+    // and the integer register write: x[xa] = xv
+    logic        xw;
+    logic [4:0]  xa;
+    logic [63:0] xv;
+    cdw = 0;
+    csw = 0;
+    cdn = CAP_NULL;
+    csn = CAP_NULL;
+    xw  = 0;
+    xa  = d.rd;
+    xv  = '0;
     if (rst) begin
-      state <= S_F0;
+      state <= S_RST;
+      rs_i  <= '0;
       pc    <= '0;
       ir    <= '0;
-      for (int i = 0; i < 32; i++) x[i] <= '0;
       for (int i = 0; i < NCAPS; i++) caps[i] <= CAP_NULL;
-      ctab_v <= '0;
       for (int i = 0; i < NXMAP; i++) xm_v[i] <= 0;
       // reset capabilities: core 0 owns all memory and the device root;
       // every core may write the console
       if (COREID == 0) begin
-        caps[0] <= '{valid: 1, space: SP_T3,   perms: 6'b000111, base: 0, len: 64'(T3_BYTES), rv: 0, gen: 0};
-        caps[1] <= '{valid: 1, space: SP_T2,   perms: 6'b000111, base: 0, len: 64'(T2_BYTES), rv: 0, gen: 0};
-        caps[3] <= '{valid: 1, space: SP_DEV,  perms: 6'b010011, base: 0, len: DEV_LEN, rv: 0, gen: 0};
-        caps[4] <= '{valid: 1, space: SP_CORE, perms: 6'b010010, base: 0, len: 64'(NCORES * 8), rv: 0, gen: 0};
+        caps[0] <= '{valid: 1, space: SP_T3,   perms: 6'b000111, base: 0, len: FW'(T3_BYTES), rv: 0, gen: 0};
+        caps[1] <= '{valid: 1, space: SP_T2,   perms: 6'b000111, base: 0, len: FW'(T2_BYTES), rv: 0, gen: 0};
+        caps[3] <= '{valid: 1, space: SP_DEV,  perms: 6'b010011, base: 0, len: FW'(DEV_LEN), rv: 0, gen: 0};
+        caps[4] <= '{valid: 1, space: SP_CORE, perms: 6'b010010, base: 0, len: FW'(NCORES * 8), rv: 0, gen: 0};
       end
-      caps[2] <= '{valid: 1, space: SP_DEV, perms: 6'b010010, base: 0, len: 64'd1, rv: 0, gen: 0};
+      caps[2] <= '{valid: 1, space: SP_DEV, perms: 6'b010010, base: 0, len: FW'(1), rv: 0, gen: 0};
       csr_cycle     <= '0;
       csr_instret   <= '0;
       s_cause       <= '0;
@@ -632,10 +750,17 @@ module strata_core
       if (stop_req) ipend <= 1;                          // core control asked us to stop
 
       case (state)
+        // ------------------------------------------------------------ reset sequencer
+        S_RST: begin                                     // the save table: ct_we
+          if (rs_i < RSW'(32)) begin xw = 1; xa = rs_i[4:0]; end   // x0..x31 = 0
+          rs_i <= rs_i + 1;
+          if (rs_i == RSW'(RSN - 1)) state <= S_F0;
+        end
+
         // ------------------------------------------------------------ fetch
         S_F0: begin
           if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end
-          else if (pc[1:0] != 0 || pc >= 64'(ILS_BYTES)) trap(C_IFAULT, pc);
+          else if (pc[1:0] != 0 || !pc_in) trap(C_IFAULT, pc);
           else if (hz_fetch_stall) stall();
           else state <= S_F1;
         end
@@ -648,21 +773,22 @@ module strata_core
         end
 
         // ------------------------------------------------------------ execute
-        S_EX: begin
+        // (S_CT: the second cycle of a save-table instruction, in the supervisor)
+        S_EX, S_CT: begin
           // a stop is taken at instruction boundaries, also while an instruction waits
           if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end
           else case (d.kind)
             K_ILLEGAL: trap(C_ILLEGAL, {32'b0, ir});
 
             K_ALU, K_ALUI: begin
-              if (is_div) begin
-                state <= S_DV;                           // the divider starts this cycle
+              if (is_div || is_mul) begin
+                state <= S_DV;                           // the divider / multiplier starts this cycle
               end else begin
-                wr(d.rd, alu_y);
-                retire(pc + 4);
+                begin xw = d.rd != 0; xv = alu_y; end
+                retire(pc4);
               end
             end
-            K_LUI: begin wr(d.rd, d.imm); retire(pc + 4); end
+            K_LUI: begin begin xw = d.rd != 0; xv = d.imm; end retire(pc4); end
 
             K_LOAD: begin
               if (!mok) trap(C_LSFAULT, maddr);
@@ -672,12 +798,12 @@ module strata_core
             K_STORE: begin
               if (!mok) trap(C_LSFAULT, maddr);
               else if (hz_wr_stall) pending(maddr);
-              else retire(pc + 4);                       // the write happened this cycle
+              else retire(pc4);                       // the write happened this cycle
             end
 
-            K_BRANCH: retire(br_taken ? pc + d.imm : pc + 4);
-            K_JAL:    begin wr(d.rd, pc + 4); retire(pc + d.imm); end
-            K_JALR:   begin wr(d.rd, pc + 4); retire((ra + d.imm) & ~64'd3); end
+            K_BRANCH: retire(br_taken ? pc_br : pc4);
+            K_JAL:    begin begin xw = d.rd != 0; xv = pc4; end retire(pc_br); end
+            K_JALR:   begin begin xw = d.rd != 0; xv = pc4; end retire(alu_y & ~64'd3); end
 
             K_XFER: begin
               if (xf_fault != 0) trap(xf_fault, xf_tval);
@@ -685,19 +811,19 @@ module strata_core
               else if (tu_iss_ready) begin
                 if (d.xf_sub == XF_GETX)                 // code being replaced: forget overlay
                   for (int i = 0; i < NXMAP; i++)        // mappings that point into it
-                    if (xm_ils[i] < ra + rc && ra < xm_ils[i] + (xslot != 0 ? sl : 64'd4)) xm_v[i] <= 0;
-                retire(pc + 4);
+                    if (xm_inv[i]) xm_v[i] <= 0;
+                retire(pc4);
               end else stall();
             end
 
-            K_TWAIT: if ((tag_busy & d.imm16) != 0) stall(); else retire(pc + 4);
-            K_TPOLL: begin wr(d.rd, {48'b0, tag_busy & d.imm16}); retire(pc + 4); end
+            K_TWAIT: if ((tag_busy & d.imm16) != 0) stall(); else retire(pc4);
+            K_TPOLL: begin begin xw = d.rd != 0; xv = {48'b0, tag_busy & d.imm16}; end retire(pc4); end
             K_TANY: begin                                // wait for any of: tags idle, a gift
               logic [16:0] ready;
               ready = {ra[16] && poll_mask != 0, ~tag_busy & ra[15:0]};
               if (ra[16] && inbox_priv) trap(C_PRIV, {32'b0, ir});
               else if (ra[16:0] != 0 && ready == 0) stall();
-              else begin wr(d.rd, {47'b0, ready}); retire(pc + 4); end
+              else begin begin xw = d.rd != 0; xv = {47'b0, ready}; end retire(pc4); end
             end
 
             K_TAMO: begin
@@ -712,36 +838,41 @@ module strata_core
                   if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   else if (cd_i != cs_i && !cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else begin
-                    caps[cd_i] <= d.cap_fn == CF_MOV ? cs_cap
-                                  : '{valid: 1, space: cs_cap.space, perms: cs_cap.perms & rb[5:0],
-                                      base: cs_cap.base, len: cs_cap.len, rv: cs_cap.rv, gen: cs_cap.gen};
-                    if (cd_i != cs_i && cs_linear) caps[cs_i] <= CAP_NULL;
-                    retire(pc + 4);
+                    cdw = 1;
+                    cdn = cs_cap;
+                    if (d.cap_fn == CF_RESTR) cdn.perms = cs_cap.perms & rb[5:0];
+                    if (cd_i != cs_i && cs_linear) csw = 1;
+                    retire(pc4);
                   end
                 end
                 CF_SPLIT: begin
                   if (!live_a) trap(C_CAPINV, 64'(cs_i));
-                  else if (cd_i == cs_i || rb > cs_cap.len || rb[2:0] != 0 || !cd_ok   // 8-aligned;
+                  else if (cd_i == cs_i || gt_w(rb, cs_cap.len) || rb[2:0] != 0 || !cd_ok   // 8-aligned;
                            || (cs_cap.perms[P_V] && rb[GRAN_SHIFT-1:0] != 0)) trap(C_CAPOP, rb); // a revoker: granules
                   else begin
-                    caps[cd_i] <= '{valid: 1, space: cs_cap.space, perms: cs_cap.perms,
-                                    base: cs_cap.base + rb, len: cs_cap.len - rb,
-                                    rv: cs_cap.rv, gen: cs_cap.gen};
-                    caps[cs_i].len <= rb;
-                    retire(pc + 4);
+                    cdw = 1;
+                    cdn = cs_cap;
+                    cdn.base = cs_cap.base + rb[FW-1:0];
+                    cdn.len  = cs_cap.len - rb[FW-1:0];
+                    csw = 1;
+                    csn = cs_cap;
+                    csn.len = rb[FW-1:0];
+                    retire(pc4);
                   end
                 end
                 CF_JOIN: begin
                   if (!live_a || !live_cd) trap(C_CAPINV, 64'(cs_i));
                   else if (cd_i == cs_i || cd_cap.space != cs_cap.space || cd_cap.perms != cs_cap.perms
                            || cd_cap.rv != cs_cap.rv || cd_cap.gen != cs_cap.gen
-                           || cd_cap.base + cd_cap.len != cs_cap.base
+                           || cd_cap.base + cd_cap.len != cs_cap.base    // (no wrap: both inside the space)
                            // never across units: not where one begins (a HEAD granule boundary)
                            || (cs_cap.rv && cs_cap.base[GRAN_SHIFT-1:0] == 0 && g_a[16])) trap(C_CAPOP, 64'(cs_i));
                   else begin
-                    caps[cd_i].len <= cd_cap.len + cs_cap.len;
-                    caps[cs_i]     <= CAP_NULL;
-                    retire(pc + 4);
+                    cdw = 1;
+                    cdn = cd_cap;
+                    cdn.len = cd_cap.len + cs_cap.len;
+                    csw = 1;
+                    retire(pc4);
                   end
                 end
                 CF_SHARE: begin
@@ -750,11 +881,11 @@ module strata_core
                   else if (cd_i != cs_i && !cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else if (!tu_mem_idle) stall();
                   else begin
-                    caps[cd_i] <= '{valid: 1, space: cs_cap.space,
-                                    perms: (cs_cap.perms & 6'b000101) | 6'b010000,
-                                    base: cs_cap.base, len: cs_cap.len, rv: cs_cap.rv, gen: cs_cap.gen};
-                    if (cd_i != cs_i && cs_linear) caps[cs_i] <= CAP_NULL;
-                    retire(pc + 4);
+                    cdw = 1;
+                    cdn = cs_cap;
+                    cdn.perms = (cs_cap.perms & 6'b000101) | 6'b010000;
+                    if (cd_i != cs_i && cs_linear) csw = 1;
+                    retire(pc4);
                   end
                 end
                 CF_ATOM: begin
@@ -763,22 +894,23 @@ module strata_core
                   else if (cd_i != cs_i && !cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else if (!tu_mem_idle) stall();
                   else begin
-                    caps[cd_i] <= '{valid: 1, space: cs_cap.space, perms: 6'b011000,
-                                    base: cs_cap.base, len: cs_cap.len, rv: cs_cap.rv, gen: cs_cap.gen};
-                    if (cd_i != cs_i) caps[cs_i] <= CAP_NULL;
-                    retire(pc + 4);
+                    cdw = 1;
+                    cdn = cs_cap;
+                    cdn.perms = 6'b011000;
+                    if (cd_i != cs_i) csw = 1;
+                    retire(pc4);
                   end
                 end
                 CF_BASE, CF_LEN, CF_PERMS: begin
                   if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   else begin
-                    wr(d.rd, d.cap_fn == CF_BASE ? cs_cap.base
-                           : d.cap_fn == CF_LEN ? cs_cap.len
-                           : {53'b0, cs_cap.space, 2'b0, cs_cap.perms});
-                    retire(pc + 4);
+                    begin xw = d.rd != 0; xv = d.cap_fn == CF_BASE ? 64'(cs_cap.base)
+                           : d.cap_fn == CF_LEN ? 64'(cs_cap.len)
+                           : {53'b0, cs_cap.space, 2'b0, cs_cap.perms}; end
+                    retire(pc4);
                   end
                 end
-                CF_VALID: begin wr(d.rd, {63'b0, live_a}); retire(pc + 4); end
+                CF_VALID: begin begin xw = d.rd != 0; xv = {63'b0, live_a}; end retire(pc4); end
                 CF_GIVE: begin
                   if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   // outside the core window: tval = the window-relative number
@@ -786,48 +918,50 @@ module strata_core
                     trap(C_CAPOP, rb);
                   else if (give_bad) trap(C_CAPOP, give_node);
                   else if (give_valid && give_ack) begin
-                    if (cs_linear) caps[cs_i] <= CAP_NULL;
-                    retire(pc + 4);
+                    if (cs_linear) csw = 1;
+                    retire(pc4);
                   end else stall();
                 end
                 CF_TAKE: begin
                   if (inbox_priv) trap(C_PRIV, {32'b0, ir});
                   else if (!cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else if (take_hit) begin
-                    caps[cd_i]   <= take_cap;
+                    cdw = 1;
+                    cdn = take_cap;
                     csr_takefrom <= 64'(take_from) - csr_corebase;
-                    retire(pc + 4);
+                    retire(pc4);
                   end else stall();
                 end
-                CF_CLEAR: begin caps[cd_i] <= CAP_NULL; retire(pc + 4); end
+                CF_CLEAR: begin cdw = 1; retire(pc4); end
                 CF_SAVE: begin
                   if (user) trap(C_PRIV, {32'b0, ir});     // the save table is the supervisor's
+                  else if (state == S_EX) state <= S_CT;   // the slot is read
                   else if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   else if (live_ct && !ct_entry.perms[P_D]) trap(C_CAPOP, 64'(d.slot));
-                  else begin
-                    ctab_v[d.slot] <= 1;                 // (the data is written by ct_we below)
-                    if (cs_linear) caps[cs_i] <= CAP_NULL;
-                    retire(pc + 4);
+                  else begin                             // (ct_we writes the slot)
+                    if (cs_linear) csw = 1;
+                    retire(pc4);
                   end
                 end
                 CF_RESTORE: begin
                   if (user) trap(C_PRIV, {32'b0, ir});
+                  else if (state == S_EX) state <= S_CT;   // the slot is read
                   else if (!live_ct) trap(C_CAPINV, 64'(d.slot));
                   else if (!cd_ok) trap(C_CAPOP, 64'(cd_i));
-                  else begin
-                    caps[cd_i] <= ct_entry;
-                    if (!ct_entry.perms[P_D]) ctab_v[d.slot] <= 0;
-                    retire(pc + 4);
+                  else begin                             // (ct_we empties a linear entry's slot)
+                    cdw = 1;
+                    cdn = ct_entry;
+                    retire(pc4);
                   end
                 end
                 CF_POLL: if (inbox_priv) trap(C_PRIV, {32'b0, ir});
-                         else begin wr(d.rd, {48'b0, poll_mask >> csr_corebase[3:0]}); retire(pc + 4); end
+                         else begin begin xw = d.rd != 0; xv = {48'b0, poll_mask >> csr_corebase[3:0]}; end retire(pc4); end
                 default: trap(C_ILLEGAL, {32'b0, ir});
               endcase
             end
 
             K_CSRR: if (user && (d.imm16 == CSR_SSCRATCH || d.imm16 == CSR_IPEND)) trap(C_PRIV, {32'b0, ir});
-                    else begin wr(d.rd, csr_rv); retire(pc + 4); end
+                    else begin begin xw = d.rd != 0; xv = csr_rv; end retire(pc4); end
             K_CSRW: if (user && (d.imm16 == CSR_STATUS || d.imm16 == CSR_COREBASE || d.imm16 == CSR_CORECOUNT ||
                                  (d.imm16 >= CSR_UCAUSE && d.imm16 <= CSR_IPEND))) trap(C_PRIV, {32'b0, ir});
             else begin
@@ -853,7 +987,7 @@ module strata_core
                 CSR_CORECOUNT: csr_corecount <= ra;
                 default: ;
               endcase
-              retire(pc + 4);
+              retire(pc4);
             end
 
             K_SYS: begin
@@ -878,32 +1012,27 @@ module strata_core
             end
 
             K_LTAG, K_LINST: begin
-              if (!lt_ok) trap(C_LSFAULT, lt_ebase_c);
-              else if (d.kind == K_LTAG ? hz_rd_stall : hz_wr_stall) pending(lt_ebase_c);
-              else begin
-                lt_key   <= (lt_line << 1) | 64'd1;
-                lt_set   <= lt_set_c;
-                lt_ebase <= lt_ebase_c;
-                lt_off   <= ra & ((64'd1 << lt_lsh) - 1);
-                lt_k     <= d.kind == K_LTAG ? 4'd0 : lt_ways;
-                lt_ph    <= 0;
-                state    <= S_LT;
-              end
+              lt_key <= (lt_line << 1) | 64'd1;
+              lt_set <= lt_set_c;
+              lt_off <= ra & ((64'd1 << lt_lsh) - 1);
+              lt_ph  <= 0;
+              state  <= S_LG;
             end
 
             K_XMAP: begin
-              if (d.rd[4]) trap(C_ILLEGAL, {32'b0, ir});
-              else if (d.flag) begin xm_v[d.rd[3:0]] <= 0; retire(pc + 4); end
+              if (d.rd >= 5'(NXMAP)) trap(C_ILLEGAL, {32'b0, ir});
+              else if (d.flag) begin xm_v[XW'(d.rd)] <= 0; retire(pc4); end
               else if (!live_a) trap(C_CAPINV, 64'(d.cs));
               else if (!xcap.perms[P_X]) trap(C_PERM, 64'(d.cs));
-              else if (rb >= xcap.len) trap(C_BOUNDS, rb);
-              else if (ra[1:0] != 0 || ra >= 64'(ILS_BYTES)) trap(C_LSFAULT, ra);
+              else if (ge_w(rb, xcap.len)) trap(C_BOUNDS, rb);
+              else if ((xm_new_far & ~xs_hmask) != 0) trap(C_XALIGN, rb);   // not slot-aligned
+              else if (ra[1:0] != 0 || ra[63:$clog2(ILS_BYTES)] != 0) trap(C_LSFAULT, ra);
               else begin
-                xm_v[d.rd[3:0]]   <= 1;
-                xm_sp[d.rd[3:0]]  <= xcap.space;
-                xm_far[d.rd[3:0]] <= xcap.base + rb;
-                xm_ils[d.rd[3:0]] <= ra;
-                retire(pc + 4);
+                xm_v[XW'(d.rd)]   <= 1;
+                xm_sp[XW'(d.rd)]  <= xcap.space;
+                xm_far[XW'(d.rd)] <= xm_new_far;
+                xm_ils[XW'(d.rd)] <= ra[15:0];
+                retire(pc4);
               end
             end
 
@@ -915,9 +1044,9 @@ module strata_core
               end
               else if (!live_a) trap(C_CAPINV, 64'(d.cs));
               else if (!xcap.perms[P_X]) trap(C_PERM, 64'(d.cs));
-              else if (ra >= xcap.len) trap(C_BOUNDS, ra);
+              else if (ge_w(ra, xcap.len)) trap(C_BOUNDS, ra);
               else if (!xm_hit) trap(C_XMISS, xc_key);
-              else begin wr(d.rd, xm_link); retire(xm_target); end
+              else begin begin xw = d.rd != 0; xv = xm_link; end retire(xm_target); end
             end
 
             K_CAP2: begin
@@ -927,17 +1056,18 @@ module strata_core
                   else if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   else if (give_bad) trap(C_CAPOP, give_node);
                   else if (give_valid && give_ack) begin
-                    if (cs_linear) caps[cs_i] <= CAP_NULL;
-                    retire(pc + 4);
+                    if (cs_linear) csw = 1;
+                    retire(pc4);
                   end else stall();
                 end
                 C2_RECV: begin                           // crecv cd, ce
                   if (!ep_cap.valid || ep_cap.space != SP_EP || !ep_cap.perms[P_R]) trap(C_CAPINV, 64'(cs_i));
                   else if (!cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else if (take_hit) begin
-                    caps[cd_i]   <= take_cap;
+                    cdw = 1;
+                    cdn = take_cap;
                     csr_takefrom <= 64'(take_from) - csr_corebase;
-                    retire(pc + 4);
+                    retire(pc4);
                   end else stall();
                 end
                 C2_MKEP: begin                           // cmkep cd, rx
@@ -945,8 +1075,32 @@ module strata_core
                   else if (!cd_ok) trap(C_CAPOP, 64'(cd_i));
                   else if (rb > 64'(NCORES)) trap(C_CAPOP, rb);
                   else begin
-                    caps[cd_i] <= '{valid: 1, space: SP_EP, perms: 6'b010011, base: rb, len: 64'd1, rv: 0, gen: 0};
-                    retire(pc + 4);
+                    cdw = 1;
+                    cdn = '{valid: 1, space: SP_EP, perms: 6'b010011, base: FW'(rb), len: FW'(1), rv: 0, gen: 0};
+                    retire(pc4);
+                  end
+                end
+                C2_SAVEX: begin                          // csavex cs, rx
+                  if (user) trap(C_PRIV, {32'b0, ir});
+                  else if (ct_oor) trap(C_CAPOP, rb);
+                  else if (state == S_EX) state <= S_CT;   // the slot is read
+                  else if (!live_a) trap(C_CAPINV, 64'(cs_i));
+                  else if (live_ct && !ct_entry.perms[P_D]) trap(C_CAPOP, rb);
+                  else begin                             // (ct_we writes the slot)
+                    if (cs_linear) csw = 1;
+                    retire(pc4);
+                  end
+                end
+                C2_RESTOREX: begin                       // crestorex cd, rx
+                  if (user) trap(C_PRIV, {32'b0, ir});
+                  else if (ct_oor) trap(C_CAPOP, rb);
+                  else if (state == S_EX) state <= S_CT;   // the slot is read
+                  else if (!live_ct) trap(C_CAPINV, rb);
+                  else if (!cd_ok) trap(C_CAPOP, 64'(cd_i));
+                  else begin                             // (ct_we empties a linear entry's slot)
+                    cdw = 1;
+                    cdn = ct_entry;
+                    retire(pc4);
                   end
                 end
                 default: begin                           // cdom / crevoke / cundom
@@ -958,19 +1112,30 @@ module strata_core
                   else if (!c2_ok) trap(C_CAPOP, 64'(cs_i));          // an empty revoker
                   else if (dom_done) begin
                     if (d.cap_fn == C2_DOM) begin
-                      caps[cd_i] <= '{valid: 1, space: cs_cap.space, perms: cs_cap.perms, base: cs_cap.base,
-                                      len: cs_cap.len, rv: 1, gen: dom_gen};
-                      caps[cs_i] <= '{valid: 1, space: cs_cap.space, perms: 6'b100000, base: cs_cap.base,
-                                      len: cs_cap.len, rv: 0, gen: {10'b0, cs_cap.perms}};
+                      cdw = 1;
+                      cdn = cs_cap;
+                      cdn.rv  = 1;
+                      cdn.gen = dom_gen;
+                      csw = 1;
+                      csn = cs_cap;
+                      csn.perms = 6'b100000;
+                      csn.rv    = 0;
+                      csn.gen   = {10'b0, cs_cap.perms};
                     end else if (d.cap_fn == C2_REVOKE) begin
-                      caps[cd_i] <= '{valid: 1, space: cs_cap.space, perms: cs_cap.gen[5:0],
-                                      base: cs_cap.base, len: cs_cap.len, rv: 1, gen: dom_gen};
+                      cdw = 1;
+                      cdn = cs_cap;
+                      cdn.perms = cs_cap.gen[5:0];
+                      cdn.rv    = 1;
+                      cdn.gen   = dom_gen;
                     end else begin
-                      caps[cd_i] <= '{valid: 1, space: cs_cap.space, perms: cs_cap.gen[5:0],
-                                      base: cs_cap.base, len: cs_cap.len, rv: 0, gen: 16'd0};
-                      caps[cs_i] <= CAP_NULL;
+                      cdw = 1;
+                      cdn = cs_cap;
+                      cdn.perms = cs_cap.gen[5:0];
+                      cdn.rv    = 0;
+                      cdn.gen   = 16'd0;
+                      csw = 1;
                     end
-                    retire(pc + 4);
+                    retire(pc4);
                   end else stall();                      // the top level is walking the table
                 end
               endcase
@@ -981,34 +1146,50 @@ module strata_core
         end
 
         // ------------------------------------------------------------ load data
-        S_LD: begin wr(d.rd, mload); retire(pc + 4); end
+        S_LD: begin begin xw = d.rd != 0; xv = mload; end retire(pc4); end
 
         // ------------------------------------------------------------ division
-        S_DV: if (div_done) begin
-          wr(d.rd, (d.alu_op == ALU_REMU || d.alu_op == ALU_REM) ? div_r : div_q);
-          retire(pc + 4);
+        S_DV: if (is_mul ? (d.alu_op == ALU_MUL ? mul_done_lo : mul_done) : div_done) begin
+          begin xw = d.rd != 0; xv = d.alu_op == ALU_MUL ? mul_p[63:0] : d.alu_op == ALU_MULHU ? mul_p[127:64]
+                                    : (d.alu_op == ALU_REMU || d.alu_op == ALU_REM) ? div_r : div_q; end
+          retire(pc4);
         end
 
         // ------------------------------------------------------------ far atomic
-        S_AM: if (am_done) begin wr(d.rd, bus_rdata); retire(pc + 4); end
+        S_AM: if (am_done) begin begin xw = d.rd != 0; xv = bus_rdata; end retire(pc4); end
 
         // ------------------------------------------------------------ tag lookup
+        S_LG: begin
+          if (!lt_ph) begin                              // the set's entry address
+            lt_sw    <= lt_sw_c;
+            lt_ebase <= lt_ebase_c;
+            lt_ph    <= 1;
+          end
+          else if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end   // (as in EX)
+          else if (!lt_ok) trap(C_LSFAULT, lt_ebase);
+          else if (d.kind == K_LTAG ? hz_rd_stall : hz_wr_stall) pending(lt_ebase);
+          else begin
+            lt_k  <= d.kind == K_LTAG ? 4'd0 : lt_ways;
+            lt_ph <= 0;
+            state <= S_LT;
+          end
+        end
         S_LT: begin
           if (!lt_ph) lt_ph <= 1;                        // the read was issued; data next cycle
           else begin
             lt_ph <= 0;
             if (d.kind == K_LTAG && lt_k < lt_ways) begin
               if (da_rdata == lt_key) begin
-                wr(d.rd, csr_tdata + ((lt_set * 64'(lt_ways) + 64'(lt_k)) << lt_lsh) + lt_off);
-                retire(pc + 4);
+                begin xw = d.rd != 0; xv = csr_tdata + ((lt_sw + 64'(lt_k)) << lt_lsh) + lt_off; end
+                retire(pc4);
               end else lt_k <= lt_k + 1;
             end else begin
               // da_rdata is the set's replacement counter: it names the victim way
               logic [63:0] victim;
               victim = da_rdata < 64'(lt_ways) ? da_rdata : 64'd0;
               if (d.kind == K_LTAG) begin
-                wr(d.rd, (csr_tdata + ((lt_set * 64'(lt_ways) + victim) << lt_lsh)) | 64'h8000_0000_0000_0000);
-                retire(pc + 4);
+                begin xw = d.rd != 0; xv = (csr_tdata + ((lt_sw + victim) << lt_lsh)) | 64'h8000_0000_0000_0000; end
+                retire(pc4);
               end else begin
                 lt_victim <= victim;
                 lt_ph     <= 1;                          // stay: write the tag next cycle
@@ -1019,12 +1200,15 @@ module strata_core
         end
         S_LW: begin
           if (lt_ph) lt_ph <= 0;                         // the victim's tag is written this cycle
-          else retire(pc + 4);                           // and the counter this one
+          else retire(pc4);                           // and the counter this one
         end
 
         S_HALT: ;
         default: state <= S_F0;
       endcase
+      if (cdw) caps[cd_i] <= cdn;
+      if (csw) caps[cs_i] <= csn;
+      if (xw)  x[xa] <= xv;
     end
   end
 endmodule

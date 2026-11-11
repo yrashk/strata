@@ -4,12 +4,13 @@
 ;
 ;   cores
 ;   core 0: system
-;   core 1: running 3, 1 runnable, 4 processes, server; 120 switches, 40 KiB moved
-;   core 5: idle, 0 runnable, 1 processes, exclusive; 0 switches, 0 KiB moved
+;   core 1: running 3, 1 runnable, 4 processes, server; 120 switches, 40 KiB moved, 41 slots free
+;   core 5: idle, 0 runnable, 1 processes, exclusive; 0 switches, 0 KiB moved, 53 slots free
 ;
 ; Asks the process server with sys_cores: one 32-byte record per core (u8
 ; core, u8 pid running (0 none), u8 runnable, u8 processes, u8 flags (1
-; exclusive, 2 server, 4 solo), 3 reserved, u32 switches, u32 KiB moved).
+; exclusive, 2 server, 4 solo), u8 free slots of the core's capability save
+; table (its pool: threads and queues), 2 reserved, u32 switches, u32 KiB moved).
 ; Core 0 runs the system (the kernel of the system core, pid 0).
 
         .data                           ; data Local Store
@@ -37,8 +38,10 @@ m_sw:   .ascii "; "                     ; output text
 m_sw_e:                                 ; end of the text above
 m_swn:  .ascii " switches, "            ; output text
 m_swn_e:                                ; end of the text above
-m_kib:  .ascii " KiB moved\n"           ; output text
+m_kib:  .ascii " KiB moved, "           ; output text
 m_kib_e:                                ; end of the text above
+m_slot: .ascii " slots free\n"          ; output text
+m_slot_e:                               ; end of the text above
 m_comma: .ascii ", "                    ; output text
 m_err:  .ascii "cores: cannot ask the process server\n" ; error text
 m_err_e:                                ; end of the text above
@@ -130,8 +133,13 @@ f_done:
         call  out_str                   ; ...
         lwu   a0, 12(s1)                ; KiB moved
         call  out_dec                   ; ...
-        la    a0, m_kib                 ; " KiB moved"
+        la    a0, m_kib                 ; " KiB moved, "
         li    a1, m_kib_e - m_kib       ; ...
+        call  out_str                   ; ...
+        lbu   a0, 5(s1)                 ; free save-table slots
+        call  out_dec                   ; ...
+        la    a0, m_slot                ; " slots free"
+        li    a1, m_slot_e - m_slot     ; ...
         call  out_str                   ; ...
 next:
         addi  s1, s1, 32                ; next record

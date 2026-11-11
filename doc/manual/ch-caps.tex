@@ -308,7 +308,7 @@ process's core (Section~\ref{sec:os-msg}).
 \toprule
 \textbf{Location} & \textbf{Entries} & \textbf{Accessed by}\\\midrule
 capability registers & 16 per core & all capability instructions\\
-save table & 64 per core & \insn{csave}, \insn{crestore} (supervisor only)\\
+save table & $\textit{CTAB}$ per core (256 by default, at least 64: the platform table says) & \insn{csave}, \insn{crestore} (slots 0--63), \insn{csavex}, \insn{crestorex} (every slot; supervisor only)\\
 inbox & 2 per sender per core; 4 at the block device & \insn{cgive}, \insn{csend} (append); \insn{ctake}, \insn{crecv} (remove); \insn{cpoll}, \insn{tany} (inspect)\\
 block device & while it performs a command & returned to a core's inbox on completion\\
 \bottomrule

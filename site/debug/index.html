@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strata debugger</title>
+<meta name="description" content="A debugger for Strata programs in the browser: cores side by side, the transfer timeline, capabilities and where they came from, and time travel over a recorded run.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="debug.css?v=__BUILD__">
+</head>
+<body>
+
+<nav class="top">
+  <a class="mark" href="../">STRATA</a>
+  <div class="links">
+    <a href="../#idea">Idea</a>
+    <a href="../#os">StrataOS</a>
+    <a href="../arch/">Architecture</a>
+    <a href="../isa/">Instructions</a>
+    <a href="../forth/">Forth</a>
+    <a href="../hardware/">Hardware</a>
+    <a href="../play/">Play</a>
+    <a href="./" aria-current="page">Debug</a>
+    <a href="../code/">Source</a>
+    <a class="pill" href="../Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
+    <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
+  </div>
+</nav>
+
+<main class="dbg">
+  <header class="dbg-head">
+    <p class="kicker">The reference emulator's debug engine</p>
+    <h2>Debug Strata</h2>
+    <p class="intro">Every core side by side, every transfer on a timeline, every capability with its
+      history, and a recorded run you can step backwards through. The engine is <code>emu/debug.c</code>;
+      here it runs in your browser, or in <code>strata-emu --debug PORT</code> on your machine.</p>
+  </header>
+
+  <div class="bar">
+    <div class="ctl" id="source">
+      <label class="pick">Program
+        <select id="ex"></select>
+      </label>
+      <label class="pick">Cores <select id="ncores"><option>2</option><option selected>4</option><option>8</option></select></label>
+      <button id="load" class="small">Load</button>
+      <label class="pick" id="osrun-wrap" hidden title="Types the program's name at StrataOS's shell">Run
+        <select id="osrun"><option value="">a program…</option></select>
+      </label>
+      <label class="pick" id="osstop-wrap" hidden title="A temporary breakpoint: the process's first instruction"><input type="checkbox" id="osstop" checked> stop when it starts</label>
+      <span id="mode" class="mode"></span>
+    </div>
+    <div id="status" class="status" aria-live="polite">idle · pick a program</div>
+  </div>
+
+  <div class="bar run" role="toolbar" aria-label="Run control">
+    <div class="ctl">
+      <button class="small key" data-do="continue" title="Continue (c)">▶ Continue</button>
+      <button class="small key" data-do="continue" data-fast="1" title="Catch up: run at full speed without recording (the JIT; breakpoints still stop it, more slowly) until Pause; the history starts again there (F)">⏩ Fast</button>
+      <button class="small key" data-do="pause" title="Pause (Esc)">❚❚ Pause</button>
+      <button class="small key" data-do="stepi" title="One instruction of the current core (s)">Step</button>
+      <button class="small key" data-do="next" title="Step over a call (n)">Next</button>
+      <button class="small key" data-do="finish" title="Run until the function returns (f)">Finish</button>
+      <button class="small key" data-do="step-round" title="One machine round (r)">Round</button>
+    </div>
+    <div class="ctl rev">
+      <button class="small key tt" data-do="reverse-stepi" title="Back one instruction of the current core (S)">◀ Step</button>
+      <button class="small key tt" data-do="reverse-step-round" title="Back to the start of the round (R)">◀ Round</button>
+      <button class="small key tt" data-do="reverse-continue" title="Back to the last breakpoint or watchpoint (C)">◀◀ Continue</button>
+    </div>
+  </div>
+
+  <div class="work" id="work"><div class="mainc">
+  <section class="panel time" aria-label="Time">
+    <div class="tag"><span>▸ TIME</span><em id="timeinfo">the recorded run</em></div>
+    <div class="slider"><input type="range" id="slider" min="0" max="0" value="0" step="1" aria-label="Tick of the recorded run"><output id="slidepos">0</output></div>
+  </section>
+
+  <section class="panel" aria-label="Cores">
+    <div class="tag"><span>▸ CORES</span><em>click a line to set or clear a breakpoint, a capability for its history; [ ] change the current core</em></div>
+    <div id="cores" class="cores"></div>
+  </section>
+
+  <section id="screen-panel" class="panel screen collapsed" aria-label="Framebuffer">
+    <div class="tag"><span>▸ SCREEN</span><em id="geom">opens when the program draws</em>
+      <div class="view"><button class="seg" id="screen-float" title="A floating window: it stays put while the page scrolls; drag its bar, resize its corner">⧉ Float</button></div>
+    </div>
+    <div id="screen-box" class="screen-box">
+      <canvas id="screen" width="1280" height="800" tabindex="0" aria-label="The framebuffer; focus it to type, point at it to move the guest's pointer"></canvas>
+    </div>
+  </section>
+
+  <section class="panel con" id="con-panel" aria-label="Console">
+    <div class="tag"><span>▸ CONSOLE</span><em>click and type (Ctrl-C is the break key); keys and the mouse go through the engine, so going back replays them</em>
+      <div class="view"><button class="seg" id="con-float" title="A floating window: it stays put while the page scrolls; drag its bar, resize its corner">⧉ Float</button></div>
+    </div>
+    <div class="term-box"><div id="term"></div></div>
+  </section>
+
+  <section class="panel xfers" id="xfers" aria-label="Transfer timeline">
+    <div class="tag"><span>▸ TRANSFERS</span><em id="tlinfo">one row per core; rounds left to right</em>
+      <div class="view">
+        <button class="seg" id="tl-fit" title="The whole run">Fit</button>
+        <button class="seg" id="tl-in" title="Zoom in (or the wheel)">+</button>
+        <button class="seg" id="tl-out" title="Zoom out">−</button>
+        <button class="seg on" id="tl-follow" title="Follow the newest round">Follow</button>
+        <button class="seg" id="tl-dock" title="Dock on the right, beside the cores (stays in view while the page scrolls)">Dock</button>
+      </div>
+    </div>
+    <div class="tl-box" id="tlbox">
+      <canvas id="tl" height="200"></canvas>
+      <div id="tip" class="tip" hidden></div>
+    </div>
+    <div class="legend">
+      <span><i class="lg get"></i>tget</span><span><i class="lg put"></i>tput</span><span><i class="lg getx"></i>tgetx</span>
+      <span><i class="lg pend"></i>device read in flight</span><span><i class="lg stall"></i>stall</span>
+      <span><i class="lg gift"></i>capability given</span><span><i class="lg trap"></i>trap</span><span><i class="lg now"></i>now</span>
+    </div>
+    <div id="xlist" class="xlist" aria-label="Transfers, newest first"></div>
+  </section>
+
+  <div class="grid3">
+    <section class="panel" aria-label="Local Store map">
+      <div class="tag"><span>▸ LOCAL STORES</span><em>recent transfers' ranges; tags in flight bright</em></div>
+      <div id="lsmap" class="lsmap"></div>
+    </section>
+    <section class="panel" aria-label="Capability provenance">
+      <div class="tag"><span>▸ PROVENANCE</span><em id="provinfo">where the capabilities held now came from</em>
+        <div class="view"><button class="seg on" id="prov-cur">Core</button><button class="seg" id="prov-all">All</button></div>
+      </div>
+      <div id="chain" class="chain"></div>
+      <div id="prov" class="prov"></div>
+    </section>
+    <section class="panel" aria-label="Breakpoints and watchpoints">
+      <div class="tag"><span>▸ BREAKPOINTS</span><em>label, file.s:line or address</em></div>
+      <form id="bpform" class="form">
+        <input id="bploc" placeholder="c_loop · pipeline.s:120 · 0x5c" spellcheck="false" aria-label="Breakpoint location">
+        <select id="bpcore" aria-label="Core"><option value="">any core</option></select>
+        <button class="small">Break</button>
+      </form>
+      <form id="wform" class="form">
+        <select id="wmem" aria-label="Memory"><option>dls</option><option>ils</option><option>t3</option><option>t2</option></select>
+        <input id="wloc" placeholder="buf · 0x100" spellcheck="false" aria-label="Watch address">
+        <input id="wlen" placeholder="len 8" size="5" spellcheck="false" aria-label="Length">
+        <select id="wacc" aria-label="Access"><option value="w">write</option><option value="r">read</option><option value="rw">both</option></select>
+        <button class="small">Watch</button>
+      </form>
+      <div class="form">
+        <select id="bkind" aria-label="Event breakpoint">
+          <option value="trap">a trap</option><option value="svc">svc</option><option value="eret">eret</option>
+          <option value="halt">a halt</option><option value="capop">a gift, a revoke …</option>
+        </select>
+        <button class="small" id="bkadd">Break on it</button>
+      </div>
+      <ul id="bplist" class="bplist"></ul>
+    </section>
+  </div>
+
+
+  </div><aside class="dock" id="dock" aria-label="Transfers, docked"></aside></div>
+
+  <section class="notes">
+    <h3>About this debugger</h3>
+    <ul class="ticks">
+      <li>In the browser, the program runs in a Web Worker under the same engine as
+        <code>strata-dbg</code>, with the virtual timer and the reference one-instruction-per-core
+        interleaving: the run is deterministic, so every tick of it can be revisited (the slider, the ◀
+        buttons). The engine keeps a snapshot every so many ticks and re-executes from the nearest one.</li>
+      <li>On your machine: <code>build/strata-emu -c 4 -j -T virtual --debug 4455 build/examples/pipeline.stx</code>
+        and open <code>http://localhost:4455/debug/</code>: the page connects to that engine instead
+        (or <code>?ws=host:port</code> from here). <code>strata-dbg</code> is the text front-end.</li>
+      <li><b>StrataOS</b> (the first program) boots the play page's disk on 8 cores with the debugger aware of
+        the kernel and its processes: cores show the process they run, symbols come from each program's map.
+        <b>Run</b> types a program's name at the shell and, if asked, stops at its first instruction.
+        Graphical programs (<code>ws</code>) draw on the <b>Screen</b>, which opens when the framebuffer is first
+        written; the keys and the mouse you give it are recorded, so going back replays them.</li>
+      <li>The reference emulator copies a memory transfer at the instant it issues, so its bars have no
+        length; device reads that wait (console input, the timer's WAIT) stay in flight, and their tags
+        stay busy, until the device completes them. Stalls are the rounds a core could not make its step.</li>
+      <li>Keys: <b>c</b> continue, <b>Esc</b> pause, <b>s</b> step, <b>n</b> next, <b>f</b> finish,
+        <b>r</b> round, <b>S</b> / <b>R</b> / <b>C</b> the same backwards, <b>F</b> fast, <b>[</b> <b>]</b> the current core.</li>
+      <li><b>⏩ Fast</b> catches up: it runs without recording, at full speed with the JIT when no breakpoint is set,
+        until you pause (or a breakpoint, the end); the recorded history is dropped and starts again where it
+        stops. Boot StrataOS or let <code>ws</code> draw its splash that way, then debug from there.</li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  <div class="bands small" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+  <p><a href="../">Strata</a> · <a href="../play/">Play</a> ·
+    <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<script src="debug.js?v=__BUILD__"></script>
+</body>
+</html>

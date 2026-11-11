@@ -41,14 +41,16 @@ int main(int argc, char **argv) {
     fclose(f);
     return 0;
   }
-  if (argc == 5 && !strcmp(argv[1], "plat")) {
+  if ((argc == 5 || argc == 6) && !strcmp(argv[1], "plat")) {
     uint8_t t[PLAT_LEN];
-    plat_build(t, atoi(argv[2]), strtoull(argv[3], NULL, 0));
+    unsigned nx = argc == 6 ? (unsigned)strtoul(argv[5], NULL, 0) : NXMAP_DEF;
+    if (nx < NXMAP_MIN || nx > NXMAP_MAX) { fprintf(stderr, "mkhex: overlay map entries: 4..16\n"); return 2; }
+    plat_build(t, atoi(argv[2]), strtoull(argv[3], NULL, 0), nx);
     FILE *f = out(argv[4]);
     for (int i = 0; i < PLAT_LEN; i++) fprintf(f, "%02x\n", t[i]);
     fclose(f);
     return 0;
   }
-  fprintf(stderr, "usage: mkhex ils|dls image.stx out.hex | disk disk.img words out.hex | plat ncores blocks out.hex\n");
+  fprintf(stderr, "usage: mkhex ils|dls image.stx out.hex | disk disk.img words out.hex | plat ncores blocks out.hex [nxmap]\n");
   return 2;
 }

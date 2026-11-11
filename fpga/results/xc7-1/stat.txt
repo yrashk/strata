@@ -5,30 +5,32 @@
 
         +----------Local Count, excluding submodules.
         | 
-    62043 wires
-   160977 wire bits
-      372 public wires
-    13972 public wire bits
+    30437 wires
+   101845 wire bits
+      350 public wires
+     8436 public wire bits
        18 ports
       295 port bits
-    63968 cells
-       12   $scopeinfo
+    39307 cells
+       13   $scopeinfo
         1   BUFG
-     3274   CARRY4
-       30   DSP48E1
-    12363   FDRE
+     1172   CARRY4
+        4   DSP48E1
+     6782   FDRE
        87   FDSE
        70   IBUF
-      487   INV
-     7534   LUT2
-     5528   LUT3
-     6772   LUT4
-    12751   LUT5
-    14474   LUT6
-       57   MUXF7
+      647   INV
+        5   LUT1
+     3974   LUT2
+     3645   LUT3
+     4621   LUT4
+    11659   LUT5
+     6107   LUT6
+       23   MUXF7
+        7   MUXF8
       225   OBUF
-       94   RAM32M
-      120   RAM64M
-        1   RAMB18E1
+      125   RAM32M
+       48   RAM64M
+        4   RAMB18E1
        88   RAMB36E1
 

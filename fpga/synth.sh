@@ -2,32 +2,25 @@
 # Synthesizes the Strata system with Yosys for one FPGA family and prints
 # the resource summary.
 #
-#   fpga/synth.sh xc7|ecp5 [NCORES]
+#   fpga/synth.sh xc7|ecp5 [NCORES [NXMAP]]
+#
+# NXMAP: overlay map entries per core (4..16; default 16, the platform
+# default); a run with it goes to fpga/build/<family>-<n>-x<NXMAP>.
 #
 # System memory (T3) is external DRAM on a real board (LiteDRAM, see
 # fpga/README.md); here it is a small 32 KiB block RAM placeholder so the
 # rest of the system can be measured (the 64 MiB default must never reach
 # synthesis as an array). The cluster store (T2) is 64 KiB and the disk a
 # 128 KiB block-RAM disk, as in fpga/arty/strata_arty.sv.
-#
-# NXMAP=N fpga/synth.sh ... builds a smaller variant with N overlay map
-# entries instead of 16 (a constant in strata_pkg.sv, not a parameter: the
-# package is copied and edited under the build directory, rtl/ is not
-# touched); the results go to fpga/build/<family>-<n>-xmapN/.
 set -eu
 fam=$1
 n=${2:-2}
+nx=${3:-}
 here=$(cd "$(dirname "$0")/.." && pwd)
-out="$here/fpga/build/$fam-$n${NXMAP:+-xmap$NXMAP}"
+out="$here/fpga/build/$fam-$n${nx:+-x$nx}"
 mkdir -p "$out"
 cd "$here"
-pkg=rtl/strata_pkg.sv
-if [ -n "${NXMAP:-}" ]; then
-  sed "s/localparam int NXMAP     = 16;/localparam int NXMAP     = $NXMAP;/" rtl/strata_pkg.sv > "$out/strata_pkg.sv"
-  grep -q "NXMAP     = $NXMAP;" "$out/strata_pkg.sv"
-  pkg=$out/strata_pkg.sv
-fi
-sv2v "$pkg" rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv \
+sv2v rtl/strata_pkg.sv rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv rtl/strata_mul.sv \
      rtl/strata_ram.sv rtl/strata_uart.sv rtl/strata_tu.sv rtl/strata_bus.sv \
      rtl/strata_mem.sv rtl/strata_dev.sv rtl/strata_core.sv rtl/strata_top.sv > "$out/strata.v"
 case $fam in
@@ -38,7 +31,7 @@ write_json $out/strata.json" ;;
 esac
 cat > "$out/synth.ys" <<YS
 read_verilog $out/strata.v
-chparam -set NCORES $n -set T3_W 4096 -set T2_W 8192 -set DISK_WORDS 16384 strata_top
+chparam -set NCORES $n ${nx:+-set NXMAP $nx }-set T3_W 4096 -set T2_W 8192 -set DISK_WORDS 16384 strata_top
 hierarchy -top strata_top
 $synth
 tee -o $out/stat.txt stat

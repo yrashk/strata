@@ -80,6 +80,7 @@ static int host_breaks;          /* Ctrl-C presses not yet given to the break po
 #ifdef __EMSCRIPTEN__
 static bool host_in_page;        /* console input comes from the page, not from a file */
 #endif
+static bool host_in_pushed;      /* console input is pushed by the debugger (--debug), not stdin */
 static volatile bool host_quit;  /* the window was closed: end the run */
 static uint64_t host_in_taken;   /* console bytes the guest has taken so far (pointer scripts: kN) */
 
@@ -107,6 +108,7 @@ static inline bool host_input_open(const char *path) {
     host_in_fd = open(path, O_RDONLY);
     return host_in_fd >= 0;
   }
+  if (host_in_pushed) return true; /* host_in_push() only */
   host_in_fd = STDIN_FILENO;
   if (isatty(STDIN_FILENO) && !tcgetattr(STDIN_FILENO, &host_saved_tio)) {
     struct termios t = host_saved_tio;
@@ -383,9 +385,9 @@ static inline bool host_break_live(void) { return host_in_page; }
 static inline bool host_ptr_live(void) { return host_in_page || host_ptr_script_stepped(); }
 #else
 /* More console input may still arrive. */
-static inline bool host_input_live(void) { return host_in_fd >= 0 || host_window_open(); }
+static inline bool host_input_live(void) { return host_in_fd >= 0 || host_in_pushed || host_window_open(); }
 /* A Ctrl-C may still arrive. */
-static inline bool host_break_live(void) { return (host_in_tty && host_in_fd >= 0) || host_window_open(); }
+static inline bool host_break_live(void) { return (host_in_tty && host_in_fd >= 0) || host_in_pushed || host_window_open(); }
 /* A pointer event may still arrive (a script line that waits for console
  * input to be taken is not counted: only the guest can make it happen). */
 static inline bool host_ptr_live(void) { return host_window_open() || host_ptr_script_stepped(); }
@@ -481,9 +483,23 @@ static bool host_open_window(void) {
   return true;
 }
 
+/* A key's bytes. With Alt, the xterm modified-key forms (spec 1.4), which
+   cannot be typed by hand, so the window server tells Alt+P from Esc and
+   then p by the bytes and not by time: a character c is ESC [ 27 ; 3 ; c ~
+   (Enter is 13), an arrow, Home or End ESC [ 1 ; 3 X, Delete, Page Up or
+   Down ESC [ n ; 3 ~. */
 static void host_key_bytes(const char *s, bool alt) {
-  if (alt) host_in_push(0x1b);
-  for (; *s; s++) host_in_push((uint8_t)*s);
+  char b[24];
+  size_t n = strlen(s);
+  if (alt && n == 1)
+    snprintf(b, sizeof b, "\x1b[27;3;%d~", *s == '\n' ? 13 : (uint8_t)*s);
+  else if (alt && n == 3 && s[0] == 0x1b && s[1] == '[')
+    snprintf(b, sizeof b, "\x1b[1;3%c", s[2]);
+  else if (alt && n == 4 && s[0] == 0x1b && s[1] == '[' && s[3] == '~')
+    snprintf(b, sizeof b, "\x1b[%c;3~", s[2]);
+  else
+    snprintf(b, sizeof b, "%s", s);
+  for (const char *p = b; *p; p++) host_in_push((uint8_t)*p);
 }
 
 /* A key press that SDL_TEXTINPUT does not cover. */

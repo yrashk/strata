@@ -26,7 +26,7 @@ normative. Figures marked \estimate are projections.
   \node[t,minimum width=30mm] (t2) at (4.6,-4.3) {T2 cluster store};
   \node[t,minimum width=36mm] (dev) at (9.0,-4.3) {device space\\\scriptsize UART, platform ROM, block device};
   \foreach \n in {t3,t2,dev} \draw[<->] (\n.north) -- (\n.north |- bus.south);
-  \node[draw=accent,dashed,minimum width=118mm,minimum height=6mm,font=\small] (ib) at (5.0,1.3) {capability inboxes: per-sender queues, 2 deep; nodes $0 \ldots N$};
+  \node[draw=accent,dashed,minimum width=118mm,minimum height=6mm,font=\small] (ib) at (5.0,1.3) {capability inboxes: per-sender queues, 2 deep, one RAM per core; nodes $0 \ldots N$};
   \foreach \i in {0,1,2} \draw[<->,dashed,accent] (core\i.north) -- (core\i.north |- ib.south);
   \draw[<->,dashed,accent] (dma.north) -- (dma.north |- ib.south);
 \end{tikzpicture}
@@ -34,17 +34,67 @@ normative. Figures marked \estimate are projections.
 \end{figure}
 
 \subsection{Core}
-The core is multi-cycle over block-RAM Local Stores. Its states are: F0, present the fetch address to
-the I-LS (stalling while an in-flight \insn{tgetx} covers it); F1, latch the instruction; EX, execute,
-remaining there while stalled; LD, receive load data; LT and LW, the tag-table walk of
-\insn{ltag}/\insn{linst}; DV, iterative division (one quotient bit per cycle); AM, a far atomic in
-flight. Each Local Store is a true dual-port RAM: port A belongs to the core and port B to its TU. The
-integer registers, capability registers, the sixteen-entry overlay map, the mode bits and the banked
-trap CSRs are flip-flops. A pending stop request is checked in F0 and in EX, so a user-mode core takes it
-at the next instruction boundary even while an instruction is stalled. The 64-entry capability
-save table is LUT-RAM with a separate valid bit per slot held in flip-flops, so that the no-overwrite
-check of \insn{csave}/\insn{crestore} reads only the valid bit. The decoder is purely combinational
-and flags undefined encodings; the divider is iterative (one quotient bit per cycle).
+The core is multi-cycle over block-RAM Local Stores. Its states are: RST, after reset, clearing the
+integer registers and the capability save table (one register and one slot per cycle, 256 cycles);
+F0, present the fetch address to the I-LS (stalling while an in-flight \insn{tgetx} covers it); F1,
+latch the instruction; EX, execute, remaining there while stalled; CT, the second cycle of the
+save-table instructions; LD, receive load data; LG, LT and LW, the set-entry computation and the
+tag-table walk of \insn{ltag}/\insn{linst}; DV, multiplication (four partial products of a
+$32\times32$ multiplier, one per cycle) and iterative division (one quotient bit per cycle); AM, a far
+atomic in flight. Each Local Store is a true dual-port RAM: port A belongs to the core and port B to
+its TU. The integer registers are LUT-RAM with one write port and three asynchronous read ports (every
+result is written through the one port at the end of its cycle); the capability registers, the
+overlay map, the mode bits and the banked trap CSRs are flip-flops. A pending stop
+request is checked in F0 and in EX, so a user-mode core takes it at the next instruction boundary
+even while an instruction is stalled.
+
+Every capability satisfies $\mathit{base} + \mathit{length} \le$ the size of its space, however it was
+made, so the implementation holds a capability's base and length in $\mathit{FW} = 27$ bits
+($\log_2$ of the largest space, system memory, plus one); the architectural values are these,
+zero-extended. A 64-bit register compared with a length is larger when any bit above the narrow part
+is set, and otherwise compared in 27 bits; trap values are always the full registers. Two read ports
+serve the capability registers: A, the operand (\reg{cs} of a capability instruction, the transfer's,
+atomic's or overlay's capability otherwise), and D, the destination (and \insn{csend}'s endpoint). Each
+cycle makes at most one capability write to \reg{cd} and one to \reg{cs}. Likewise an overlay map
+entry holds its far address in 27 bits and its I-LS address in 16. Because units are aligned to their
+slot size (Section~\ref{sec:xslot}), an entry's match is a 27-bit equality under the slot mask, with no
+carry chain; the target address is computed once, for the matching entry, in 64 bits. The number of
+entries is the parameter \texttt{NXMAP} of \texttt{strata\_core} and \texttt{strata\_top} (4--16, 16 by
+default; \texttt{make test-small} checks a build with 8, the size suggested for small FPGAs). Local Store
+addresses and lengths (in the TU, the hazard checks and the range checks) are 17 bits. pc$+4$ and
+branch and \insn{jal} targets are computed on 17 and 24 bits and sign-extended, which is exact (the pc
+is inside the I-LS and offsets are below $2^{23}$), so a target outside the I-LS faults with its full
+address. Loads, stores and \insn{jalr} take their address from the ALU's adder, which also gives the
+branch conditions.
+
+The capability save table ($\mathit{CTAB}$ = 256 entries, a parameter of \texttt{strata\_pkg}) is a
+block RAM with a registered read, one capability per word (an empty slot holds the null
+capability). EX reads the slot of \insn{csave}, \insn{crestore}, \insn{csavex} or \insn{crestorex}
+(the instruction's immediate or, for the register forms, the low eight bits of \reg{rx}, a larger
+value trapping first), and the instruction finishes in CT with the entry, one cycle later.
+\insn{ltag} and \insn{linst} compute their set's entry address
+$\mathit{ttag} + \mathit{set}\times(\mathit{ways}+1)\times 8$ in 64 bits (it is the \cause{lsfault}
+value) by shift-and-add in the first cycle of LG and check it in the second. The decoder is purely
+combinational and flags undefined encodings.
+
+Table~\ref{tab:cycles} gives the cycles an instruction takes when nothing stalls it.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Cycles per instruction, without stalls}\label{tab:cycles}
+\begin{tabular}{@{}l r@{}}
+\toprule
+\textbf{Instructions} & \textbf{Cycles}\\\midrule
+most (ALU, branches, stores, capability, CSR, transfer issue) & 3\\
+loads & 4\\
+\insn{csave}, \insn{crestore}, \insn{csavex}, \insn{crestorex} & 4\\
+\insn{mul} & 6\\
+\insn{mulhu} & 7\\
+division and remainder & about 68\\
+\insn{ltag}, \insn{linst} & $5 + 2k$ (\insn{ltag}: $k$ tag words read) or 9 (\insn{linst})\\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Transfer Unit}
 The TU accepts transfer commands from EX in program order into a four-entry in-order queue and executes
@@ -53,7 +103,8 @@ order (invariant I2). Issue waits while the queue is full, while the transfer's 
 the D-LS range of a \insn{tget} or \insn{tput} overlaps a queued device read (with CCR.PTRAP the core
 traps with \cause{pend} instead). For every
 queued entry the TU compares its Local Store range with the range of the current load, store or
-tag-table access and with the fetch address, and raises the stalls that implement invariant I1.
+tag-table access and with the fetch address, and raises the stalls that implement invariant I1 (an
+entry keeps its range's end, so these are comparisons, not additions).
 The TU reports two status signals to the core: \emph{idle} (its queue is empty) and \emph{memory
 idle} (no queued or executing transfer targets a space other than device space). \insn{cgive},
 \insn{csend}, \insn{cshare}, \insn{catomic} and \insn{tamo} wait for memory idle, the publication rule
@@ -74,10 +125,11 @@ tries it again later, and the rest of the machine runs meanwhile.
 \subsection{Revocation granules and core control}
 The granule table (a 16-bit generation and a head bit for each of the 256 granules of T3 and the one of
 T2, Section~\ref{sec:domains}) exists once in the top level and once in every core. Each core's copy is
-LUT-RAM with three asynchronous read ports, so its \texttt{Live} checks stay combinational: port A
+LUT-RAM with two asynchronous read ports, so its \texttt{Live} checks stay combinational: port A
 serves the operand capability (\reg{cs} of a capability instruction, the transfer's, atomic's or
-overlay's capability otherwise; never both in one instruction), port D the destination register and
-port C the save-table slot. Only the top level writes the table: a core executing \insn{cdom},
+overlay's capability otherwise; never both in one instruction) and port D the destination register.
+In CT the save-table slot's entry takes the port its instruction does not need (\insn{csave}: D,
+\insn{crestore}: A), so all three checks are still made in the same cycle. Only the top level writes the table: a core executing \insn{cdom},
 \insn{crevoke} or \insn{cundom} raises a request and stalls in EX; the top level serves the
 lowest-numbered requester with a walker that reads its master copy and writes one granule per cycle,
 broadcasting every write to all the copies (for \insn{crevoke}: back to the head of the first touched
@@ -85,9 +137,8 @@ unit, a read pass to the end of the last, a write pass), and then signals the co
 capability registers and retires. A walk costs about two cycles per granule of the touched units; other
 cores keep running meanwhile. The alternative, one shared table behind a pipeline stage, would add an
 arbitrated port to every capability check of every core; three small read ports per core (256 entries
-of 17 bits) are cheaper. On xc7 (\texttt{fpga/synth.sh xc7 1}) the one-core system takes 47,059 LUTs
-of logic and 214 LUT-RAM cells, against 48,240 and 172 with the fifteen-domain table it replaced, which
-held a full region register per domain: about 1,000 LUT sites fewer in all. Core-control space is
+of 17 bits) are cheaper. Revocation by address cost about 1,000 LUT sites fewer than the
+fifteen-domain table it replaced, which held a full region register per domain. Core-control space is
 a far-bus target in the top level: a \insn{tput} through a core-control capability raises the stop request of the core whose doubleword it
 writes with bit~0 set.
 
@@ -130,8 +181,8 @@ synthesizes the system with Yosys (through \texttt{sv2v}) for Xilinx 7-series or
 \subsection{Synthesis results}
 
 Table~\ref{tab:synth} gives the Yosys results (\texttt{synth\_xilinx} and \texttt{synth\_ecp5}, Yosys
-0.70) for systems of one and two cores with a 64~KiB cluster store, a 128~KiB block-RAM disk and a
-32~KiB block-RAM stand-in for system memory. They are for the RTL before the pointer device was added.
+0.70) for systems of one, two and six cores with a 64~KiB cluster store, a 128~KiB block-RAM disk and a
+32~KiB block-RAM stand-in for system memory.
 
 \begin{table}[htbp]
 \centering\small
@@ -139,28 +190,30 @@ Table~\ref{tab:synth} gives the Yosys results (\texttt{synth\_xilinx} and \textt
 \begin{tabular}{@{}l r r r r@{}}
 \toprule
 \textbf{System} & \textbf{Logic} & \textbf{Flip-flops} & \textbf{Block RAM} & \textbf{Multipliers}\\\midrule
-7-series, 1 core & 47,449 LUTs & 12,675 & 88 RAMB36 & 30 DSP48E1\\
-7-series, 2 cores & 94,658 LUTs & 23,624 & 120 RAMB36 & 60 DSP48E1\\
-ECP5, 1 core & 73,757 LUT4 sites & 12,866 & 181 DP16KD & 30 MULT18X18D\\
-ECP5, 2 cores & 142,522 LUT4 sites & 24,028 & 250 DP16KD & 60 MULT18X18D\\
+7-series, 1 core & 30,011 LUTs & 6,869 & 88 RAMB36 + 4 RAMB18 & 4 DSP48E1\\
+7-series, 1 core, $\textit{NXMAP} = 8$ & 29,078 LUTs & 6,495 & 88 RAMB36 + 4 RAMB18 & 4 DSP48E1\\
+7-series, 2 cores & 58,066 LUTs & 11,713 & 120 RAMB36 + 7 RAMB18 & 8 DSP48E1\\
+7-series, 6 cores & 168,694 LUTs & 31,102 & 248 RAMB36 + 19 RAMB18 & 24 DSP48E1\\
+ECP5, 1 core & 41,219 LUT4 sites & 6,831 & 180 DP16KD & 4 MULT18X18D\\
 \bottomrule
 \end{tabular}
 \end{table}
 
 These are pre-placement figures: nothing has been placed and routed, and no clock frequency is known.
 The ECP5 column counts LUT4 sites, that is LUT4 cells plus two for each carry cell. One more core costs
-about 47,000 LUTs, 11,000 flip-flops, 32 RAMB36 (its two 64~KiB Local Stores) and 30 DSP slices on
-7-series. No latches are inferred, and every large memory is block RAM on both families. The Local
-Stores are written through both ports, and the ECP5's block RAM does not define what one port reads
-from a byte that the other is writing; the hazard stalls of invariant I1 guarantee that nobody reads
-such a byte, and the RAM is marked accordingly so that it maps to block RAM on both families.
+about 28,000 LUTs, 4,800 flip-flops, 32 RAMB36 (its two 64~KiB Local Stores), 3 RAMB18 (its save table)
+and 4 DSP slices on 7-series. No latches are inferred, and every large memory is block RAM on both
+families. The Local Stores are written through both ports, and the ECP5's block RAM does not define what
+one port reads from a byte that the other is writing; the hazard stalls of invariant I1 guarantee that
+nobody reads such a byte, and the RAM is marked accordingly so that it maps to block RAM on both
+families.
 
-The cores are 93\% of the logic of the 2-core system. Within a core (about 44,000 LUTs), the decoder,
-ALU, divider and Transfer Unit together take 4,600. The largest consumers are the overlay map (about
-12,000 LUTs: each of the sixteen entries has two 64-bit range matches, two 64-bit translation paths and
-an invalidation compare), the capability registers with their bounds checks (about 5,400) and the
-multi-cycle execute logic with the flip-flop register file and the banked CSRs (the rest).
-\texttt{fpga/README.md} has the breakdown by module and ways to shrink each of them.
+An earlier version of the core took about 47,000 LUTs (50,606 for the one-core system, 80,999 LUT4
+sites on the ECP5, 290,431 LUTs for six cores). Most of the difference is the narrow fields of the
+previous sections (the overlay map alone was about 12,000 LUTs, its entries holding 64-bit addresses),
+fewer register-file ports, RAM for the save table, the integer registers and the inboxes, and
+slot-aligned overlay units;
+\texttt{fpga/README.md} has the steps and their effect.
 
 \begin{table}[htbp]
 \centering\small
@@ -173,19 +226,18 @@ Logic & 63,400 LUTs & 83,640 LUT4s & 134,600 LUTs\\
 On-chip RAM & 4.86 Mb BRAM (135 $\times$ 36 Kb) & $\approx$3.7 Mb EBR (208 $\times$ 18 Kb) & 13.1 Mb BRAM (365 $\times$ 36 Kb)\\
 External memory & 256 MB DDR3 & 32 MB SDRAM & 512 MB DDR3\\
 Toolchain & Vivado or yosys & open: yosys + nextpnr & Vivado or yosys\\
-Cores & 1 (75\% of the LUTs) & 1 (88\% of the LUT4s; not placed and routed) & 2 (71\% of the LUTs)\\
+Cores & 1 (47\% of the LUTs) & 1 (49\% of the LUT4s; not placed and routed) & 2 (43\% of the LUTs)\\
 T2 & 64 KiB & 64 KiB & 64 KiB\\
 T3 & DDR3 via LiteDRAM (in RTL) & SDRAM (no adapter yet) & DDR3 via LiteDRAM\\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-At about 47,000 LUTs per core, logic rather than RAM limits the core count on all three boards; each
-core also needs 1~Mb of block RAM for its Local Stores. StrataOS needs six cores, and a
-6-core system synthesizes to 292,670 LUTs, 73,737 flip-flops, 248 RAMB36 and 180 DSP48E1: more than any
-Artix-7 and more than the Kintex-7 325T and 410T hold. The systems
-of one and two cores run bare-metal programs. The FPGA builds have no video output: the framebuffer
-window is memory that nothing scans out, and the console is the UART.
+Each core also needs 1~Mb of block RAM for its Local Stores (64 DP16KD), which on the ECP5-85F, with
+the cluster store and the disk in block RAM too, limits a system to one core whatever the logic. StrataOS needs six cores, and the 6-core system's 168,694 LUTs are more than
+any Artix-7 holds but fit a Kintex-7 325T. The systems of one and two cores run bare-metal programs.
+The FPGA builds have no video output: the framebuffer window is memory that nothing scans out, and the
+console is the UART.
 
 \subsection{Schematics}
 
@@ -216,6 +268,6 @@ conformance suite passes with the reference emulator's signature (Section~\ref{s
 RTL implements every feature of this edition, including supervisor and user modes with banked trap
 state, \insn{svc} and the user-mode inbox rule, revocation by address, endpoints, core control,
 \insn{tany}, pending device reads and their ordering rules, the 8-byte alignment of capabilities, the
-timer and the framebuffer controller, sixteen-entry overlay mapping with \csr{xslot}, far links and
+timer and the framebuffer controller, overlay mapping of $\textit{NXMAP}$ entries with slot-aligned units, \csr{xslot}, far links and
 \insn{xret}, per-sender inbox queues, \csr{takefrom}, the no-overwrite rule, and the publication rule.
 Any remaining difference from this manual is a defect of the RTL.
