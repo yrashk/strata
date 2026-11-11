@@ -39,8 +39,10 @@ a conformance suite that holds them all to the same behaviour.
   in the inbox. Ctrl-C is a console read that completes when the key is
   pressed; the timer is a read that completes at a deadline. The only
   forced preemption is stopping a core through a core-control capability.
-- **Revocation domains** (`cdom`, `crevoke`, `cundom`) let a supervisor
-  take back every capability derived from a region at once; **endpoints**
+- **Revocation by address** (`cdom`, `crevoke`, `cundom`) lets a supervisor
+  take back every capability derived from a region at once: memory is
+  revoked in 256 KiB granules, each with a generation, so there is no fixed
+  number of revocable regions; **endpoints**
   (`csend`, `crecv`) carry capabilities between supervisor and user code.
 - **Code is paged explicitly.** `xmap` / `xcall` / `xret` run code units
   out of system memory, and a miss traps so that software loads the unit.
@@ -199,8 +201,9 @@ strata$ ws                          # the window server takes the screen
 
 - **The kernel is the system core plus a dispatcher on every worker core.**
   Core 0 runs only the kernel: it creates and destroys processes, hands out
-  memory (1 MiB arenas, each in its own revocation domain, so that ending a
-  process takes back every capability it held), and owns the timer. Each
+  memory (arenas, 1 MiB by default, revoked by address when a process ends,
+  so that ending a process takes back every capability it held or lent
+  out), and owns the timer. Each
   worker core's dispatcher runs that core's threads and sorts every
   capability that arrives in its inbox.
 - **The kernel pages itself.** A few kilobytes stay resident; the rest is
@@ -350,7 +353,7 @@ assembly tests whose signature regions must be identical on three machines
 — the emulator's interpreter, the emulator with the JIT, and the RTL. It
 covers the integer instructions and their edge cases, every trap cause with
 precise `epc` / `tval`, the capability rules (linearity, split / join /
-restrict / share, revocation domains, endpoints, the save table), transfer
+restrict / share, revocation by address, endpoints, the save table), transfer
 hazards and faults, the devices (timer, framebuffer controller, console,
 block device, platform table) and multi-core behaviour (gifts, inbox
 queues, `tany`, core-control stop).
@@ -401,7 +404,10 @@ the main points:
 - It has never run on hardware. The RTL is not pipelined, and the 2-core
   system is large for a hobby FPGA.
 - A worker core holds at most three threads (the capability save table's
-  budget), and StrataOS needs at least 6 cores.
+  budget), and StrataOS needs at least 6 cores. The number of processes is
+  otherwise limited by memory (a 46 MiB arena pool, 1 MiB per process by
+  default) and by 64-entry kernel and server tables: 15 cores run 35
+  processes at once (`tools/test-procs.sh`).
 - A console read cannot be cancelled, so `halt` may wait for one more key
   when a program was waiting for input.
 - The file system has tags instead of directories (`ls /src/demo` lists

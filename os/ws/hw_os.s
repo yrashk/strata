@@ -47,7 +47,7 @@
 ; Tags: tg10 messages, tg13 device registers.
 
 OS_START  = 0x7F000                     ; arena offset of the start-up block
-OS_BUFSZ  = 1152                        ; staging bytes (PS: 32 records of 32)
+OS_BUFSZ  = 2176                        ; staging bytes (PS: 64 records of 32)
 OP_READ   = 1                           ; tty: read
 OP_WRITE  = 2                           ; tty: write
 OP_SPAWN  = 5                           ; proc: start a program

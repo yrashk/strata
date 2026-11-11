@@ -113,17 +113,14 @@ module strata_top
   cap_t                    take_cap [NCORES];
   logic [NCORES-1:0][15:0] poll_mask;
 
-  // revocation domains and core control
-  logic [NDOMS-1:0]        dom_alive;
-  logic [NDOMS-1:0][15:0]  dom_gen;
-  cap_t                    dom_reg [NDOMS];
-  logic [NCORES-1:0]       dom_req, dom_grant, stop_req;
-  logic [NCORES-1:0][1:0]  dom_op;
-  logic [NCORES-1:0][3:0]  dom_idx;
-  cap_t                    dom_region [NCORES];
-  logic [3:0]              dom_free, dom_sel_idx;
-  logic [15:0]             dom_new_gen;
-  cap_t                    dom_stored;
+  // revocation granules and core control
+  logic [NCORES-1:0]          dom_req, dom_done, dom_t2, stop_req;
+  logic [NCORES-1:0][1:0]     dom_op;
+  logic [NCORES-1:0][GW-1:0]  dom_a, dom_n;
+  logic [15:0]                dom_gen;
+  logic                       gt_we, gt_t2;
+  logic [GW-1:0]              gt_idx;
+  logic [16:0]                gt_wd;
 
   strata_dev #(.NCORES(NCORES), .DISK_WORDS(DISK_WORDS), .DISK_INIT(DISK_INIT),
                 .PLAT_INIT(PLAT_INIT), .UART_DIV(UART_DIV), .CLK_MHZ(CLK_MHZ)) u_dev (
@@ -172,59 +169,99 @@ module strata_top
       .take_req(take_req[i]), .take_any(take_any[i]), .take_src(take_src[i]),
       .take_hit(take_hit[i]), .take_cap(take_cap[i]), .take_from(take_from[i]),
       .take_pop(take_pop[i]), .poll_mask(poll_mask[i]), .halted_vec(halted),
-      .dom_alive, .dom_gen, .dom_req(dom_req[i]), .dom_op(dom_op[i]), .dom_idx(dom_idx[i]),
-      .dom_region(dom_region[i]), .dom_grant(dom_grant[i]),
-      .dom_new_idx(dom_op[i] == 2'd0 ? dom_free : dom_idx[i]), .dom_new_gen(dom_new_gen),
-      .dom_stored(dom_stored), .stop_req(stop_req[i]),
+      .dom_req(dom_req[i]), .dom_op(dom_op[i]), .dom_t2(dom_t2[i]), .dom_a(dom_a[i]), .dom_n(dom_n[i]),
+      .dom_done(dom_done[i]), .dom_gen, .gt_we, .gt_t2, .gt_idx, .gt_wd, .stop_req(stop_req[i]),
       .halted(halted[i])
     );
   end
 
   assign all_halted = &halted;
 
-  // ================================================================ revocation domains
-  // One table for the whole machine. Each cycle the lowest-numbered core that
-  // asks is granted: allocate (the lowest free domain), revoke (bump the
-  // generation: every capability made earlier stops working) or dissolve
-  // (revoke and free the domain).
+  // ================================================================ revocation granules
+  // The machine's granule table: a {head, generation} entry per 256 KiB of T3
+  // and T2. This master copy is read only by the walker below; every write
+  // also goes to each core's copy (gt_we ...), which its capability checks
+  // read. One operation at a time, for the lowest-numbered core that asks:
+  //   cdom    [a, b): read pass (highest generation m), write pass (m + 1;
+  //           head at a only), then a head at b, the unit's end
+  //   crevoke / cundom [a, b): walk back from a to the head of its unit (lo),
+  //           read on to the end of the unit holding b - 1 (hi), then write
+  //           [lo, hi): m + 1, heads at lo, a and b
+  // A walk takes one cycle per granule; the core waits in EX meanwhile.
+  typedef enum logic [2:0] {W_IDLE, W_BACK, W_READ, W_WRITE, W_TAIL, W_DONE} walk_t;
   localparam int CW = NCORES > 1 ? $clog2(NCORES) : 1;
-  logic          dom_any;
-  logic [CW-1:0] dom_who;
-  always_comb begin
-    dom_free = 4'd0;
-    for (int k = NDOMS - 1; k >= 1; k--)
-      if (!dom_alive[k]) dom_free = 4'(k);
-    dom_grant = '0;
-    dom_any   = 0;
-    dom_who   = '0;
-    for (int c = NCORES - 1; c >= 0; c--)
-      if (dom_req[c]) begin dom_any = 1; dom_who = CW'(c); end
-    dom_sel_idx = '0;
-    dom_new_gen = '0;
-    dom_stored  = CAP_NULL;
-    if (dom_any) begin
-      dom_grant[dom_who] = 1;
-      dom_sel_idx = dom_op[dom_who] == 2'd0 ? dom_free : dom_idx[dom_who];
-      dom_new_gen = dom_gen[dom_sel_idx] + 16'd1;
-      dom_stored  = dom_reg[dom_sel_idx];
-    end
+  logic [16:0]   mt3 [NG3];
+  logic [16:0]   mt2 [NG2];
+  walk_t         ws;
+  logic [CW-1:0] w_who;
+  logic [1:0]    w_op;
+  logic          w_t2;
+  logic [GW-1:0] w_a, w_b, w_lo, w_hi, w_k, w_end;
+  logic [15:0]   w_m;
+  logic [16:0]   w_e;                                 // the entry at w_k
+  logic          w_any;
+  logic [CW-1:0] w_first;
+`ifdef SIMULATION
+  initial begin
+    for (int i = 0; i < NG3; i++) mt3[i] = '0;
+    for (int i = 0; i < NG2; i++) mt2[i] = '0;
   end
+`endif
+  assign w_end = w_t2 ? GW'(NG2) : GW'(NG3);
+  assign w_e   = w_k >= w_end ? 17'b0 : w_t2 ? mt2[G2W'(w_k)] : mt3[G3W'(w_k)];
+  always_comb begin
+    w_any   = 0;
+    w_first = '0;
+    for (int c = NCORES - 1; c >= 0; c--)
+      if (dom_req[c]) begin w_any = 1; w_first = CW'(c); end
+    dom_done = '0;
+    if (ws == W_DONE) dom_done[w_who] = 1;
+    gt_we  = ws == W_WRITE || (ws == W_TAIL && w_hi < w_end);
+    gt_t2  = w_t2;
+    gt_idx = ws == W_TAIL ? w_hi : w_k;
+    gt_wd  = ws == W_TAIL ? {1'b1, w_e[15:0]}
+             : {w_k == w_lo || w_k == w_a || w_k == w_b, w_m + 16'd1};
+  end
+  assign dom_gen = w_m + 16'd1;
 
   always_ff @(posedge clk) begin
-    if (rst) begin
-      dom_alive <= '0;
-      for (int k = 0; k < NDOMS; k++) dom_gen[k] <= '0;
-    end else if (dom_any && dom_sel_idx != 0) begin
-      dom_gen[dom_sel_idx] <= dom_new_gen;
-      case (dom_op[dom_who])
-        2'd0: begin
-          dom_alive[dom_sel_idx] <= 1;
-          dom_reg[dom_sel_idx]   <= dom_region[dom_who];
-        end
-        2'd2: dom_alive[dom_sel_idx] <= 0;
-        default: ;
-      endcase
+    if (gt_we) begin
+      if (gt_t2) mt2[G2W'(gt_idx)] <= gt_wd;
+      else       mt3[G3W'(gt_idx)] <= gt_wd;
     end
+    if (rst) ws <= W_IDLE;
+    else case (ws)
+      W_IDLE: if (w_any) begin
+        w_who <= w_first;
+        w_op  <= dom_op[w_first];
+        w_t2  <= dom_t2[w_first];
+        w_a   <= dom_a[w_first];
+        w_b   <= dom_a[w_first] + dom_n[w_first];
+        w_k   <= dom_a[w_first];
+        w_lo  <= dom_a[w_first];
+        w_m   <= '0;
+        ws    <= dom_op[w_first] == 2'd0 ? W_READ : W_BACK;
+      end
+      W_BACK: if (w_e[16] || w_k == 0) begin       // the head of the unit holding a
+        w_lo <= w_k;
+        ws   <= W_READ;
+      end else w_k <= w_k - 1;
+      W_READ: if (w_op == 2'd0 ? w_k == w_b : w_k >= w_b && (w_k >= w_end || w_e[16])) begin
+        w_hi <= w_k;
+        w_k  <= w_lo;
+        ws   <= W_WRITE;
+      end else begin
+        if (w_e[15:0] > w_m) w_m <= w_e[15:0];
+        w_k <= w_k + 1;
+      end
+      W_WRITE: begin
+        w_k <= w_k + 1;
+        if (w_k + 1 == w_hi) ws <= w_op == 2'd0 ? W_TAIL : W_DONE;
+      end
+      W_TAIL: ws <= W_DONE;                         // cdom: the unit ends at b
+      W_DONE: ws <= W_IDLE;
+      default: ws <= W_IDLE;
+    endcase
   end
 
   // ================================================================ core control

@@ -48,14 +48,14 @@ architectural requirement.
 \textbf{Code} & \textrm{\bfseries Name} & \textbf{Raised when} & \textbf{\csr{tval}}\\\midrule
 1 & illegal & undefined opcode or function; a checked field with a value no instruction defines (Table~\ref{tab:fieldrules}); SYS function $>$ 2; CAP2 function $>$ 5; \insn{svc} in supervisor mode & the instruction word\\
 2 & lsfault & load/store out of range or misaligned; transfer Local Store range out of range; bad tag-table entry; bad \insn{xmap} I-LS address & the Local Store address\\
-3 & capinv & the named capability register or save slot is not live (empty, or its domain revoked); \insn{crevoke}/\insn{cundom} without a revoker; \insn{csend}/\insn{crecv} without a suitable endpoint & transfers and atomics: the far offset; capability and overlay instructions: the register or slot number\\
+3 & capinv & the named capability register or save slot is not live (empty, or revocable and its granule revoked); \insn{crevoke}/\insn{cundom} without a revoker; \insn{csend}/\insn{crecv} without a suitable endpoint & transfers and atomics: the far offset; capability and overlay instructions: the register or slot number\\
 4 & perm & missing permission; transfer through an endpoint; \insn{tgetx} through device or core-control space; \insn{tget} through core-control space; \insn{catomic} outside T2/T3 & far offset (transfers, atomics) or register number\\
 5 & bounds & far range outside the segment; overlay offset $\geq$ length & the far offset\\
 6 & xalign & memory transfer operands or atomic offset not multiples of 8 & the far offset\\
 7 & ifault & fetch from a misaligned \reg{pc} or one $\geq$ 65536 & \reg{pc}\\
 8 & xmiss & \insn{xcall} target, or \insn{xret} far link, not mapped & the absolute far address; for \insn{xret}, the link (bit 63 set)\\
 9 & pend & with CCR.PTRAP, a load, store, \insn{ltag} or \insn{linst} that would stall on an in-flight range; a \insn{tget} or \insn{tput} whose D-LS range overlaps a pending device read & the Local Store address\\
-10 & capop & overwrite of a live linear capability; bad \insn{csplit} (beyond the end, or an offset that is not a multiple of 8) or \insn{cjoin}; \insn{cgive} outside the window (or in user mode without one), beyond node $N$ or to a halted core; \insn{csend} to such a node; bad \insn{cdom} source or no free domain; \insn{cmkep} beyond node $N$ & register or slot number, split offset, or node number\\
+10 & capop & overwrite of a live linear capability; bad \insn{csplit} (beyond the end, an offset that is not a multiple of 8, or a revoker cut off a granule boundary) or \insn{cjoin}; \insn{cgive} outside the window (or in user mode without one), beyond node $N$ or to a halted core; \insn{csend} to such a node; bad \insn{cdom} source (not whole granules, revocable already, \ldots); an empty revoker; \insn{cmkep} beyond node $N$ & register or slot number, split offset, or node number\\
 11 & priv & in user mode: \insn{csave}, \insn{crestore}, \insn{cdom}, \insn{crevoke}, \insn{cundom}, \insn{cmkep}; \insn{ctake}, \insn{cpoll}, \insn{tany} with the inbox bit; reading \csr{sscratch} or \csr{ipend}; writing \csr{status}, \csr{corebase}, \csr{corecount} or CSRs 19--24 & the instruction word\\
 12 & halt & \insn{halt} in user mode (always to the supervisor) & 0\\
 13 & stop & a stop request from core control, taken in user mode (always to the supervisor) & 0\\
@@ -126,15 +126,15 @@ Chapter~\ref{ch:encoding}. Table~\ref{tab:insindex} lists every instruction.
   latency by stalling conflicting accesses.
 \item[Atomic segment] Memory reachable only through an \perm{A} capability, created by \insn{catomic};
   accessed only with \insn{tamo}.
-\item[Capability] An unforgeable (space, base, length, permissions, domain, generation) descriptor that
+\item[Capability] An unforgeable (space, base, length, permissions, revocable flag, generation) descriptor that
   authorises far accesses.
 \item[Code unit] A $2^{\csr{xslot}}$-byte block of code in far memory that slot mapping pages into an
   I-LS slot as a whole.
 \item[Cluster store (T2)] Shared on-chip memory, 256 KiB in the prototype.
 \item[Copyable] A capability with \perm{D}; moving it leaves the source in place.
 \item[D-LS, I-LS] The data and instruction Local Stores of a core (T1d, T1i).
-\item[Dead] Of a capability: valid, but belonging to a domain that has since been revoked or
-  dissolved; it behaves like an empty register.
+\item[Dead] Of a capability: valid and revocable, but its base's granule has been revoked since it
+  was made; it behaves like an empty register.
 \item[Drain] Wait for all of the core's in-flight transfers to complete.
 \item[Endpoint] A capability in space 6 that names a node for \insn{csend} and \insn{crecv}.
 \item[Dispatcher] The StrataOS kernel code on a worker core: it schedules the core's threads, switches
@@ -150,7 +150,8 @@ Chapter~\ref{ch:encoding}. Table~\ref{tab:insindex} lists every instruction.
 \item[Gift] A capability in an inbox, with its sender.
 \item[Inbox] Where a node receives capabilities: for a core, one two-entry FIFO queue per sender; for the block device, one four-entry FIFO.
 \item[Linear] A capability without \perm{D}; it can be moved but never copied or silently overwritten.
-\item[Live] Of a capability: valid and, if it belongs to a revocation domain, of the domain's current
+\item[Granule] 256~KiB of T3 or T2, the unit of revocation; the machine keeps a generation for each.
+\item[Live] Of a capability: valid and, if it is revocable, of its base's granule's current
   generation.
 \item[Node] A destination of \insn{cgive}: a core, or the block device (node $N$).
 \item[Message] In StrataOS, a 4~KiB buffer capability lent to a server and given back with the result.
@@ -160,9 +161,12 @@ Chapter~\ref{ch:encoding}. Table~\ref{tab:insindex} lists every instruction.
 \item[Platform table] The self-description of the machine (\texttt{STPD}) in device space.
 \item[Publication rule] A hand-over (\insn{cgive}, \insn{csend}, \insn{cshare}, \insn{catomic},
   \insn{tamo}) waits until the core has no transfer to T2 or T3 in flight.
-\item[Revocation domain] One of 15 machine-wide entries that tag capabilities; revoking it kills every
-  capability tagged with it at once.
-\item[Revoker] The \perm{V} capability that \insn{cdom} returns; it controls its domain.
+\item[Revocable] Of a capability: made from a range \insn{cdom} made revocable; it dies when the
+  granule its base lies in is revoked.
+\item[Revoker] The \perm{V} capability that \insn{cdom} returns; \insn{crevoke} and \insn{cundom} revoke
+  its range. It can be cut at granule boundaries.
+\item[Unit] A range of granules made revocable or revoked as one; a revocation kills the units it
+  touches whole, and \insn{cjoin} never joins across units.
 \item[Segment] The range of a far space that a capability names.
 \item[Share] A non-writable copyable capability made by \insn{cshare}.
 \item[Stop request] A doubleword written through core control; it makes a user-mode core trap to its
@@ -195,12 +199,12 @@ Chapter~\ref{ch:encoding}. Table~\ref{tab:insindex} lists every instruction.
   have no video output.
 \item[Supervisor code is never preempted] A stop request waits until the core runs in user mode. A
   supervisor that loops forever can be stopped only by resetting the machine.
-\item[Revocation-domain limits] The machine has 15 domains. A domain's generation is 16 bits wide, so a
-  dead capability of a domain becomes live again after 65,536 further revocations of that domain while
-  it is held. A domain covers the one region it was created from; the region cannot be grown or shrunk
-  without dissolving the domain.
+\item[Revocation limits] Revocation works on whole 256~KiB granules. A granule's generation is 16
+  bits wide, so a dead capability becomes live again once the generation of its base's granule has
+  advanced through all 65,536 values while it is held. A revocation kills every unit it touches whole,
+  also the parts outside the revoker's range.
 \item[Block device and revocation] The block device performs a command through the capability it was
-  given, even if that capability's domain is revoked after the gift and before the command runs; the
+  given, even if that capability is revoked after the gift and before the command runs; the
   capability is returned dead.
 \item[Serial Transfer Unit and bus] Each TU executes one transfer at a time, and the current far bus
   carries one transaction system-wide. This is sufficient for invariant I2 but limits bandwidth. A

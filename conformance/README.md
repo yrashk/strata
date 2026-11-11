@@ -38,7 +38,7 @@ found and how it was decided.
 | `traps` | causes, epc/tval, the two trap banks, routing, privilege, the inbox rule, stop |
 | `caps` | reset capabilities; cmov/csplit/cjoin/cshare/catomic/crestrict/csave/crestore |
 | `capalign` | a capability's base alignment (F6) |
-| `dom` | cdom/crevoke/cundom, the domain count, endpoints, self-gifts |
+| `dom` | revocation by address: cdom/crevoke/cundom, granule alignment, units and cjoin, revoker pieces, generations through split/share/save/gifts, 40 regions; endpoints, self-gifts |
 | `xfer` | transfer hazards, tags, faults and their order, `tamo` |
 | `pendxfer`, `pend` | transfers ordered after an in-flight device read (F5); CCR.PTRAP for loads, stores, `ltag`, `linst` |
 | `haltdrain` | `halt` drains device reads (F3) |

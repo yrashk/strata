@@ -29,11 +29,12 @@
 \item[Ownership transfer is synchronisation.] Cores communicate by giving capabilities to each other's
   inboxes (\insn{cgive}, \insn{ctake}). A gift completes only after the giver's memory transfers have
   finished, so handing over a buffer also publishes its contents.
-\item[Authority can be lent and taken back.] A region of memory can be placed in a revocation domain
+\item[Authority can be lent and taken back.] A region of memory can be made revocable
   (\insn{cdom}). Everything derived from it, however it was split, shared or passed on, dies at once when
-  its owner revokes the domain (\insn{crevoke}, \insn{cundom}).
+  the holder of its revoker revokes it (\insn{crevoke}, \insn{cundom}); revocation works by address, on
+  256~KiB granules, so the number of revocable regions is limited only by memory.
 \item[Two privilege modes, no interrupts.] A supervisor runs programs in user mode, where the
-  capability save table, the domain operations and the core window are out of reach. There are no
+  capability save table, the revocation operations and the core window are out of reach. There are no
   interrupts: a device signals an event by completing a transfer, a core waits for any of several events
   with \insn{tany}, and the only forced preemption is a stop request sent through core control. A program
   asks its supervisor for service with \insn{svc}.
@@ -145,8 +146,8 @@ Chapter~\ref{ch:examples} walks through this and the other example programs in d
 \item[Pending device read] A \insn{tget} from a device port that has nothing to deliver yet. It stays in
   flight until the device completes it; this is how a core waits for input, for Ctrl-C, for a deadline
   or for the display (Section~\ref{sec:events}).
-\item[Revocation domain] A machine-wide tag that capabilities carry; revoking the domain makes all of
-  them unusable (Section~\ref{sec:domains}).
+\item[Revocation by address] A revocable capability carries the generation of the granule its base
+  lies in; revoking the granule makes all of them unusable (Section~\ref{sec:domains}).
 \item[Endpoint] A capability that names a node, used to give and take capabilities without naming the
   node by number (Section~\ref{sec:endpoints}).
 \end{description}

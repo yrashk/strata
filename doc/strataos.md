@@ -298,16 +298,18 @@ greater length.
   is in supervisor mode stays pending (`ipend`) and is taken on the next
   return to user mode.
 - Unchanged and relied on: the revocation instructions (`cdom`, `crevoke`,
-  `cundom`) are privileged. Only the kernel makes revocation domains; a
-  server cannot put memory it hands out under a domain of its own (this
-  shapes the window server's surfaces, 2.8).
+  `cundom`) are privileged. Only the kernel makes memory revocable; a
+  server cannot make memory it hands out revocable on its own (this
+  shapes the window server's surfaces, 2.8). Revocation works by address
+  (256 KiB granules, a generation each): there is no fixed number of
+  revocable regions, so the number of processes is limited by memory.
 
 ### 2.1 Shape
 
 - **Kernel = the system core (core 0) + a dispatcher on every worker core.**
   - The **system core** does only what nothing else can: it creates and
-    destroys processes (placing them on cores), hands out memory (1 MiB
-    arenas, each in its own revocation domain), owns the timer (the only
+    destroys processes (placing them on cores), hands out memory (arenas,
+    1 MiB by default, revoked by address when a process ends), owns the timer (the only
     DEADLINE register) and drives preemption: every **time slice (default
     2 ms, configurable from 100 µs to 100 ms with TUNE)** it stops, through
     core control, each worker that has more than one runnable thread; a
@@ -384,8 +386,12 @@ greater length.
   slots: 24 hold c0..c7 of three resident threads, 6 their save areas and
   image shares, 16 the server's queued and parked requests, 11 the queue
   of attachments and gifts, and 7 the dispatcher's own capabilities. A
-  server counts as one of its core's three threads. Other limits: 32
-  processes, 24 arenas, 8 handles per process.
+  server counts as one of its core's three threads. Other limits: 64
+  processes and 64 arenas (the kernel's, `proc`'s, `fs`'s and `ws`'s
+  tables), memory (a 46 MiB arena pool), 8 handles per process. With 15
+  cores the worker slots bind first: 33 processes besides the servers
+  (`tools/test-procs.sh` runs 35 at once). Before revocation by address
+  the 15 revocation domains allowed 14 processes.
 
 ### 2.2 Context switches: the cost is explicit
 
@@ -423,12 +429,17 @@ Two calls let a program reduce or correct what a switch does:
   up to date is the program's job (it writes code there before installing
   it anyway).
 
-**The arena** (1 MiB, one revocation domain, zeroed when handed out), for
-a process with N threads, with P = 0xD0000 − (N−1) × 48 KiB:
+**The arena** (1 MiB unless the spawner asked for more, whole 256 KiB
+granules, zeroed when handed out), for a process with N threads, with
+P = 0xD0000 − (N−1) × 48 KiB. The offsets are from the arena's **layout
+base**, E bytes above its start for an arena of 1 MiB + E (a 1 MiB arena:
+its start): the parts below sit at the arena's top, and the program's
+memory is E bytes larger, [−E, P). The start-up block stays at offset
+0x7F000 of c0.
 
 | Arena offsets | Contents |
 |---|---|
-| [0, P) | the program's memory (thread 0's c0): 832 KiB with one thread. 0x7F000: the start-up block `proc` writes (pid, parent, handles, command line), read once by `sys_init`. The image's **`.far` section is loaded here at its own offsets** (`.far` labels are arena offsets) |
+| [−E, P) | the program's memory (thread 0's c0): 832 KiB with one thread. 0x7F000: the start-up block `proc` writes (pid, parent, handles, command line), read once by `sys_init`. The image's **`.far` section is loaded here at its own offsets** (`.far` labels are arena offsets) |
 | [P, 0xD0000) | the save areas of threads N−1 .. 1 (48 KiB each) |
 | [0xD0000, 0xF0000) | the program image as `fs` loaded it (128 KiB at most); each thread's dispatcher keeps a read-only share and reloads code from it |
 | [0xF0000, 0xFC000) | thread 0's save area |
@@ -517,7 +528,7 @@ the result filled in.
   another process, because it does not hold the memory that identifies
   them.
 - **When a party dies.** A request whose owner is killed while a server
-  works on it dies with the owner's revocation domain: the server's next
+  works on it dies when the owner's arena is revoked: the server's next
   transfer through it faults, and the server library's guard (`srv_guard`)
   drops the request and returns to the loop. When a *server* ends (the
   window server is started and stopped by the user), the requests still
@@ -545,21 +556,21 @@ Common error results: -1 failed / invalid, -2 interrupted, -3 would block,
 | op | name | in | out |
 |---|---|---|---|
 | 1 | CREATE | attachment: an arena from MEMORY already holding the program image at 0xD0000 (as `fs` loaded it) and the start-up block at 0x7F000. Data: u64 pid (`proc` allocates pids), thread count (0 = one time-shared thread), flags (server 2, privileged 8, device capabilities 16, alone on its core 32, give the arena to `proc` at exit 64), a core to pin to or -1, the *core numbers* of the endpoints for c1..c4 (one byte each, 255 = none; the dispatcher mints the endpoints), a0, a1, a2 | 0, data[0] = the first core; the process starts. A server's reply carries a send endpoint to its core. On failure the arena comes back as an attachment |
-| 2 | DESTROY | handle = pid | 0: stopped, its revocation domain dissolved (every capability it held or derived dies); `proc` later gets EXITED with the killed bit |
-| 3 | MEMORY | | 0 and a zeroed 1 MiB arena in a fresh revocation domain as an attachment (the kernel keeps its revoker), data[0] = its base; -6 |
+| 2 | DESTROY | handle = pid | 0: stopped, its arena revoked (every capability it held, derived or lent out dies); `proc` later gets EXITED with the killed bit |
+| 3 | MEMORY | length = the size wanted (0: 1 MiB; rounded up to whole 256 KiB granules, at least 1 MiB) | 0 and a zeroed arena with a fresh capability as an attachment, data[0] = its base, data[1] = its size; -6 (no memory, or all 64 arena slots in use) |
 | 4 | STATS | | the process count; data: 8 words (cores, free heap, total heap, kernel units loaded, switches, KiB moved, processes, 0), then 32 bytes per core (pid running, runnable, processes, flags; switches; KiB moved), then 32 bytes per process (pid, core, state, flags; threads; switches; bytes moved) |
 | 5 | TUNE | length = the time slice in ticks (100..100000) | 0: the preemption time slice from now on; -1 out of range |
 | 6 | FREE | attachment: an arena (unused from MEMORY, or returned with EXITED) | 0 |
 | 7 | EXITED | sent *by* the kernel to `proc` when a process ends: handle = pid, length = exit status; the arena is attached if CREATE asked for it | |
 | 8 | HALT | (`dev`) | stops every core (see "Halting" below) |
 | 9 | NOTIFY | handle = pid, length = notification bits | 0: wakes its NOTIFY_WAIT or timed sleep |
-| 10 | FBLEND | (`dev` only) handle = pid | 0 and the framebuffer memory as an attachment: every older capability of the framebuffer's revocation domain is revoked and that process is its holder until it ends, when the kernel revokes it again; -7 while a live process holds it; -1 no framebuffer / bad pid |
+| 10 | FBLEND | (`dev` only) handle = pid | 0 and the framebuffer memory as an attachment: every older capability of the framebuffer is revoked and that process is its holder until it ends, when the kernel revokes it again; -7 while a live process holds it; -1 no framebuffer / bad pid |
 
 **`proc` (endpoint c1 of every process: the one it is born with)**
 
 | op | name | in | out |
 |---|---|---|---|
-| 5 | SPAWN | data: u64 thread count (0 or 1 = one thread, N = N threads on N cores), three handle descriptors (server register << 32 \| server id; the caller's handles that become the child's 0/1/2; -1 none), then "prog args...\0"; length = the text's length; mode bit 0 = no server endpoints (a sandboxed child), bit 1 = pin to core mode >> 8 | pid; -4 no such program, -5 no free core, -6 no memory. A program whose name is exactly `ws` is created as the server of the lowest empty core (-5 if there is none) |
+| 5 | SPAWN | data: u64 thread count (0 or 1 = one thread, N = N threads on N cores), three handle descriptors (server register << 32 \| server id; the caller's handles that become the child's 0/1/2; -1 none), then "prog args...\0"; length = the text's length; mode bit 0 = no server endpoints (a sandboxed child), bit 1 = pin to core (mode >> 8) & 255, mode >> 16 = the arena's size in MiB (0: 1 MiB; the shell's `-m N`) | pid; -4 no such program, -5 no free core, -6 no memory. A program whose name is exactly `ws` is created as the server of the lowest empty core (-5 if there is none) |
 | 6 | WAIT | handle = pid (0 = any child), mode bit 0 = do not block | exit status (bits 0..31 code, bit 62 killed, bit 63 faulted with the cause in 0..7), data[0] = pid; -3 still running, -2 interrupted, -1 no child |
 | 7 | KILL | handle = pid | 0 |
 | 9 | PS | | count; data: 32-byte records u8 pid, state (1 running, 2 ready, 3 blocked, 4 zombie), core, parent, flags (2 = server), threads; 2 reserved; u32 switches, u32 KiB moved by switches; 16 bytes name |
@@ -581,7 +592,7 @@ too), 37 CLEANUP (handle = pid: it ended, drop everything it held) and
 LOADIMG (the image read straight into the arena) → DUPS at the servers of
 the handles passed → CREATE. While it waits for those answers `proc` keeps
 the caller's request parked. **Exits**: the dispatcher reports the exit,
-the system core dissolves the domain and sends EXITED; `proc` sends
+the system core revokes the arena and sends EXITED; `proc` sends
 CLEANUP to the servers and completes the parent's WAIT.
 
 **`dev`** (via LOOKUP)
@@ -596,8 +607,8 @@ CLEANUP to the servers and completes the parent's WAIT.
 | 21 | GETPTR | (for `tty`) a window on the pointer's ports 0x4100..0x410F (c6); -1 if the machine has none |
 | 59 | GETNET | (for `net`) a window on the network interface's ports 0x4200..0x421F (c6); -5 unless the caller is the process registered as "net" (WHOIS); -1 if the machine has none |
 
-The framebuffer memory is the kernel's: at boot it puts the window in a
-revocation domain of its own and **lends** it through FBLEND; the
+The framebuffer memory is the kernel's: at boot it makes the window a
+revocable region of its own and **lends** it through FBLEND; the
 controller's capability is cut by `dev` from the device root.
 
 **Halting** (ISA rule: `halt` drains a core's pending device reads, 1.2).
@@ -809,7 +820,7 @@ ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47.
 - Syntax: quotes, `\x`, `$?`, `$$`, `$NAME` (`set`/`unset`), `;`, `&&`,
   `||`, pipelines up to 4 stages, `<`, `>`, `>>`, `&` (anywhere in a list),
   `#` comments; `-n N prog` (or `run -n N prog`) runs N threads on N cores;
-  `-c N prog` pins the program to core N.
+  `-c N prog` pins the program to core N; `-m N prog` gives it an arena of N MiB.
 - Jobs: `jobs`, `fg [%n]`, `wait [%n|pid]`, `kill %n|pid`; a finished
   background job is reported before the next prompt.
 - Builtins: help, echo, set, unset, history, jobs, fg, wait, kill, sleep
@@ -937,7 +948,7 @@ visible:
 
 **Surfaces: the server keeps them, clients lend bands.** Memory
 capabilities are linear, so a surface cannot be writable by a client and
-readable by the server at once; and revocation domains are the kernel's
+readable by the server at once; and revocation is the kernel's
 alone (2.0), so the server cannot hand a client memory that it could later
 take back. The model is therefore the reverse of "the server lends a
 surface":
@@ -1017,12 +1028,18 @@ in `os/ws/`).
   framebuffer window; and core 0 also gets **c14 = the framebuffer window
   [48 MiB, 64 MiB)** (read/write).
 - The kernel's use of system memory: [0, 32 KiB) the shared table (KST);
-  [32 KiB, 64 KiB) the system core's own message buffers; the arenas, 1 MiB
-  each, from c13 (on a machine with 16 MiB, from [1 MiB, 15 MiB)); the
-  framebuffer window in a revocation domain of its own.
+  [32 KiB, 64 KiB) the system core's own message buffers; the **arena
+  pool**: [1 MiB, 15 MiB) and c13 = [16 MiB, 48 MiB) (on a machine with
+  16 MiB, only the first), each made one revocable region at boot, of
+  which core 0 keeps only the revokers and a bitmap of the 256 KiB
+  granules. An arena is the first free run of granules that is long
+  enough; core 0 cuts the revoker at its bounds, `crevoke`s the piece (a
+  fresh capability; everything an earlier owner had there dies) and joins
+  the revoker again, and does the same when the process ends. The
+  framebuffer window is a revocable region of its own.
 - Start-up: core 0 becomes the system core, sets up paging of its own code
   and calls the start-up unit: the shared table, a copy of it and a
-  core-control capability for every worker, the arenas, the directory.
+  core-control capability for every worker, the arena pool, the directory.
   The workers become dispatchers and wait in `tany`. Then the servers, as
   in 2.1.
 

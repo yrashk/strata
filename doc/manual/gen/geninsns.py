@@ -315,7 +315,7 @@ NextPC = target;""", [],
 
 # ---------------------------------------------------------------- transfers
 XF_EXC = lambda need, lim, extra="": [
-    ("capinv", r"\texttt{C[cs]} is not live (empty, or its revocation domain has been revoked)", r"\texttt{X[ro]}"),
+    ("capinv", r"\texttt{C[cs]} is not live (empty, or revocable and its granule revoked)", r"\texttt{X[ro]}"),
     ("perm", r"\texttt{C[cs]} lacks \perm{%s}, or is an endpoint (space 6)%s" % (need, extra), r"\texttt{X[ro]}"),
     ("xalign", r"space is not device space and any of \texttt{X[rl]}, \texttt{X[ro]}, \texttt{X[rn]} is not a multiple of 8", r"\texttt{X[ro]}"),
     ("bounds", r"device space: $\texttt{X[ro]} \geq \texttt{C[cs].len}$; any other space: $\texttt{X[ro]} + \texttt{X[rn]} > \texttt{C[cs].len}$",
@@ -495,7 +495,7 @@ PRIV = ("priv", r"executed in user mode", "instruction word")
 
 ins("cap", "CMOV", "Capability move", L_R(OP["CAP"], rd=CD, rs1=CS, rs2=None, funct=cap_funct(0)), ["cmov cd, cs"],
     r"Moves capability \reg{cs} to \reg{cd}. A linear (non-\perm{D}) capability leaves \reg{cs} empty: it is "
-    r"moved, never copied. A copyable (\perm{D}) capability is copied. The domain and generation travel with it.",
+    r"moved, never copied. A copyable (\perm{D}) capability is copied. The revocable flag and generation travel with it.",
     """cap = C[cs];
 if not Live(cap) then Trap(capinv, cs); end
 if cd != cs and not Replaceable(C[cd]) then Trap(capop, cd); end
@@ -507,54 +507,59 @@ if cd != cs and Linear(cap) then C[cs] = NULLCAP; end""",
 ins("cap", "CSPLIT", "Capability split", L_R(OP["CAP"], rd=CD, rs1=CS, rs2="rx", funct=cap_funct(1)),
     ["csplit cd, cs, rx"],
     r"Splits segment \reg{cs} at byte offset \reg{rx}: \reg{cs} keeps $[\textit{base}, \textit{base}+\reg{rx})$ "
-    r"and \reg{cd} receives the rest. Both pieces keep the space, permissions, revocation domain and "
+    r"and \reg{cd} receives the rest. Both pieces keep the space, permissions, revocable flag and "
     r"generation. Either piece may be empty. The offset must be a multiple of 8: every capability's base is "
-    r"8-byte aligned (\S\ref{sec:capalign}).",
+    r"8-byte aligned (\S\ref{sec:capalign}); a revoker (\perm{V}) is cut only at multiples of the 256~KiB "
+    r"granule (\S\ref{sec:domains}).",
     """cap = C[cs]; k = X[rx];
 if not Live(cap) then Trap(capinv, cs); end
-if cd == cs or UInt(k) > cap.len or k MOD 8 != 0
+if cd == cs or UInt(k) > cap.len or k MOD 8 != 0 or (cap.V and k MOD GRANULE != 0)
    or not Replaceable(C[cd]) then Trap(capop, k); end
 C[cd] = Cap(valid: TRUE, space: cap.space, perms: cap.perms,
-            base: cap.base + k, len: cap.len - k, dom: cap.dom, gen: cap.gen);
+            base: cap.base + k, len: cap.len - k, rv: cap.rv, gen: cap.gen);
 C[cs].len = k;""",
     [ILL_BOTH, CAPINV_CS, ("capop", r"$\texttt{cd} = \texttt{cs}$, or $\texttt{X[rx]} > \texttt{C[cs].len}$, "
-                                    r"or \texttt{X[rx]} is not a multiple of 8, "
+                                    r"or \texttt{X[rx]} is not a multiple of 8 (of 256~KiB for a revoker), "
                                     r"or \texttt{C[cd]} holds a live non-\perm{D} capability", r"\texttt{X[rx]}")],
     notes=r"Splitting is how work is divided between cores: split, then \insref{cgive} each piece. A piece "
-          r"of a domain-tagged capability dies with the domain, wherever it has been given. The rule is the same "
+          r"of a revocable capability dies when its granule is revoked, wherever it has been given. The rule is the same "
           r"in every space, device space included: device ports and windows are 8-byte aligned, and transfers "
           r"reach single device bytes by offset. Lengths need not be multiples of 8.",
     fmt="R", opname="CAP", funct="1")
 ins("cap", "CJOIN", "Capability join", L_R(OP["CAP"], rd=CD, rs1=CS, rs2=None, funct=cap_funct(2)),
     ["cjoin cd, cs"],
     r"Appends segment \reg{cs} to segment \reg{cd} and empties \reg{cs}. The two must be in the same space, "
-    r"have identical permissions, belong to the same revocation domain (or both to none), and \reg{cs} must "
-    r"begin exactly where \reg{cd} ends. The result keeps the revocation domain and generation of \reg{cd}. "
-    r"Memory therefore never moves from one domain to another, or out of a domain, by joining.",
+    r"have identical permissions, the same revocable flag and the same generation, and \reg{cs} must "
+    r"begin exactly where \reg{cd} ends; a revocable \reg{cs} must not begin a unit (its base is not the "
+    r"first byte of a granule with the head bit set, \S\ref{sec:domains}). The result keeps the revocable "
+    r"flag and generation. Memory therefore never moves from one revocable region or unit to another, or out "
+    r"of one, by joining.",
     """d = C[cd]; s = C[cs];
 if not Live(s) or not Live(d) then Trap(capinv, cs); end
-if cd == cs or d.space != s.space or d.perms != s.perms or d.dom != s.dom
-   or d.base + d.len != s.base then Trap(capop, cs); end
+if cd == cs or d.space != s.space or d.perms != s.perms or d.rv != s.rv or d.gen != s.gen
+   or d.base + d.len != s.base
+   or (s.rv and s.base MOD GRANULE == 0 and HEAD[Granule(s.space, s.base)])
+   then Trap(capop, cs); end
 C[cd].len = d.len + s.len;
 C[cs] = NULLCAP;""",
     [ILL_BOTH, ("capinv", r"\texttt{C[cs]} or \texttt{C[cd]} is not live", r"\texttt{cs}"),
-     ("capop", r"$\texttt{cd} = \texttt{cs}$; spaces, permissions or domains differ; or $\texttt{C[cd].base} + \texttt{C[cd].len} \neq \texttt{C[cs].base}$", r"\texttt{cs}")],
+     ("capop", r"$\texttt{cd} = \texttt{cs}$; spaces, permissions, revocable flags or generations differ; $\texttt{C[cd].base} + \texttt{C[cd].len} \neq \texttt{C[cs].base}$; or a revocable \texttt{C[cs]} begins a unit", r"\texttt{cs}")],
     notes=r"Order matters: \insn{cjoin c4, c5} requires \reg{c5} to follow \reg{c4}. Joining is the inverse of "
           r"\insn{csplit}; together with \insn{ctake cd, rs} it lets a core reassemble pieces deterministically.",
     fmt="R", opname="CAP", funct="2")
 ins("cap", "CSHARE", "Capability share (make read-only, copyable)",
     L_R(OP["CAP"], rd=CD, rs1=CS, rs2=None, funct=cap_funct(3)), ["cshare cd, cs"],
     r"Converts \reg{cs} into a copyable, non-writable capability in \reg{cd}: \perm{R} and \perm{X} are kept, "
-    r"\perm{W}, \perm{A} and \perm{V} are dropped and \perm{D} is added. A linear source is consumed. Outside a "
-    r"revocation domain the conversion is irrevocable: the segment can never be written again. Inside one, "
-    r"\insn{crevoke} or \insn{cundom} ends every share and returns the segment to its owner.",
+    r"\perm{W}, \perm{A} and \perm{V} are dropped and \perm{D} is added. A linear source is consumed. For memory "
+    r"that is not revocable the conversion is irrevocable: the segment can never be written again. For revocable "
+    r"memory, \insn{crevoke} or \insn{cundom} ends every share and returns the segment to its owner.",
     """cap = C[cs];
 if not Live(cap) then Trap(capinv, cs); end
 if not (cap.R or cap.X) then Trap(perm, cs); end
 if cd != cs and not Replaceable(C[cd]) then Trap(capop, cd); end
 WaitMemory();                               // publication rule (invariant I4)
 C[cd] = Cap(valid: TRUE, space: cap.space, perms: (cap.perms AND {R,X}) OR {D},
-            base: cap.base, len: cap.len, dom: cap.dom, gen: cap.gen);
+            base: cap.base, len: cap.len, rv: cap.rv, gen: cap.gen);
 if cd != cs and Linear(cap) then C[cs] = NULLCAP; end""",
     [ILL_BOTH, CAPINV_CS, ("perm", r"\texttt{C[cs]} has neither \perm{R} nor \perm{X}", r"\texttt{cs}"), CAPOP_CD],
     notes=r"Waiting for the core's in-flight memory transfers first guarantees that every write through the "
@@ -564,15 +569,15 @@ ins("cap", "CATOMIC", "Capability make atomic", L_R(OP["CAP"], rd=CD, rs1=CS, rs
     ["catomic cd, cs"],
     r"Converts a writable memory capability into an \emph{atomic-only}, copyable capability "
     r"(permissions exactly \perm{A}+\perm{D}). The source is always consumed when $\texttt{cd} \neq \texttt{cs}$. "
-    r"The segment can afterwards be accessed only by \insn{tamo}, by any number of holders. Outside a "
-    r"revocation domain the conversion is irrevocable; inside one, revoking the domain ends it.",
+    r"The segment can afterwards be accessed only by \insn{tamo}, by any number of holders. For memory that is "
+    r"not revocable the conversion is irrevocable; for revocable memory, a revocation ends it.",
     """cap = C[cs];
 if not Live(cap) then Trap(capinv, cs); end
 if not cap.W or cap.space not in {T2, T3} then Trap(perm, cs); end
 if cd != cs and not Replaceable(C[cd]) then Trap(capop, cd); end
 WaitMemory();                               // publication rule (invariant I4)
 C[cd] = Cap(valid: TRUE, space: cap.space, perms: {A, D}, base: cap.base, len: cap.len,
-            dom: cap.dom, gen: cap.gen);
+            rv: cap.rv, gen: cap.gen);
 if cd != cs then C[cs] = NULLCAP; end""",
     [ILL_BOTH, CAPINV_CS, ("perm", r"\texttt{C[cs]} lacks \perm{W}, or is not T2 or T3 memory", r"\texttt{cs}"), CAPOP_CD],
     fmt="R", opname="CAP", funct="4")
@@ -604,13 +609,13 @@ for (mn, fn, title, val, d) in [
 if not Live(cap) then Trap(capinv, cs); end
 X[rd] = %s;""" % val, [ILL_CS, CAPINV_CS],
         notes=r"Capabilities can be inspected but never forged: no instruction turns an integer into a capability. "
-              r"The domain and generation fields cannot be read."
+              r"The revocable flag and the generation cannot be read."
         if mn == "cbase" else "", fmt="R", opname="CAP", funct=str(fn))
 ins("cap", "CVALID", "Capability test live", L_R(OP["CAP"], rs1=CS, rs2=None, funct=cap_funct(14)),
     ["cvalid rd, cs"], r"Writes 1 to \reg{rd} if \reg{cs} holds a live capability, otherwise 0. Never traps on an "
     r"empty register or a revoked capability.",
     "X[rd] = if Live(C[cs]) then 1 else 0;", [ILL_CS],
-    notes=r"A capability whose domain has been revoked reads as not live, exactly like an empty register.",
+    notes=r"A revocable capability whose granule has been revoked reads as not live, exactly like an empty register.",
     fmt="R", opname="CAP", funct="14")
 ins("cap", "CGIVE", "Capability give to another node",
     L_R(OP["CAP"], rd=None, rs1=CS, rs2="rx", funct=cap_funct(9)), ["cgive cs, rx"],
@@ -658,7 +663,7 @@ TAKEFROM = s - COREBASE;""",
     notes=r"Which gift an any-sender \insn{ctake} returns depends on timing when several nodes may give "
           r"concurrently (a higher-numbered sender's gift is taken if a lower one's has not arrived yet); use "
           r"\insn{ctake cd, rs} for deterministic fan-in (\S\ref{sec:determinism}). "
-          r"The gift from the block device arrives from node $N$. A gift may be a capability whose domain has "
+          r"The gift from the block device arrives from node $N$. A gift may be a capability that has "
           r"been revoked since it was given; it arrives dead. In user mode \insn{ctake} always traps with "
           r"\cause{priv}; a supervisor emulates it for programs written for the bare machine "
           r"(\S\ref{sec:userinbox}).", fmt="R", opname="CAP", funct="10")
@@ -710,7 +715,7 @@ if Linear(cap) then CTAB[slot] = NULLCAP; end""",
      ("capop", r"\texttt{C[cd]} holds a live non-\perm{D} capability", r"\texttt{cd}")],
     fmt="R", opname="CAP", funct="13")
 
-# ---- second capability group: revocation domains and endpoints (OP_CAP2)
+# ---- second capability group: revocation by address and endpoints (OP_CAP2)
 def cap2_funct(fn):
     return [(10, 4, b(0, 7), "z"), (3, 0, b(fn, 4), "f")]
 
@@ -718,74 +723,82 @@ def cap2_funct(fn):
 ILL_C2 = ("illegal", r"bit 25 or bit 20 is 1, or \field{funct}\texttt{<3:0>} $>$ 5", "instruction word")
 CE_RD = [(25, 25, "0", "f"), (24, 21, "ce", "v")]
 CE_RS = [(20, 20, "0", "f"), (19, 16, "ce", "v")]
-REVOKER_INV = ("capinv", r"\texttt{C[cs]} is not a revoker: not valid, lacks \perm{V}, has no domain, or its "
-                         r"domain has been dissolved", r"\texttt{cs}")
+REVOKER_INV = ("capinv", r"\texttt{C[cs]} is not a revoker: not live, or lacks \perm{V}", r"\texttt{cs}")
 CAPOP_C2 = ("capop", r"$\texttt{cd} = \texttt{cs}$, or \texttt{C[cd]} holds a live non-\perm{D} capability", r"\texttt{cd}")
 
-ins("cap", "CDOM", "Capability make revocation domain",
+ins("cap", "CDOM", "Capability make revocable",
     L_R(OP["CAP2"], rd=CD, rs1=CS, rs2=None, funct=cap2_funct(0)), ["cdom cd, cs"],
-    r"Places the region of the writable linear memory capability \reg{cs} under a new revocation domain. "
-    r"\reg{cd} receives the \term{working capability}: the same segment and permissions, tagged with the "
-    r"domain and its current generation. \reg{cs} becomes the domain's \term{revoker}: the same segment with "
-    r"permission \perm{V} only. Every capability later derived from the working capability carries the "
-    r"domain, and \insref{crevoke} or \insref{cundom} on the revoker kills all of them at once.",
+    r"Makes the region of the writable, linear, non-revocable memory capability \reg{cs} revocable. The "
+    r"region must be whole granules: base and length multiples of 256~KiB, length not 0. It becomes one "
+    r"unit, and every granule of it gets the generation one past the highest any of them had. \reg{cd} "
+    r"receives the \term{working capability}: the same segment and permissions, revocable, with that "
+    r"generation. \reg{cs} becomes the region's \term{revoker}: the same segment with permission \perm{V} "
+    r"only, not revocable, remembering the permissions. Every capability later derived from the working "
+    r"capability is revocable too, and \insref{crevoke} or \insref{cundom} on the revoker kills all of them at "
+    r"once.",
     """if Mode == User then Trap(priv, instr); end
 s = C[cs];
 if not Live(s) then Trap(capinv, cs); end
-if cd == cs or not s.W or s.D or s.dom != 0 or s.space not in {T2, T3}
+if cd == cs or not s.W or s.D or s.rv or s.space not in {T2, T3} or s.len == 0
+   or s.base MOD GRANULE != 0 or s.len MOD GRANULE != 0
    or not Replaceable(C[cd]) then Trap(capop, cs); end
-d = lowest d in 1..15 with not DOM[d].alive;
-if no such d then Trap(capop, cs); end
-DOM[d].alive = TRUE;  DOM[d].gen = DOM[d].gen + 1;
-DOM[d].region = (space: s.space, perms: s.perms, base: s.base, len: s.len);
+a = Granule(s.space, s.base);  b = a + s.len / GRANULE;
+g = 1 + max(GEN[a .. b-1]);                 // newer than any capability based there
+for k in a .. b-1 do GEN[k] = g; HEAD[k] = (k == a); end
+if b < end of the space's granules then HEAD[b] = TRUE; end   // the unit ends here
 C[cd] = Cap(valid: TRUE, space: s.space, perms: s.perms, base: s.base, len: s.len,
-            dom: d, gen: DOM[d].gen);
+            rv: TRUE, gen: g);
 C[cs] = Cap(valid: TRUE, space: s.space, perms: {V}, base: s.base, len: s.len,
-            dom: d, gen: 0);""",
+            rv: FALSE, gen: s.perms);       // a revoker remembers the permissions""",
     [ILL_C2, PRIV, CAPINV_CS,
-     ("capop", r"$\texttt{cd} = \texttt{cs}$; \texttt{C[cs]} lacks \perm{W}, has \perm{D}, already belongs to a "
-               r"domain, or is not T2 or T3 memory; \texttt{C[cd]} holds a live non-\perm{D} capability; or all "
-               r"15 domains are in use", r"\texttt{cs}")],
-    notes=r"The domain table is machine-wide (\S\ref{sec:domains}). The revoker is linear and grants no access; "
-          r"a supervisor normally keeps it in its save table.",
+     ("capop", r"$\texttt{cd} = \texttt{cs}$; \texttt{C[cs]} lacks \perm{W}, has \perm{D}, is revocable already, "
+               r"is not T2 or T3 memory, is empty, or its base or length is not a multiple of 256~KiB; or "
+               r"\texttt{C[cd]} holds a live non-\perm{D} capability", r"\texttt{cs}")],
+    notes=r"The granule table is machine-wide (\S\ref{sec:domains}); the number of revocable regions is limited "
+          r"only by memory. The revoker is linear and grants no access; a supervisor normally keeps it in its "
+          r"save table. A source that is revocable already is refused, so two revokers never cover one granule.",
     fmt="R", opname="CAP2", funct="0")
-ins("cap", "CREVOKE", "Capability revoke domain",
+ins("cap", "CREVOKE", "Capability revoke",
     L_R(OP["CAP2"], rd=CD, rs1=CS, rs2=None, funct=cap2_funct(1)), ["crevoke cd, cs"],
-    r"Revokes every capability of the domain whose revoker is \reg{cs}, wherever it is held (capability "
-    r"registers and save tables of every core, inboxes, the block device), by advancing the domain's "
-    r"generation. \reg{cd} receives a fresh working capability for the domain's whole region, with the "
-    r"region's original permissions and the new generation. The domain stays allocated and the revoker stays "
-    r"in \reg{cs}.",
+    r"Revokes the range of the revoker \reg{cs}: every unit the range touches is revoked whole, by advancing "
+    r"its granules' generations, so every revocable capability based there dies, wherever it is held "
+    r"(capability registers and save tables of every core, inboxes, the block device). The range becomes a "
+    r"unit of its own, and so does what is left of a touched unit on either side. \reg{cd} receives a fresh "
+    r"working capability for the range, with the permissions the revoker remembers and the new generation. "
+    r"The revoker stays in \reg{cs}.",
     """if Mode == User then Trap(priv, instr); end
 r = C[cs];
 if not IsRevoker(r) then Trap(capinv, cs); end
 if cd == cs or not Replaceable(C[cd]) then Trap(capop, cd); end
-d = r.dom;
-DOM[d].gen = DOM[d].gen + 1;               // every capability of the domain is now dead
-C[cd] = Cap(valid: TRUE, space: DOM[d].region.space, perms: DOM[d].region.perms,
-            base: DOM[d].region.base, len: DOM[d].region.len, dom: d, gen: DOM[d].gen);""",
-    [ILL_C2, PRIV, REVOKER_INV, CAPOP_C2],
-    notes=r"Revocation is immediate and costs one instruction regardless of how many copies exist: a capability "
-          r"is checked against its domain's generation on every use (\texttt{Live}). Because the old "
-          r"capabilities are dead, minting a new writable one keeps the single-writer invariant.",
+if r.len == 0 then Trap(capop, cs); end
+g = RevokeUnits(r);                         // every revocable capability based there is now dead
+C[cd] = Cap(valid: TRUE, space: r.space, perms: r.gen<5:0>, base: r.base, len: r.len,
+            rv: TRUE, gen: g);""",
+    [ILL_C2, PRIV, REVOKER_INV, CAPOP_C2, ("capop", r"the revoker is empty (length 0)", r"\texttt{cs}")],
+    notes=r"Revocation costs one instruction regardless of how many copies exist: a revocable capability is checked "
+          r"against its granule's generation on every use (\texttt{Live}). Because every capability that could "
+          r"reach the range is dead, minting a new writable one keeps the single-writer invariant. A revoker "
+          r"piece cut at granule boundaries revokes just its part of a region: this is how StrataOS keeps one "
+          r"revoker for all its arenas (\S\ref{sec:os-mem}). In an implementation the instruction takes about one "
+          r"cycle per granule of the units it touches.",
     fmt="R", opname="CAP2", funct="1")
-ins("cap", "CUNDOM", "Capability dissolve domain",
+ins("cap", "CUNDOM", "Capability make non-revocable",
     L_R(OP["CAP2"], rd=CD, rs1=CS, rs2=None, funct=cap2_funct(2)), ["cundom cd, cs"],
-    r"Dissolves the domain whose revoker is \reg{cs}: every capability of the domain dies, the domain-table "
-    r"entry is freed for reuse, the revoker is consumed, and \reg{cd} receives an ordinary untagged "
-    r"capability for the whole region with its original permissions.",
+    r"Revokes the range of the revoker \reg{cs} exactly as \insref{crevoke} does, then consumes the revoker: "
+    r"\reg{cd} receives an ordinary, non-revocable capability for the range with the permissions the "
+    r"revoker remembers.",
     """if Mode == User then Trap(priv, instr); end
 r = C[cs];
 if not IsRevoker(r) then Trap(capinv, cs); end
 if cd == cs or not Replaceable(C[cd]) then Trap(capop, cd); end
-d = r.dom;
-DOM[d].gen = DOM[d].gen + 1;  DOM[d].alive = FALSE;
-C[cd] = Cap(valid: TRUE, space: DOM[d].region.space, perms: DOM[d].region.perms,
-            base: DOM[d].region.base, len: DOM[d].region.len, dom: 0, gen: 0);
+if r.len == 0 then Trap(capop, cs); end
+RevokeUnits(r);
+C[cd] = Cap(valid: TRUE, space: r.space, perms: r.gen<5:0>, base: r.base, len: r.len,
+            rv: FALSE, gen: 0);
 C[cs] = NULLCAP;""",
-    [ILL_C2, PRIV, REVOKER_INV, CAPOP_C2],
-    notes=r"\insn{cundom} is the inverse of \insref{cdom}. StrataOS uses it when a program ends: one instruction "
-          r"takes back the program's whole arena, including pieces the program shared, made atomic or gave away.",
+    [ILL_C2, PRIV, REVOKER_INV, CAPOP_C2, ("capop", r"the revoker is empty (length 0)", r"\texttt{cs}")],
+    notes=r"\insn{cundom} is the inverse of \insref{cdom}: one instruction takes back the whole range, including "
+          r"pieces that were shared, made atomic or given away, and makes it ordinary memory again.",
     fmt="R", opname="CAP2", funct="2")
 ins("cap", "CSEND", "Capability send through endpoint",
     L_R(OP["CAP2"], rd=CE_RD, rs1=CS, rs2=None, funct=cap2_funct(3)), ["csend cs, ce"],
@@ -878,7 +891,7 @@ else
     Halted = TRUE;                        // the core never fetches again
 end""", [("halt", r"executed in user mode", "0")],
     notes=r"A halted core cannot receive gifts: \insn{cgive} to it traps \cause{capop}. Its capabilities, and "
-          r"the memory only they named, are lost unless they belong to a revocation domain, which its owner "
+          r"the memory only they named, are lost unless they are revocable, which the holder of the revoker "
           r"can revoke. The drain comes first in both modes: a user-mode \insn{halt} traps only after the "
           r"core's transfers have completed. A device read that may never complete must therefore be retired "
           r"before halting; for a read of the console break port, write the release port first "

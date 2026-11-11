@@ -32,7 +32,7 @@ the runs' summaries, cell counts and logs are kept in `fpga/results/`):
 
 | Yosys, after synthesis | Logic | Flip-flops | Block RAM | Multipliers |
 |---|---|---|---|---|
-| Xilinx 7-series, 1 core | 48,240 LUTs | 12,681 | 88 RAMB36 | 30 DSP48E1 |
+| Xilinx 7-series, 1 core (revocation by address) | 47,059 LUTs | 12,450 | 88 RAMB36 + 1 RAMB18 | 30 DSP48E1 |
 | Xilinx 7-series, 2 cores | 94,130 LUTs | 23,636 | 120 RAMB36 | 60 DSP48E1 |
 | Xilinx 7-series, 6 cores | 290,431 LUTs | 73,775 | 248 RAMB36 | 180 DSP48E1 |
 | Lattice ECP5, 1 core | 61,949 LUT4 + 9,525 carry cells = 80,999 LUT4 sites | 12,866 | 181 DP16KD | 30 MULT18X18D |
@@ -60,6 +60,12 @@ Notes on reading the table:
   stand-in 8 (16). On the ECP5 the capability save table is 5 more per core.
 - One more core costs about 47,000 LUTs, 11,000 flip-flops, 32 RAMB36 and
   30 DSP slices on 7-series.
+- Revocation by address (the granule table, `doc/manual/ch-impl.tex`)
+  replaced the 15-entry revocation-domain table: 1 core on xc7 went from
+  48,240 LUTs, 12,681 flip-flops and 172 LUT-RAM cells (the RTL just before)
+  to 47,059 LUTs, 12,450 flip-flops and 214 LUT-RAM cells (each core's copy
+  of the 256-entry table, three read ports, is LUT-RAM; so is the top
+  level's master copy).
 
 ### Where the LUTs go
 
@@ -74,7 +80,7 @@ all; the flattened run above is a little smaller):
 | - `strata_alu` | 1,304 | 0 | plus 16 DSP48E1 |
 | - `strata_div` | 452 | 396 | iterative |
 | - `strata_decode` | 142 | 0 | |
-| `strata_top` | 3,278 | 2,267 | inbox queues, domain table, core control |
+| `strata_top` | 3,278 | 2,267 | inbox queues, domain table (now the granule walker), core control |
 | `strata_dev` | 1,440 | 1,578 | console UART, disk, timer, framebuffer registers |
 | `strata_mem`, T2 and T3 | 1,181 | 419 | |
 | `strata_bus` | 846 | 170 | |
@@ -200,7 +206,9 @@ Tools: nextpnr-ecp5 `nextpnr-0.11.1-89-g445e2a65` and Yosys 0.70+368 from
 YosysHQ's OSS CAD Suite 2026-11-10 for macOS arm64 (no Homebrew formula has
 nextpnr-ecp5), unpacked under `build/tools/oss-cad-suite/`; `fpga/pnr.sh`
 uses it from there when it is present. The netlists are from Yosys 0.70
-(Homebrew), as in the synthesis table.
+(Homebrew), as in the synthesis table, and all of commit 0e51b8f: before
+revocation by address, which changes the capability checks and the top
+level (rerun `fpga/synth.sh ecp5 1` and `fpga/pnr.sh` for the current RTL).
 
 What happened (2026-11-10, an arm64 Mac with 18 cores):
 

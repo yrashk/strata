@@ -7,6 +7,8 @@
 #define ILS_BYTES 65536u
 #define T2_BYTES  262144u
 #define T3_BYTES  0x4000000u /* 64 MiB; the top 16 MiB is the framebuffer window */
+#define GRAN_SHIFT 18        /* revocation granules of T2 and T3: 256 KiB */
+#define GRAN_BYTES (1u << GRAN_SHIFT)
 
 /* .stx image section kinds */
 enum { SK_ILS = 1, SK_DLS = 2, SK_T3 = 3, SK_T2 = 4 };

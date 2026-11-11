@@ -37,7 +37,7 @@ a core holds.
 \toprule
 \textbf{Operation} & \textbf{In user mode}\\\midrule
 \insn{csave}, \insn{crestore} & \cause{priv}: the capability save table belongs to the supervisor\\
-\insn{cdom}, \insn{crevoke}, \insn{cundom}, \insn{cmkep} & \cause{priv}: domains and endpoints are created and destroyed by the supervisor\\
+\insn{cdom}, \insn{crevoke}, \insn{cundom}, \insn{cmkep} & \cause{priv}: revocation and endpoints are the supervisor's\\
 \insn{csrr} of \csr{sscratch} or \csr{ipend} & \cause{priv}\\
 \insn{csrw} of \csr{status}, \csr{corebase}, \csr{corecount}, \csr{ucause}, \csr{uepc}, \csr{utval}, \csr{utvec}, \csr{sscratch}, \csr{ipend} & \cause{priv}\\
 \insn{ctake}, \insn{cpoll}, \insn{tany} with bit~16 set & \cause{priv}: the inbox belongs to the supervisor (Section~\ref{sec:userinbox})\\
@@ -129,7 +129,7 @@ unchanged.
 7 & ifault & instruction fetch outside the I-LS or misaligned\\
 8 & xmiss & \insn{xcall} target, or \insn{xret} far link, not in the overlay map\\
 9 & pend & access to an in-flight range with CCR.PTRAP set (debug)\\
-10 & capop & capability operation precondition failed (overwrite, split, join, give, domain)\\
+10 & capop & capability operation precondition failed (overwrite, split, join, give, revocation)\\
 11 & priv & privileged operation in user mode\\
 12 & halt & \insn{halt} in user mode\\
 13 & stop & a stop request sent through core control, taken in user mode\\

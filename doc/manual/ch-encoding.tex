@@ -132,7 +132,7 @@ The \emph{Operation} section of each entry is written in a small pseudocode lang
 \texttt{EPC}, \texttt{TVEC}, \ldots & CSRs, by name; the banked trap CSRs name the current mode's copy\\
 \texttt{SEPC}, \texttt{UEPC}, \ldots & the supervisor's and the user's copy of a banked trap CSR\\
 \texttt{Mode} & the current privilege mode, \texttt{Supervisor} or \texttt{User} (\csr{status} bit 0)\\
-\texttt{DOM[d]} & entry $d$ of the machine-wide revocation-domain table (Section~\ref{sec:domains})\\
+\texttt{GEN[g]}, \texttt{HEAD[g]} & the generation and head bit of granule $g$ in the machine-wide granule table (Section~\ref{sec:domains}); \texttt{GRANULE} = 256~KiB\\
 \texttt{DEV}, \texttt{CORE}, \texttt{EP} & spaces 4 (device), 5 (core control) and 6 (endpoint)\\
 \texttt{instr} & the instruction word\\
 \texttt{v<h:l>} & bits $h$..$l$ of $v$\\
@@ -160,14 +160,31 @@ operation that precede a \texttt{Trap} have no lasting effect.
 \subsection{Shared functions}
 
 \begin{pseudo}
-// A capability can be used only while valid and, if it belongs to a revocation
-// domain, while that domain is alive and has not been revoked since it was made.
+// The granule holding byte a of memory space sp (T3's 256 come first, then T2's),
+// or none past the end of the space.
+func Granule(sp, a) = if sp == T3 and a < T3SIZE then a / GRANULE
+                      elsif sp == T2 and a < T2SIZE then T3SIZE / GRANULE + a / GRANULE
+                      else none
+// A capability can be used only while valid and, if it is revocable, while the
+// granule holding its base has the generation it was made under.
 func Live(c)
-    if not c.valid or c.dom == 0 then return c.valid; end
-    if c.V then return DOM[c.dom].alive; end        // a revoker outlives revocations
-    return DOM[c.dom].alive and DOM[c.dom].gen == c.gen;
+    if not c.valid or not c.rv then return c.valid; end
+    g = Granule(c.space, c.base);
+    return g != none and GEN[g] == c.gen;
 end
-func IsRevoker(c)   = c.valid and c.V and c.dom != 0 and DOM[c.dom].alive
+func IsRevoker(c)   = Live(c) and c.V and not c.rv   // a revoker is never revocable
+// Revokes the units revoker r's range [a, b) touches: back from a to the head of its
+// unit (lo), on from b to the next head or the end of the space (hi); every granule
+// of [lo, hi) gets the generation one past the highest among them, and the heads
+// are lo, a and b (b only if b < hi). Returns the new generation.
+func RevokeUnits(r)
+    a = Granule(r.space, r.base);  b = a + r.len / GRANULE;
+    lo = a; while lo > first granule of r.space and not HEAD[lo] do lo = lo - 1; end
+    hi = b; while hi < end of r.space's granules and not HEAD[hi] do hi = hi + 1; end
+    g = 1 + max(GEN[lo .. hi-1]);           // 16 bits: wraps from 65535 to 0
+    for k in lo .. hi-1 do GEN[k] = g; HEAD[k] = (k == lo or k == a or k == b); end
+    return g;
+end
 func Linear(c)      = not c.D                  // linear unless copyable
 func Replaceable(c) = not Live(c) or c.D       // may be overwritten
 

@@ -13,7 +13,7 @@
 
         .data                           ; data Local Store
         .align 8                        ; aligned buffer
-tab:    .space 32 * 32                  ; the process records
+tab:    .space 64 * 32                  ; the process records (proc keeps 64)
 m_head: .ascii "  PID  PPID STATE    CORE  CPUS  SWITCHES   KIB  NAME\n" ; the header
 m_head_e:                               ; end of the text above
 states: .ascii "?       running ready   blocked zombie  " ; state names, 8 characters each
@@ -35,7 +35,7 @@ main:
         call  sys_ps                    ; a0 = how many
         bltz  a0, fail                  ; no answer
         mv    s0, a0                    ; s0 = records left
-        li    t0, 32                    ; at most 32 fit
+        li    t0, 64                    ; at most 64 fit
         bleu  s0, t0, head              ; ...
         mv    s0, t0                    ; ...
 head:

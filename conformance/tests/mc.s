@@ -19,7 +19,7 @@
 ;     8k stops core k: a core running in user mode traps to its supervisor
 ;     with cause 13 (stop).
 ;   * Revocation is machine-wide: a capability another core holds dies when
-;     its domain is revoked.
+;     the granule its base lies in is revoked.
 ;   * cgive to a core that has halted: capop (tval = the core).
 ; Only core 0 prints; the other cores report through memory they are given.
 ; Roles: core 1 worker + user mode + stop, core 2 fills its queue, core 3 a
@@ -173,14 +173,16 @@ cp_wait:
         cclear c6                       ; drop
 
 ; ---- 4b. revocation reaches capabilities other cores hold ---------------------------------
-        li    a0, 64                    ; a piece
-        call  piece                     ; c5 (plain)
-        cdom  c6, c5                    ; c5 = revoker, c6 = working capability in a new domain
+        li    t0, 0x40000               ; one revocation granule (256 KiB) of [0, 2M)
+        csplit c5, c0, t0               ; c0 = [0, 256K), c5 = [256K, 2M)
+        cclear c5                       ; (not needed)
+        cmov  c5, c0                    ; c5 = [0, 256K): granule-aligned, plain
+        cdom  c6, c5                    ; c5 = revoker, c6 = working capability (revocable)
         li    t0, 3                     ; core 3
         cgive c6, t0                    ; core 3 holds the working capability
         ctake c7, t0                    ; its token: "holding it"
         cclear c7                       ; drop the token
-        crevoke c8, c5                  ; revoke the domain: core 3's copy dies too
+        crevoke c8, c5                  ; revoke the region: core 3's copy dies too
         cgive c2, t0                    ; token to core 3: "look at it now"
         ctake c7, t0                    ; its report: the dead capability can't be given, so
         clen  a0, c7                    ; core 3 sends its console copy (length 1) instead
@@ -188,7 +190,7 @@ cp_wait:
         call  chk                       ; check
         cclear c7                       ; drop the report
         cclear c8                       ; drop the fresh working capability
-        cundom c9, c5                   ; end the domain (c9 = plain region)
+        cundom c9, c5                   ; dissolve it (c9 = plain region)
         cclear c9                       ; drop it
 
 ; ---- 5. core 1 in user mode, in a core window; stop it through core control ----------------
@@ -320,14 +322,14 @@ w2:
         j     park                      ; done
 
 ; =============================================================================
-; core 3: give back a gift; then hold a capability of a revocation domain
-; and report whether it is still valid after core 0 revoked the domain
+; core 3: give back a gift; then hold a revocable capability
+; and report whether it is still valid after core 0 revoked its region
 ; =============================================================================
 w3:
         ctake c5                        ; from core 0
         li    t0, 0                     ; core 0
         cgive c5, t0                    ; back
-        ctake c6                        ; the domain's working capability
+        ctake c6                        ; the region's working capability
         cgive c2, t0                    ; token: "holding it"
         ctake c7                        ; token: "look now"
         cvalid t1, c6                   ; still valid?

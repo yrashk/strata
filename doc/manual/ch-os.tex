@@ -3,7 +3,7 @@
 StrataOS 0.1 is the operating system of the prototype platform: a microkernel with preemptive
 multitasking, written in \IS assembly language. It exists to show that the architecture carries a
 complete system, and it uses every mechanism of Part~\ref{part:arch} for the purpose it was designed
-for: user mode and the core window to confine programs, revocation domains to reclaim their memory,
+for: user mode and the core window to confine programs, revocation by address to reclaim their memory,
 endpoints for messages, core control for preemption and doorbells, the timer's WAIT register for the
 time slice, \insn{svc} to block, the user-mode inbox rule to demultiplex messages, and code paging for
 programs and for the kernel itself.
@@ -48,7 +48,7 @@ shows the count.
 \begin{description}[leftmargin=1em,style=nextline]
 \item[The system core] Core 0 runs only kernel code, in supervisor mode, and no processes. It does
   what nothing else can: it creates and destroys processes and places them on cores, hands out memory
-  (1~MiB \term{arenas}, each in its own revocation domain), owns the timer and its single DEADLINE
+  (\term{arenas}, 1~MiB by default, revoked by address when a process ends), owns the timer and its single DEADLINE
   register, and drives preemption and the timeouts of timed waits. Its message interface is a handful
   of operations (Table~\ref{tab:os-kops}), and only two servers may use it.
 \item[The dispatchers] Every other core is a \term{worker}. The kernel code on a worker is its
@@ -112,16 +112,29 @@ The system core uses the program ranges for itself: its I-LS \hex{8000}--\hex{FF
 cache (Section~\ref{sec:os-kpaging}) and its D-LS \hex{0000}--\hex{9FFF} holds the kernel's tables.
 
 System memory is used as follows: $[0, 32~\text{KiB})$ the kernel shared table; $[32, 64~\text{KiB})$ the
-system core's own message buffers; the arenas, 1~MiB each, from $[16, 48~\text{MiB})$; and the
-framebuffer window, which the kernel places in a revocation domain of its own at boot and lends to the
-window server.
+system core's own message buffers; the \term{arena pool}, $[1, 15~\text{MiB})$ and $[16, 48~\text{MiB})$
+(46~MiB; the boot ROM's load area lies between); and the framebuffer window $[48, 64~\text{MiB})$, which the
+kernel makes a revocable region of its own at boot and lends to the window server.
 
 \subsection{Arenas}
-A process's memory is one arena: 1~MiB of system memory in a fresh revocation domain, zeroed when it is
-handed out. The kernel keeps the domain's revoker in the system core's save table. When the process
-ends, for whatever reason, the kernel dissolves the domain with \insn{cundom}: every capability the
-process held or derived, in whatever register, save table or inbox of whatever core, dies at that
-instant, and the kernel has the memory back.
+A process's memory is one arena: a run of whole 256~KiB granules of the arena pool (1~MiB unless the
+spawner asked for more, Section~\ref{sec:os-servers}), zeroed when it is handed out. At boot the kernel
+makes each of the pool's two parts one revocable region (\insn{cdom}) and keeps only their revokers, in
+the system core's save table, and a bitmap of the pool's granules in its D-LS. It allocates an arena
+from the bitmap (the first free run that is long enough) and makes a capability for it by address: it
+cuts the revoker at the arena's bounds, revokes that piece with \insn{crevoke}, which kills every
+capability an earlier owner of that memory may still have and returns a fresh one, and joins the
+revoker again (Section~\ref{sec:domains}). When the process ends, for whatever reason, the kernel
+revokes the arena the same way: every capability the process held, derived or lent out (message
+buffers held by servers, window-server bands, block-device buffers), in whatever register, save table
+or inbox of whatever core, dies at that instant, and the granules are free for the next process. The
+number of processes is therefore limited by memory, and by the fixed tables of
+Table~\ref{tab:os-limits}.
+
+An arena larger than 1~MiB keeps the layout of Table~\ref{tab:os-arena} at its top: the offsets there
+are from its \term{layout base}, $E$ bytes above its start for an arena of $1~\text{MiB} + E$, and the
+program's own memory (\reg{c0}) is $E$ bytes larger, $[-E, P)$. The start-up block stays at offset
+\hex{7F000} of \reg{c0}.
 
 \begin{table}[htbp]
 \centering\small
@@ -171,7 +184,7 @@ Every process time-shares worker cores; no process owns a core. A process has on
 \begin{tabularx}{\linewidth}{@{}l X@{}}
 \toprule
 \textbf{Register} & \textbf{Contents}\\\midrule
-\reg{c0} & its arena's program memory, \perm{RWX}, in the process's revocation domain\\
+\reg{c0} & its arena's program memory, \perm{RWX}, revocable (it dies when the process ends)\\
 \reg{c1} & a send-only endpoint to \texttt{proc}\\
 \reg{c2}, \reg{c3}, \reg{c4} & send-only endpoints to \texttt{fs}, \texttt{tty} and \texttt{pipe} (absent in a
   process spawned without server endpoints)\\
@@ -201,8 +214,8 @@ loaded. The shell's \texttt{-c N} pins a process to core $N$.
 \textbf{Resource} & \textbf{Limit}\\\midrule
 Threads resident on one worker core & 3\\
 Threads of one process & 6\\
-Processes & 32\\
-Arenas (and so processes holding memory) & 24, and one revocation domain each\\
+Processes & memory: one arena each, 1~MiB by default, from a 46~MiB pool; 64 at most (kernel, \texttt{proc}, \texttt{fs} and \texttt{ws} tables)\\
+Arenas & 64 (the kernel's arena slots); each 1--255~MiB, whole 256~KiB granules\\
 Program image; code and code cache; data; stack & 128~KiB; 32~KiB; 40~KiB; 8~KiB\\
 Handles per process & 8\\
 Message data & 4032 bytes\\
@@ -213,6 +226,11 @@ Files in the directory; tags on the disk & 128; 64\\
 \bottomrule
 \end{tabularx}
 \end{table}
+
+With 15 cores the worker slots bind first: tty and proc each have a core to themselves, which
+leaves 12 cores with three threads each, three of them taken by dev, fs and pipe; that is 33
+processes besides the servers, and \texttt{tools/test-procs.sh} runs 35 processes at once. Before
+revocation by address there were 15 revocation domains, one per arena, so at most 14 processes.
 
 Three threads per core is the capability save table's budget made visible. Of its 64 slots a
 dispatcher uses 24 for the capability registers \reg{c0}--\reg{c7} of three resident threads, 6 for
@@ -455,17 +473,18 @@ numbering of StrataOS 0.1; operation numbers are per server.
   thread count (0 = one time-shared thread), flags, a core to pin to or $-1$, the cores of the endpoints
   for \reg{c1}--\reg{c4}, \reg{a0}--\reg{a2}. Reply: 0 and the first core; the process starts. A server's
   reply carries an endpoint to its core\\
-2 & DESTROY & handle = pid. The process is stopped and its domain dissolved; \texttt{proc} later
+2 & DESTROY & handle = pid. The process is stopped and its arena revoked; \texttt{proc} later
   receives EXITED with the killed bit\\
-3 & MEMORY & reply: a zeroed 1~MiB arena in a fresh revocation domain, as an attachment; $-6$ if none\\
+3 & MEMORY & length = the size wanted (0: 1~MiB; rounded up to whole 256~KiB granules, at least 1~MiB).
+  Reply: a zeroed arena with a fresh capability, as an attachment; data: its base and size; $-6$ if none\\
 4 & STATS & reply: counters for the machine, every core and every process\\
 5 & TUNE & length = the time slice in ticks, 100--100000; $-1$ out of range\\
-6 & FREE & attachment: an arena to return\\
+6 & FREE & attachment: an arena to return (it is revoked, and its granules are free)\\
 7 & EXITED & sent \emph{by} the kernel to \texttt{proc}: handle = pid, length = exit status\\
 8 & HALT & stops every core\\
 9 & NOTIFY & handle = pid, length = notification bits: wakes its NOTIFY\_WAIT or timed sleep\\
-10 & FBLEND & \texttt{dev} only. Handle = pid: revokes every older capability of the framebuffer's
-  domain and replies with a fresh one for that process; the kernel revokes it again when the process
+10 & FBLEND & \texttt{dev} only. Handle = pid: revokes every older capability of the framebuffer
+  and replies with a fresh one for that process; the kernel revokes it again when the process
   ends. $-7$ if a live process holds it\\
 \bottomrule
 \end{tabularx}
@@ -481,8 +500,8 @@ numbering of StrataOS 0.1; operation numbers are per server.
 \textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
 5 & SPAWN & data: thread count (0 or 1 = one thread, $N$ = $N$ threads on $N$ cores), three handle
   descriptors that become the child's handles 0, 1, 2 ($-1$ = none), then the command line
-  \texttt{"prog args"}. Mode bit 0: no server endpoints; bit 1: pin to core mode $\gg 8$. Reply: the
-  pid; $-4$, $-5$, $-6$\\
+  \texttt{"prog args"}. Mode bit 0: no server endpoints; bit 1: pin to core (mode $\gg 8$) \& 255;
+  mode $\gg 16$: the arena's size in MiB (0: 1~MiB). Reply: the pid; $-4$, $-5$, $-6$\\
 6 & WAIT & handle = pid, or 0 for any child; mode bit 0 = do not block. Reply: the exit status, with
   the pid in the data; $-3$ still running; $-2$ interrupted; $-1$ no child\\
 7 & KILL & handle = pid\\
@@ -517,7 +536,7 @@ CREATE the process from the arena. The system core chooses the cores, cuts the a
 of Table~\ref{tab:os-arena}, posts a job record for each thread and gives each worker its pieces; when
 a dispatcher has them all it makes the thread runnable. While it waits for these answers, \texttt{proc}
 keeps the caller's request parked. When a process ends, its dispatcher reports the exit, the system
-core dissolves the domain and sends EXITED, and \texttt{proc} tells the servers to drop the process's
+core revokes the arena and sends EXITED, and \texttt{proc} tells the servers to drop the process's
 handles (CLEANUP) and completes the parent's WAIT.
 
 \begin{table}[htbp]
@@ -765,7 +784,7 @@ Chapter~\ref{ch:traps}: an event that is a transfer, messages, and core control.
   \texttt{\textasciicircum C}, drops the partial input line and asks \texttt{proc} to SIGNAL the
   \term{foreground process} (the one named by the last SETFG).
 \item If the process does not catch interrupts, \texttt{proc} asks the kernel to DESTROY it. Its
-  cores are stopped through core control wherever they are, its domain is dissolved, and its parent's
+  cores are stopped through core control wherever they are, its arena is revoked, and its parent's
   WAIT returns a status with the killed bit.
 \item If the process catches interrupts (CATCH), the blocking call it is in, or its next one, returns
   $-2$: \texttt{proc} answers its held WAIT, tells \texttt{tty} and \texttt{pipe} to CANCEL the
@@ -841,6 +860,7 @@ a | b | c | d & a pipeline of up to four stages\\
 \$? \quad \$\$ \quad \$NAME & the last status, the shell's pid, a variable\\
 -n N prog & run \texttt{prog} as $N$ threads on $N$ cores\\
 -c N prog & pin \texttt{prog} to core $N$\\
+-m N prog & give \texttt{prog} an arena of $N$~MiB (1--255; the default is 1)\\
 run prog & the same as \texttt{prog}\\
 time cmd & run \texttt{cmd}, then print the wall time it took\\
 \# comment & the rest of the line is ignored\\
@@ -1146,10 +1166,10 @@ quads and \texttt{localhost} need no query. \texttt{net\_resolve} in the library
 \item The boot ROM loads the kernel's code and data into every core's Local Stores and the far image
   into the load area, and enters the kernel on every core with \reg{a0} = the core number
   (Section~\ref{sec:boot}).
-\item Core 0 becomes the system core. It places the framebuffer window in a revocation domain, sets
+\item Core 0 becomes the system core. It makes the framebuffer window a revocable region, sets
   \csr{xslot}, and calls the start-up code unit, which is the first unit paged in. Start-up creates the
   kernel shared table as an atomic segment and gives every worker a copy, together with a core-control
-  capability for doorbells and the clock capability; cuts the arenas; and reads the directory from the
+  capability for doorbells and the clock capability; makes the arena pool revocable; and reads the directory from the
   disk with the firmware's block routines, the only time the kernel touches the disk.
 \item The workers become dispatchers and wait in \insn{tany}.
 \item The system core loads \texttt{proc}, \texttt{dev} and \texttt{fs} from the disk itself, since
