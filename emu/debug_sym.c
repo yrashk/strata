@@ -309,6 +309,16 @@ static int os_pid_named(const char *name) {
  * covers pc means far code (looked up at its far address). */
 typedef struct { Map *map; int sect; uint64_t addr; } Where;
 
+/* Strata Forth installs its kernel from .far into the I-LS at the same
+ * addresses (an identity mirror): above KSTART its code is the map's .far. */
+static Where forth_kernel(Where w) {
+  if (w.map && w.map->forth >= 0 && w.sect == MS_TEXT) {
+    int64_t ks = map_abs(w.map, "KSTART", -1);
+    if (ks >= 0 && w.addr >= (uint64_t)ks) w.sect = MS_FAR;
+  }
+  return w;
+}
+
 static Where where_code(const Core *c, uint64_t pc) {
   Where w = {NULL, MS_TEXT, pc};
   uint64_t sl = c->xslot ? 1ull << c->xslot : 4;
@@ -319,7 +329,7 @@ static Where where_code(const Core *c, uint64_t pc) {
     if (c->user && pc >= 0x8000) {
       int pid = os_cur_pid(c->id);
       w.map = map_prog(os_name_of(pid));
-      return w;
+      return forth_kernel(w);
     }
     if (pc < 0x4000 && hit < 0) { w.map = map_scope(SC_IMAGE); return w; }
     w.map = map_scope(SC_KERNEL);
@@ -335,6 +345,7 @@ static Where where_code(const Core *c, uint64_t pc) {
   }
   w.map = map_scope(SC_IMAGE);
   if (hit >= 0) { w.sect = MS_FAR; w.addr = c->xm_far[hit] + (pc - c->xm_ils[hit]); }
+  w = forth_kernel(w);
   return w;
 }
 
