@@ -10,7 +10,20 @@
   box-shadow: 0 0 0 1px var(--edge), 0 0 60px rgba(77, 225, 255, 0.12);
   clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
 }
-.die figcaption { margin-top: 12px; color: var(--dim); font-size: 14.5px; }
+.die figcaption { margin-top: 12px; color: var(--dim); font-size: 14.5px; min-height: 3.3em; }  /* two lines in either view */
+
+/* the wiring on / off switch above the die */
+.view { display: flex; align-items: center; justify-content: flex-end; gap: 0; margin: 0 0 10px;
+        font-family: var(--mono); font-size: 13px; color: var(--dim); }
+.view span { margin-right: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.view button {
+  font: inherit; color: var(--dim); background: transparent; cursor: pointer;
+  padding: 5px 14px; border: 1px solid var(--edge); margin-left: -1px;
+}
+.view button[aria-pressed="true"] { color: var(--bg); background: var(--cyan); border-color: var(--cyan); }
+.view button:hover { color: var(--amber); }
+.view button[aria-pressed="true"]:hover { color: var(--bg); }
+.view button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; position: relative; }
 .die figcaption b { color: var(--text); }
 
 /* the legend: the render's eight colours */

@@ -47,14 +47,19 @@
     four slices of two LUTs over two flip-flops, each cell coloured by the part of Strata it belongs to, and each
     routed wire along its real span, glowing in its net's colour.</p>
 
-  <figure class="die">
-    <a class="zoom" href="die-ecp5-1-2800.webp" title="Open a larger picture">
-      <img src="die-ecp5-1.webp" width="1600" height="1200"
+  <figure class="die" id="die-fig">
+    <div class="view" role="group" aria-label="Which view of the die">
+      <span>Wiring</span>
+      <button type="button" data-view="routed" aria-pressed="true">on</button>
+      <button type="button" data-view="placed" aria-pressed="false">off</button>
+    </div>
+    <a class="zoom" id="die-zoom" href="die-ecp5-1-2800.webp" title="Open a larger picture">
+      <img id="die-img" src="die-ecp5-1.webp" width="1600" height="1200"
            alt="The placed and routed Strata core on an ECP5-85F: execute in cyan across the top and right, capabilities in pink on the left, devices in red and the bus in yellow along the bottom, the overlay map in orange in the middle, block RAM rows across.">
     </a>
-    <figcaption><b>One core on an LFE5U-85F, placed and routed.</b> Click for 2800 pixels; the full
-      5200&times;3900 picture is <a href="https://github.com/yrashk/strata/blob/main/fpga/results/ecp5-1/die.png">on GitHub</a>
-      (<code>fpga/results/ecp5-1/die.png</code>).</figcaption>
+    <figcaption><b id="die-what">One core on an LFE5U-85F, placed and routed.</b> Click for 2800 pixels; the full
+      5200&times;3900 picture is <a id="die-full" href="https://github.com/yrashk/strata/blob/main/fpga/results/ecp5-1/die.png">on GitHub</a>
+      (<code id="die-path">fpga/results/ecp5-1/die.png</code>).</figcaption>
   </figure>
 
   <ul class="legend" aria-label="What the colours are, and each one's share of the logic cells">
@@ -80,14 +85,6 @@
     <div class="stat"><b>6 min</b><span>to place and route</span></div>
   </div>
 
-  <figure class="die">
-    <a class="zoom" href="die-ecp5-1-placed-2800.webp" title="Open a larger picture">
-      <img src="die-ecp5-1-placed.webp" width="1600" height="1200" loading="lazy"
-           alt="The same placement without the routing: only the cells, coloured by the part of Strata they belong to.">
-    </a>
-    <figcaption><b>The placement alone</b>, without the wiring: the cells only. Full size
-      <a href="https://github.com/yrashk/strata/blob/main/fpga/results/ecp5-1/die-placed.png">on GitHub</a>.</figcaption>
-  </figure>
 </section>
 
 <section class="section" id="speed">
@@ -363,6 +360,35 @@
 <!-- ============================================================ end ASIC -->
 
 </main>
+
+<script>
+// The die: the routed picture, or the placement alone (the wiring off), in
+// the same frame; the larger picture and the full-size link follow.
+(function () {
+  const views = {
+    routed: { img: "die-ecp5-1.webp", zoom: "die-ecp5-1-2800.webp", png: "die.png",
+              what: "One core on an LFE5U-85F, placed and routed.",
+              alt: "The placed and routed Strata core on an ECP5-85F: execute in cyan across the top and right, capabilities in pink on the left, devices in red and the bus in yellow along the bottom, the overlay map in orange in the middle, block RAM rows across." },
+    placed: { img: "die-ecp5-1-placed.webp", zoom: "die-ecp5-1-placed-2800.webp", png: "die-placed.png",
+              what: "One core on an LFE5U-85F, the placement alone.",
+              alt: "The same placement without the routing: only the cells, coloured by the part of Strata they belong to." },
+  };
+  const $ = (id) => document.getElementById(id);
+  new Image().src = views.placed.img;          // preload the other view
+  document.querySelectorAll("#die-fig .view button").forEach((b) => {
+    b.addEventListener("click", () => {
+      const v = views[b.dataset.view];
+      $("die-img").src = v.img;
+      $("die-img").alt = v.alt;
+      $("die-zoom").href = v.zoom;
+      $("die-full").href = "https://github.com/yrashk/strata/blob/main/fpga/results/ecp5-1/" + v.png;
+      $("die-path").textContent = "fpga/results/ecp5-1/" + v.png;
+      $("die-what").textContent = v.what;
+      document.querySelectorAll("#die-fig .view button").forEach((o) => o.setAttribute("aria-pressed", o === b));
+    });
+  });
+})();
+</script>
 
 <footer>
   <div class="bands small" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
