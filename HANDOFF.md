@@ -14,6 +14,9 @@ Strata: a prototype 64-bit ISA where memory is explicit I/O, with
 - StrataOS 0.1 (`os/`: microkernel, servers, shell, utilities, the window
   server `ws` and its clients), firmware (`firmware/`),
 - Strata Forth (`lang/forth/`, bare metal and as a StrataOS program),
+- the debuggers: a debug engine in the emulator (`emu/debug*.c`,
+  `strata-emu --debug`, protocol in `doc/debug-protocol.md`), the text
+  debugger `strata-dbg` (`dbg/`) and the web debugger (`site/debug/`),
 - a conformance suite (`conformance/`), the manual (`doc/manual/`, LaTeX),
 - the website (`site/`: landing page, in-browser emulator `play/`, source
   browser `code/`), deployed by `.github/workflows/pages.yml`.
@@ -91,6 +94,29 @@ Not verified:
   `lang/forth/demos/gfx.fs` runs (it once failed with `.cap: undefined
   word` when tools moved to `tools.fs` / `see.fs`).
 
+### The debuggers — done; what is open
+- Built: the engine (control, breakpoints and watchpoints, state, event
+  log, capability provenance, time travel with bounded memory, StrataOS
+  and Forth awareness), `sasm -g` maps for every image, `strata-dbg`
+  (gdb-like commands, `tui`, a pty for the guest's console), the web
+  debugger (in the page or over a WebSocket to `strata-emu --debug PORT`).
+  `tools/test-dbg.sh` (in `make test`) drives them.
+- The engine is included by `emu/emu.c` and observes from outside
+  `step()`; the only hooks in emu.c are in `far_wrote`, the block
+  device's disk write, `trap`, the console output port, and the halt /
+  fault messages (`emu/debug.h`). `Cap` got a 32-bit `id` (in its padding:
+  still 32 bytes); emu.c disables -Wmissing-field-initializers for the
+  capability literals that leave it 0. `machine_round` lost its idle
+  computation to `round_idle()`, which the engine shares.
+- When the ISA changes, the engine follows in three places: the
+  disassembler (`emu/debug_sym.c`), `pre_decode` / `stall_reason` /
+  `prov_after` (`emu/debug.c`) and the snapshot's list of machine state
+  (`Misc` in `emu/debug_tt.c`: every static that a run depends on must be
+  in it, or replays diverge; `info history` counts divergences).
+- Open: the RTL behind the same protocol; a timing model; per-line
+  stepping; the timeline's axis is rounds, which jump when an idle
+  machine skips time (StrataOS).
+
 ### Smaller open items
 - Console input reads cannot be cancelled: `halt` typed in a `term` under
   `ws` takes effect at the next key. Needs a small ISA change (e.g. the
@@ -138,6 +164,8 @@ make show-gfx        # the framebuffer window
 make ws-demo         # the window server's drawing code with a simulated OS
 make forth           # Forth on bare metal
 make web-site        # the site incl. the wasm emulator -> build/web-site
+make debug-pipeline   # strata-dbg on an example (debug-NAME); debug-os: StrataOS
+make debug-web        # the web debugger on the desktop engine: localhost:4444/debug/
 make manual          # the PDF (needs tectonic)
 ```
 

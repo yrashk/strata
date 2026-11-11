@@ -21,6 +21,11 @@
 #   make wasm       the emulator as WebAssembly for the site's play page (emcc)
 #   make test-wasm  that build under node against the native interpreter (node, emcc)
 #   make web-docs   the manual's instruction set and architecture outline as web pages
+#   make dbg        strata-dbg, the text debugger (part of `make all`)
+#   make debug-NAME debug an example with strata-dbg, e.g. make debug-pipeline
+#   make debug-os   boot StrataOS under strata-dbg (StrataOS-aware: info processes, break process NAME)
+#   make debug-web  the web debugger against the desktop engine: http://localhost:4444/debug/
+#                   (one program per engine: DEBUG_WEB=NAME, default pipeline)
 
 CC      ?= cc
 CFLAGS  ?= -std=gnu11 -O2 -Wall -Wextra
@@ -45,7 +50,7 @@ EMU     := $(BUILD)/strata-emu -c $(NCORES)
 
 .PHONY: all examples test clean lint run run-emu boot boot-net boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
 
-all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl $(BUILD)/netrelay
+all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl $(BUILD)/netrelay $(BUILD)/strata-dbg
 
 # the browser's relay to the real network (the play page's "relay" mode): the
 # simulators' user-mode NAT behind a small WebSocket server
@@ -53,14 +58,21 @@ $(BUILD)/netrelay: tools/netrelay.c common/netnat.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ tools/netrelay.c
 
+# the text debugger (dbg/): a front-end of strata-emu's debug engine (emu/debug.c)
+$(BUILD)/strata-dbg: dbg/strata-dbg.c common/json.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ dbg/strata-dbg.c
+
 $(BUILD)/sasm: asm/sasm.c asm/isa.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ asm/sasm.c
 
 # the JIT (emu/jit/): each backend compiles to nothing on other hosts
 JIT_SRC := emu/jit/jit.c emu/jit/jit_arm64.c emu/jit/jit_x86_64.c
+# the debug engine (--debug): included by emu/emu.c
+DBG_ENGINE := emu/debug.h emu/debug.c emu/debug_sym.c emu/debug_tt.c emu/debug_io.c common/json.h
 
-$(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/net.h common/netnat.h
+$(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) $(DBG_ENGINE) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/net.h common/netnat.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
 
@@ -79,7 +91,7 @@ lint:
 
 $(BUILD)/examples/%.stx: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/examples
-	$(BUILD)/sasm -o $@ $<
+	$(BUILD)/sasm -g $(@:.stx=.map) -o $@ $<
 
 examples: $(IMAGES)
 
@@ -97,6 +109,7 @@ test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-boot-jit.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/demo.txt
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-fb.sh $(BUILD)/examples/gfx.stx
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-jit.sh
+	BUILD=$(BUILD) ./tools/test-dbg.sh
 	BUILD=$(BUILD) NCORES=$(NCORES) ./conformance/run.sh
 	@if command -v node >/dev/null 2>&1 && command -v $(EMCC) >/dev/null 2>&1; then $(MAKE) test-wasm; \
 	else echo "test-wasm: skipped (needs node and $(EMCC))"; fi
@@ -123,6 +136,25 @@ show-rtl-%: $(BUILD)/strata-rtl $(BUILD)/examples/%.stx
 show-%: $(BUILD)/strata-emu $(BUILD)/examples/%.stx
 	@$(EMU) -T real -H $(BUILD)/examples/$*.stx
 
+# ---- the debuggers (emu/debug.c, dbg/, site/debug/) --------------------------
+# Deterministic runs (-j -T virtual) keep a history for time travel.
+.PHONY: dbg debug-os debug-web test-dbg
+dbg: $(BUILD)/strata-dbg $(BUILD)/strata-emu
+
+debug-%: $(BUILD)/strata-dbg $(BUILD)/strata-emu $(BUILD)/examples/%.stx
+	@$(BUILD)/strata-dbg -c $(NCORES) -j -T virtual $(BUILD)/examples/$*.stx
+
+debug-os: $(BUILD)/strata-dbg $(BUILD)/strata-emu os
+	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
+	@$(BUILD)/strata-dbg -c 8 -j -T virtual -g none -d $(BUILD)/disk-run.img --os $(BUILD) $(BUILD)/bootrom.stx
+
+DEBUG_WEB ?= pipeline
+debug-web: $(BUILD)/strata-emu $(BUILD)/examples/$(DEBUG_WEB).stx
+	@$(BUILD)/strata-emu -c 4 -j -T virtual -g none --debug 4444 --www site $(BUILD)/examples/$(DEBUG_WEB).stx
+
+test-dbg: $(BUILD)/strata-dbg $(BUILD)/strata-emu examples os
+	BUILD=$(BUILD) ./tools/test-dbg.sh
+
 # ---- firmware, OS and disk image -------------------------------------------
 OS_FILES := $(wildcard os/files/*)
 
@@ -131,10 +163,10 @@ $(BUILD)/mkdisk: tools/mkdisk.c common/stx.h asm/isa.h
 	$(CC) $(CFLAGS) -o $@ tools/mkdisk.c
 
 $(BUILD)/bootrom.stx: firmware/bootrom.s firmware/fw.s $(BUILD)/sasm
-	$(BUILD)/sasm -o $@ firmware/bootrom.s
+	$(BUILD)/sasm -g $(BUILD)/bootrom.map -o $@ firmware/bootrom.s
 
 $(BUILD)/kernel.stx: os/kernel.s $(wildcard os/kunits/*.s) firmware/fw.s $(BUILD)/sasm
-	$(BUILD)/sasm -o $@ os/kernel.s
+	$(BUILD)/sasm -g $(BUILD)/kernel.map -o $@ os/kernel.s
 
 # StrataOS 0.1 disk contents:
 #   servers (os/servers/*.s): proc dev fs tty pipe
@@ -158,31 +190,34 @@ USRCS   := $(patsubst %,$(BUILD)/src/%.s,$(UTILS))
 EXSRCS  := $(patsubst %,$(BUILD)/src/%.s,$(OS_EXAMPLES))
 SRCS    := $(EXSRCS) $(BUILD)/src/as.s $(BUILD)/src/units.s
 
+# (every program also gets a debug map, PROG.map next to it: strata-dbg --os)
 $(BUILD)/prog/%: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
 $(SPROGS): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
 $(UPROGS) $(NPROGS): $(BUILD)/prog/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
 # untag is tag under another name (it looks at the name it was started by)
 $(BUILD)/prog/untag: $(BUILD)/prog/tag
 	cp $< $@
+	cp $<.map $@.map
 
 # retag too (it replaces a file's tags)
 $(BUILD)/prog/retag: $(BUILD)/prog/tag
 	cp $< $@
+	cp $<.map $@.map
 
 # the window server and its clients (os/ws/, os/lib/gfx.s, os/lib/wsclient.s)
 WSPROGS := $(patsubst %,$(BUILD)/prog/%,ws term wmandel wclock)
 $(WSPROGS): $(BUILD)/prog/%: os/progs/%.s $(wildcard os/ws/*.s) os/lib/gfx.s os/lib/font/font.s os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -I os/ws -I os/lib -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -I os/ws -I os/lib -g $@.map -o $@ $<
 
 # vi, the editor: its keyword tables come from the assembler, the Forth README
 # and the site's highlighter (tools/vi-syntax.py writes them as an include)
@@ -196,11 +231,11 @@ $(BUILD)/prog/vi: os/progs/vi.s os/lib/sys.s $(BUILD)/vi-syntax.s $(BUILD)/sasm
 
 $(BUILD)/prog/units: os/progs/units.s examples/lib/print.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
 $(BUILD)/prog/as: os/progs/as.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
 # Every source on the disk carries a copy of the library after the program.
 $(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s
@@ -325,7 +360,7 @@ $(BUILD)/forth/corefs.s: $(FORTH_FS)
 	$(FORTH_EMBED) $(FORTH_FS) > $@
 
 $(BUILD)/forth.stx: $(FORTH_SRC) $(BUILD)/forth/corefs.s $(BUILD)/sasm
-	$(BUILD)/sasm -I lang/forth/bare -I $(BUILD)/forth -o $@ lang/forth/forth.s
+	$(BUILD)/sasm -I lang/forth/bare -I $(BUILD)/forth -g $(BUILD)/forth.map -o $@ lang/forth/forth.s
 
 # the StrataOS program (lang/forth/os/: the platform layer on messages)
 $(BUILD)/forth-os/corefs.s: $(FORTH_OS_FS)
@@ -334,7 +369,7 @@ $(BUILD)/forth-os/corefs.s: $(FORTH_OS_FS)
 
 $(BUILD)/prog/forth: $(FORTH_OS_SRC) $(BUILD)/forth-os/corefs.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -I lang/forth/os -I $(BUILD)/forth-os -o $@ lang/forth/forth.s
+	$(BUILD)/sasm -T 0x8000 -I lang/forth/os -I $(BUILD)/forth-os -g $@.map -o $@ lang/forth/forth.s
 
 # the disk of tools/test-http.sh: the standard one plus two requests as a
 # browser sends them (CR LF; a 3 KB Cookie header), which the console cannot type
@@ -433,19 +468,33 @@ test-wasm: $(WEB)/strata-emu.js $(BUILD)/strata-emu $(BUILD)/sasm examples $(BUI
 # one build for the page's worker and for node (tools/wasm-run.js, the tests)
 # (emu/jit/jit_wasm.c is the JIT: it generates WebAssembly at run time and
 # installs it in the module's function table, hence ALLOW_TABLE_GROWTH)
-$(WEB)/strata-emu.js: web/web.c emu/emu.c emu/jit/jit_wasm.c emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/net.h common/netnat.h
+$(WEB)/strata-emu.js: web/web.c emu/emu.c $(DBG_ENGINE) emu/jit/jit_wasm.c emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/net.h common/netnat.h
 	@mkdir -p $(WEB)
 	$(EMCC) -std=gnu11 -O3 -Wall -DNO_SDL -o $@ web/web.c emu/jit/jit_wasm.c \
 	  -sMODULARIZE=1 -sEXPORT_NAME=createStrata -sENVIRONMENT=worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
 	  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=128MB -sALLOW_TABLE_GROWTH=1 \
-	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_jit_wasm_set_budget,_malloc,_free \
-	  -sEXPORTED_RUNTIME_METHODS=callMain,FS,HEAPU8,wasmMemory,wasmTable
+	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_jit_wasm_set_budget,_web_dbg,_web_dbg_run,_web_dbg_events,_malloc,_free \
+	  -sEXPORTED_RUNTIME_METHODS=callMain,FS,HEAPU8,wasmMemory,wasmTable,UTF8ToString,stringToNewUTF8
 
-wasm: $(WEB)/strata-emu.js web-assets
-	@mkdir -p $(WEB)/images $(WEB)/demos
+# the web debugger's examples (site/debug/): images, their maps (sasm -g) and
+# the sources the maps name, under build/web/debug/ (the site's play/debug/)
+DEBUG_EXAMPLES := hello pipeline clock stream_sum parsum overlay swcache race
+DEBUG_ASSETS := $(foreach e,$(DEBUG_EXAMPLES),$(BUILD)/examples/$(e).stx $(BUILD)/examples/$(e).map)
+
+# (a map is written with its image; this rebuilds an image made before maps were)
+$(BUILD)/examples/%.map: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
+	@mkdir -p $(BUILD)/examples
+	$(BUILD)/sasm -g $@ -o $(@:.map=.stx) $<
+
+wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS)
+	@mkdir -p $(WEB)/images $(WEB)/demos $(WEB)/debug/src/examples/lib
 	cp $(WEB_IMAGES) $(WEB)/images/
 	cp lang/forth/demos/*.fs $(WEB)/demos/
 	ls lang/forth/demos | sed -n 's/\.fs$$//p' > $(WEB)/demos/index.txt
+	cp $(DEBUG_ASSETS) $(WEB)/debug/
+	cp $(patsubst %,examples/%.s,$(DEBUG_EXAMPLES)) $(WEB)/debug/src/examples/
+	cp examples/lib/*.s $(WEB)/debug/src/examples/lib/
+	echo $(DEBUG_EXAMPLES) | tr ' ' '\n' > $(WEB)/debug/index.txt
 
 web-code:
 	rm -rf $(BUILD)/web-code
