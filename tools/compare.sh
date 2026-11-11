@@ -15,10 +15,12 @@
 # cores to one device (see emu/emu.c).
 #
 #   tools/compare.sh build/examples/*.stx
+#
+# EMU_ARGS: extra emulator flags matching the RTL build (e.g. -X 8 for NXMAP=8).
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 ncores=${NCORES:-8}
-emu="$here/${BUILD:-build}/strata-emu -j -c $ncores -T virtual -g none -r 640x480"
+emu="$here/${BUILD:-build}/strata-emu -j -c $ncores ${EMU_ARGS:-} -T virtual -g none -r 640x480"
 rtl="$here/${BUILD:-build}/strata-rtl -T virtual -g none -r 640x480"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

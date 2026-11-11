@@ -166,6 +166,7 @@ G_PBASE  = 0x30                         ; the arena pool's base
 G_PGRAN  = 0x38                         ; its granules
 G_CTAB   = 0x40                         ; capability save-table slots per core (platform table)
 G_NSLOT  = 0x48                         ; threads a worker core takes (w_params)
+G_NXMAP  = 0x50                         ; overlay map entries per core (platform table)
 G_GPID   = 0x100                        ; 256 words: the process owning pool granule g (0: none)
 NGPID    = 256                          ; (64 MiB of pool at most)
 NARENA   = 64                           ; arena slots (K0_AR); every process has one
@@ -422,6 +423,11 @@ k0_nofb:
         call  fw_find                   ; ...
         call  fw_blk_open               ; ...
         cmov  c12, c15                  ; the far image again
+        lhu   t0, fw_plat+22-GPBASE(gp) ; overlay map entries: the code cache's slots
+        bnez  t0, k0_nx                 ;   (platform table header; 0: an older platform, 16)
+        li    t0, 16                    ;   ...
+k0_nx:
+        sd    t0, k_nxmap-GPBASE(gp)    ;   ...
         la    t0, k_trap                ; core 0's own trap handler: pages kernel units
         csrw  tvec, t0                  ; ...
         li    t0, 11                    ; kernel units: 2 KiB slots
@@ -978,6 +984,9 @@ wboot:
         li    a0, G_NCORES              ; ...
         call  kst_rd                    ; ...
         sd    a0, w_ncores-GPBASE(gp)   ; ...
+        li    a0, G_NXMAP               ; the overlay map's entries (page_in)
+        call  kst_rd                    ; ...
+        sd    a0, w_nxmap-GPBASE(gp)    ; ...
         li    a0, G_CTAB                ; the save table's size: the pool
         call  kst_rd                    ; ...
         call  w_params                  ; ...
@@ -3745,22 +3754,30 @@ wi_code:
         ld    a0, PR_ISL(s2)            ; ...
         andi  a0, a0, 255               ; ...
         call  csv8                      ; ...
-        xunmap 0                        ; forget the previous process's code units
-        xunmap 1                        ; .
-        xunmap 2                        ; .
-        xunmap 3                        ; .
-        xunmap 4                        ; .
-        xunmap 5                        ; .
-        xunmap 6                        ; .
-        xunmap 7                        ; .
-        xunmap 8                        ; .
-        xunmap 9                        ; .
-        xunmap 10                       ; .
-        xunmap 11                       ; .
-        xunmap 12                       ; .
-        xunmap 13                       ; .
-        xunmap 14                       ; .
+        ld    t0, w_nxmap-GPBASE(gp)    ; forget the previous process's code units:
+        li    t1, 16                    ;   entries nxmap-1 .. 0 (an index past the
+        sub   t1, t1, t0                ;   platform's overlay map is illegal), so
+        slli  t1, t1, 2                 ;   jump into the run of xunmaps below
+        la    t0, wi_unmap              ;   ...
+        add   t0, t0, t1                ;   ...
+        jalr  zero, t0, 0               ;   ...
+wi_unmap:
         xunmap 15                       ; .
+        xunmap 14                       ; .
+        xunmap 13                       ; .
+        xunmap 12                       ; .
+        xunmap 11                       ; .
+        xunmap 10                       ; .
+        xunmap 9                        ; .
+        xunmap 8                        ; .
+        xunmap 7                        ; .
+        xunmap 6                        ; .
+        xunmap 5                        ; .
+        xunmap 4                        ; .
+        xunmap 3                        ; .
+        xunmap 2                        ; .
+        xunmap 1                        ; .
+        xunmap 0                        ; .
         sd    zero, PR_VICT(s2)         ; (units come back on demand)
         li    s3, 0                     ; capabilities: rebuilt or restored (w_fetch)
 wi_cap:
@@ -3918,12 +3935,15 @@ page_in:
         cvalid t2, c0                   ; units live in the program's memory (c0)
         beqz  t2, pi_no                 ; ...
         cbase t2, c0                    ; offset within c0
+        li    t4, 1                     ; t4 = slot size
+        sll   t4, t4, t1                ; ...
+        addi  t3, t4, -1                ; xmap needs a slot-aligned far address:
+        and   t3, t3, t2                ;   the units' offsets are, c0's base must be
+        bnez  t3, pi_no                 ;   ...
         sub   a2, t0, t2                ; ...
         srl   a2, a2, t1                ; round down to its unit
         sll   a2, a2, t1                ; ...
         clen  t3, c0                    ; ...
-        li    t4, 1                     ; t4 = slot size
-        sll   t4, t4, t1                ; ...
         bgeu  a2, t3, pi_no             ; outside
         sub   t3, t3, a2                ; a whole slot must fit
         bltu  t3, t4, pi_no             ; ...
@@ -3935,7 +3955,7 @@ page_in:
         li    t6, STACKTOP              ; and ends at 64 KiB
         sub   t6, t6, t5                ; ...
         srl   t6, t6, t1                ; slots that fit
-        li    t3, 16                    ; at most 16 map entries
+        ld    t3, w_nxmap-GPBASE(gp)    ; at most one per overlay map entry
         bleu  t6, t3, pi_n              ; ...
         mv    t6, t3                    ; ...
 pi_n:
@@ -4150,13 +4170,17 @@ k_trap:
         csrr  t4, epc                   ; but never the one the missing xcall / xret is in
         li    t5, PTEXT                 ; (the retry must find its own code there)
         sub   t4, t4, t5                ; ...
-        srli  t4, t4, 11                ; its slot (resident code gives a slot >= 16)
+        srli  t4, t4, 11                ; its slot (resident code gives one past the cache)
+        ld    t5, k_nxmap-GPBASE(gp)    ; the cache's slots: one per overlay map entry
         bne   t4, t3, kt_vok            ; ...
         addi  t3, t3, 1                 ; skip it
-        andi  t3, t3, 15                ; ...
+        bltu  t3, t5, kt_vok            ; ...
+        li    t3, 0                     ; ...
 kt_vok:
         addi  t4, t3, 1                 ; the next victim
-        andi  t4, t4, 15                ; ...
+        bltu  t4, t5, kt_vw             ; ...
+        li    t4, 0                     ; ...
+kt_vw:
         sd    t4, k_vict-GPBASE(gp)     ; ...
         slli  a1, t3, 11                ; a1 = the slot's I-LS address
         li    t4, PTEXT                 ; ...
@@ -4282,6 +4306,7 @@ k_fputs:
 GPBASE:                                 ; gp points here
 w_me:      .dword 0                     ; this core
 w_ncores:  .dword 0                     ; cores in the machine
+w_nxmap:   .dword 0                     ; overlay map entries (the platform's)
 w_probe:   .dword 0                     ; 1 while a crestore may trap
 w_probefail: .dword 0                   ; it did
 w_curp:    .dword 0                     ; record of the running process (trap entry)
@@ -4332,6 +4357,7 @@ k_hashigh: .dword 0                     ; core 0: the boot ROM gave a second hea
 k_hasfb:   .dword 0                     ; core 0: there is a framebuffer window
 k_fbpid:   .dword 0                     ; core 0: the process the framebuffer is lent to (0 none)
 k_ctab:    .dword 0                     ; core 0: the capability save table's slots (platform table)
+k_nxmap:   .dword 0                     ; core 0: overlay map entries = kernel code-cache slots (platform table)
 k_nslot:   .dword 0                     ; core 0: threads a worker core takes (w_params)
 k_pbase:   .dword 0                     ; core 0: the arena pool's base
 k_pgran:   .dword 0                     ; core 0: its span in granules (both parts, the gap between them)

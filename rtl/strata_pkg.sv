@@ -23,7 +23,8 @@ package strata_pkg;
   localparam int NCAPS     = 16;
   localparam int CTAB      = 256;      // capability save table entries (common/platform.h CTAB_DEF)
   localparam int CTW       = $clog2(CTAB); // a slot number
-  localparam int NXMAP     = 16;       // overlay map entries
+  localparam int NXMAP_DEF = 16;       // overlay map entries: the default (common/platform.h NXMAP_DEF);
+                                       // strata_core / strata_top take NXMAP (4..16) as a parameter
   // Far addresses and capability bounds are held in FW bits. Every way of
   // making a capability keeps base + len <= its space's size (the reset
   // capabilities, csplit, cjoin, cmkep: base <= NCORES, length 1), and the

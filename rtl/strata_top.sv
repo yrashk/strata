@@ -12,6 +12,7 @@ module strata_top
   import strata_pkg::*;
 #(
   parameter int    NCORES     = 4,
+  parameter int    NXMAP      = NXMAP_DEF,  // overlay map entries per core (4..16)
   parameter int    T3_W       = T3_WORDS,
   parameter int    T3_LAT     = 20,
   parameter int    T2_W       = T2_WORDS,
@@ -156,7 +157,7 @@ module strata_top
     assign m_beats[2*i+1]  = 24'd1;
     assign m_wvalid[2*i+1] = 0;
 
-    strata_core #(.COREID(i), .NCORES(NCORES), .ILS_INIT(ILS_INIT), .DLS_INIT(DLS_INIT)) u_core (
+    strata_core #(.COREID(i), .NCORES(NCORES), .NXMAP(NXMAP), .ILS_INIT(ILS_INIT), .DLS_INIT(DLS_INIT)) u_core (
       .clk, .rst,
       .tu_req(m_req[2*i]), .tu_we(m_we[2*i]), .tu_space(m_space[2*i]), .tu_addr(m_addr[2*i]),
       .tu_beats(m_beats[2*i]), .tu_byte(m_byte[2*i]), .tu_wvalid(m_wvalid[2*i]),

@@ -26,16 +26,18 @@ a 32 KiB block-RAM stand-in for system memory, which is external DRAM on a
 board. It prints the cell counts and checks the log for latches and for
 memories built from flip-flops; everything is in `fpga/build/<family>-<n>/`.
 
-These are for the RTL after the core-size work of 2026-11-10 (plan (a):
-microarchitecture only, no change to the ISA); the runs' summaries, cell
-counts and logs are kept in `fpga/results/`:
+These are for the RTL after the core-size work of 2026-11-10 (plan (a),
+microarchitecture only, then plan (b), two small ISA changes: slot-aligned
+`xmap` and the overlay map's size as a platform parameter); the runs'
+summaries, cell counts and logs are kept in `fpga/results/`:
 
 | Yosys, after synthesis | Logic | Flip-flops | Block RAM | Multipliers |
 |---|---|---|---|---|
-| Xilinx 7-series, 1 core | 30,530 LUTs | 6,871 | 88 RAMB36 + 4 RAMB18 | 4 DSP48E1 |
+| Xilinx 7-series, 1 core | 30,011 LUTs | 6,869 | 88 RAMB36 + 4 RAMB18 | 4 DSP48E1 |
+| Xilinx 7-series, 1 core, 8 overlay map entries (`fpga/synth.sh xc7 1 8`) | 29,078 LUTs | 6,495 | 88 RAMB36 + 4 RAMB18 | 4 DSP48E1 |
 | Xilinx 7-series, 2 cores | 58,066 LUTs | 11,713 | 120 RAMB36 + 7 RAMB18 | 8 DSP48E1 |
-| Xilinx 7-series, 6 cores | 172,984 LUTs | 31,104 | 248 RAMB36 + 19 RAMB18 | 24 DSP48E1 |
-| Lattice ECP5, 1 core | 36,408 LUT4 + 3,100 carry cells = 42,608 LUT4 sites | 6,831 | 180 DP16KD | 4 MULT18X18D |
+| Xilinx 7-series, 6 cores | 168,694 LUTs | 31,102 | 248 RAMB36 + 19 RAMB18 | 24 DSP48E1 |
+| Lattice ECP5, 1 core | 35,473 LUT4 + 2,873 carry cells = 41,219 LUT4 sites | 6,831 | 180 DP16KD | 4 MULT18X18D |
 
 Before it (commit 0a4bd8a, with the 256-entry save table): 1 core 50,606
 LUTs, 12,638 FF, 30 DSP48E1; 2 cores 94,130 LUTs; 6 cores 290,431 LUTs,
@@ -52,7 +54,15 @@ The steps, one core on xc7 (`fpga/synth.sh xc7 1` after each commit):
 | save table in block RAM (+1 cycle for csave / crestore and the x forms); integer registers in LUT-RAM; a reset sequencer | 32,728 | 7,360 | 30 | +3 RAMB18 |
 | ltag / linst entry address in its own cycles (+2); a 4-cycle 32 x 32 multiplier | 32,321 | 7,673 | 4 | same |
 | Transfer Unit ranges in 17 bits; one adder for addresses and branches; narrow pc + 4 / branch targets | 30,752 | 7,193 | 4 | same |
-| inboxes: one small RAM per core, one gift per cycle | 30,530 | 6,871 | 4 | same |
+| inboxes: one small RAM per core, one gift per cycle (end of plan (a)) | 30,530 | 6,871 | 4 | same |
+| ISA: slot-aligned `xmap` (the match is an equality under the slot mask); NXMAP a platform parameter | 30,011 | 6,869 | 4 | same |
+| the same with NXMAP = 8 | 29,078 | 6,495 | 4 | same |
+
+At the end of plan (a): 2 cores 59,213 LUTs (11,713 FF), 6 cores 172,984 LUTs
+(31,104 FF), ECP5 1 core 42,608 LUT4 sites. Plan (b) then took 1.7% off
+one core (4.8% with 8 map entries) and 2.5% off six cores: after (a) the
+overlay map's range matches were already single 27-bit subtracts, so
+making them equalities saved less than it would have before.
 
 The cost in cycles (no instruction's result changes): `csave`,
 `crestore`, `csavex`, `crestorex` +1 (4 cycles); `ltag` / `linst` +2;
@@ -81,8 +91,13 @@ Notes on reading the table:
 - Block RAM: each core has two 64 KiB Local Stores (32 RAMB36, or 64
   DP16KD) and its save table (3 RAMB18); T2 takes 16 RAMB36 (32 DP16KD),
   the disk 32 (64) and the T3 stand-in 8 (16).
-- One more core costs about 27,500 LUTs, 4,800 flip-flops, 32 RAMB36 + 3
+- One more core costs about 28,000 LUTs, 4,800 flip-flops, 32 RAMB36 + 3
   RAMB18 and 4 DSP slices on 7-series.
+- The overlay map's size is a parameter of `strata_core` / `strata_top`
+  (`NXMAP`, 4..16, 16 by default) that the platform table publishes;
+  `fpga/synth.sh FAMILY N NXMAP` synthesizes another size. 8 entries are
+  enough for StrataOS (`make test-small` boots it that way) and save about
+  120 LUTs per entry.
 
 ### Where the LUTs went, and what is left
 
@@ -111,21 +126,22 @@ What made it smaller, in order of effect:
 4. **Cycles for logic where an instruction is rare.** The save table's
    registered read, the ltag entry address, the multiplier.
 
-What is left, roughly: the overlay map (still 16 x 2 subtracts and range
-compares: slot-aligned mappings, an ISA change, would make it equality
-compares), the capability registers in flip-flops, execute's result
-multiplexers and the banked trap CSRs, the Transfer Unit's queue and
-hazard compares, the per-core granule-table copy.
+What is left, roughly: the capability registers in flip-flops, execute's
+result multiplexers and the banked trap CSRs, the Transfer Unit's queue and
+hazard compares, the per-core granule-table copy, and in the overlay map
+the I-LS-side compares (the link's "is the pc in this slot" and the tgetx
+invalidation, 17-bit subtracts per entry; requiring the I-LS slot to be
+aligned too would make the first an equality).
 
 ### What fits where
 
 | System | Board | Use of the device (synthesis estimate) |
 |---|---|---|
-| 1 core | Digilent Arty A7-100T (XC7A100T: 63,400 LUTs, 135 RAMB36) | 48% of the LUTs, 82 RAMB36 equivalents |
-| 1 core | Radiona ULX3S 85F (LFE5U-85F: 83,640 LUT4, 208 DP16KD) | 51% of the LUT4 sites, 164 DP16KD: not placed and routed |
+| 1 core | Digilent Arty A7-100T (XC7A100T: 63,400 LUTs, 135 RAMB36) | 47% of the LUTs, 82 RAMB36 equivalents |
+| 1 core | Radiona ULX3S 85F (LFE5U-85F: 83,640 LUT4, 208 DP16KD) | 49% of the LUT4 sites, 164 DP16KD: not placed and routed |
 | 2 cores | Digilent Arty A7-100T | 92% of the LUTs: on paper only, too full to route comfortably |
 | 2 cores | Digilent Nexys Video (XC7A200T: 134,600 LUTs, 365 RAMB36) | 43% of the LUTs, 116 RAMB36 equivalents |
-| 6 cores | Kintex-7 325T (203,800 LUTs, 445 RAMB36) | 85% of the LUTs |
+| 6 cores | Kintex-7 325T (203,800 LUTs, 445 RAMB36) | 83% of the LUTs |
 
 The block RAM counts here leave out the T3 stand-in. There is no ECP5
 board top, pin file or SDRAM adapter in this repository; the ECP5 row is
@@ -134,7 +150,7 @@ a size check only.
 Two limits apply:
 
 - **StrataOS needs at least six cores** (the system core and five
-  servers). A 6-core system is now 172,984 LUTs: still more than any
+  servers). A 6-core system is now 168,694 LUTs: still more than any
   Artix-7 (the largest, the 200T, has 134,600), but within a Kintex-7
   325T. The 1- and 2-core systems run bare-metal programs and the boot
   ROM; `make fpga-images` still writes a StrataOS disk image for the

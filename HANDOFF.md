@@ -75,14 +75,19 @@ Not verified:
   (`fpga/README.md` has the tables and a per-module breakdown; the ECP5
   problem was the D-LS: fixed with `(* no_rw_check *)` in
   `rtl/strata_ram.sv`). No place-and-route, so no timing.
-- About 47k LUTs per core on xc7. One core fits the Arty A7-100T, two need
-  an XC7A200T (Nexys Video). **StrataOS needs 6 cores (~293k LUTs): more
-  than any Artix-7.** `make fpga-images` still builds a StrataOS disk for
-  the 2-core Arty top, which cannot boot it.
-- Where to cut (measured): the overlay map is ~30% of a core (16 entries of
-  64-bit range compares), the capability registers ~14%.
-- The numbers predate the pointer device; rerun `fpga/synth.sh` after it
-  lands (2-core runs ~12 min, 6-core ~55 min).
+- One core is 30,011 LUTs on xc7 (was 50,606), each further core about
+  28k; ECP5 one core 41,219 LUT4 sites (was 80,999). Two cores fit an
+  XC7A200T (Nexys Video). **StrataOS needs 6 cores (168,694 LUTs): more than
+  any Artix-7, within a Kintex-7 325T.** `make fpga-images` still builds a
+  StrataOS disk for the 2-core Arty top, which cannot boot it.
+- How it got there (one commit per step, fpga/README.md has the numbers):
+  27-bit capability bounds and overlay far addresses, two capability read
+  ports, the save table in block RAM, LUT-RAM integer registers and
+  inboxes, multi-cycle multiply and ltag entry address, slot-aligned xmap
+  (an ISA change) and NXMAP as a platform parameter (`make test-small`
+  boots StrataOS with 8).
+- No place-and-route yet, so no timing (synthesis: 1 core ~2 min, 6 cores
+  ~11 min).
 
 ### Forth under StrataOS — works; docs/cleanup open
 - `forth`, `forth file.fs`, `forth -n N` run under the OS; tests pass.

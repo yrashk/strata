@@ -23,6 +23,7 @@ module strata_core
 #(
   parameter int    COREID   = 0,
   parameter int    NCORES   = 4,
+  parameter int    NXMAP    = NXMAP_DEF,  // overlay map entries (4..16; the platform table says)
   parameter string ILS_INIT = "",
   parameter string DLS_INIT = ""
 )(
@@ -116,6 +117,7 @@ module strata_core
 
   // the overlay map: a far address (below its space's size: xmap checks the
   // bounds first) and an I-LS address (below ILS_BYTES) per entry
+  localparam int XW = $clog2(NXMAP);    // an entry number
   logic          xm_v   [NXMAP];
   logic [2:0]    xm_sp  [NXMAP];
   logic [FW-1:0] xm_far [NXMAP];
@@ -467,45 +469,39 @@ module strata_core
 
   // ================================================================ overlay map lookup
   // With xslot = 0 a map entry matches one far address exactly; with
-  // xslot = n it covers a 2^n-byte slot. xret looks up a far return link
+  // xslot = n it covers the 2^n-byte slot holding its far address (xmap
+  // requires that address to be a multiple of 2^n; the low bits of an entry
+  // made under a smaller xslot are ignored). xret looks up a far return link
   // (bit 63 set) the same way, in any space.
   //
-  // An entry's far address F is below 2^(FW-1), so each entry needs one
-  // FW-bit subtract: the key K hits it when K >= F and K - F < 2^xslot. An
-  // xcall's K = base + ra is below 2^(FW-1) too (the bounds check comes
-  // first); only an xret link can have bits above FW-1, and then K - F >=
-  // 2^(FW-1), so it can hit only with xslot >= FW (the shared terms xk_a,
-  // xk_b). The hit entry is muxed out and the target computed once, in 64
-  // bits, so a fetch fault on it reports the exact pc.
+  // So a key K hits entry F when K >> xslot == F >> xslot: per entry an
+  // FW-bit equality under a mask (an entry's far address is below the
+  // space's size), with one shared check that K has no bits above FW - 1 at
+  // or above xslot; no carry chains. The hit entry is muxed out and the
+  // target, its I-LS address plus K's offset in the slot, computed once in
+  // 64 bits, so a fetch fault on it reports the exact pc.
   logic          xm_hit, xm_inslot;
-  logic [63:0]   xm_target, xc_key, xm_link;
-  logic [FW-1:0] xs_mask, xm_far_sel, xm_far_lk;
+  logic [63:0]   xm_target, xc_key, xm_link, xs_hmask64;
+  logic [FW-1:0] xs_hmask, xm_far_lk, xm_lk_far;
   logic [15:0]   xm_ils_sel, xm_ils_lk, xl_mask;
-  logic          xk_hi0, xk_big, xk_a, xk_b;
-  logic [3:0]    xm_i, xm_li;
+  logic          xk_hi_ok;
+  logic [XW-1:0] xm_i, xm_li;
   logic [16:0]   xm_lk_off;
-  assign xc_key  = d.flag ? {1'b0, ra[62:0]} : 64'(xcap.base + ra[FW-1:0]);   // ra < len: exact
-  assign xs_mask = xslot >= 6'(FW) ? '0 : {FW{1'b1}} << xslot;     // the bits K - F must not have
-  assign xl_mask = xslot >= 6'd16 ? '0 : 16'hffff << xslot;
-  assign xk_hi0  = xc_key[63:FW] == 0;
-  assign xk_big  = xslot >= 6'(FW);
-  assign xk_a    = (xc_key >> xslot) == 0;                          // K < 2^xslot
-  assign xk_b    = (xc_key >> FW) == ((64'd1 << xslot) >> FW);       // K >> FW == 2^(xslot-FW)
+  assign xc_key     = d.flag ? {1'b0, ra[62:0]} : 64'(xcap.base + ra[FW-1:0]);   // ra < len: exact
+  assign xs_hmask64 = ~64'd0 << xslot;                              // the slot number's bits
+  assign xs_hmask   = xs_hmask64[FW-1:0];
+  assign xl_mask    = xslot >= 6'd16 ? '0 : 16'hffff << xslot;
+  assign xk_hi_ok   = (xc_key[63:FW] & xs_hmask64[63:FW]) == 0;       // F >> xslot has no such bits
   always_comb begin
-    logic [FW:0] df;
     logic [16:0] dl;
-    logic        m;
     xm_hit = 0;
     xm_i   = '0;
-    for (int i = 0; i < NXMAP; i++) begin
-      df = {1'b0, xc_key[FW-1:0]} - {1'b0, xm_far[i]};              // df[FW]: borrow
-      m  = xk_hi0 ? (!df[FW] && (df[FW-1:0] & xs_mask) == 0)
-                  : (xk_big && (xk_a || (df[FW] && xk_b)));
-      if (!xm_hit && xm_v[i] && (d.flag || xm_sp[i] == xcap.space) && m) begin
+    for (int i = 0; i < NXMAP; i++)
+      if (!xm_hit && xm_v[i] && (d.flag || xm_sp[i] == xcap.space) && xk_hi_ok &&
+          ((xc_key[FW-1:0] ^ xm_far[i]) & xs_hmask) == 0) begin
         xm_hit = 1;
-        xm_i   = 4'(i);
+        xm_i   = XW'(i);
       end
-    end
     // the link an xcall leaves: a far address when called from inside a
     // mapped unit (pc < ILS_BYTES here: the fetch checked it)
     xm_inslot = 0;
@@ -514,17 +510,20 @@ module strata_core
       dl = {1'b0, pc[15:0]} - {1'b0, xm_ils[i]};
       if (xslot != 0 && !xm_inslot && xm_v[i] && !dl[16] && (dl[15:0] & xl_mask) == 0) begin
         xm_inslot = 1;
-        xm_li     = 4'(i);
+        xm_li     = XW'(i);
       end
     end
   end
-  assign xm_far_sel = xm_far[xm_i];
   assign xm_ils_sel = xm_ils[xm_i];
-  assign xm_target  = 64'(xm_ils_sel) + (xc_key - 64'(xm_far_sel));
+  assign xm_target  = 64'(xm_ils_sel) + (xc_key & ~xs_hmask64);
   assign xm_far_lk  = xm_far[xm_li];
   assign xm_ils_lk  = xm_ils[xm_li];
   assign xm_lk_off  = {1'b0, pc[15:0]} + 17'd4 - {1'b0, xm_ils_lk};      // pc + 4 - its slot's start
-  assign xm_link    = xm_inslot ? {1'b1, 63'(xm_far_lk + FW'(xm_lk_off))} : pc4;
+  assign xm_lk_far  = (xm_far_lk & xs_hmask) + FW'(xm_lk_off);         // the unit's far start + that
+  assign xm_link    = xm_inslot ? {1'b1, 63'(xm_lk_far)} : pc4;
+  // xmap's far address, and whether it is a multiple of 2^xslot
+  logic [FW-1:0] xm_new_far;
+  assign xm_new_far = xcap.base + rb[FW-1:0];                        // rb < len: exact
 
   // tgetx forgets the mappings into the I-LS range it replaces, [ra, ra + rc):
   // xf_fault put it inside the I-LS, so 17 bits hold both ends
@@ -1021,17 +1020,18 @@ module strata_core
             end
 
             K_XMAP: begin
-              if (d.rd[4]) trap(C_ILLEGAL, {32'b0, ir});
-              else if (d.flag) begin xm_v[d.rd[3:0]] <= 0; retire(pc4); end
+              if (d.rd >= 5'(NXMAP)) trap(C_ILLEGAL, {32'b0, ir});
+              else if (d.flag) begin xm_v[XW'(d.rd)] <= 0; retire(pc4); end
               else if (!live_a) trap(C_CAPINV, 64'(d.cs));
               else if (!xcap.perms[P_X]) trap(C_PERM, 64'(d.cs));
               else if (ge_w(rb, xcap.len)) trap(C_BOUNDS, rb);
+              else if ((xm_new_far & ~xs_hmask) != 0) trap(C_XALIGN, rb);   // not slot-aligned
               else if (ra[1:0] != 0 || ra[63:$clog2(ILS_BYTES)] != 0) trap(C_LSFAULT, ra);
               else begin
-                xm_v[d.rd[3:0]]   <= 1;
-                xm_sp[d.rd[3:0]]  <= xcap.space;
-                xm_far[d.rd[3:0]] <= xcap.base + rb[FW-1:0];          // rb < len: exact
-                xm_ils[d.rd[3:0]] <= ra[15:0];
+                xm_v[XW'(d.rd)]   <= 1;
+                xm_sp[XW'(d.rd)]  <= xcap.space;
+                xm_far[XW'(d.rd)] <= xm_new_far;
+                xm_ils[XW'(d.rd)] <= ra[15:0];
                 retire(pc4);
               end
             end

@@ -641,10 +641,9 @@ Transcripts are in
 
 ## Known limitations / notes
 
-- The RTL is ~47k LUTs per core on Xilinx 7-series (yosys): one core fits
-  an Arty A7-100T, two need an XC7A200T (Nexys Video), and the six that
-  StrataOS needs fit none of the boards considered. The overlay map is 30%
-  of a core (fpga/README.md, "Where the LUTs go").
+- The RTL is ~30k LUTs for one core on Xilinx 7-series (yosys), each
+  further core ~28k (was ~47k): two fit an XC7A200T (Nexys Video), and the
+  six that StrataOS needs (168,694 LUTs) a Kintex-7 325T (fpga/README.md).
 - `strata_ram` carries `(* no_rw_check *)`: FPGA block RAM does not define
   a read of a byte written in the same cycle through the other port, and
   the hazard stalls are what make that unobservable. Keep it that way when

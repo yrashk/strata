@@ -271,7 +271,7 @@
 
 {{section:sec:overlays}}
 <p>Code that does not fit in the I-LS lives in far memory and is copied in with
-  <code class="insn">tgetx</code>. The sixteen-entry <b class="term">overlay map</b> lets a program call
+  <code class="insn">tgetx</code>. The <b class="term">overlay map</b> (16 entries by default, a platform parameter) lets a program call
   such code by its far address, with the hardware taking the fast path when it is resident:</p>
 {{desc:ch-swmanaged.tex:xcall}}
 <p>A miss handler loads the code with <code class="insn">tgetx</code>, maps it with

@@ -371,14 +371,16 @@ in [`conformance/FINDINGS.md`](conformance/FINDINGS.md).
 ## FPGA
 
 The RTL is synthesizable (Yosys via `sv2v`; `fpga/synth.sh xc7|ecp5`).
-A core is about 47k LUTs on Xilinx 7-series: one core fits an Arty A7-100T,
-and the 2-core system (about 95k LUTs) needs an XC7A200T board such as the
-Digilent Nexys Video. On Lattice ECP5 one core takes about 74k of an
-85F's 84k LUT4s, and two cores do not fit. `fpga/arty/` is the board top
-(written for the Arty with two cores, which is too many for it), with
-LiteDRAM for the DDR3. StrataOS needs six cores, which is about 293k LUTs: more than any Artix-7
-or the common Kintex-7 boards hold. See
-`fpga/README.md` for the numbers and where the logic goes. Nothing has been
+The one-core system is about 30k LUTs on Xilinx 7-series (each further
+core about 28k): one core takes half an Arty A7-100T, and the 2-core
+system (58,066 LUTs) fits an XC7A200T board such as the Digilent Nexys
+Video. On Lattice ECP5 one core takes 41k of an 85F's 84k LUT4 sites;
+the block RAM of two cores' Local Stores does not fit it. `fpga/arty/` is
+the board top (two cores), with LiteDRAM for the DDR3. StrataOS needs six
+cores, which is 168,694 LUTs: more than any Artix-7, within a Kintex-7 325T.
+`make test-small` checks the configuration with 8 overlay map entries
+suggested for small FPGAs. See `fpga/README.md` for the numbers and where
+the logic goes. Nothing has been
 placed and routed, and it has not yet run on hardware.
 
 There is no video output on FPGA yet: the framebuffer is memory only, and
@@ -403,8 +405,8 @@ the console is a UART.
 Strata is a prototype. The longer list is in [`ROADMAP.md`](ROADMAP.md);
 the main points:
 
-- It has never run on hardware. The RTL is not pipelined, and the 2-core
-  system is large for a hobby FPGA.
+- It has never run on hardware. The RTL is not pipelined, and the 6 cores
+  StrataOS needs are more than a hobby FPGA holds.
 - A worker core holds at most 16 threads (the kernel's process records;
   the 256-entry capability save table reserves all their capabilities),
   and StrataOS needs at least 6 cores (one server per core). The number of

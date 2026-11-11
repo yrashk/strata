@@ -125,7 +125,7 @@ unchanged.
 3 & capinv & capability register or save slot is not live (empty, or revoked)\\
 4 & perm & capability lacks the permission or names the wrong kind of space\\
 5 & bounds & far range outside the segment\\
-6 & xalign & memory transfer or atomic not 8-byte aligned\\
+6 & xalign & memory transfer or atomic not 8-byte aligned; \insn{xmap} of a unit not aligned to its slot size\\
 7 & ifault & instruction fetch outside the I-LS or misaligned\\
 8 & xmiss & \insn{xcall} target, or \insn{xret} far link, not in the overlay map\\
 9 & pend & access to an in-flight range with CCR.PTRAP set (debug)\\

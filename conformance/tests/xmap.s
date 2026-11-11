@@ -13,9 +13,12 @@
 ;     the far address). The space must match too. Faults as for xmap
 ;     (bounds: offset >= length).
 ;   * Exact mapping (xslot = 0): an entry matches one far address only.
-;   * Slot mapping (xslot = n): an entry covers the 2^n bytes from its far
-;     address; a far address inside hits at the same offset in the I-LS
-;     slot; a call made from inside a mapped unit links a FAR return
+;   * Slot mapping (xslot = n): xmap needs a far address that is a
+;     multiple of 2^n (xalign, tval = the offset; checked after bounds,
+;     before the I-LS address). An entry covers the 2^n-byte slot holding
+;     its far address (the low bits of an entry made under a smaller xslot
+;     are ignored); a far address inside hits at the same offset in the
+;     I-LS slot; a call made from inside a mapped unit links a FAR return
 ;     address (bit 63 set | far address of pc + 4).
 ;   * xret rs: bit 63 clear: jump to rs & ~3; set: look the far address up
 ;     like xcall (xmiss with tval = rs, bit 63 included, if unmapped).
@@ -193,12 +196,31 @@ sl4:    xcall ra, c0, t6                ; outside every mapped slot
         li    a2, ub + 0x100            ; expected tval
         call  chkt                      ; check
 
-; ---- slot sizes at the edges: odd slots, far links with high bits, huge slots -------------------
+; ---- slot sizes at the edges: odd slots, alignment, far links with high bits, huge slots --------
 ; (an implementation may hold far addresses narrow; a far link from xret is a full 63-bit key)
         xunmap 3                        ; only entry 4 below
         li    t5, 3                     ; 2^3 = 8-byte slots
         csrw  xslot, t5                 ; slot mapping
         li    t0, fx                    ; fx: li a0, 101; ret (still at I-LS s1 = 0xd000)
+        addi  t2, t0, 4                 ; fx + 4: not a multiple of 8
+xa1:    xmap  4, s1, c0, t2             ; xalign
+        li    a0, C_XALIGN              ; expected cause
+        la    a1, xa1                   ; expected epc
+        addi  a2, t0, 4                 ; expected tval: the offset
+        call  chkt                      ; check
+        li    t2, 0x100000              ; = c0's length: out of bounds (and 8-aligned)
+xa2:    xmap  4, s1, c0, t2             ; bounds comes first
+        li    a0, C_BOUNDS              ; expected cause
+        la    a1, xa2                   ; expected epc
+        li    a2, 0x100000              ; expected tval
+        call  chkt                      ; check
+        addi  t2, t0, 4                 ; misaligned far address ...
+        addi  t3, s1, 2                 ; ... and a misaligned I-LS address
+xa3:    xmap  4, t3, c0, t2             ; xalign comes before lsfault
+        li    a0, C_XALIGN              ; expected cause
+        la    a1, xa3                   ; expected epc
+        addi  a2, t0, 4                 ; expected tval
+        call  chkt                      ; check
         xmap  4, s1, c0, t0             ; entry 4: [fx, fx + 8) -> 0xd000
         addi  t2, t0, 4                 ; fx + 4: its ret
         li    a0, 7                     ; entering at the ret leaves a0 alone
@@ -217,72 +239,87 @@ xe2:    xret  t5                        ; miss
         la    a1, xe2                   ; expected epc
         li    a2, 1 << 63 | 1 << 40 | fx ; expected tval
         call  chkt                      ; check
-        li    t5, 26                    ; 64 MiB slots
+        li    t5, 26                    ; 64 MiB slots: entry 4 now covers [0, 64 MiB)
         csrw  xslot, t5                 ; slot mapping
         la    t6, xe3b                  ; where to resume after the fetch fault
         sd    t6, tresume(zero)         ; (one-shot)
-        li    t5, 1 << 63 | (fx + (1 << 26) - 8) ; inside fx's slot, near its end
+        li    t5, 1 << 63 | (1 << 26) - 8 ; the end of that slot
 xe3:    xret  t5                        ; hits: jumps to 0xd000 + 2^26 - 8, past the I-LS
 xe3b:   li    a0, C_IFAULT              ; expected cause: the fetch
         li    a1, 0xd000 + (1 << 26) - 8 ; expected epc: the exact target
         li    a2, 0xd000 + (1 << 26) - 8 ; expected tval
         call  chkt                      ; check
+        li    t5, 1 << 63 | 1 << 26 | fx ; the next slot
+xe4:    xret  t5                        ; miss
+        li    a0, C_XMISS               ; expected cause
+        la    a1, xe4                   ; expected epc
+        li    a2, 1 << 63 | 1 << 26 | fx ; expected tval
+        call  chkt                      ; check
         li    t5, 27                    ; 128 MiB slots
         csrw  xslot, t5                 ; slot mapping
-        la    t6, xe4b                  ; resume address
+xa4:    xmap  5, s1, c0, t0             ; fx is not a multiple of 2^27
+        li    a0, C_XALIGN              ; expected cause
+        la    a1, xa4                   ; expected epc
+        li    a2, fx                    ; expected tval
+        call  chkt                      ; check
+        la    t6, xe5b                  ; resume address
         sd    t6, tresume(zero)         ; (one-shot)
-        li    t5, 1 << 63 | (fx + (1 << 27) - 8) ; bit 27 set, still inside the slot
-xe4:    xret  t5                        ; hits
-xe4b:   li    a0, C_IFAULT              ; expected cause
+        li    t5, 1 << 63 | (1 << 27) - 8 ; bit 26 set, still inside the slot
+xe5:    xret  t5                        ; hits
+xe5b:   li    a0, C_IFAULT              ; expected cause
         li    a1, 0xd000 + (1 << 27) - 8 ; expected epc
         li    a2, 0xd000 + (1 << 27) - 8 ; expected tval
         call  chkt                      ; check
-        li    t5, 1 << 63 | (fx + (1 << 27)) ; just past the slot
-xe5:    xret  t5                        ; miss
+        li    t5, 1 << 63 | 1 << 27     ; just past the slot
+xe6:    xret  t5                        ; miss
         li    a0, C_XMISS               ; expected cause
-        la    a1, xe5                   ; expected epc
-        li    a2, 1 << 63 | (fx + (1 << 27)) ; expected tval
+        la    a1, xe6                   ; expected epc
+        li    a2, 1 << 63 | 1 << 27     ; expected tval
         call  chkt                      ; check
         li    t5, 40                    ; 2^40-byte slots
         csrw  xslot, t5                 ; slot mapping
-        la    t6, xe6b                  ; resume address
+        la    t6, xe7b                  ; resume address
         sd    t6, tresume(zero)         ; (one-shot)
-        li    t5, 1 << 63 | (fx + (1 << 40) - 8) ; bit 40 set, inside the slot
-xe6:    xret  t5                        ; hits
-xe6b:   li    a0, C_IFAULT              ; expected cause
+        li    t5, 1 << 63 | (1 << 40) - 8 ; bits 3..39 set: inside the slot
+xe7:    xret  t5                        ; hits
+xe7b:   li    a0, C_IFAULT              ; expected cause
         li    a1, 0xd000 + (1 << 40) - 8 ; expected epc
         li    a2, 0xd000 + (1 << 40) - 8 ; expected tval
         call  chkt                      ; check
-        li    t5, 1 << 63 | (1 << 40) | 4 ; bit 40 set, low part below fx: still inside
-        la    t6, xe7b                  ; resume address
-        sd    t6, tresume(zero)         ; (one-shot)
-xe7:    xret  t5                        ; hits
-xe7b:   li    a0, C_IFAULT              ; expected cause
-        li    a1, 0xd000 + (1 << 40) + 4 - fx ; expected epc
-        li    a2, 0xd000 + (1 << 40) + 4 - fx ; expected tval
-        call  chkt                      ; check
-        li    t5, 1 << 63 | (fx + (1 << 40)) ; just past the slot
+        li    t5, 1 << 63 | 1 << 40 | 4 ; bit 40 set: the next slot
 xe8:    xret  t5                        ; miss
         li    a0, C_XMISS               ; expected cause
         la    a1, xe8                   ; expected epc
-        li    a2, 1 << 63 | (fx + (1 << 40)) ; expected tval
+        li    a2, 1 << 63 | 1 << 40 | 4 ; expected tval
         call  chkt                      ; check
-        li    t5, 1 << 63 | 4           ; below fx
-xe9:    xret  t5                        ; miss
-        li    a0, C_XMISS               ; expected cause
-        la    a1, xe9                   ; expected epc
-        li    a2, 1 << 63 | 4           ; expected tval
-        call  chkt                      ; check
+        li    t5, 1 << 63 | 4           ; below fx, in the same slot: entry 4's low bits are ignored
+        li    a0, 9                     ; a marker
+        la    ra, xe9b                  ; 0xd004 is fx's ret: it comes back here
+        xret  t5                        ; hits: 0xd000 + 4
+        li    a0, 99                    ; (skipped)
+xe9b:   li    a1, 9                     ; the ret ran and a0 is untouched
+        call  chk                       ; check
         li    t5, 63                    ; the largest slot
         csrw  xslot, t5                 ; slot mapping
         la    t6, xe10b                 ; resume address
         sd    t6, tresume(zero)         ; (one-shot)
-        li    t5, 1 << 63 | 1 << 62     ; any key at or above fx hits
+        li    t5, 1 << 63 | 1 << 62     ; any 63-bit key hits
 xe10:   xret  t5                        ; hits
 xe10b:  li    a0, C_IFAULT              ; expected cause
-        li    a1, 0xd000 + (1 << 62) - fx ; expected epc
-        li    a2, 0xd000 + (1 << 62) - fx ; expected tval
+        li    a1, 0xd000 + (1 << 62)    ; expected epc
+        li    a2, 0xd000 + (1 << 62)    ; expected tval
         call  chkt                      ; check
+        xunmap 4                        ; map entry 5 at far 0 with 2^63-byte slots
+        xmap  5, s1, c0, zero           ; far 0 is a multiple of anything
+        li    t5, 1 << 63 | 8           ; a link 8 bytes in
+        la    ra, xe11b                 ; 0xd008: fy (li a0, 102; ret) returns here
+        xret  t5                        ; hits: 0xd000 + 8
+xe11b:  li    a1, 102                   ; fy ran
+        call  chk                       ; check
+        xunmap 5                        ; (back to entry 4 below)
+        li    t5, 3                     ; 8-byte slots again
+        csrw  xslot, t5                 ; ...
+        xmap  4, s1, c0, t0             ; entry 4: [fx, fx + 8) -> 0xd000
         li    t5, 3                     ; tgetx over [0xd008, 0xd010): past entry 4's 8-byte slot
         csrw  xslot, t5                 ; slot mapping
         addi  t3, s1, 8                 ; 0xd008

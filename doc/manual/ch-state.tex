@@ -15,7 +15,7 @@ This chapter lists all state visible to software on one core, and the shared sta
 \reg{c0}--\reg{c15} & 16 capabilities & Capability registers (Chapter~\ref{ch:caps}).\\
 \texttt{CTAB[0..}$\textit{CTAB}$\texttt{-1]} & 256 capabilities (the platform's $\textit{CTAB}$, $\ge 64$) & Capability save table, reached only by \insn{csave}/\insn{crestore} (slots 0--63) and \insn{csavex}/\insn{crestorex} (every slot).\\
 \reg{tg0}--\reg{tg15} & 16 tags & Transfer tags: each is busy while a transfer issued with it is in flight.\\
-\texttt{XMAP[0..15]} & 16 entries & Overlay map: (valid, space, far address, I-LS address).\\
+\texttt{XMAP[0..}$\textit{NXMAP}$\texttt{-1]} & 16 entries (the platform's $\textit{NXMAP}$, 4--16) & Overlay map: (valid, space, far address, I-LS address).\\
 Inbox & 2 per sender & one FIFO queue of capabilities per sending node, filled by \insn{cgive} and \insn{csend}.\\
 Mode & 1 bit & Supervisor or user (\csr{status} bit 0); SPP, the mode \insn{eret} returns to (\csr{status} bit 1).\\
 Stop request & 1 bit & \csr{ipend}: set through core control, taken as a \cause{stop} trap in user mode.\\
@@ -73,8 +73,9 @@ the tag becomes idle.
 
 \subsection{Overlay map and inbox}
 
-The overlay map (Section~\ref{sec:overlays}) holds sixteen translations from far code addresses (or,
-with \csr{xslot} set, far code units) to I-LS addresses for \insn{xcall} and \insn{xret}. The inbox (Section~\ref{sec:inbox}) holds up to two capabilities from each sender, given to
+The overlay map (Section~\ref{sec:overlays}) holds $\textit{NXMAP}$ translations (16 by default, at
+least 4: the platform table's header says) from far code addresses (or, with \csr{xslot} set, far code
+units aligned to their size) to I-LS addresses for \insn{xcall} and \insn{xret}. The inbox (Section~\ref{sec:inbox}) holds up to two capabilities from each sender, given to
 this core, each tagged with the node that sent it. The inbox belongs to the supervisor: the
 instructions that take from it or inspect it by sender number are privileged
 (Section~\ref{sec:userinbox}).

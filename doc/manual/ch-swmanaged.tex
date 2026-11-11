@@ -78,16 +78,17 @@ hardware supplies only the lookup.
 
 Code that does not fit in the I-LS, or that is loaded on demand, lives in far memory and is copied in
 with \insn{tgetx}. The \term{overlay map} lets a program call such code by its far address and have the
-hardware take the fast path when it is already resident. It has sixteen entries, each mapping a far
-address in some space to an I-LS address.
+hardware take the fast path when it is already resident. It has $\textit{NXMAP}$ entries, each mapping
+a far address in some space to an I-LS address. $\textit{NXMAP}$ is a property of the platform, 4 to 16
+(16 by default), given by the platform table's header (Section~\ref{sec:stpd}).
 
 \begin{description}[leftmargin=1em,style=nextline]
 \item[\insref{xcall} \texttt{rd, cs, ro}] looks up far address $\texttt{C[cs].base} + \reg{ro}$ in the
   overlay map. On a hit it jumps to the mapped I-LS address and leaves a link in \reg{rd}. On a miss it
   traps with cause \cause{xmiss} and \csr{tval} = the far address.
 \item[\insref{xret} \texttt{rs}] returns through a link left by \insn{xcall}.
-\item[\insref{xmap} \texttt{idx, rl, cs, ro}] sets entry \field{idx} (0--15) to map that far address to
-  I-LS address \reg{rl}.
+\item[\insref{xmap} \texttt{idx, rl, cs, ro}] sets entry \field{idx} (0 to $\textit{NXMAP}-1$; a
+  larger index is an illegal instruction) to map that far address to I-LS address \reg{rl}.
 \item[\insref{xunmap} \texttt{idx}] clears entry \field{idx}.
 \end{description}
 
@@ -108,12 +109,18 @@ CSR \csr{xslot} selects how an entry matches:
 \begin{description}[leftmargin=1em,style=nextline]
 \item[\csr{xslot} = 0 (exact mapping)] An entry matches one far address. Each routine is called at its
   entry point and mapped individually. A link is always an ordinary I-LS return address.
-\item[\csr{xslot} = $n > 0$ (slot mapping)] Code is organised in \term{units} of $2^n$ bytes, aligned
-  to $2^n$ within the far segment, and the I-LS holds a cache of $2^n$-byte \term{slots}. An entry maps
-  the unit starting at its far address to the slot starting at its I-LS address: any far address inside
+\item[\csr{xslot} = $n > 0$ (slot mapping)] Code is organised in \term{units} of $2^n$ bytes, and the
+  I-LS holds a cache of $2^n$-byte \term{slots}. A unit's far address must be a multiple of $2^n$:
+  \insn{xmap} traps with \cause{xalign} (\csr{tval} = the offset \reg{ro}) otherwise. An entry maps the
+  unit starting at its far address to the slot starting at its I-LS address: any far address inside
   the unit hits, at the same offset in the slot. A program can therefore call any function of a unit,
   not only its first, and a unit may contain many functions.
 \end{description}
+
+So a lookup compares the far address shifted right by \csr{xslot} with each entry's, and the target is
+the entry's I-LS address plus the low \csr{xslot} bits of the far address. An entry made under a
+smaller \csr{xslot} covers, under a larger one, the aligned slot that holds its far address: the low
+bits of the entry are ignored. (Software that changes \csr{xslot} normally unmaps first.)
 
 The bits of \csr{xslot} above bit 5 are ignored; it is zero at reset and writable in either mode.
 
@@ -137,10 +144,10 @@ software. A miss handler:
 \item takes the far address from \csr{tval}, clearing bit~63 if the miss was a return;
 \item rounds it down to the start of its unit;
 \item picks a victim slot (StrataOS uses round robin over the slots that fit between the end of the
-  program's resident code and the end of the I-LS, at most sixteen);
+  program's resident code and the end of the I-LS, at most one per overlay map entry);
 \item loads the unit with \insn{tgetx}, which also unmaps whatever the slot held;
 \item maps the unit with \insn{xmap} and returns with \insn{eret}.
 \end{enumerate}
 The \texttt{units} program of StrataOS (Section~\ref{sec:os-paging}) runs 24 one-KiB code units through
-a sixteen-slot code cache with call chains seven deep, and checks its result against the same
-computation done by resident code.
+a code cache of sixteen slots (eight with an eight-entry overlay map) with call chains seven deep, and
+checks its result against the same computation done by resident code.

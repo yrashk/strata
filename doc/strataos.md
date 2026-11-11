@@ -304,6 +304,17 @@ greater length.
   (256 KiB granules, a generation each): there is no fixed number of
   revocable regions, so the number of processes is limited by memory.
 
+- **The overlay map's size, and aligned units.** Each core's overlay map
+  has NXMAP entries, a platform parameter in the platform table's header
+  (u16 at offset 22; 16 by default, 4..16; `strata-emu -X N`, the RTL's
+  NXMAP parameter). An xmap / xunmap index >= NXMAP is an illegal
+  instruction. With xslot = n != 0, xmap needs a far address that is a
+  multiple of 2^n (xalign, tval = the offset, after the bounds check); a
+  lookup matches far >> n, so a unit's address must be aligned: the kernel's
+  units are 2 KiB-aligned in c12, and page_in refuses a program whose c0
+  base is not slot-aligned. The kernel publishes NXMAP in the KST
+  (G_NXMAP) for the workers' page_in.
+
 - **A bigger save table.** Each core's capability save table has CTAB
   slots, a platform parameter in the platform table's header (u16 at offset
   20; 256 by default, at least 64; `strata-emu -S N`). `csavex cs, rx` and
@@ -334,9 +345,10 @@ greater length.
   (start-up, the operations of 2.4, exits, ticks) is **kernel code units**
   of 2 KiB in the kernel image's `.far` section (`os/kunits/*.s`), called
   with `xcall` through c12 and paged by the system core's own supervisor
-  trap handler into a kernel code cache of 16 slots at I-LS 0x8000..0xFFFF
-  of the system core, with the same `xslot`/`xmiss`/`xret` mechanism
-  programs use. The kernel counts the unit loads (INFO, `uptime`).
+  trap handler into a kernel code cache of NXMAP slots (one per overlay map
+  entry: 16 by default, read from the platform table's header at boot) from
+  I-LS 0x8000 of the system core, with the same `xslot`/`xmiss`/`xret`
+  mechanism programs use. The kernel counts the unit loads (INFO, `uptime`).
 - **Shared state.** The system core and the dispatchers share one 32 KiB
   table at the bottom of system memory (the KST), accessed only with far
   atomics: per-core counters, the published state of each core's thread

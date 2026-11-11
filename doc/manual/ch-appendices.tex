@@ -51,7 +51,7 @@ architectural requirement.
 3 & capinv & the named capability register or save slot is not live (empty, or revocable and its granule revoked); \insn{crevoke}/\insn{cundom} without a revoker; \insn{csend}/\insn{crecv} without a suitable endpoint & transfers and atomics: the far offset; capability and overlay instructions: the register or slot number\\
 4 & perm & missing permission; transfer through an endpoint; \insn{tgetx} through device or core-control space; \insn{tget} through core-control space; \insn{catomic} outside T2/T3 & far offset (transfers, atomics) or register number\\
 5 & bounds & far range outside the segment; overlay offset $\geq$ length & the far offset\\
-6 & xalign & memory transfer operands or atomic offset not multiples of 8 & the far offset\\
+6 & xalign & memory transfer operands or atomic offset not multiples of 8; \insn{xmap} far address not a multiple of $2^{\csr{xslot}}$ & the far offset\\
 7 & ifault & fetch from a misaligned \reg{pc} or one $\geq$ 65536 & \reg{pc}\\
 8 & xmiss & \insn{xcall} target, or \insn{xret} far link, not mapped & the absolute far address; for \insn{xret}, the link (bit 63 set)\\
 9 & pend & with CCR.PTRAP, a load, store, \insn{ltag} or \insn{linst} that would stall on an in-flight range; a \insn{tget} or \insn{tput} whose D-LS range overlaps a pending device read & the Local Store address\\

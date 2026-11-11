@@ -3,6 +3,8 @@
 #   make            assembler, emulator, RTL simulator
 #   make examples   assemble every example
 #   make test       run every example on the emulator and the RTL and compare
+#   make test-small the same (examples, StrataOS boot) with 8 overlay map entries
+#                   (NXMAP=8, the FPGA configuration; part of make test)
 #   make run        run every example on the RTL simulator, showing its output
 #   make run-emu    the same on the C emulator
 #   make run-NAME   run one example on the RTL, e.g. make run-mandel
@@ -25,6 +27,7 @@
 CC      ?= cc
 CFLAGS  ?= -std=gnu11 -O2 -Wall -Wextra
 NCORES  ?= 8
+NXMAP   ?= 16
 
 # SDL2 for the framebuffer window, when pkg-config finds it (else -DNO_SDL:
 # no window, PRESENT only records frames for -F)
@@ -43,7 +46,7 @@ IMAGES  := $(patsubst examples/%.s,$(BUILD)/examples/%.stx,$(EXAMPLES))
 PROGS   := $(patsubst examples/%.s,$(BUILD)/prog/%,$(EXAMPLES))
 EMU     := $(BUILD)/strata-emu -c $(NCORES)
 
-.PHONY: all examples test clean lint run run-emu boot boot-net boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
+.PHONY: all examples test test-small clean lint run run-emu boot boot-net boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
 
 all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl $(BUILD)/netrelay
 
@@ -68,9 +71,9 @@ $(BUILD)/strata-rtl: $(RTL) sim/main.cpp common/stx.h common/platform.h common/d
 	@mkdir -p $(BUILD)
 	verilator --cc --exe --build -j 0 -O3 --x-assign fast --x-initial fast \
 	  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
-	  -DSIMULATION -GNCORES=$(NCORES) --top-module strata_top \
+	  -DSIMULATION -GNCORES=$(NCORES) -GNXMAP=$(NXMAP) --top-module strata_top \
 	  -Mdir $(BUILD)/obj_dir -o strata-rtl \
-	  -CFLAGS "-O2 -std=c++17 -DNCORES=$(NCORES) $(SDL_CFLAGS)" -LDFLAGS "$(SDL_LIBS)" $(RTL) sim/main.cpp
+	  -CFLAGS "-O2 -std=c++17 -DNCORES=$(NCORES) -DNXMAP=$(NXMAP) $(SDL_CFLAGS)" -LDFLAGS "$(SDL_LIBS)" $(RTL) sim/main.cpp
 	rm -f $@ && cp $(BUILD)/obj_dir/strata-rtl $@
 
 lint:
@@ -97,8 +100,18 @@ test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-fb.sh $(BUILD)/examples/gfx.stx
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-jit.sh
 	BUILD=$(BUILD) NCORES=$(NCORES) ./conformance/run.sh
+	$(MAKE) test-small
 	@if command -v node >/dev/null 2>&1 && command -v $(EMCC) >/dev/null 2>&1; then $(MAKE) test-wasm; \
 	else echo "test-wasm: skipped (needs node and $(EMCC))"; fi
+
+# the small (FPGA) configuration: 8 overlay map entries instead of 16. The
+# RTL is built with NXMAP=8 in its own directory and compared with the
+# emulator's -X 8 on the examples and a full StrataOS boot and session.
+SMALL := $(BUILD)/small
+test-small:
+	$(MAKE) BUILD=$(SMALL) NXMAP=8 all examples os
+	BUILD=$(SMALL) NCORES=$(NCORES) EMU_ARGS="-X 8" ./tools/compare.sh $(patsubst $(BUILD)/%,$(SMALL)/%,$(IMAGES))
+	BUILD=$(SMALL) NCORES=$(NCORES) EMU_ARGS="-X 8" ./tools/compare-boot.sh $(SMALL)/bootrom.stx $(SMALL)/disk.img os/demo.txt
 
 run: all examples
 	@for img in $(IMAGES); do \

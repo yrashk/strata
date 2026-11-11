@@ -44,13 +44,13 @@ found and how it was decided.
 | `pendxfer`, `pend` | transfers ordered after an in-flight device read (F5); CCR.PTRAP for loads, stores, `ltag`, `linst` |
 | `haltdrain` | `halt` drains device reads (F3) |
 | `ltag` | ltag/linst: hits, misses, replacement, the counter out of range; lsfault (ways 0, misaligned, past the D-LS) with the 64-bit entry address, entry addresses that wrap around |
-| `xmap` | xmap/xunmap/xcall/xret/xslot, xmiss |
+| `xmap` | xmap/xunmap/xcall/xret/xslot, xmiss; slot-aligned units (xalign), the low bits of an entry ignored under a larger xslot, odd and huge slots, far links with high bits |
 | `wide` | 64-bit offsets, lengths and split points against capability bounds: bits above the space's size count (transfers, device ports, `tamo`, `csplit`, `xmap`/`xcall`); the last word of system memory |
 | `timer` | FREQ/NOW/DEADLINE/WAIT, latching; VSYNC, PRESENT; device bounds |
 | `devspan` | byte-per-beat device transfers across registers |
 | `console`, `break`, `brkrel`, `inrel` | output, input, end of input, Ctrl-C (`-b`), one release for every break read (F4) and for waiting input reads |
 | `blk` | the block device: identify, write/read/flush, errors, the completion queue |
-| `plat` | the platform table: layout (the save table's size in the header), checksum, every entry |
+| `plat` | the platform table: layout (the save table's and the overlay map's sizes in the header), checksum, every entry |
 | `ptr` | the pointer: STATE, EVENT order and packing, release by a write |
 | `mc` | gifts between cores, per-sender queues, `ctake` from, `cpoll`, `tany` on the inbox, windows, revocation across cores, stop, a halted target |
 | `reserved` | reserved CSRs, CCR bits, ignored fields |

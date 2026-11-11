@@ -4,6 +4,9 @@
 #
 #   tools/compare-boot.sh build/bootrom.stx build/disk.img os/demo.txt
 #
+# EMU_ARGS: extra emulator flags that describe the same machine as the RTL
+# build (e.g. -X 8 for an RTL built with NXMAP=8).
+#
 # Both machines run with the virtual timer (-T virtual: NOW = emulator rounds
 # / 100, RTL cycles / 100) and no window (-g none).
 #
@@ -38,7 +41,7 @@ split_trace() { # $1 = fifo, $2 = output prefix
 }
 split_trace "$tmp/e.fifo" "$tmp/e" & pe=$!
 split_trace "$tmp/r.fifo" "$tmp/r" & pr=$!
-"$b/strata-emu" -j -c "$n" -T virtual -g none -m 4000000000 -d "$tmp/d1.img" -i "$3" -t "$tmp/e.fifo" "$1" >"$tmp/e.out" 2>"$tmp/e.err"
+"$b/strata-emu" -j -c "$n" ${EMU_ARGS:-} -T virtual -g none -m 4000000000 -d "$tmp/d1.img" -i "$3" -t "$tmp/e.fifo" "$1" >"$tmp/e.out" 2>"$tmp/e.err"
 erc=$?
 "$b/strata-rtl" -T virtual -g none -m 4000000000 -d "$tmp/d2.img" -i "$3" -t "$tmp/r.fifo" "$1" >"$tmp/r.out" 2>"$tmp/r.err"
 rrc=$?

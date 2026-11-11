@@ -1010,29 +1010,35 @@ ins("sys", "XMAP", "Overlay map",
     L_R(OP["XMAP"], rd=XIDX, rs1="rils", rs2="roff",
         funct=[(10, 5, b(0, 6), "z"), (4, 4, "0", "f"), (3, 0, "cs", "v")]),
     ["xmap idx, rils, cs, roff"],
-    r"Sets overlay-map entry \field{idx} (0--15) to map far address $\texttt{C[cs].base} + \reg{roff}$ to "
+    r"Sets overlay-map entry \field{idx} (0 to $\textit{NXMAP}-1$) to map far address $\texttt{C[cs].base} + \reg{roff}$ to "
     r"I-LS address \reg{rils}. Software calls this after loading the code with \insn{tgetx}. With "
     r"\csr{xslot} = 0 the entry maps that one far address; with \csr{xslot} = $n$ it maps the $2^n$-byte "
-    r"unit that starts there to the $2^n$-byte I-LS slot at \reg{rils}.",
+    r"unit that starts there to the $2^n$-byte I-LS slot at \reg{rils}, and the far address must be a "
+    r"multiple of $2^n$.",
     """cap = C[cs];
 if not Live(cap) then Trap(capinv, cs); end
 if not cap.X then Trap(perm, cs); end
 if UInt(X[roff]) >= cap.len then Trap(bounds, X[roff]); end
+if XSLOT != 0 and (cap.base + X[roff]) MOD (1 << XSLOT) != 0 then Trap(xalign, X[roff]); end
 if X[rils] MOD 4 != 0 or UInt(X[rils]) >= ILS_SIZE then Trap(lsfault, X[rils]); end
 XMAP[idx] = (valid: TRUE, space: cap.space, far: cap.base + X[roff], ils: X[rils]);""",
-    [("illegal", r"bit 25 is 1", "instruction word"),
+    [("illegal", r"$\field{idx} \geq \textit{NXMAP}$ (always when bit 25 is 1)", "instruction word"),
      ("capinv", r"\texttt{C[cs]} is not live", r"\texttt{cs}"),
      ("perm", r"\texttt{C[cs]} lacks \perm{X}", r"\texttt{cs}"),
      ("bounds", r"$\texttt{X[roff]} \geq \texttt{C[cs].len}$", r"\texttt{X[roff]}"),
+     ("xalign", r"$\csr{xslot} = n \neq 0$ and the far address is not a multiple of $2^n$", r"\texttt{X[roff]}"),
      ("lsfault", r"\texttt{X[rils]} misaligned or $\geq$ 65536", r"\texttt{X[rils]}")],
     notes=r"Entries are not checked for duplicates; a lookup uses the lowest-numbered matching entry. The map "
-          r"is per-core state and is available in user mode.",
+          r"is per-core state and is available in user mode. $\textit{NXMAP}$, the number of entries, is a "
+          r"property of the platform (4--16, 16 by default; the platform table's header says). The alignment "
+          r"is checked against \csr{xslot} when the entry is made; a lookup ignores the bits of the entry's far "
+          r"address below the current \csr{xslot}.",
     fmt="R", opname="XMAP", funct="funct<4> = 0")
 ins("sys", "XUNMAP", "Overlay unmap",
     [(31, 26, b(OP["XMAP"], 6), "f"), (25, 25, "0", "f"), (24, 21, "idx", "v"), (20, 5, b(0, 16), "z"),
      (4, 4, "1", "f"), (3, 0, b(0, 4), "z")],
-    ["xunmap idx"], r"Invalidates overlay-map entry \field{idx} (0--15).",
-    "XMAP[idx].valid = FALSE;", [("illegal", r"bit 25 is 1", "instruction word")],
+    ["xunmap idx"], r"Invalidates overlay-map entry \field{idx} (0 to $\textit{NXMAP}-1$).",
+    "XMAP[idx].valid = FALSE;", [("illegal", r"$\field{idx} \geq \textit{NXMAP}$ (always when bit 25 is 1)", "instruction word")],
     notes=r"\insn{tgetx} also invalidates every entry whose I-LS slot it overwrites.",
     fmt="R", opname="XMAP", funct="funct<4> = 1")
 ins("sys", "XCALL", "Overlay call",
@@ -1049,16 +1055,16 @@ if not Live(cap) then Trap(capinv, cs); end
 if not cap.X then Trap(perm, cs); end
 if UInt(X[roff]) >= cap.len then Trap(bounds, X[roff]); end
 key = cap.base + X[roff];
-sl = if XSLOT != 0 then 1 << XSLOT else 1;
+n = XSLOT;  sl = 1 << n;                                   // n = 0: exact mapping
 e = lowest entry with XMAP[e].valid and XMAP[e].space == cap.space
-                      and XMAP[e].far <= key < XMAP[e].far + sl;
+                      and key >> n == XMAP[e].far >> n;     // the slot holding the far address
 if no such e then Trap(xmiss, key); end
 link = PC + 4;
-if XSLOT != 0 and a valid entry f has XMAP[f].ils <= PC < XMAP[f].ils + sl then   // lowest such f
-    link = (1 << 63) OR (XMAP[f].far + (PC + 4 - XMAP[f].ils));                    // far link
+if n != 0 and a valid entry f has XMAP[f].ils <= PC < XMAP[f].ils + sl then        // lowest such f
+    link = (1 << 63) OR ((XMAP[f].far AND NOT (sl - 1)) + (PC + 4 - XMAP[f].ils));  // far link
 end
 X[rd] = link;
-NextPC = XMAP[e].ils + (key - XMAP[e].far);""",
+NextPC = XMAP[e].ils + (key MOD sl);""",
     [("capinv", r"\texttt{C[cs]} is not live", r"\texttt{cs}"),
      ("perm", r"\texttt{C[cs]} lacks \perm{X}", r"\texttt{cs}"),
      ("bounds", r"$\texttt{X[roff]} \geq \texttt{C[cs].len}$", r"\texttt{X[roff]}"),
@@ -1081,10 +1087,10 @@ if a<63> == 0 then
     NextPC = a AND NOT 3;
 else
     key = ZeroExtend(a<62:0>, 64);
-    sl = if XSLOT != 0 then 1 << XSLOT else 1;
-    e = lowest entry with XMAP[e].valid and XMAP[e].far <= key < XMAP[e].far + sl;
+    n = XSLOT;
+    e = lowest entry with XMAP[e].valid and key >> n == XMAP[e].far >> n;
     if no such e then Trap(xmiss, a); end
-    NextPC = XMAP[e].ils + (key - XMAP[e].far);
+    NextPC = XMAP[e].ils + (key MOD (1 << n));
 end""",
     [("xmiss", r"a far link whose unit is not mapped", r"the link \texttt{X[rs1]}, bit~63 set")],
     notes=r"Code that may be called through \insn{xcall} from paged code returns with \insn{xret ra} instead of "

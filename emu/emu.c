@@ -36,7 +36,7 @@
 #define MAXCORES 15 /* + the block device = 16 inbox senders, the width of cpoll/tany masks */
 #define NCAPS 16
 #define CTABMAX CTAB_MAX /* save-table entries at most; ctab_size of them exist (-S) */
-#define NXMAP 16
+#define NXMAP ((int)NXMAP_MAX) /* overlay map entries at most; nxmap of them exist (-X) */
 #define NGRAN3 (T3_BYTES >> GRAN_SHIFT) /* revocation granules of T3 */
 #define NGRAN2 (T2_BYTES >> GRAN_SHIFT) /* ... and of T2 (after T3's in the table) */
 #define GMASK ((uint64_t)GRAN_BYTES - 1)
@@ -176,6 +176,7 @@ static uint64_t net_lstat;      /* network STATUS, latched when its byte 0 is re
 static Core cores[MAXCORES];
 static int ncores = 4;
 static uint64_t ctab_size = CTAB_DEF; /* capability save-table entries per core (-S) */
+static unsigned nxmap = NXMAP_DEF;    /* overlay map entries per core (-X) */
 static uint8_t *t2, *t3;
 static FILE *trace;
 static bool faulted;
@@ -944,12 +945,14 @@ static bool step(Core *c) {
 
   case OP_XMAP: {
     unsigned idx = rd, ci = funct & 15;
-    if (rd >= NXMAP) { trap(c, C_ILLEGAL, ir); return true; }
+    if (rd >= nxmap) { trap(c, C_ILLEGAL, ir); return true; }
     if (funct & 16) { c->xm_v[idx] = false; break; }
     Cap *k = &c->caps[ci];
     if (!live(*k)) { trap(c, C_CAPINV, ci); return true; }
     if (!(k->perms & P_X)) { trap(c, C_PERM, ci); return true; }
     if (b >= k->len) { trap(c, C_BOUNDS, b); return true; }
+    /* with xslot = n the far address must start a 2^n-byte slot */
+    if (c->xslot && ((k->base + b) & ((1ull << c->xslot) - 1))) { trap(c, C_XALIGN, b); return true; }
     if ((a & 3) || a >= ILS_BYTES) { trap(c, C_LSFAULT, a); return true; }
     c->xm_v[idx] = true;
     c->xm_sp[idx] = k->space;
@@ -959,20 +962,23 @@ static bool step(Core *c) {
   }
   case OP_XCALL: {
     /* With xslot = 0 a map entry matches one far address exactly. With
-     * xslot = n it covers a 2^n-byte slot: any far address inside the
-     * mapped unit hits, at the same offset in the I-LS slot. A call made
-     * from inside a mapped unit links to a far return address (bit 63 set)
-     * that xret resolves later, so the caller may be evicted meanwhile. */
-    uint64_t sl = c->xslot ? 1ull << c->xslot : 1;
+     * xslot = n it covers the 2^n-byte slot holding its far address (xmap
+     * made it a multiple of 2^n; the low bits of an entry made under a
+     * smaller xslot are ignored): any far address in the slot hits, at the
+     * same offset in the I-LS slot. A call made from inside a mapped unit
+     * links to a far return address (bit 63 set) that xret resolves later,
+     * so the caller may be evicted meanwhile. */
+    unsigned sh = (unsigned)c->xslot;
+    uint64_t lo = (1ull << sh) - 1; /* the offset in a slot */
     uint64_t key;
     if (funct & 16) { /* xret rs1 */
       if (!(a >> 63)) { npc = a & ~3ull; break; }
       key = a & ~(1ull << 63);
       int hit = -1;
       for (int i = 0; i < NXMAP && hit < 0; i++)
-        if (c->xm_v[i] && key >= c->xm_far[i] && key < c->xm_far[i] + sl) hit = i;
+        if (c->xm_v[i] && key >> sh == c->xm_far[i] >> sh) hit = i;
       if (hit < 0) { trap(c, C_XMISS, a); return true; }
-      npc = c->xm_ils[hit] + (key - c->xm_far[hit]);
+      npc = c->xm_ils[hit] + (key & lo);
       break;
     }
     unsigned ci = funct & 15;
@@ -983,17 +989,17 @@ static bool step(Core *c) {
     key = k->base + a;
     int hit = -1;
     for (int i = 0; i < NXMAP && hit < 0; i++)
-      if (c->xm_v[i] && c->xm_sp[i] == k->space && key >= c->xm_far[i] && key < c->xm_far[i] + sl) hit = i;
+      if (c->xm_v[i] && c->xm_sp[i] == k->space && key >> sh == c->xm_far[i] >> sh) hit = i;
     if (hit < 0) { trap(c, C_XMISS, key); return true; }
     uint64_t link = c->pc + 4;
     if (c->xslot)
       for (int i = 0; i < NXMAP; i++)
-        if (c->xm_v[i] && c->pc >= c->xm_ils[i] && c->pc < c->xm_ils[i] + sl) {
-          link = (1ull << 63) | (c->xm_far[i] + (c->pc + 4 - c->xm_ils[i]));
+        if (c->xm_v[i] && c->pc >= c->xm_ils[i] && c->pc - c->xm_ils[i] <= lo) {
+          link = (1ull << 63) | ((c->xm_far[i] & ~lo) + (c->pc + 4 - c->xm_ils[i]));
           break;
         }
     setx(c, rd, link);
-    npc = c->xm_ils[hit] + (key - c->xm_far[hit]);
+    npc = c->xm_ils[hit] + (key & lo);
     break;
   }
 
@@ -1560,7 +1566,7 @@ static int machine_round(void) {
 #define USAGE                                                                                         \
   "usage: strata-emu [-c ncores] [-t trace.txt] [-m max_steps] [-d disk.img] [-i input.txt]\n"       \
   "                  [-P pointer.txt] [-b steps] [-T real|virtual] [-g none] [-F frame.ppm]\n"             \
-  "                  [-z scale] [-r WxH] [-S entries]\n"                                              \
+  "                  [-z scale] [-r WxH] [-S entries] [-X entries]\n"                                 \
   "                  [-H] [-N mode] [-J|-j] image.stx\n"                                                                     \
   "  -c N        cores (1..15, default 4)\n"                                                          \
   "  -t FILE     write an instruction trace\n"                                                        \
@@ -1570,6 +1576,7 @@ static int machine_round(void) {
   "  -P FILE     scripted pointer input (see common/display.h)\n"                                   \
   "  -b N        press Ctrl-C after N steps\n"                                                        \
   "  -S N        capability save-table entries per core (64..256, default 256)\n"                     \
+  "  -X N        overlay map entries per core (4..16, default 16)\n"                                  \
   "  -T MODE     timer: real (host microseconds, default) or virtual (rounds / 100)\n"               \
   "  -g none     never open a window (PRESENT still records the frame)\n"                            \
   "  -F FILE     at exit, write the frame as of the last PRESENT as a binary PPM\n"                          \
@@ -1600,6 +1607,10 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "-S") && more) {
       ctab_size = strtoull(argv[++i], NULL, 0);
       if (ctab_size < CTAB_MIN || ctab_size > CTAB_MAX) { fputs("strata-emu: -S: 64..256\n", stderr); return 2; }
+    }
+    else if (!strcmp(argv[i], "-X") && more) {
+      nxmap = (unsigned)strtoul(argv[++i], NULL, 0);
+      if (nxmap < NXMAP_MIN || nxmap > NXMAP_MAX) { fputs("strata-emu: -X: 4..16\n", stderr); return 2; }
     }
     else if (!strcmp(argv[i], "-i") && more) in_path = argv[++i];
     else if (!strcmp(argv[i], "-P") && more) {
@@ -1644,7 +1655,7 @@ int main(int argc, char **argv) {
   host_clock_start();
   host_display_init(gfx, scale, ppm, fb_w, fb_h);
   disk = stx_disk_load(disk_path, &disk_blocks);
-  plat_build_fb(plat_rom, ncores, disk_blocks, fb_w, fb_h, ctab_size);
+  plat_build_fb(plat_rom, ncores, disk_blocks, fb_w, fb_h, ctab_size, nxmap);
   blk_ident(blk_rom, disk_blocks);
   t2 = img.t2;
   t3 = img.t3;

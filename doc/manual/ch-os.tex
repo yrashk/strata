@@ -844,14 +844,16 @@ serves its own misses, in user mode, as the \texttt{overlay} example does. Other
 to the dispatcher, which:
 \begin{itemize}
 \item takes the far address from \csr{tval} (clearing bit~63 for a return), and rejects the miss if
-  \csr{xslot} is 0, the program no longer holds \reg{c0}, or the unit is not a whole slot inside it;
+  \csr{xslot} is 0, the program no longer holds \reg{c0}, \reg{c0}'s base is not a multiple of the
+  slot size (\insn{xmap} needs aligned units), or the unit is not a whole slot inside it;
 \item uses the I-LS from the end of the program's resident code, rounded up to a slot, to \hex{10000}
-  as the code cache, at most sixteen slots, replaced round robin;
+  as the code cache, at most one slot per overlay map entry ($\textit{NXMAP}$, which the kernel takes
+  from the platform table), replaced round robin;
 \item loads the unit into the victim slot with \insn{tgetx}, maps it with \insn{xmap} and resumes the
   program at the instruction that missed.
 \end{itemize}
 A miss the dispatcher cannot serve ends the program with a fault of cause \cause{xmiss}. The
-\texttt{units} program runs 24 one-KiB units through sixteen slots with call chains seven deep and
+\texttt{units} program runs 24 one-KiB units through sixteen slots (eight on an eight-entry platform) with call chains seven deep and
 checks its result against the same computation done by resident code. After a context switch the
 cache is empty and refills on demand.
 
@@ -864,8 +866,8 @@ the system core the event loop and the paging handler. Everything the system cor
 area and hands to core 0 as the far image share \reg{c12} (Section~\ref{sec:boot}).
 
 Resident code calls a unit with \insn{xcall ra, c12, t5}. A miss traps to the system core's own
-supervisor handler, which copies the unit into one of sixteen cache slots at I-LS
-\hex{8000}--\hex{FFFF}, round robin, maps it and retries: the mechanism programs use, applied by the
+supervisor handler, which copies the unit into one of $\textit{NXMAP}$ cache slots (sixteen by
+default) of 2~KiB from I-LS \hex{8000}, round robin, maps it and retries: the mechanism programs use, applied by the
 kernel to itself, with \csr{xslot} = 11. Units run at a cache address rather than where they were
 assembled, so they call resident code through a register, call other units with \insn{xcall}, and
 return with \insn{xret}, whose far link pages the caller back in if it was evicted meanwhile.

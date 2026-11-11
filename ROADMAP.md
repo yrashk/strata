@@ -47,12 +47,15 @@ exists today, what is known to be missing or rough, and what is planned.
 
 **Hardware**
 - The design has never run on a board. The core is multi-cycle, not
-  pipelined, with 64-bit adders, comparators and a multiplier in single
-  cycles, so timing closure at a useful clock is an open question.
-- It is large: the two-core system needs a bigger FPGA than the common
-  hobby boards carry. Most of the logic is not the datapath but the code
-  map, the banked CSRs, the capability register file and save table, the
-  inbox queues and the granule table (revocation by address).
+  pipelined, with 64-bit adders and comparators in single cycles (the
+  multiplier and the ltag entry address now take several), so timing
+  closure at a useful clock is an open question.
+- One core is about 30k LUTs on 7-series (41k LUT4 sites on ECP5), each
+  further core about 28k: two cores fit an XC7A200T, but the six StrataOS
+  needs (168,694 LUTs) need a Kintex-7 325T or larger. What remains is
+  mostly the capability registers in flip-flops, execute's result paths,
+  the banked CSRs, the Transfer Unit's hazard compares and each core's
+  granule-table copy.
 - On FPGA there is no video output; the framebuffer is memory only.
 - The DRAM adapter makes one access per 8-byte beat.
 
@@ -143,11 +146,16 @@ device read (or to complete it from another core, as the release port does
 for the break key), so that halting never waits for a key and a server can
 give the keyboard up cleanly.
 
-**A smaller FPGA footprint.** Find what the synthesis numbers are made of
-and reduce it: the code map's range comparators, memories that should
-infer as block RAM on every family, the save table and queues in LUT RAM.
-Then timing: pipeline the long paths or run a slower core clock beside the
-memory controller's. Then a first board bring-up.
+**A smaller FPGA footprint, then timing.** The core went from 47k to 30k
+LUTs (fpga/README.md has the steps), with two small ISA changes: `xmap`
+needs slot-aligned units, and the overlay map's size is a platform
+parameter (NXMAP, 16 by default, 8 for small FPGAs). The next candidates are the
+capability registers (LUT-RAM for the fields not needed in parallel), an
+I-LS-side alignment rule for overlay slots (the link and invalidation
+compares become equalities too), and fewer cores' worth of granule-table
+copies. Then timing: place and route, register the capability operand
+before EX, or run a slower core clock beside the memory controller's.
+Then a first board bring-up.
 
 **Video on FPGA.** Scan the framebuffer window out over HDMI/DVI, with
 PRESENT and VSYNC tied to the real display, and a keyboard, so that the
@@ -160,6 +168,3 @@ window server runs on hardware.
   host side (window, browser, scripted input) is written; the device model in
   the emulator and the RTL, and the window server's cursor, click-to-focus
   and wheel scrolling, are not.
-- **FPGA numbers.** The synthesis figures in `fpga/README.md` predate the
-  timer, framebuffer controller and later changes; block-RAM inference on
-  ECP5 needs fixing before its numbers mean anything.

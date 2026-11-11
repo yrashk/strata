@@ -44,7 +44,7 @@ $32\times32$ multiplier, one per cycle) and iterative division (one quotient bit
 atomic in flight. Each Local Store is a true dual-port RAM: port A belongs to the core and port B to
 its TU. The integer registers are LUT-RAM with one write port and three asynchronous read ports (every
 result is written through the one port at the end of its cycle); the capability registers, the
-sixteen-entry overlay map, the mode bits and the banked trap CSRs are flip-flops. A pending stop
+overlay map, the mode bits and the banked trap CSRs are flip-flops. A pending stop
 request is checked in F0 and in EX, so a user-mode core takes it at the next instruction boundary
 even while an instruction is stalled.
 
@@ -56,8 +56,11 @@ is set, and otherwise compared in 27 bits; trap values are always the full regis
 serve the capability registers: A, the operand (\reg{cs} of a capability instruction, the transfer's,
 atomic's or overlay's capability otherwise), and D, the destination (and \insn{csend}'s endpoint). Each
 cycle makes at most one capability write to \reg{cd} and one to \reg{cs}. Likewise an overlay map
-entry holds its far address in 27 bits and its I-LS address in 16, and its range match is one 27-bit
-subtraction; the target address is computed once, for the matching entry, in 64 bits. Local Store
+entry holds its far address in 27 bits and its I-LS address in 16. Because units are aligned to their
+slot size (Section~\ref{sec:xslot}), an entry's match is a 27-bit equality under the slot mask, with no
+carry chain; the target address is computed once, for the matching entry, in 64 bits. The number of
+entries is the parameter \texttt{NXMAP} of \texttt{strata\_core} and \texttt{strata\_top} (4--16, 16 by
+default; \texttt{make test-small} checks a build with 8, the size suggested for small FPGAs). Local Store
 addresses and lengths (in the TU, the hazard checks and the range checks) are 17 bits. pc$+4$ and
 branch and \insn{jal} targets are computed on 17 and 24 bits and sign-extended, which is exact (the pc
 is inside the I-LS and offsets are below $2^{23}$), so a target outside the I-LS faults with its full
@@ -187,17 +190,18 @@ Table~\ref{tab:synth} gives the Yosys results (\texttt{synth\_xilinx} and \textt
 \begin{tabular}{@{}l r r r r@{}}
 \toprule
 \textbf{System} & \textbf{Logic} & \textbf{Flip-flops} & \textbf{Block RAM} & \textbf{Multipliers}\\\midrule
-7-series, 1 core & 30,530 LUTs & 6,871 & 88 RAMB36 + 4 RAMB18 & 4 DSP48E1\\
+7-series, 1 core & 30,011 LUTs & 6,869 & 88 RAMB36 + 4 RAMB18 & 4 DSP48E1\\
+7-series, 1 core, $\textit{NXMAP} = 8$ & 29,078 LUTs & 6,495 & 88 RAMB36 + 4 RAMB18 & 4 DSP48E1\\
 7-series, 2 cores & 58,066 LUTs & 11,713 & 120 RAMB36 + 7 RAMB18 & 8 DSP48E1\\
-7-series, 6 cores & 172,984 LUTs & 31,104 & 248 RAMB36 + 19 RAMB18 & 24 DSP48E1\\
-ECP5, 1 core & 42,608 LUT4 sites & 6,831 & 180 DP16KD & 4 MULT18X18D\\
+7-series, 6 cores & 168,694 LUTs & 31,102 & 248 RAMB36 + 19 RAMB18 & 24 DSP48E1\\
+ECP5, 1 core & 41,219 LUT4 sites & 6,831 & 180 DP16KD & 4 MULT18X18D\\
 \bottomrule
 \end{tabular}
 \end{table}
 
 These are pre-placement figures: nothing has been placed and routed, and no clock frequency is known.
 The ECP5 column counts LUT4 sites, that is LUT4 cells plus two for each carry cell. One more core costs
-about 27,500 LUTs, 4,800 flip-flops, 32 RAMB36 (its two 64~KiB Local Stores), 3 RAMB18 (its save table)
+about 28,000 LUTs, 4,800 flip-flops, 32 RAMB36 (its two 64~KiB Local Stores), 3 RAMB18 (its save table)
 and 4 DSP slices on 7-series. No latches are inferred, and every large memory is block RAM on both
 families. The Local Stores are written through both ports, and the ECP5's block RAM does not define what
 one port reads from a byte that the other is writing; the hazard stalls of invariant I1 guarantee that
@@ -207,7 +211,8 @@ families.
 An earlier version of the core took about 47,000 LUTs (50,606 for the one-core system, 80,999 LUT4
 sites on the ECP5, 290,431 LUTs for six cores). Most of the difference is the narrow fields of the
 previous sections (the overlay map alone was about 12,000 LUTs, its entries holding 64-bit addresses),
-fewer register-file ports, and RAM for the save table, the integer registers and the inboxes;
+fewer register-file ports, RAM for the save table, the integer registers and the inboxes, and
+slot-aligned overlay units;
 \texttt{fpga/README.md} has the steps and their effect.
 
 \begin{table}[htbp]
@@ -221,7 +226,7 @@ Logic & 63,400 LUTs & 83,640 LUT4s & 134,600 LUTs\\
 On-chip RAM & 4.86 Mb BRAM (135 $\times$ 36 Kb) & $\approx$3.7 Mb EBR (208 $\times$ 18 Kb) & 13.1 Mb BRAM (365 $\times$ 36 Kb)\\
 External memory & 256 MB DDR3 & 32 MB SDRAM & 512 MB DDR3\\
 Toolchain & Vivado or yosys & open: yosys + nextpnr & Vivado or yosys\\
-Cores & 1 (48\% of the LUTs) & 1 (51\% of the LUT4s; not placed and routed) & 2 (43\% of the LUTs)\\
+Cores & 1 (47\% of the LUTs) & 1 (49\% of the LUT4s; not placed and routed) & 2 (43\% of the LUTs)\\
 T2 & 64 KiB & 64 KiB & 64 KiB\\
 T3 & DDR3 via LiteDRAM (in RTL) & SDRAM (no adapter yet) & DDR3 via LiteDRAM\\
 \bottomrule
@@ -229,7 +234,7 @@ T3 & DDR3 via LiteDRAM (in RTL) & SDRAM (no adapter yet) & DDR3 via LiteDRAM\\
 \end{table}
 
 Each core also needs 1~Mb of block RAM for its Local Stores (64 DP16KD), which on the ECP5-85F, with
-the cluster store and the disk in block RAM too, limits a system to one core whatever the logic. StrataOS needs six cores, and the 6-core system's 172,984 LUTs are more than
+the cluster store and the disk in block RAM too, limits a system to one core whatever the logic. StrataOS needs six cores, and the 6-core system's 168,694 LUTs are more than
 any Artix-7 holds but fit a Kintex-7 325T. The systems of one and two cores run bare-metal programs.
 The FPGA builds have no video output: the framebuffer window is memory that nothing scans out, and the
 console is the UART.
@@ -263,6 +268,6 @@ conformance suite passes with the reference emulator's signature (Section~\ref{s
 RTL implements every feature of this edition, including supervisor and user modes with banked trap
 state, \insn{svc} and the user-mode inbox rule, revocation by address, endpoints, core control,
 \insn{tany}, pending device reads and their ordering rules, the 8-byte alignment of capabilities, the
-timer and the framebuffer controller, sixteen-entry overlay mapping with \csr{xslot}, far links and
+timer and the framebuffer controller, overlay mapping of $\textit{NXMAP}$ entries with slot-aligned units, \csr{xslot}, far links and
 \insn{xret}, per-sender inbox queues, \csr{takefrom}, the no-overwrite rule, and the publication rule.
 Any remaining difference from this manual is a defect of the RTL.
