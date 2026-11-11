@@ -40,7 +40,7 @@ srv_ref:   .space NREF * 16             ; references: pid, id (pid 0 = free entr
         .text                           ; server code
 
 ; srv_guard(a0 = the server's loop address): a request's owner may die while
-; the server works on it; the kernel then dissolves the owner's domain, and
+; the server works on it; the kernel then revokes the owner's arena, and
 ; the server's next transfer through the request (c6) or its attachment (c7)
 ; faults. That must not kill the server: this installs a user trap handler
 ; that drops the request and goes back to the loop with the loop's stack.

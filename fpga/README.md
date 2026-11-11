@@ -32,7 +32,7 @@ the runs' summaries, cell counts and logs are kept in `fpga/results/`):
 
 | Yosys, after synthesis | Logic | Flip-flops | Block RAM | Multipliers |
 |---|---|---|---|---|
-| Xilinx 7-series, 1 core | 48,240 LUTs | 12,681 | 88 RAMB36 | 30 DSP48E1 |
+| Xilinx 7-series, 1 core (revocation by address) | 47,059 LUTs | 12,450 | 88 RAMB36 + 1 RAMB18 | 30 DSP48E1 |
 | Xilinx 7-series, 2 cores | 94,130 LUTs | 23,636 | 120 RAMB36 | 60 DSP48E1 |
 | Xilinx 7-series, 6 cores | 290,431 LUTs | 73,775 | 248 RAMB36 | 180 DSP48E1 |
 | Lattice ECP5, 1 core | 61,949 LUT4 + 9,525 carry cells = 80,999 LUT4 sites | 12,866 | 181 DP16KD | 30 MULT18X18D |

@@ -22,7 +22,7 @@
 ;               tty, which hands its events to ws); -1 if the machine has none
 ;  36/37/38    DUPS / CLEANUP / CANCEL from proc: nothing to do
 ;
-; The framebuffer memory is the kernel's: it sits in a revocation domain of
+; The framebuffer memory is the kernel's: it is a revocable region of
 ; its own, and the kernel's FBLEND (op 10, dev only) records the new holder,
 ; revokes every older capability and sends a fresh one, which dev passes on.
 ; When the holder ends (exit, kill, fault), the kernel revokes it again, so
