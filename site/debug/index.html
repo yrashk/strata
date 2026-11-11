@@ -66,6 +66,7 @@
     </div>
   </div>
 
+  <div class="work" id="work"><div class="mainc">
   <section class="panel time" aria-label="Time">
     <div class="tag"><span>▸ TIME</span><em id="timeinfo">the recorded run</em></div>
     <div class="slider"><input type="range" id="slider" min="0" max="0" value="0" step="1" aria-label="Tick of the recorded run"><output id="slidepos">0</output></div>
@@ -76,13 +77,14 @@
     <div id="cores" class="cores"></div>
   </section>
 
-  <section class="panel" aria-label="Transfer timeline">
+  <section class="panel xfers" id="xfers" aria-label="Transfer timeline">
     <div class="tag"><span>▸ TRANSFERS</span><em id="tlinfo">one row per core; rounds left to right</em>
       <div class="view">
         <button class="seg" id="tl-fit" title="The whole run">Fit</button>
         <button class="seg" id="tl-in" title="Zoom in (or the wheel)">+</button>
         <button class="seg" id="tl-out" title="Zoom out">−</button>
         <button class="seg on" id="tl-follow" title="Follow the newest round">Follow</button>
+        <button class="seg" id="tl-dock" title="Dock on the right, beside the cores (stays in view while the page scrolls)">Dock</button>
       </div>
     </div>
     <div class="tl-box" id="tlbox">
@@ -94,6 +96,7 @@
       <span><i class="lg pend"></i>device read in flight</span><span><i class="lg stall"></i>stall</span>
       <span><i class="lg gift"></i>capability given</span><span><i class="lg trap"></i>trap</span><span><i class="lg now"></i>now</span>
     </div>
+    <div id="xlist" class="xlist" aria-label="Transfers, newest first"></div>
   </section>
 
   <div class="grid3">
@@ -138,6 +141,7 @@
     <pre id="con" class="con"></pre>
     <form id="conform" class="form con-in"><input id="conin" placeholder="console input (Enter sends it with a newline)" spellcheck="false" aria-label="Console input"><button class="small">Send</button></form>
   </section>
+  </div><aside class="dock" id="dock" aria-label="Transfers, docked"></aside></div>
 
   <section class="notes">
     <h3>About this debugger</h3>

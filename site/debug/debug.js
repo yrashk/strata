@@ -419,6 +419,65 @@ function drawTimeline() {
   TL.items = items;
   TL.X = X; TL.L = L; TL.R = R;
   $("tlinfo").textContent = `${evs.length} events · rounds ${fmtRound(TL.v0)}..${fmtRound(TL.v1)}`;
+  if (docked) drawXlist();
+}
+
+// The docked panel's list: the newest transfers and gifts first (click: go to its tick).
+const XKINDS = new Set(["xfer", "xdone", "give", "send", "take", "recv"]);
+let xlistKey = "";
+function drawXlist() {
+  const key = evNext + ":" + cur + ":" + ncores + ":" + evs.length;
+  if (key === xlistKey) return;
+  xlistKey = key;
+  const rows = [], byTag = new Map(); // (the device reads still in flight: the last one issued on each core:tag, not done)
+  for (const e of evs) {
+    if (e.kind === "xfer" && e.pending) byTag.set(e.core + ":" + e.tag, e.seq);
+    else if (e.kind === "xdone") byTag.delete(e.core + ":" + e.tag);
+  }
+  const open = new Set(byTag.values());
+  for (let i = evs.length - 1; i >= 0 && rows.length < 400; i--) {
+    const e = evs[i];
+    if (!XKINDS.has(e.kind)) continue;
+    const head = `<b>r${fmtRound(e.round).padStart(6)} c${e.core}</b> `;
+    let cls, text;
+    if (e.kind === "xfer") {
+      cls = e.pending && open.has(e.seq) ? "fly" : e.op;
+      text = `tg${e.tag} ${e.op.padEnd(5)} ${e.port ? e.port : e.space + " " + e.far} ${e.op === "tput" ? "←" : "→"} ${e.op === "tgetx" ? "I-LS" : "D-LS"} ${e.ls}+${hex(e.len)}` +
+        (e.pending ? (open.has(e.seq) ? "  in flight" : "  (device read)") : "");
+    } else if (e.kind === "xdone") {
+      cls = "done"; text = `tg${e.tag} done`;
+    } else if (e.kind === "give" || e.kind === "send") {
+      cls = "gift"; text = `${e.kind === "give" ? "cgive" : "csend"} → node ${e.to}  ${e.space} ${e.base}+${e.len} ${e.perms}${e.cap ? " #" + e.cap : ""}`;
+    } else {
+      cls = "gift"; text = `${e.kind === "take" ? "ctake" : "crecv"} ← node ${e.from}  ${e.space} ${e.base}+${e.len} ${e.perms}${e.cap ? " #" + e.cap : ""}`;
+    }
+    rows.push(`<div class="${cls}${e.core === cur ? " cur" : ""}" data-tick="${e.tick}" title="tick ${e.tick}, pc ${e.pc || ""}">${head}${esc(text)}</div>`);
+  }
+  $("xlist").innerHTML = rows.length ? rows.join("") : '<div class="none">no transfers yet</div>';
+}
+$("xlist").addEventListener("click", (e) => {
+  const d = e.target.closest("[data-tick]");
+  if (d && hello && hello.timetravel && !running) doCmd("goto", { tick: +d.dataset.tick });
+});
+
+// Docked on the right (wide screens; the default there) or in the page's flow.
+let docked = false;
+const DOCK_MIN = 1200;
+function dockPref() { try { const v = localStorage.getItem("strata-dbg-dock"); return v === null ? true : v === "1"; } catch (e) { return true; } }
+function setDock(on) {
+  on = on && innerWidth >= DOCK_MIN;
+  if (on === docked) return;
+  docked = on;
+  const x = $("xfers");
+  if (on) $("dock").appendChild(x);
+  else document.querySelector(".mainc .grid3").before(x);
+  $("work").classList.toggle("docked", on);
+  document.querySelector("main.dbg").classList.toggle("docked", on);
+  $("tl-dock").classList.toggle("on", on);
+  const nav = document.querySelector("nav.top");
+  if (nav) document.documentElement.style.setProperty("--navh", nav.offsetHeight + 8 + "px");
+  xlistKey = "";
+  drawTimeline();
 }
 function niceStep(x) {
   const p = Math.pow(10, Math.floor(Math.log10(Math.max(x, 1e-9))));
@@ -490,7 +549,11 @@ function hatch(g, x, y, w, hh) {
   $("tl-in").onclick = () => zoom(0.6);
   $("tl-out").onclick = () => zoom(1.6);
   $("tl-follow").onclick = () => { setFollow(!TL.follow); drawTimeline(); };
-  addEventListener("resize", () => drawTimeline());
+  $("tl-dock").onclick = () => {
+    try { localStorage.setItem("strata-dbg-dock", docked ? "0" : "1"); } catch (e) { /* not remembered */ }
+    setDock(!docked);
+  };
+  addEventListener("resize", () => { setDock(dockPref()); drawTimeline(); });
 })();
 function setFollow(on) { TL.follow = on; $("tl-follow").classList.toggle("on", on); }
 
@@ -735,6 +798,11 @@ async function connected() {
   ncores = hello.ncores;
   const cs = await conn.request("cores");
   stopEv = { ev: hello.state === "done" ? "done" : "stopped", reason: hello.state === "running" ? "running" : "at the start", tick: cs.tick, round: cs.round, cores: cs.cores };
+  if (hello.state === "done") { // (an engine whose machine stopped before this page connected)
+    done = true;
+    const st = await conn.request("status");
+    stopEv.why = st.why || "halted";
+  }
   running = hello.state === "running";
   const con = await conn.request("console");
   if (con.ok && con.data) conPut(con.data);
@@ -768,6 +836,7 @@ async function runScript(s) {
 }
 
 async function main() {
+  setDock(dockPref());
   updateButtons();
   const ws = Q.get("ws");
   if (ws) { try { await connectWs(ws.startsWith("ws") ? ws : "ws://" + ws + "/"); } catch (e) { setStatus(e.message, true); } return; }

@@ -105,6 +105,27 @@ input:focus, select:focus { outline: none; border-color: var(--cyan); }
 .lg.gift { background: #7fdb8a; transform: rotate(45deg) scale(0.8); }
 .lg.trap { background: #ff5370; } .lg.now { background: #fff; width: 2px; }
 
+/* the transfers docked on the right (debug.js setDock): sticky beside the
+   cores, so the code and the transfers are in view together */
+main.dbg.docked { max-width: 2200px; }
+.work.docked { display: grid; grid-template-columns: minmax(0, 1fr) clamp(400px, 31vw, 620px); gap: 0 14px; align-items: start; }
+.dock { display: none; }
+.work.docked .dock { display: block; position: sticky; top: var(--navh, 64px); }
+.dock .xfers { display: flex; flex-direction: column; height: calc(100vh - var(--navh, 64px) - 26px); }
+.xlist { display: none; }
+.dock .xlist {
+  display: block; flex: 1; min-height: 0; overflow: auto; padding: 4px 0 10px;
+  border-top: 1px solid rgba(31, 111, 139, 0.4); font: 11.5px/1.55 var(--mono);
+}
+.xlist div { white-space: pre; overflow: hidden; text-overflow: ellipsis; padding: 0 12px; cursor: pointer; color: var(--text); }
+.xlist div:hover { background: rgba(77, 225, 255, 0.07); }
+.xlist div.cur { background: rgba(77, 225, 255, 0.035); }
+.xlist b { font-weight: 400; color: var(--dim); }
+.xlist .tget { color: var(--cyan); } .xlist .tput { color: var(--amber); } .xlist .tgetx { color: #c792ea; }
+.xlist .gift { color: #7fdb8a; } .xlist .fly { color: #fff; } .xlist .done { color: var(--dim); }
+.xlist .none { color: var(--dim); cursor: default; }
+@media (max-width: 1199px) { #tl-dock { display: none; } }
+
 .grid3 { display: grid; grid-template-columns: 1.1fr 1.2fr 1fr; gap: 0 14px; }
 .lsmap { padding: 10px 18px 12px; font: 11.5px var(--mono); color: var(--dim); }
 .lsrow { display: grid; grid-template-columns: 7.5ch 1fr; gap: 8px; align-items: center; margin: 4px 0; }
