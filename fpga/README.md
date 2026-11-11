@@ -16,7 +16,13 @@ here has run on a real board yet.
 | Platform table from the harness | `plat.hex` (`PLAT_INIT`) from `mkhex plat` |
 
 `make fpga-images` builds the four `.hex` files for a 2-core machine with a
-128 KiB disk holding StrataOS, `motd`, `rc`, `hello` and `mandel`.
+128 KiB disk holding StrataOS, `motd`, `rc`, `hello` and `mandel`. Its
+platform table gives T2 as 64 KiB (`mkhex plat ... 16 65536`): the FPGA
+tops build a 64 KiB cluster store (`T2_W = 8192`) behind a reset capability
+that still says 256 KiB, and StrataOS sizes its use of T2 from the table.
+There the kernel shared table (32 KiB) goes into T2 but the kernel's code
+units (64 KiB) stay in system memory; with the simulator's 256 KiB T2 both
+are in T2 (`doc/strataos.md`, 2.1 and 2.9).
 
 ## Synthesis numbers
 

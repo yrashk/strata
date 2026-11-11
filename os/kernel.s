@@ -30,7 +30,9 @@
 ;
 ; Cluster store (T2, c1 from the boot ROM, 256 KiB; the platform table's
 ; size counts): [0, 32 KiB) the kernel shared table (KST, below; in T3's
-; first 32 KiB instead if T2 is smaller). T2 is one revocation granule and
+; first 32 KiB instead if T2 is smaller); then a copy of the kernel's code
+; units (the far image, 62 KiB), if it fits (not in a 64 KiB T2); the rest
+; unused (K_T2). T2 is one revocation granule and
 ; can only be revoked whole, so it holds only what is the kernel's for good.
 ; System memory (T3): [0, 32 KiB) unused (the KST's place without T2);
 ; [32 KiB, 64 KiB) core 0's own message buffers; the ARENA POOL [16 MiB,
@@ -140,7 +142,10 @@
 ; op 7 EXITED (handle = pid, length = status) when a process ends.
 ;
 ; ---- Paging the kernel ---------------------------------------------------------------
-; Kernel units are 2 KiB slots of the far image (c12, from the boot ROM).
+; Kernel units are 2 KiB slots of the far image (c12: from the boot ROM, in
+; T3's load area; once start-up is over, a read+execute share of a copy in T2,
+; where a unit starts arriving after 4 bus cycles instead of 20, if it fits in
+; what the KST leaves of T2: u_fart2).
 ; Resident code calls one with `la t5, unit; xcall ra, c12, t5`; a miss traps
 ; to k_trap, which copies the unit into one of 16 cache slots at I-LS
 ; 0x8000..0xFFFF (round robin), maps it and retries. Code in a unit runs at a
@@ -283,7 +288,7 @@ K_MSG    = 48                           ; 48..55: core 0's message buffers (when
 K_STASH  = 56                           ; 56..59: attachments from proc / others
 K_FB     = 60                           ; the framebuffer's revoker (a revocable region of its own, made at boot)
 K_SPARE  = 61                           ; (spare)
-K_T2     = 2                            ; T2 after the KST (u_mem), for the paged code
+K_T2     = 2                            ; T2 after the KST (u_mem) and the code units (u_fart2)
 
 ; ---- process record (worker), PR_SIZE bytes each ---------------------------------------
 PR_STATE = 0                            ; S_* below
@@ -443,6 +448,8 @@ k0_nx:
         csrw  xslot, t0                 ; ...
         la    t5, u_boot                ; start-up is a code unit
         xcall ra, c12, t5               ; (the first miss pages it in)
+        la    t5, u_fart2               ; then the units move to T2, if they fit (called
+        xcall ra, c12, t5               ;   from here: no far link into the old copy remains)
         j     k_loop                    ; then the event loop
 
 ; k_panic: a fault inside the kernel. Report it and stop this core.

@@ -911,8 +911,13 @@ cache is empty and refills on demand.
 The resident kernel is the 16~KiB at I-LS \hex{4000}--\hex{7FFF} of every core: the dispatcher, and on
 the system core the event loop and the paging handler. Everything the system core does rarely
 (start-up, creating and destroying processes, memory, statistics, exits) is \term{kernel code units}:
-27 units of 2~KiB in the kernel image's \texttt{.far} section, which the boot ROM loads into the load
-area and hands to core 0 as the far image share \reg{c12} (Section~\ref{sec:boot}).
+32 units of 2~KiB in the kernel image's \texttt{.far} section, which the boot ROM loads into the load
+area and hands to core 0 as the far image share \reg{c12} (Section~\ref{sec:boot}). When start-up is
+over, the system core copies the units into the cluster store after the shared table, through its D-LS
+(there is no far-to-far transfer), and makes \reg{c12} a read+execute share of the copy, so that a unit
+starts arriving after T2's 4 bus cycles instead of system memory's 20. It does this from resident
+code, where no far link into the old image remains, and only if the units fit beside the table: on a
+platform whose T2 is 64~KiB they stay in system memory.
 
 Resident code calls a unit with \insn{xcall ra, c12, t5}. A miss traps to the system core's own
 supervisor handler, which copies the unit into one of $\textit{NXMAP}$ cache slots (sixteen by
