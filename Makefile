@@ -304,8 +304,8 @@ FORTH_DISK := $(BUILD)/prog/forth lang/forth/core.fs lang/forth/tools.fs lang/fo
               $(wildcard lang/forth/demos/*.fs)
 # the network words (loaded on demand, like tools.fs) and the web server built on them
 FORTH_DISK += lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd.fs lang/forth/httpd-ps.fs
-# code overlays (a library: require overlay), and the editor built on them with its keyword tables
-FORTH_DISK += lang/forth/overlay.fs lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUILD)/forth-os/vi-syntax.fs
+# the editor, with its keyword tables
+FORTH_DISK += lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUILD)/forth-os/vi-syntax.fs
 # the ports of os/progs, with their library and loader: one file
 FORTH_DISK += $(BUILD)/forth-os/progs.pk
 
@@ -319,7 +319,7 @@ DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc
              -t sys $(SPROGS) -t bin $(UPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag -t bin,net $(NPROGS) -t bin,ws $(WSPROGS) \
              -t demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units $(BUILD)/prog/vi \
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) $(BUILD)/src/vi.s \
-             -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs lang/forth/overlay.fs \
+             -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
              lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUILD)/forth-os/vi-syntax.fs \
              $(BUILD)/forth-os/progs.pk \
              -t forth,demo $(wildcard lang/forth/demos/*.fs) \

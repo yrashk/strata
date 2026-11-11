@@ -20,7 +20,7 @@ core #: idle, # runnable, # processes; # switches, # KiB moved, # slots free
 strata$ ps
   PID  PPID STATE    CORE  CPUS  SWITCHES   KIB  NAME
     #     # running     #     #         #     #  proc (server)
-    #     # blocked     #     #         #    #  dev (server)
+    #     # blocked     #     #         #   #  dev (server)
     #     # blocked     #     #      #  fs (server)
     #     # blocked     #     #         #     #  tty (server)
     #     # blocked     #     #      #  pipe (server)
@@ -43,8 +43,8 @@ usage: sched [N | Nus | Nms]  (#us .. #ms)
 [exit #]
 ==== units
 strata$ units
-units: # functions in # code overlays, chains # calls deep
+units: # functions of # KiB, chains # calls deep
 paged sum   = #
 resident sum= #
 check: ok
-[# overlays brought in]
+[# code units paged in]

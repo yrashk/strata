@@ -33,35 +33,6 @@ PL_NOW     = 0x3000                     ; timer NOW
 PL_DEADLINE = 0x3010                    ; timer DEADLINE
 PL_WAIT    = 0x3018                     ; timer WAIT
 
-; plat_init: carve the capabilities, set up the workers, v_ncores
-plat_init:                              ; core 0, once
-        csrr  t0, ncores                ; every core of the machine is ours
-        sd    t0, v_ncores(zero)        ; ...
-        li    t0, PL_T3_FB              ; c9 = the framebuffer window
-        csplit c9, c0, t0               ; ...
-        li    t0, PL_T3_HEAP            ; c8 = the heap
-        csplit c8, c0, t0               ; ...
-        li    t0, PL_T3_SYS             ; c10 = the pages for workers, c0 = ours
-        csplit c10, c0, t0              ; ...
-        li    t0, PL_BOARD              ; c1 = the board's 4 KiB, c12 = the rest
-        csplit c12, c1, t0              ; ... of the cluster store, free for programs
-        catomic c7, c1                  ; the board, atomics only, copyable (c1 is empty now)
-        cmov  c1, c7                    ; c1 = the board
-        cclear c7                       ; the scratch register stays empty
-        li    a0, 1                     ; worker 1 first
-pi_loop:                                ; one worker per iteration
-        ld    t1, v_ncores(zero)        ; ...
-        bgeu  a0, t1, pi_done           ; all set up
-        li    t0, PL_PAGE               ; c10 = its page, c11 = the rest
-        csplit c11, c10, t0             ; ...
-        cgive c10, a0                   ; the page is the worker's now
-        cmov  c10, c11                  ; the rest back in c10
-        cgive c1, a0                    ; and a copy of the board
-        addi  a0, a0, 1                 ; next worker
-        j     pi_loop                   ; ...
-pi_done:                                ; ...
-        ret                             ; done
-
 ; plat_write(a0 = D-LS address, a1 = length): console output
 plat_write:                             ; one transfer to the console device
         tput  tg15, a0, c2, zero, a1    ; returns at once; reusing the buffer waits for it
@@ -119,6 +90,12 @@ plat_source:                            ; leaf
         la    a1, core_fs_end           ; end
         sub   a1, a1, a0                ; length
         ret                             ; done
+
+; plat_units -> a0, a1 = 0: nothing is paged on bare metal
+plat_units:                             ; ...
+        li    a0, 0                     ; ...
+        li    a1, 0                     ; ...
+        ret                             ; ...
 
 ; plat_miss: trap_entry got an xmiss: nothing is paged on bare metal, a fault
 plat_miss:                              ; ...

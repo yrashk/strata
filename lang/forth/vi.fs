@@ -15,25 +15,23 @@
 \ the site's colours, with the same rules. The keys are vi.s's. Given the
 \ same keys, it writes the same files (tools/test-vifs.sh checks that).
 \
-\ How it fits. The program is about four times the code space a Forth
-\ program has left under StrataOS (some 8 KiB of the 32), so most of it is in
-\ code overlays (overlay.fs): finding a line of the text and the terminal
-\ output are resident (2 KiB); the rest is nineteen overlays, brought in one
-\ at a time into a region of 4.1 KiB at the top of code space when a word of
-\ theirs is called (a call into another overlay costs some 400 instructions,
-\ there and back). The byte loops (finding lines, keywords, identifiers,
-\ strings) are code words, assembled with core.fs's assembler. Data space is
-\ the other limit: the D-LS holds one chunk of text, the line being edited,
-\ the screen's state and the words' names; the rest is in the far heap.
+\ How it fits. The program's code is several times the I-LS a program has
+\ under StrataOS, and needs no arrangement for that: like every word compiled
+\ after start-up it is in code units in far memory, which StrataOS pages into
+\ the code cache as they are called (lang/forth/README.md, "Code paging").
+\ The byte loops (finding lines, keywords, identifiers, strings) are code
+\ words, assembled with core.fs's assembler. Data space is the limit: the
+\ D-LS holds one chunk of text, the line being edited, the screen's state and
+\ the words' names; the rest is in the far heap.
 \
 \ Where the text lives. In the far heap, as vi.s keeps it in its arena: the
 \ text in chunks of 2 KiB (runs of whole lines, in the order of a chunk table
 \ in the D-LS: store number, bytes, lines), the undo history (96 KiB), the
 \ register (what y d c x took: 48 KiB), the keyword tables and the message
 \ texts. The heap is smaller than vi.s's arena (Forth's code mirror, include
-\ buffers and the overlay store come out of the same 1 MiB), so the text can
-\ be 368 KiB (vi.s: 500); a file that does not fit is cut short, and vi says
-\ so. . repeats a change of up to 64 keys (vi.s: 256).
+\ buffers and code units come out of the same 1 MiB), so the text can be
+\ 400 KiB (vi.s: 500); a file that does not fit is cut short, and vi says so.
+\ . repeats a change of up to 64 keys (vi.s: 256).
 \
 \ Keys. vi.fs talks to the tty itself through (msg) and the standard handles
 \ (KVAR 38): raw mode (CONMODE), READs that wait or not. An Esc is told from
@@ -47,9 +45,7 @@
 \ highlighter uses, like vi.s's; vi.fs reads them once, into far memory.
 \ Compiling the editor costs some 6 M instructions at every start.
 
-[defined] overlay.fs 0= [if] include /overlay.fs [then] \ (by /NAME: whatever the current tag path)
-inline-limit @  4 inline-limit !                \ code space: primitives are called, not copied
-19 4160 overlays                               \ nineteen overlays of up to 4.1 KiB of code
+inline-limit @  4 inline-limit !                \ dense code (more of it in the cache): primitives are called
 
 \ The program is in two files (an included file's text must fit in 64 KiB with
 \ the files it includes): vi-text.fs, then vi-edit.fs.

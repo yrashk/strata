@@ -138,7 +138,8 @@ leave-stack leaves !                    \ empty
 \ ---- CASE -----------------------------------------------------------------------------
 : case ( -- 0 ) 0 ; immediate                   \ count of OFs
 : of ( n -- n+1 orig )                          \ compare, drop, run the part on a match
-  1+ >r postpone over postpone = postpone if postpone drop r> ; immediate
+  1+ >r (lit?) if %t0 %zero rot addi,  chere %s1 %t0 0 bne,  pop, \ with a literal: 4 instructions
+  else postpone over postpone = postpone if postpone drop then r> ; immediate
 : endof ( orig n -- orig2 n ) >r postpone else r> ; immediate \ jump to ENDCASE
 : endcase ( orig.. n -- )                        \ drop the selector; every ENDOF lands here
   postpone drop 0 ?do postpone then loop ; immediate

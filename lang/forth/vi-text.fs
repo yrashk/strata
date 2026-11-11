@@ -3,11 +3,7 @@
 \ =============================================================================
 \ Included by vi.fs (which describes the editor); not a program of its own.
 
-\ ==== overlay 1: the data, the keyword tables, the messages =======================================
-\ Everything that is only data is here: the stubs of variables are code, and
-\ compiled code never runs them (it uses their addresses), so they need not
-\ take resident code space.
-overlay
+\ ---- the data, the keyword tables, the messages --------------------------------------------------
 2048 constant chsz                              \ bytes per chunk of text
 1000 constant lmax                              \ the longest line
 $40000000 constant bigcol                       \ "the end of the line" for j and k after $
@@ -88,8 +84,7 @@ variable m-pos  $1000 m-pos !                   \ where the next message's text 
 : m" ( "text" -- ) m-text postpone literal postpone m-far ; immediate   \ the message is the text
 : m+" ( "text" -- ) m-text postpone literal postpone m-far+ ; immediate \ ... appended to the message
 
-\ ---- resident: finding lines of the text, output, the screen's bookkeeping ----------------------
-resident
+\ ---- finding lines of the text, output, the screen's bookkeeping ---------------------------------
 : ct ( c -- type ) ctype + c@ ;
 : ce ( i -- a ) 8 * ctab + ;                    \ chunk i's entry
 : cb@ ( i -- u ) ce 2 + w@ ;                    \ its bytes
@@ -135,8 +130,7 @@ resident
 : is-mod ( -- f ) u-end @ u-saved @ <> ins @ or ;
 : mo-line ( n -- ) nl @ 1- min 0 max mv-y ! ;  \ a motion's line: n, within the text
 
-\ ==== overlay 2: keys and messages ================================================================
-overlay
+\ ---- keys and messages ---------------------------------------------------------------------------
 : m-add ( a u -- ) 120 msgl @ - min 0 max  tuck msgbuf msgl @ + swap move  msgl +! ;
 : msg ( a u -- ) 0 msgl ! m-add ;
 : rd ( mode -- n )                              \ READ standard input into kbuf (mode 1: do not wait):
@@ -171,8 +165,7 @@ overlay
   k-pend @ ?dup if 0 k-pend ! else rq-pos @ rq-len @ < dotn @ or if dot-key else rd-key then then
   rec-len @ 64 < if dup recbuf rec-len @ 2* + w! 1 rec-len +! then ;
 
-\ ==== overlay 3: deleting lines, splitting chunks =================================================
-overlay
+\ ---- deleting lines, splitting chunks ------------------------------------------------------------
 : ln-touch ( n -- ) -1 lc-n !  hs-n @ < if 0 hs-n ! 0 hs-s ! then ; \ (again: something at line n changes)
 : ch-new ( i -- f )                             \ an empty chunk at index i (those from i move up)
   nfree @ 0= if drop false exit then  -1 nfree +!
@@ -203,8 +196,7 @@ overlay
   over cb@ over - 2 pick 1+ ce 2 + w!  over ce 2 + w!
   dup cbuf 1 ch-io  cbuf over cb@ + cbuf 2 pick 1+ cb@ move \ (no second buffer: cbuf is written,
   dup 1+ cbuf 1 ch-io  cbuf 0 ch-io  0 cdirty !  true ; \   shifted, written and read again)
-\ ==== overlay 4: highlighting assembly (site/hl.js's rules) =======================================
-overlay
+\ ---- highlighting assembly (site/hl.js's rules) --------------------------------------------------
 : paint ( from to class -- ) >r over - 0 max swap cls + swap r> fill ;
 : lower ( c -- c' ) dup ct 32 and or ;
 : kw-range ( i -- e0 e1 )                       \ the entries of first byte $21 + i, read into cmdbuf
@@ -288,13 +280,8 @@ overlay
     a u i com? if i u 1 paint exit then
     a u i csr hl-tok to i
   repeat ;
-: hl-asm ( a u -- )                             \ the classes of an assembly line
-  0 0 { a u i w }  0 u 0 paint
-  begin a u i skip-bl dup to i to w  i u < 0= if exit then
-    a u i com? if i u 1 paint exit then
-    a u i scan-id dup w = if drop a u i 0 hl-ops exit then  to i
-    i u < if a i + c@ ':' = else false then
-  while w i 2 paint  i 1+ to i repeat           \ labels (another may follow)
+: hl-stmt ( a u i w -- )                        \ what follows the labels: the word at w..i
+  { a u i w }
   a u i skip-bl dup u < if                      \ NAME = (not ==): a constant
     a over + c@ '=' = over 1+ u < if a over + 1+ c@ '=' <> else true then and
     if 1+ to i  w i 1- 3 paint  a u i 0 hl-ops exit then then drop
@@ -302,44 +289,16 @@ overlay
     a w + i w - kw-find dup 4 - 8 u< 0= if drop a u w 0 hl-ops exit then then
   w i 2 pick paint
   9 = i w - 4 = and a w + c@ 'c' = and  a u i 3 roll hl-ops ; \ csrr / csrw: CSR names follow
+: hl-asm ( a u -- )                             \ the classes of an assembly line
+  0 0 { a u i w }  0 u 0 paint
+  begin a u i skip-bl dup to i to w  i u < 0= if exit then
+    a u i com? if i u 1 paint exit then
+    a u i scan-id dup w = if drop a u i 0 hl-ops exit then  to i
+    i u < if a i + c@ ':' = else false then
+  while w i 2 paint  i 1+ to i repeat           \ labels (another may follow)
+  a u i w hl-stmt ;
 
-\ ==== overlay 5: highlighting Forth (the helpers again: they run for every word) ==================
-overlay
-: paint ( from to class -- ) >r over - 0 max swap cls + swap r> fill ;
-: lower ( c -- c' ) dup ct 32 and or ;
-: kw-range ( i -- e0 e1 )                       \ the entries of first byte $21 + i, read into cmdbuf
-  2* syn @ 1- 2048 * + dup -8 and tuck - swap hdrb swap 16 far-read htag twait \ (the index in far memory)
-  hdrb + dup w@ swap 2 + w@ over - >r  syn @ 1- 2048 * 192 + +  dup 7 and tuck -
-  cmdbuf swap r@ 3 pick + aligned far-read htag twait  cmdbuf + r> over + ;
-: kw-scan ( a u e0 e1 -- class|0 )               \ the entry for the word among e0..e1 (a code word:
-  [ %t0 %s0 0 ld,  %t1 %s0 8 ld,  %t2 %s0 16 ld,  %s0 %s0 24 addi,  %a1 %zero ctype ori, \ the word's
-    mark  chere %t0 %s1 0 bge,                  \ bytes in lower case against an entry's)
-    %a0 %t0 0 lbu,  chere %a0 %t1 0 bne,
-    %a3 %t1 0 addi,  %a4 %t2 0 addi,  %a5 %t0 2 addi,
-    mark  chere %a3 %zero 0 beq,
-    %a0 %a4 0 lbu,  %a2 %a0 %a1 add,  %a2 %a2 0 lbu,  %a2 %a2 32 andi,  %a0 %a0 %a2 or,
-    %a2 %a5 0 lbu,  chere %a0 %a2 0 bne,
-    %a4 %a4 1 addi,  %a5 %a5 1 addi,  %a3 %a3 -1 addi,  ahead, 3 roll resolve
-    mark resolve  swap mark resolve             \ (the next entry)
-    %a0 %t0 0 lbu,  %t0 %t0 %a0 add,  %t0 %t0 2 addi,  ahead, 3 roll resolve
-    mark resolve  %s1 %t0 1 lbu,  ahead,  swap mark resolve  %s1 %zero 0 addi,  mark resolve ] ;
-: kw-find ( a u -- class|0 )                    \ the word's class in the keyword table (case folded)
-  dup 0= if nip exit then  over c@ lower $21 - dup 94 u< 0= if drop 2drop 0 exit then  kw-range kw-scan ;
-: scan-id ( a u i -- i' )                       \ past the identifier at i ([A-Za-z_.$][A-Za-z0-9_.$]*)
-  [ %t1 %s0 0 ld,  %t2 %s0 8 ld,  %s0 %s0 16 addi,  %a1 %zero ctype ori,   \ (a code word)
-    chere %s1 %t1 0 bge,
-    %a0 %t2 %s1 add,  %a0 %a0 0 lbu,  %a0 %a0 %a1 add,  %a0 %a0 0 lbu,  %a0 %a0 13 andi,
-    chere %a0 %zero 0 beq,
-    mark  %s1 %s1 1 addi,  chere %s1 %t1 0 bge,
-    %a0 %t2 %s1 add,  %a0 %a0 0 lbu,  %a0 %a0 %a1 add,  %a0 %a0 0 lbu,  %a0 %a0 15 andi,
-    chere %a0 %zero 0 bne,  rot resolve  mark resolve  mark resolve  mark resolve ] ;
-: bfind ( a u i c -- i'|-1 )                    \ the first byte c at or after i (a code word)
-  [ %a2 %s1 0 addi,  %s1 %s0 0 ld,  %t1 %s0 8 ld,  %t2 %s0 16 ld,  %s0 %s0 24 addi,
-    mark  chere %s1 %t1 0 bge,
-    %a0 %t2 %s1 add,  %a0 %a0 0 lbu,  chere %a0 %a2 0 beq,
-    %s1 %s1 1 addi,  ahead, 3 roll resolve
-    swap mark resolve  %s1 %zero -1 addi,  mark resolve ] ;
-: 3dup ( a b c -- a b c a b c ) 2 pick 2 pick 2 pick ;
+\ ---- highlighting Forth (the helpers again: they run for every word) -----------------------------
 : word-at ( a u i -- w j )                      \ the next word: w its start (past blanks), j its end (a code word)
   [ %t1 %s0 0 ld,  %t2 %s0 8 ld,  %a1 %zero ctype ori,
     mark  chere %s1 %t1 0 bge,
@@ -396,26 +355,34 @@ variable hf-want                                \ what the word before asked for
   hs-n ! dup hs-s ! ;
 
 
-\ ==== overlay 6: inserting and replacing lines; reading a file ====================================
-overlay
+\ ---- inserting and replacing lines; reading a file -----------------------------------------------
 : ln-touch ( n -- ) -1 lc-n !  hs-n @ < if 0 hs-n ! 0 hs-s ! then ; \ something at line n changes
 : room? ( -- f ) nfree @ 2 < if m" buffer full" false else true then ;
 : fits? ( c u -- f ) swap cb@ + 1+ chsz > 0= ;
-: lins ( n a u -- f )                           \ a new line before line n (nl: after the last)
-  room? 0= if drop 2drop false exit then
-  0 0 { n a u c off }  n ln-touch
+: lins-at ( n -- c off )                        \ where a new line n goes: a chunk, an offset in it
+  0 0 { n c off }
   nch @ 0= if 0 ch-new drop 0 cidx ! 0 cdirty ! else
     n nl @ < if n lfind 2drop f-c @ to c  f-o @ to off  \ where the line is; at a chunk's start:
       off 0= c 0<> and if c 1- to c  c ch-load  c cb@ to off then \ the end of the one before
-    else nch @ 1- to c  c ch-load  c cb@ to off then then
-  c u fits? 0= if                               \ no room: split there, or a new chunk
-    off if off c cb@ < if c off ch-split 0= if false exit then then
-      c u fits? 0= if c 1+ to c  0 to off  ch-flush c ch-new 0= if false exit then  c cidx ! then
-    else ch-flush c ch-new 0= if false exit then  c cidx ! then then
-  cbuf off + dup u 1+ +  c cb@ off - move  a cbuf off + u move  10 cbuf off + u + c!
+    else nch @ 1- to c  c ch-load  c cb@ to off then then  c off ;
+: lins-room ( c off u -- c' off' f )            \ no room there: split it, or a new chunk
+  { c off u }
+  c u fits? 0= if
+    off if off c cb@ < if c off ch-split 0= if c off false exit then then
+      c u fits? 0= if c 1+ to c  0 to off  ch-flush c ch-new 0= if c off false exit then  c cidx ! then
+    else ch-flush c ch-new 0= if c off false exit then  c cidx ! then then  c off true ;
+: lins-note ( n c off u -- )                    \ the counts, and where line n now is
+  { n c off u }
   c ce 2 + dup w@ u + 1+ swap w!  c ce 4 + dup l@ 1+ swap l!  1 cdirty !  1 nl +!
   c f-c !  off f-o !  u f-len !  n lc-n !      \ found: the new line (inserting one after another is quick)
-  off 0= if n else c cb@ off u + 1+ = if n c cl@ 1- - else 0 c 0 ?do i cl@ + loop then then f-b !  true ;
+  off 0= if n else c cb@ off u + 1+ = if n c cl@ 1- - else 0 c 0 ?do i cl@ + loop then then f-b ! ;
+: lins ( n a u -- f )                           \ a new line before line n (nl: after the last)
+  room? 0= if drop 2drop false exit then
+  0 0 { n a u c off }  n ln-touch
+  n lins-at to off to c
+  c off u lins-room >r to off to c r> 0= if false exit then
+  cbuf off + dup u 1+ +  c cb@ off - move  a cbuf off + u move  10 cbuf off + u + c!
+  n c off u lins-note  true ;
 : lput ( n a u -- f )                           \ line n's text replaced (in its chunk if it fits)
   2 pick ln-touch  2 pick lfind nip { n a u old }
   f-c @ cb@ u + old - chsz > if room? 0= if false exit then  n ldel  n a u lins exit then
@@ -441,8 +408,7 @@ overlay
   repeat drop
   lblen @ cut 0= and if dl-add 0= to cut then  cut ;
 
-\ ==== overlay 7: drawing ==========================================================================
-overlay
+\ ---- drawing -------------------------------------------------------------------------------------
 : hl-on ( -- syn ) synon @ if syn @ else 0 then ; \ (again: called for every row)
 : hl-line ( a u state -- state' ) syn @ 2 = if hl-forth else drop hl-asm 0 then ;
 : dcol ( a i -- col ) 0 swap 0 ?do over i + c@ 9 = if 7 or then 1+ loop nip ; \ byte i's column
