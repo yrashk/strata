@@ -151,24 +151,26 @@ show-%: $(BUILD)/strata-emu $(BUILD)/examples/%.stx
 	@$(EMU) -T real -H $(BUILD)/examples/$*.stx
 
 # ---- the debuggers (emu/debug.c, dbg/, site/debug/) --------------------------
-# Deterministic runs (-j -T virtual) keep a history for time travel.
+# Deterministic runs (-T virtual) keep a history for time travel; -J is for
+# fast continues (ff), which catch up unrecorded. The OS targets open the
+# window when the guest draws (ws).
 .PHONY: dbg debug-os debug-web debug-web-os test-dbg
 dbg: $(BUILD)/strata-dbg $(BUILD)/strata-emu
 
 debug-%: $(BUILD)/strata-dbg $(BUILD)/strata-emu $(BUILD)/examples/%.stx
-	@$(BUILD)/strata-dbg -c $(NCORES) -j -T virtual $(BUILD)/examples/$*.stx
+	@$(BUILD)/strata-dbg -c $(NCORES) -J -T virtual $(BUILD)/examples/$*.stx
 
 debug-os: $(BUILD)/strata-dbg $(BUILD)/strata-emu os
 	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
-	@$(BUILD)/strata-dbg -c 8 -j -T virtual -g none -d $(BUILD)/disk-run.img --os $(BUILD) $(BUILD)/bootrom.stx
+	@$(BUILD)/strata-dbg -c 8 -J -T virtual -d $(BUILD)/disk-run.img --os $(BUILD) $(BUILD)/bootrom.stx
 
 debug-web-os: $(BUILD)/strata-emu os
 	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
-	@$(BUILD)/strata-emu -c 8 -j -T virtual -g none -d $(BUILD)/disk-run.img --os $(BUILD) --debug 4444 --www site $(BUILD)/bootrom.stx
+	@$(BUILD)/strata-emu -c 8 -J -T virtual -d $(BUILD)/disk-run.img --os $(BUILD) --debug 4444 --www site $(BUILD)/bootrom.stx
 
 DEBUG_WEB ?= pipeline
 debug-web: $(BUILD)/strata-emu $(BUILD)/examples/$(DEBUG_WEB).stx
-	@$(BUILD)/strata-emu -c 4 -j -T virtual -g none --debug 4444 --www site $(BUILD)/examples/$(DEBUG_WEB).stx
+	@$(BUILD)/strata-emu -c 4 -J -T virtual -g none --debug 4444 --www site $(BUILD)/examples/$(DEBUG_WEB).stx
 
 test-dbg: $(BUILD)/strata-dbg $(BUILD)/strata-emu examples os
 	BUILD=$(BUILD) ./tools/test-dbg.sh

@@ -102,6 +102,10 @@ dropped, the machine runs unrecorded (at full speed when no breakpoint or
 watchpoint is set, else the exact loop without snapshots) and, when it
 stops, recording starts again at that point (at the next round's start if
 it stopped inside a round). Going back then reaches no further than that.
+On the virtual timer it does not wait for input when every core waits: it
+goes on to the next deadline at once, so machine time runs ahead of the
+wall clock while it catches up (the exact loop keeps a live machine near
+real time instead, so that input can come first).
 
 ### Time travel
 

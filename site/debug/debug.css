@@ -155,7 +155,8 @@ main.dbg.docked { max-width: 2200px; }
 .chain:empty { display: none; }
 .chain div { white-space: pre-wrap; }
 .chain .op { color: var(--amber); }
-.prov { overflow: auto; max-height: 440px; padding: 6px 8px 10px; }
+.prov { overflow: auto; max-height: 440px; padding: 6px 8px 10px; cursor: grab; user-select: none; }
+.prov.panning { cursor: grabbing; }
 .prov svg { display: block; }
 .prov text { font: 11px var(--mono); fill: var(--text); }
 .prov .node rect { fill: #0b1120; stroke: rgba(31, 111, 139, 0.9); }
