@@ -32,7 +32,8 @@ the runs' summaries, cell counts and logs are kept in `fpga/results/`):
 
 | Yosys, after synthesis | Logic | Flip-flops | Block RAM | Multipliers |
 |---|---|---|---|---|
-| Xilinx 7-series, 1 core (revocation by address) | 47,059 LUTs | 12,450 | 88 RAMB36 + 1 RAMB18 | 30 DSP48E1 |
+| Xilinx 7-series, 1 core (256-entry save table) | 50,606 LUTs | 12,638 | 88 RAMB36 + 1 RAMB18 | 30 DSP48E1 |
+| Xilinx 7-series, 1 core (64-entry save table, revocation by address) | 47,059 LUTs | 12,450 | 88 RAMB36 + 1 RAMB18 | 30 DSP48E1 |
 | Xilinx 7-series, 2 cores | 94,130 LUTs | 23,636 | 120 RAMB36 | 60 DSP48E1 |
 | Xilinx 7-series, 6 cores | 290,431 LUTs | 73,775 | 248 RAMB36 | 180 DSP48E1 |
 | Lattice ECP5, 1 core | 61,949 LUT4 + 9,525 carry cells = 80,999 LUT4 sites | 12,866 | 181 DP16KD | 30 MULT18X18D |
@@ -66,6 +67,17 @@ Notes on reading the table:
   to 47,059 LUTs, 12,450 flip-flops and 214 LUT-RAM cells (each core's copy
   of the 256-entry table, three read ports, is LUT-RAM; so is the top
   level's master copy).
+- The 256-entry capability save table (`csavex` / `crestorex`, was 64):
+  1 core on xc7 went from 47,059 to 50,606 LUTs (+3,547, +7.5%) and from
+  12,450 to 12,638 flip-flops (+188: the valid bits); block RAM is
+  unchanged. The table itself became 155 RAM256X1S cells (4 LUT sites
+  each, 620 sites) instead of 52 RAM64M (208 sites); the rest is the valid
+  bits' 256-way read multiplexer and per-slot write enables, and the
+  register-or-immediate slot index. The table is still read
+  asynchronously, so `csave` / `crestore` / `csavex` / `crestorex` still
+  take one cycle in EX; a block-RAM table with a synchronous read (and
+  the valid bits beside it) would save most of that at the cost of a
+  cycle.
 
 ### Where the LUTs go
 
@@ -120,8 +132,10 @@ with a constant changed shows what the rest is:
    computations; mux operands into the shared ALU instead of one operator
    per instruction.
 
-The capability save table is not a consumer: it is LUT-RAM (block RAM on
-the ECP5), and shrinking it from 64 to 16 entries changes nothing visible.
+The capability save table was not a consumer at 64 entries: it is LUT-RAM
+(block RAM on the ECP5), and shrinking it from 64 to 16 entries changed
+nothing visible. At 256 entries it costs about 3,500 LUTs more per core
+(see above).
 The Transfer Unit's hazard checks (four queue entries, each compared with
 the PC and the current access) cost about 2,700 LUTs.
 

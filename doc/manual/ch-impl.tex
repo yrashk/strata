@@ -46,7 +46,10 @@ at the next instruction boundary even while an instruction is stalled. The capab
 read port and a separate valid bit per slot held in flip-flops, so that the no-overwrite check of
 \insn{csave}/\insn{crestore} reads only the valid bit. Its index is the instruction's immediate or, for
 \insn{csavex}/\insn{crestorex}, the low eight bits of \reg{rx} (a larger value traps before the table is
-touched); the read stays combinational, so both forms still execute in EX in one cycle. The decoder is purely combinational
+touched); the read stays combinational, so both forms still execute in EX in one cycle. On xc7 the
+table is 155 RAM256X1S cells, and the 256 entries cost about 3,500 LUTs more per core than 64 did
+(50,606 against 47,059 for the one-core system), mostly the valid bits' read multiplexer and write
+enables. The decoder is purely combinational
 and flags undefined encodings; the divider is iterative (one quotient bit per cycle).
 
 \subsection{Transfer Unit}
@@ -88,7 +91,7 @@ unit, a read pass to the end of the last, a write pass), and then signals the co
 capability registers and retires. A walk costs about two cycles per granule of the touched units; other
 cores keep running meanwhile. The alternative, one shared table behind a pipeline stage, would add an
 arbitrated port to every capability check of every core; three small read ports per core (256 entries
-of 17 bits) are cheaper. On xc7 (\texttt{fpga/synth.sh xc7 1}) the one-core system takes 47,059 LUTs
+of 17 bits) are cheaper. On xc7 (\texttt{fpga/synth.sh xc7 1}) the one-core system (with the 64-entry save table of the time) takes 47,059 LUTs
 of logic and 214 LUT-RAM cells, against 48,240 and 172 with the fifteen-domain table it replaced, which
 held a full region register per domain: about 1,000 LUT sites fewer in all. Core-control space is
 a far-bus target in the top level: a \insn{tput} through a core-control capability raises the stop request of the core whose doubleword it

@@ -1,6 +1,6 @@
-read_verilog /Users/yrashk/Projects/IStrata/fpga/build/xc7-1/strata.v
+read_verilog /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-a361874fdcec1ca21/fpga/build/xc7-1/strata.v
 chparam -set NCORES 1 -set T3_W 4096 -set T2_W 8192 -set DISK_WORDS 16384 strata_top
 hierarchy -top strata_top
 synth_xilinx -family xc7 -flatten
-write_json /Users/yrashk/Projects/IStrata/fpga/build/xc7-1/strata.json
-tee -o /Users/yrashk/Projects/IStrata/fpga/build/xc7-1/stat.txt stat
+write_json /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-a361874fdcec1ca21/fpga/build/xc7-1/strata.json
+tee -o /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-a361874fdcec1ca21/fpga/build/xc7-1/stat.txt stat
