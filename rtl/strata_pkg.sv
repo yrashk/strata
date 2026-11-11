@@ -11,6 +11,9 @@ package strata_pkg;
   localparam int T2_BYTES  = 262144;   // cluster store
   localparam int T3_BYTES  = 67108864; // system memory (64 MiB; the framebuffer window is the top 16 MiB)
 
+  // a Local Store address or length, up to the store's size
+  localparam int LSW       = $clog2(DLS_BYTES > ILS_BYTES ? DLS_BYTES : ILS_BYTES) + 1;
+
   localparam int DLS_WORDS = DLS_BYTES / 8;
   localparam int ILS_WORDS = ILS_BYTES / 8;
   localparam int T2_WORDS  = T2_BYTES / 8;

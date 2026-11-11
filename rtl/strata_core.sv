@@ -233,8 +233,21 @@ module strata_core
   assign rc = x[d.pc];
 
   // ================================================================ ALU, divider
+  // the ALU's adder also makes load / store / jalr addresses and branch conditions
   logic [63:0] alu_y;
-  strata_alu u_alu (.op(d.alu_op), .a(ra), .b(d.kind == K_ALU ? rb : d.imm), .y(alu_y));
+  logic        alu_lt, alu_ltu;
+  strata_alu u_alu (.op(d.alu_op), .cmp(d.kind == K_BRANCH), .a(ra),
+                    .b(d.kind == K_ALU || d.kind == K_BRANCH ? rb : d.imm),
+                    .y(alu_y), .lt(alu_lt), .ltu(alu_ltu));
+
+  // next pc: in EX pc < ILS_BYTES (the fetch checked it), and branch / jal
+  // offsets are below 2^23 bytes, so 24 bits sign-extended are exact (a
+  // target outside the I-LS faults at its fetch with this full value)
+  logic [63:0] pc4, pc_br;
+  logic [23:0] pc_br24;
+  assign pc4     = 64'({1'b0, pc[15:0]} + 17'd4);
+  assign pc_br24 = {8'b0, pc[15:0]} + d.imm[23:0];
+  assign pc_br   = {{40{pc_br24[23]}}, pc_br24};
 
   logic        is_div, div_start, div_busy, div_done;
   logic [63:0] div_q, div_r;
@@ -256,9 +269,10 @@ module strata_core
   logic [63:0] maddr, msz, mshift, mload;
   logic        mok;
   logic [7:0]  mmask;
-  assign maddr  = ra + d.imm;
+  assign maddr  = alu_y;                                   // ra + offset
   assign msz    = 64'd1 << d.msize;
-  assign mok    = maddr <= 64'(DLS_BYTES) - msz && (maddr & (msz - 1)) == 0;
+  // aligned and below DLS_BYTES (a power of two): the whole access is inside
+  assign mok    = maddr[63:$clog2(DLS_BYTES)] == 0 && (maddr[2:0] & 3'((4'd1 << d.msize) - 4'd1)) == 0;
   assign mshift = {58'b0, maddr[2:0], 3'b000};
   always_comb begin
     case (d.msize)
@@ -281,14 +295,16 @@ module strata_core
 
   // ================================================================ branches
   logic br_taken;
+  logic br_eq;
+  assign br_eq = ra == rb;
   always_comb begin
     case (d.br_op)
-      3'd0: br_taken = ra == rb;
-      3'd1: br_taken = ra != rb;
-      3'd2: br_taken = $signed(ra) <  $signed(rb);
-      3'd3: br_taken = $signed(ra) >= $signed(rb);
-      3'd4: br_taken = ra <  rb;
-      3'd5: br_taken = ra >= rb;
+      3'd0: br_taken = br_eq;
+      3'd1: br_taken = !br_eq;
+      3'd2: br_taken = alu_lt;
+      3'd3: br_taken = !alu_lt;
+      3'd4: br_taken = alu_ltu;
+      3'd5: br_taken = !alu_ltu;
       default: br_taken = 0;
     endcase
   end
@@ -300,10 +316,10 @@ module strata_core
   assign xcap = cap_a;          // the operand of transfers, atomics, overlays (port A)
   // transfer operands: ra = LS address, rb = far offset, rc = length
   always_comb begin
-    logic [5:0]  need;
-    logic [63:0] limit;
+    logic [5:0]     need;
+    logic [LSW-1:0] limit;
     need  = d.xf_sub == XF_GET ? 6'(1 << P_R) : d.xf_sub == XF_PUT ? 6'(1 << P_W) : 6'(1 << P_X);
-    limit = d.xf_sub == XF_GETX ? 64'(ILS_BYTES) : 64'(DLS_BYTES);
+    limit = d.xf_sub == XF_GETX ? LSW'(ILS_BYTES) : LSW'(DLS_BYTES);
     xf_fault = '0;
     xf_tval  = rb;
     if (!live_a)                                         xf_fault = C_CAPINV;
@@ -314,7 +330,8 @@ module strata_core
     else if (xcap.space != SP_DEV && ((ra | rb | rc) & 7) != 0) xf_fault = C_XALIGN;
     else if (xcap.space == SP_DEV ? ge_w(rb, xcap.len)
              : (gt_w(rb, xcap.len) || gt_w(rc, xcap.len - rb[FW-1:0]))) xf_fault = C_BOUNDS;
-    else if (ra > limit || rc > limit - ra) begin            xf_fault = C_LSFAULT; xf_tval = ra; end
+    else if (ra[63:LSW] != 0 || ra[LSW-1:0] > limit || rc[63:LSW] != 0 || rc[LSW-1:0] > limit - ra[LSW-1:0]) begin
+                                                             xf_fault = C_LSFAULT; xf_tval = ra; end
   end
 
   // ================================================================ far atomics
@@ -330,7 +347,7 @@ module strata_core
   // ================================================================ Transfer Unit
   logic        tu_iss_valid, tu_iss_ready, tu_iss_hz, tu_idle, tu_mem_idle;
   logic [15:0] tag_busy;
-  logic [63:0] hz_addr, hz_len;
+  logic [LSW-1:0] hz_addr, hz_len;   // (only meaningful inside the D-LS: see strata_tu)
   logic        hz_rd_stall, hz_wr_stall, hz_fetch_stall;
 
   assign tu_iss_valid = state == S_EX && d.kind == K_XFER && xf_fault == 0;
@@ -358,21 +375,21 @@ module strata_core
     hz_addr = '0;
     hz_len  = '0;
     if (state == S_EX && (d.kind == K_LOAD || d.kind == K_STORE)) begin
-      hz_addr = maddr;
-      hz_len  = msz;
+      hz_addr = LSW'(maddr);
+      hz_len  = LSW'(msz);
     end else if (state == S_LG && lt_ph) begin
-      hz_addr = lt_ebase;
-      hz_len  = lt_span;
+      hz_addr = LSW'(lt_ebase);
+      hz_len  = LSW'(lt_span);
     end
   end
 
   strata_tu u_tu (
     .clk, .rst,
-    .iss_valid(tu_iss_valid), .iss_kind(d.xf_sub), .iss_tag(d.tag), .iss_ls(ra),
-    .iss_space(xcap.space), .iss_far(xcap.base + rb[FW-1:0]), .iss_len(rc), .iss_ready(tu_iss_ready),
+    .iss_valid(tu_iss_valid), .iss_kind(d.xf_sub), .iss_tag(d.tag), .iss_ls(LSW'(ra)),
+    .iss_space(xcap.space), .iss_far(xcap.base + rb[FW-1:0]), .iss_len(LSW'(rc)), .iss_ready(tu_iss_ready),
     .iss_hz(tu_iss_hz),
     .tag_busy, .idle(tu_idle), .mem_idle(tu_mem_idle),
-    .hz_addr, .hz_len, .hz_rd_stall, .hz_wr_stall, .hz_pc(pc), .hz_fetch_stall,
+    .hz_addr, .hz_len, .hz_rd_stall, .hz_wr_stall, .hz_pc(LSW'(pc)), .hz_fetch_stall,
     .dls_en(tu_dls_en), .dls_we(tu_dls_we), .dls_addr(tu_dls_addr), .dls_wdata(tu_dls_wdata),
     .dls_rdata(tu_dls_rdata),
     .ils_en(tu_ils_en), .ils_addr(tu_ils_addr), .ils_wdata(tu_ils_wdata),
@@ -507,7 +524,7 @@ module strata_core
   assign xm_far_lk  = xm_far[xm_li];
   assign xm_ils_lk  = xm_ils[xm_li];
   assign xm_lk_off  = {1'b0, pc[15:0]} + 17'd4 - {1'b0, xm_ils_lk};      // pc + 4 - its slot's start
-  assign xm_link    = xm_inslot ? {1'b1, 63'(xm_far_lk + FW'(xm_lk_off))} : pc + 4;
+  assign xm_link    = xm_inslot ? {1'b1, 63'(xm_far_lk + FW'(xm_lk_off))} : pc4;
 
   // tgetx forgets the mappings into the I-LS range it replaces, [ra, ra + rc):
   // xf_fault put it inside the I-LS, so 17 bits hold both ends
@@ -580,14 +597,15 @@ module strata_core
   assign dom_n      = GW'(cs_cap.len >> GRAN_SHIFT);
 
   // ================================================================ Local Store port A
-  logic        lt_rd;
+  logic        lt_rd, pc_in;
+  assign pc_in   = pc[63:$clog2(ILS_BYTES)] == 0;                 // pc < ILS_BYTES
   logic [63:0] lt_rd_a, va, ca, nv;
   assign lt_rd_a = lt_ebase + 64'(lt_k) * 8;
   assign va      = lt_ebase + lt_victim * 8;                         // the victim's tag word
   assign ca      = lt_ebase + 64'(lt_ways) * 8;                      // the set's counter word
   assign nv      = lt_victim + 1 == 64'(lt_ways) ? 64'd0 : lt_victim + 1;
   always_comb begin
-    ia_en    = state == S_F0 && pc[1:0] == 0 && pc < 64'(ILS_BYTES) && !hz_fetch_stall;
+    ia_en    = state == S_F0 && pc[1:0] == 0 && pc_in && !hz_fetch_stall;
     ia_addr  = pc[15:3];
     da_en    = 0;
     da_we    = '0;
@@ -743,7 +761,7 @@ module strata_core
         // ------------------------------------------------------------ fetch
         S_F0: begin
           if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end
-          else if (pc[1:0] != 0 || pc >= 64'(ILS_BYTES)) trap(C_IFAULT, pc);
+          else if (pc[1:0] != 0 || !pc_in) trap(C_IFAULT, pc);
           else if (hz_fetch_stall) stall();
           else state <= S_F1;
         end
@@ -768,10 +786,10 @@ module strata_core
                 state <= S_DV;                           // the divider / multiplier starts this cycle
               end else begin
                 begin xw = d.rd != 0; xv = alu_y; end
-                retire(pc + 4);
+                retire(pc4);
               end
             end
-            K_LUI: begin begin xw = d.rd != 0; xv = d.imm; end retire(pc + 4); end
+            K_LUI: begin begin xw = d.rd != 0; xv = d.imm; end retire(pc4); end
 
             K_LOAD: begin
               if (!mok) trap(C_LSFAULT, maddr);
@@ -781,12 +799,12 @@ module strata_core
             K_STORE: begin
               if (!mok) trap(C_LSFAULT, maddr);
               else if (hz_wr_stall) pending(maddr);
-              else retire(pc + 4);                       // the write happened this cycle
+              else retire(pc4);                       // the write happened this cycle
             end
 
-            K_BRANCH: retire(br_taken ? pc + d.imm : pc + 4);
-            K_JAL:    begin begin xw = d.rd != 0; xv = pc + 4; end retire(pc + d.imm); end
-            K_JALR:   begin begin xw = d.rd != 0; xv = pc + 4; end retire((ra + d.imm) & ~64'd3); end
+            K_BRANCH: retire(br_taken ? pc_br : pc4);
+            K_JAL:    begin begin xw = d.rd != 0; xv = pc4; end retire(pc_br); end
+            K_JALR:   begin begin xw = d.rd != 0; xv = pc4; end retire(alu_y & ~64'd3); end
 
             K_XFER: begin
               if (xf_fault != 0) trap(xf_fault, xf_tval);
@@ -795,18 +813,18 @@ module strata_core
                 if (d.xf_sub == XF_GETX)                 // code being replaced: forget overlay
                   for (int i = 0; i < NXMAP; i++)        // mappings that point into it
                     if (xm_inv[i]) xm_v[i] <= 0;
-                retire(pc + 4);
+                retire(pc4);
               end else stall();
             end
 
-            K_TWAIT: if ((tag_busy & d.imm16) != 0) stall(); else retire(pc + 4);
-            K_TPOLL: begin begin xw = d.rd != 0; xv = {48'b0, tag_busy & d.imm16}; end retire(pc + 4); end
+            K_TWAIT: if ((tag_busy & d.imm16) != 0) stall(); else retire(pc4);
+            K_TPOLL: begin begin xw = d.rd != 0; xv = {48'b0, tag_busy & d.imm16}; end retire(pc4); end
             K_TANY: begin                                // wait for any of: tags idle, a gift
               logic [16:0] ready;
               ready = {ra[16] && poll_mask != 0, ~tag_busy & ra[15:0]};
               if (ra[16] && inbox_priv) trap(C_PRIV, {32'b0, ir});
               else if (ra[16:0] != 0 && ready == 0) stall();
-              else begin begin xw = d.rd != 0; xv = {47'b0, ready}; end retire(pc + 4); end
+              else begin begin xw = d.rd != 0; xv = {47'b0, ready}; end retire(pc4); end
             end
 
             K_TAMO: begin
@@ -825,7 +843,7 @@ module strata_core
                     cdn = cs_cap;
                     if (d.cap_fn == CF_RESTR) cdn.perms = cs_cap.perms & rb[5:0];
                     if (cd_i != cs_i && cs_linear) csw = 1;
-                    retire(pc + 4);
+                    retire(pc4);
                   end
                 end
                 CF_SPLIT: begin
@@ -840,7 +858,7 @@ module strata_core
                     csw = 1;
                     csn = cs_cap;
                     csn.len = rb[FW-1:0];
-                    retire(pc + 4);
+                    retire(pc4);
                   end
                 end
                 CF_JOIN: begin
@@ -855,7 +873,7 @@ module strata_core
                     cdn = cd_cap;
                     cdn.len = cd_cap.len + cs_cap.len;
                     csw = 1;
-                    retire(pc + 4);
+                    retire(pc4);
                   end
                 end
                 CF_SHARE: begin
@@ -868,7 +886,7 @@ module strata_core
                     cdn = cs_cap;
                     cdn.perms = (cs_cap.perms & 6'b000101) | 6'b010000;
                     if (cd_i != cs_i && cs_linear) csw = 1;
-                    retire(pc + 4);
+                    retire(pc4);
                   end
                 end
                 CF_ATOM: begin
@@ -881,7 +899,7 @@ module strata_core
                     cdn = cs_cap;
                     cdn.perms = 6'b011000;
                     if (cd_i != cs_i) csw = 1;
-                    retire(pc + 4);
+                    retire(pc4);
                   end
                 end
                 CF_BASE, CF_LEN, CF_PERMS: begin
@@ -890,10 +908,10 @@ module strata_core
                     begin xw = d.rd != 0; xv = d.cap_fn == CF_BASE ? 64'(cs_cap.base)
                            : d.cap_fn == CF_LEN ? 64'(cs_cap.len)
                            : {53'b0, cs_cap.space, 2'b0, cs_cap.perms}; end
-                    retire(pc + 4);
+                    retire(pc4);
                   end
                 end
-                CF_VALID: begin begin xw = d.rd != 0; xv = {63'b0, live_a}; end retire(pc + 4); end
+                CF_VALID: begin begin xw = d.rd != 0; xv = {63'b0, live_a}; end retire(pc4); end
                 CF_GIVE: begin
                   if (!live_a) trap(C_CAPINV, 64'(cs_i));
                   // outside the core window: tval = the window-relative number
@@ -902,7 +920,7 @@ module strata_core
                   else if (give_bad) trap(C_CAPOP, give_node);
                   else if (give_valid && give_ack) begin
                     if (cs_linear) csw = 1;
-                    retire(pc + 4);
+                    retire(pc4);
                   end else stall();
                 end
                 CF_TAKE: begin
@@ -912,10 +930,10 @@ module strata_core
                     cdw = 1;
                     cdn = take_cap;
                     csr_takefrom <= 64'(take_from) - csr_corebase;
-                    retire(pc + 4);
+                    retire(pc4);
                   end else stall();
                 end
-                CF_CLEAR: begin cdw = 1; retire(pc + 4); end
+                CF_CLEAR: begin cdw = 1; retire(pc4); end
                 CF_SAVE: begin
                   if (user) trap(C_PRIV, {32'b0, ir});     // the save table is the supervisor's
                   else if (state == S_EX) state <= S_CT;   // the slot is read
@@ -923,7 +941,7 @@ module strata_core
                   else if (live_ct && !ct_entry.perms[P_D]) trap(C_CAPOP, 64'(d.slot));
                   else begin                             // (ct_we writes the slot)
                     if (cs_linear) csw = 1;
-                    retire(pc + 4);
+                    retire(pc4);
                   end
                 end
                 CF_RESTORE: begin
@@ -934,17 +952,17 @@ module strata_core
                   else begin                             // (ct_we empties a linear entry's slot)
                     cdw = 1;
                     cdn = ct_entry;
-                    retire(pc + 4);
+                    retire(pc4);
                   end
                 end
                 CF_POLL: if (inbox_priv) trap(C_PRIV, {32'b0, ir});
-                         else begin begin xw = d.rd != 0; xv = {48'b0, poll_mask >> csr_corebase[3:0]}; end retire(pc + 4); end
+                         else begin begin xw = d.rd != 0; xv = {48'b0, poll_mask >> csr_corebase[3:0]}; end retire(pc4); end
                 default: trap(C_ILLEGAL, {32'b0, ir});
               endcase
             end
 
             K_CSRR: if (user && (d.imm16 == CSR_SSCRATCH || d.imm16 == CSR_IPEND)) trap(C_PRIV, {32'b0, ir});
-                    else begin begin xw = d.rd != 0; xv = csr_rv; end retire(pc + 4); end
+                    else begin begin xw = d.rd != 0; xv = csr_rv; end retire(pc4); end
             K_CSRW: if (user && (d.imm16 == CSR_STATUS || d.imm16 == CSR_COREBASE || d.imm16 == CSR_CORECOUNT ||
                                  (d.imm16 >= CSR_UCAUSE && d.imm16 <= CSR_IPEND))) trap(C_PRIV, {32'b0, ir});
             else begin
@@ -970,7 +988,7 @@ module strata_core
                 CSR_CORECOUNT: csr_corecount <= ra;
                 default: ;
               endcase
-              retire(pc + 4);
+              retire(pc4);
             end
 
             K_SYS: begin
@@ -1004,17 +1022,17 @@ module strata_core
 
             K_XMAP: begin
               if (d.rd[4]) trap(C_ILLEGAL, {32'b0, ir});
-              else if (d.flag) begin xm_v[d.rd[3:0]] <= 0; retire(pc + 4); end
+              else if (d.flag) begin xm_v[d.rd[3:0]] <= 0; retire(pc4); end
               else if (!live_a) trap(C_CAPINV, 64'(d.cs));
               else if (!xcap.perms[P_X]) trap(C_PERM, 64'(d.cs));
               else if (ge_w(rb, xcap.len)) trap(C_BOUNDS, rb);
-              else if (ra[1:0] != 0 || ra >= 64'(ILS_BYTES)) trap(C_LSFAULT, ra);
+              else if (ra[1:0] != 0 || ra[63:$clog2(ILS_BYTES)] != 0) trap(C_LSFAULT, ra);
               else begin
                 xm_v[d.rd[3:0]]   <= 1;
                 xm_sp[d.rd[3:0]]  <= xcap.space;
                 xm_far[d.rd[3:0]] <= xcap.base + rb[FW-1:0];          // rb < len: exact
                 xm_ils[d.rd[3:0]] <= ra[15:0];
-                retire(pc + 4);
+                retire(pc4);
               end
             end
 
@@ -1039,7 +1057,7 @@ module strata_core
                   else if (give_bad) trap(C_CAPOP, give_node);
                   else if (give_valid && give_ack) begin
                     if (cs_linear) csw = 1;
-                    retire(pc + 4);
+                    retire(pc4);
                   end else stall();
                 end
                 C2_RECV: begin                           // crecv cd, ce
@@ -1049,7 +1067,7 @@ module strata_core
                     cdw = 1;
                     cdn = take_cap;
                     csr_takefrom <= 64'(take_from) - csr_corebase;
-                    retire(pc + 4);
+                    retire(pc4);
                   end else stall();
                 end
                 C2_MKEP: begin                           // cmkep cd, rx
@@ -1059,7 +1077,7 @@ module strata_core
                   else begin
                     cdw = 1;
                     cdn = '{valid: 1, space: SP_EP, perms: 6'b010011, base: FW'(rb), len: FW'(1), rv: 0, gen: 0};
-                    retire(pc + 4);
+                    retire(pc4);
                   end
                 end
                 C2_SAVEX: begin                          // csavex cs, rx
@@ -1070,7 +1088,7 @@ module strata_core
                   else if (live_ct && !ct_entry.perms[P_D]) trap(C_CAPOP, rb);
                   else begin                             // (ct_we writes the slot)
                     if (cs_linear) csw = 1;
-                    retire(pc + 4);
+                    retire(pc4);
                   end
                 end
                 C2_RESTOREX: begin                       // crestorex cd, rx
@@ -1082,7 +1100,7 @@ module strata_core
                   else begin                             // (ct_we empties a linear entry's slot)
                     cdw = 1;
                     cdn = ct_entry;
-                    retire(pc + 4);
+                    retire(pc4);
                   end
                 end
                 default: begin                           // cdom / crevoke / cundom
@@ -1117,7 +1135,7 @@ module strata_core
                       cdn.gen   = 16'd0;
                       csw = 1;
                     end
-                    retire(pc + 4);
+                    retire(pc4);
                   end else stall();                      // the top level is walking the table
                 end
               endcase
@@ -1128,17 +1146,17 @@ module strata_core
         end
 
         // ------------------------------------------------------------ load data
-        S_LD: begin begin xw = d.rd != 0; xv = mload; end retire(pc + 4); end
+        S_LD: begin begin xw = d.rd != 0; xv = mload; end retire(pc4); end
 
         // ------------------------------------------------------------ division
         S_DV: if (is_mul ? (d.alu_op == ALU_MUL ? mul_done_lo : mul_done) : div_done) begin
           begin xw = d.rd != 0; xv = d.alu_op == ALU_MUL ? mul_p[63:0] : d.alu_op == ALU_MULHU ? mul_p[127:64]
                                     : (d.alu_op == ALU_REMU || d.alu_op == ALU_REM) ? div_r : div_q; end
-          retire(pc + 4);
+          retire(pc4);
         end
 
         // ------------------------------------------------------------ far atomic
-        S_AM: if (am_done) begin begin xw = d.rd != 0; xv = bus_rdata; end retire(pc + 4); end
+        S_AM: if (am_done) begin begin xw = d.rd != 0; xv = bus_rdata; end retire(pc4); end
 
         // ------------------------------------------------------------ tag lookup
         S_LG: begin
@@ -1163,7 +1181,7 @@ module strata_core
             if (d.kind == K_LTAG && lt_k < lt_ways) begin
               if (da_rdata == lt_key) begin
                 begin xw = d.rd != 0; xv = csr_tdata + ((lt_sw + 64'(lt_k)) << lt_lsh) + lt_off; end
-                retire(pc + 4);
+                retire(pc4);
               end else lt_k <= lt_k + 1;
             end else begin
               // da_rdata is the set's replacement counter: it names the victim way
@@ -1171,7 +1189,7 @@ module strata_core
               victim = da_rdata < 64'(lt_ways) ? da_rdata : 64'd0;
               if (d.kind == K_LTAG) begin
                 begin xw = d.rd != 0; xv = (csr_tdata + ((lt_sw + victim) << lt_lsh)) | 64'h8000_0000_0000_0000; end
-                retire(pc + 4);
+                retire(pc4);
               end else begin
                 lt_victim <= victim;
                 lt_ph     <= 1;                          // stay: write the tag next cycle
@@ -1182,7 +1200,7 @@ module strata_core
         end
         S_LW: begin
           if (lt_ph) lt_ph <= 0;                         // the victim's tag is written this cycle
-          else retire(pc + 4);                           // and the counter this one
+          else retire(pc4);                           // and the counter this one
         end
 
         S_HALT: ;

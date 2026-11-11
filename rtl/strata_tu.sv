@@ -18,6 +18,12 @@
 // A command whose D-LS range overlaps a device read still in the queue (it
 // may wait for the device and be rotated behind later commands) is not
 // accepted until that read completes (iss_hz).
+//
+// Local Store addresses and lengths are LSW bits: an issued command's range
+// is inside its Local Store (the core checked it), and so is every hazard
+// query that matters (a load, store or tag-table access outside the D-LS
+// traps first; a fetch outside the I-LS likewise). Each queue entry keeps
+// its range's end, so the overlap checks are comparisons only.
 
 module strata_tu
   import strata_pkg::*;
@@ -29,10 +35,10 @@ module strata_tu
   input  logic        iss_valid,
   input  logic [2:0]  iss_kind,
   input  logic [3:0]  iss_tag,
-  input  logic [63:0] iss_ls,
+  input  logic [LSW-1:0] iss_ls,
   input  logic [2:0]  iss_space,
   input  logic [FW-1:0] iss_far,   // inside the capability: FW bits
-  input  logic [63:0] iss_len,
+  input  logic [LSW-1:0] iss_len,
   output logic        iss_ready,
   output logic        iss_hz,       // the command's D-LS range overlaps an in-flight device read
 
@@ -42,11 +48,11 @@ module strata_tu
   output logic        mem_idle,     // no far-memory transfer in flight (what handing over a capability waits for)
 
   // hazard queries
-  input  logic [63:0] hz_addr,
-  input  logic [63:0] hz_len,
+  input  logic [LSW-1:0] hz_addr,
+  input  logic [LSW-1:0] hz_len,
   output logic        hz_rd_stall,
   output logic        hz_wr_stall,
-  input  logic [63:0] hz_pc,
+  input  logic [LSW-1:0] hz_pc,
   output logic        hz_fetch_stall,
 
   // Local Store port B (D-LS read/write, I-LS write)
@@ -80,30 +86,32 @@ module strata_tu
   logic [QD-1:0] q_v;
   logic [2:0]    q_kind [QD];
   logic [3:0]    q_tag  [QD];
-  logic [63:0]   q_ls   [QD];
+  logic [LSW-1:0] q_ls  [QD];
+  logic [LSW-1:0] q_end [QD];   // q_ls + q_len
+  logic [QD-1:0]  q_nz;         // q_len != 0
   logic [2:0]    q_sp   [QD];
   logic [FW-1:0] q_far  [QD];
-  logic [63:0]   q_len  [QD];
+  logic [LSW-1:0] q_len [QD];
 
   logic [1:0] head, tail;
   logic [2:0] count;
 
   typedef enum logic [2:0] {E_IDLE, E_REQ, E_XFER, E_RETIRE, E_ROT} estate_t;
   estate_t     es;
-  logic [63:0] off;          // bytes moved so far
-  logic [63:0] rd_off;       // put: next LS offset to read
+  logic [LSW-1:0] off;       // bytes moved so far
+  logic [LSW-1:0] rd_off;    // put: next LS offset to read
   logic [1:0]  pf_cnt;       // put: words waiting in the prefetch buffer
   logic        pf_inflight;  // put: a Local Store read was issued last cycle
-  logic [63:0] pf_rd_o;      // put: the offset that read belongs to
+  logic [LSW-1:0] pf_rd_o;   // put: the offset that read belongs to
   logic [63:0] pf_d [2];
-  logic [63:0] pf_o [2];     // the LS offset each prefetched word belongs to
+  logic [LSW-1:0] pf_o [2];  // the LS offset each prefetched word belongs to
 
   logic [2:0]  h_kind;
-  logic [63:0] h_ls, h_len;
+  logic [LSW-1:0] h_ls, h_len;
   logic [FW-1:0] h_far;
   logic [2:0]  h_sp;
   logic        h_dev, h_put, h_getx;
-  logic [63:0] step;
+  logic [LSW-1:0] step;
   assign h_kind = q_kind[head];
   assign h_ls   = q_ls[head];
   assign h_far  = q_far[head];
@@ -112,7 +120,7 @@ module strata_tu
   assign h_dev  = h_sp == SP_DEV;
   assign h_put  = h_kind == XF_PUT;
   assign h_getx = h_kind == XF_GETX;
-  assign step   = h_dev ? 64'd1 : 64'd8;
+  assign step   = h_dev ? LSW'(1) : LSW'(8);
 
   logic do_issue, do_retire;
   assign iss_ready = count < 3'(QD) && !tag_busy[iss_tag] && es != E_ROT && !iss_hz;
@@ -125,10 +133,15 @@ module strata_tu
   end
 
   // ------------------------------------------------------------ hazards
-  function automatic logic overlap(input logic [63:0] a, input logic [63:0] al,
-                                   input logic [63:0] b, input logic [63:0] bl);
-    return al != 0 && bl != 0 && a < b + bl && b < a + al;
+  // [a, ae) and [b, be) overlap (an flags a non-empty range)
+  function automatic logic overlap(input logic [LSW-1:0] a, input logic [LSW-1:0] ae, input logic an,
+                                   input logic [LSW-1:0] b, input logic [LSW-1:0] be, input logic bn);
+    return an && bn && a < be && b < ae;
   endfunction
+  logic [LSW-1:0] iss_end, hz_end, hz_pc_end;
+  assign iss_end   = iss_ls + iss_len;
+  assign hz_end    = hz_addr + hz_len;
+  assign hz_pc_end = hz_pc + LSW'(4);
 
   // A device read may wait (and be rotated behind later commands): a command
   // whose D-LS range overlaps one waits at issue until it completes, so the
@@ -137,7 +150,8 @@ module strata_tu
   always_comb begin
     iss_hz_any = 0;
     for (int i = 0; i < QD; i++)
-      if (q_v[i] && q_sp[i] == SP_DEV && q_kind[i] == XF_GET && overlap(q_ls[i], q_len[i], iss_ls, iss_len))
+      if (q_v[i] && q_sp[i] == SP_DEV && q_kind[i] == XF_GET &&
+          overlap(q_ls[i], q_end[i], q_nz[i], iss_ls, iss_end, iss_len != 0))
         iss_hz_any = 1;
   end
   assign iss_hz = iss_hz_any && iss_kind != XF_GETX;
@@ -149,8 +163,8 @@ module strata_tu
     for (int i = 0; i < QD; i++) begin
       if (q_v[i]) begin
         if (q_kind[i] == XF_GETX) begin
-          if (overlap(q_ls[i], q_len[i], hz_pc, 64'd4)) hz_fetch_stall = 1;
-        end else if (overlap(q_ls[i], q_len[i], hz_addr, hz_len)) begin
+          if (overlap(q_ls[i], q_end[i], q_nz[i], hz_pc, hz_pc_end, 1'b1)) hz_fetch_stall = 1;
+        end else if (overlap(q_ls[i], q_end[i], q_nz[i], hz_addr, hz_end, hz_len != 0)) begin
           hz_wr_stall = 1;
           if (q_kind[i] == XF_GET) hz_rd_stall = 1;
         end
@@ -162,20 +176,22 @@ module strata_tu
   assign b_req   = es == E_REQ;
   assign b_we    = h_put;
   assign b_space = h_sp;
-  assign b_addr  = 64'(h_far + off[FW-1:0]);   // still inside the capability
-  assign b_beats = h_dev ? 24'(h_len - off) : 24'((h_len - off) >> 3);
+  assign b_addr  = 64'(h_far + FW'(off));      // still inside the capability
+  logic [LSW-1:0] h_left;
+  assign h_left  = h_len - off;
+  assign b_beats = h_dev ? 24'(h_left) : 24'(h_left >> 3);
   assign b_byte  = h_dev;
 
   // put data: the oldest prefetched word (or its byte, for a device)
   logic [63:0] pf_byte;
-  logic [63:0] pf_ls0;
+  logic [LSW-1:0] pf_ls0;
   assign pf_ls0   = h_ls + pf_o[0];
   assign pf_byte  = (pf_d[0] >> {pf_ls0[2:0], 3'b000}) & 64'hff;
   assign b_wvalid = es == E_XFER && h_put && pf_cnt != 0;
   assign b_wdata  = h_dev ? pf_byte : pf_d[0];
 
   // ------------------------------------------------------------ Local Store port B
-  logic [63:0] g_ls, p_ls;
+  logic [LSW-1:0] g_ls, p_ls;
   assign g_ls = h_ls + off;      // get: where the arriving beat goes
   assign p_ls = h_ls + rd_off;   // put: the next byte/word to read
 
@@ -281,6 +297,8 @@ module strata_tu
         q_kind[tail] <= q_kind[head];
         q_tag[tail]  <= q_tag[head];
         q_ls[tail]   <= q_ls[head];
+        q_end[tail]  <= q_end[head];
+        q_nz[tail]   <= q_nz[head];
         q_sp[tail]   <= q_sp[head];
         q_far[tail]  <= q_far[head];
         q_len[tail]  <= q_len[head];
@@ -298,6 +316,8 @@ module strata_tu
         q_kind[tail] <= iss_kind;
         q_tag[tail]  <= iss_tag;
         q_ls[tail]   <= iss_ls;
+        q_end[tail]  <= iss_end;
+        q_nz[tail]   <= iss_len != 0;
         q_sp[tail]   <= iss_space;
         q_far[tail]  <= iss_far;
         q_len[tail]  <= iss_len;

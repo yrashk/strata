@@ -151,4 +151,43 @@ wx2:    xcall ra, c6, t1                ; out of bounds
         la    a1, wx2                   ; expected epc
         li    a2, 1 << 44               ; expected tval
         call  chkt                      ; check
+
+; ---- branch and jal targets outside the I-LS: the fetch fault has the full pc ------------------
+        la    t6, wj1b                  ; where to resume
+        sd    t6, tresume(zero)         ; (one-shot)
+wj1:    .word 0x28 << 26 | 0x100000     ; jal zero, -2^22 bytes: below address 0
+wj1b:   li    a0, C_IFAULT              ; expected cause
+        li    a1, wj1 - 0x400000        ; expected epc: the negative target
+        li    a2, wj1 - 0x400000        ; expected tval
+        call  chkt                      ; check
+        la    t6, wj2b                  ; resume
+        sd    t6, tresume(zero)         ; (one-shot)
+wj2:    .word 0x28 << 26 | 0x0fffff     ; jal zero, +2^22 - 4 bytes
+wj2b:   li    a0, C_IFAULT              ; expected cause
+        li    a1, wj2 + 0x3ffffc        ; expected epc
+        li    a2, wj2 + 0x3ffffc        ; expected tval
+        call  chkt                      ; check
+        la    t6, wj3b                  ; resume
+        sd    t6, tresume(zero)         ; (one-shot)
+wj3:    .word 0x20 << 26 | 0x7fff       ; beq zero, zero, +0x1fffc bytes
+wj3b:   li    a0, C_IFAULT              ; expected cause
+        li    a1, wj3 + 0x1fffc         ; expected epc
+        li    a2, wj3 + 0x1fffc         ; expected tval
+        call  chkt                      ; check
+        la    t6, wj4b                  ; resume
+        sd    t6, tresume(zero)         ; (one-shot)
+wj4:    .word 0x20 << 26 | 0x8000       ; beq zero, zero, -0x20000 bytes
+wj4b:   li    a0, C_IFAULT              ; expected cause
+        li    a1, wj4 - 0x20000         ; expected epc
+        li    a2, wj4 - 0x20000         ; expected tval
+        call  chkt                      ; check
+        li    t0, 5                     ; a taken bltu backwards past 0 ...
+        li    t1, 6                     ; ...
+        la    t6, wj5b                  ; resume
+        sd    t6, tresume(zero)         ; (one-shot)
+wj5:    .word 0x24 << 26 | 5 << 21 | 6 << 16 | 0xc000 ; bltu t0, t1, -0x10000 bytes (t0 = x5, t1 = x6)
+wj5b:   li    a0, C_IFAULT              ; expected cause
+        li    a1, wj5 - 0x10000         ; expected epc
+        li    a2, wj5 - 0x10000         ; expected tval
+        call  chkt                      ; check
         j     done                      ; print the signature and the verdict
