@@ -2,6 +2,8 @@
 # vi-shots.sh: pictures of vi in the window server's terminal, headless.
 #
 #   tools/vi-shots.sh [bootrom.stx disk.img]      -> build/vi-shots/asm.png, forth.png
+#   tools/vi-shots.sh -f [bootrom.stx disk.img]   -> build/vi-shots/fs-asm.png, fs-forth.png
+#                                                    (the same, with the Forth port: forth vi.fs)
 #
 # Boots StrataOS on the emulator (12 cores, no window) with scripted keys, as
 # tools/test-ws.sh does: `ws` from the shell, then in its first terminal vi
@@ -12,6 +14,8 @@
 # after the first ones dismisses the key help. No key here follows an ESC:
 # ws would take ESC and a key together as an Alt binding.
 set -e
+VI=vi; P=; WAIT=
+if [ "${1:-}" = "-f" ]; then VI="forth vi.fs"; P=fs-; WAIT='\033W\033W\033W'; shift; fi
 BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
@@ -38,6 +42,6 @@ PY
   echo "vi-shots: $T/$1.png"
 }
 # assembly: line numbers, then a new line being typed (insert mode)
-shot asm "vi /src/hello.s\n$W:set nu\n30Go        addi  t1, t1, 8           ; a new line, typed"
+shot ${P}asm "$VI /src/hello.s\n$W$WAIT:set nu\n30Go        addi  t1, t1, 8           ; a new line, typed"
 # Forth: the Mandelbrot demo, its inner loop (locals, control words, a ( comment)
-shot forth "vi gfx.fs\n${W}40G"
+shot ${P}forth "$VI gfx.fs\n${W}${WAIT}40G"

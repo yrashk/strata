@@ -3,7 +3,7 @@
 \ =============================================================================
 \ Included by vi.fs (which describes the editor); not a program of its own.
 
-\ ==== overlay 5: the undo history and the register =========================================================
+\ ==== overlay 8: the undo history and the register ================================================
 overlay
 : fl-put ( far u -- size )                      \ a line record {u64 length, bytes} from tbuf (bytes at +8)
   dup tbuf ! 15 + -8 and >r tbuf swap r@ far-write htag twait r> ;
@@ -53,7 +53,7 @@ overlay
   loop drop ;
 : y-chars ( a u -- ) tuck tbuf 8 + swap move  f-y swap fl-put drop  0 y-kind ! 1 y-cnt ! ;
 
-\ ==== overlay 6: insert mode ================================================================================
+\ ==== overlay 9: insert mode ======================================================================
 overlay
 : ir-load ( -- ) cy @ lbuf lget lblen !  1 lblive !  cy @ mark-row ; \ the cursor's line into lbuf
 : ir-commit ( -- )                              \ lbuf back; the change ends with the cursor's line
@@ -84,7 +84,7 @@ overlay
 : c-ins ( -- ) cy @ 1 chg-begin ins-run ;
 : c-open ( n -- ) dup 0 chg-begin  dup lbuf 0 lins drop  dup cy !  0 cx !  mark-from  ins-run ;
 
-\ ==== overlay 7: changing =================================================================================
+\ ==== overlay 10: changing ========================================================================
 overlay
 : op-chars ( from to op -- )                    \ the cursor line's bytes [from, to): into the register,
   { x0 x1 op }  x0 cx !  cy @ lbuf lget lblen !  lbuf x0 + x1 x0 - y-chars \ and (d c) out of the line
@@ -109,7 +109,7 @@ overlay
   cy @ 1 chg-begin  cy @ lbuf lget lblen !  lbuf cx @ + cnt1 @ rot fill
   cx @ cnt1 @ + 1- cx !  cy @ lbuf lblen @ lput drop  1 chg-end  cy @ mark-row ;
 
-\ ==== overlay 8: joining, putting ==========================================================================
+\ ==== overlay 11: joining, putting ================================================================
 overlay
 : c-J ( -- )                                    \ J: lines joined, the leading blanks gone, a space between
   cnt1 @ 1- 1 max  nl @ cy @ - 1- min  dup 0> 0= if drop exit then
@@ -137,7 +137,7 @@ overlay
   cy @ 1 chg-begin  f-y fl-get drop  cy @ lbuf lget dup lblen !
   if swap cx @ + else nip cx @ then put-at ;
 
-\ ==== overlay 9: files ======================================================================================
+\ ==== overlay 12: files ===========================================================================
 overlay
 : buf-reset ( -- )                              \ no text, every chunk free, no history, the cursor home
   nchmax @ dup nfree !  0 ?do nchmax @ 1- i - fstk i + c! loop
@@ -179,7 +179,7 @@ overlay
   dup dw-lines swap fs-close 0= if m" cannot write: " m-add false exit then
   0 msgl ! '"' m-chr m-add '"' m-chr m-size m+"  written" true ;
 
-\ ==== overlay 10: the : line and searching ===============================================================
+\ ==== overlay 13: the : line ======================================================================
 overlay
 : readline ( c -- u|-1 )                        \ a line typed on the status row (in cmdbuf); -1: abandoned
   0 { p n }
@@ -228,7 +228,7 @@ overlay
   ':' readline dup 0> 0= if drop exit then  cmdbuf swap 2dup 0 skip-bl /string
   2dup number? if nip nip 1- mo-line mv-y @ dup cy ! fnb cx ! exit then  ex-run ;
 
-\ ==== overlay: searching =============================================================================
+\ ==== overlay 14: searching =======================================================================
 overlay
 : sfind ( a u from dir -- i|-1 )                \ where the text searched for starts: the first at or
   { a u from dir }  u patl @ -                  \   after (the last at or before) from
@@ -251,7 +251,7 @@ overlay
   ?dup if dup patl ! cmdbuf patbuf rot move then
   dup sdir ! search if mv-y @ cy ! mv-x @ cx ! then ;
 
-\ ==== overlay 11: motions ===============================================================================
+\ ==== overlay 15: words and brackets (w b e %) ====================================================
 overlay
 : pos-get ( -- c len ) p-y @ lfind dup p-x @ > if over p-x @ + c@ else 10 then rot drop swap ;
 : pos-cls ( -- k )                              \ 0 blank (a line's end too), 1 a word's byte, 2 other, 3 an empty line
@@ -285,7 +285,7 @@ overlay
   begin pos-get p-x @ > 0= if drop false exit then brk? dup 0< while drop 1 p-x +! repeat
   dup brk + c@ over 1 xor brk + c@ rot 1 and 0= pair-go ;
 
-\ ==== overlay: motions ===================================================================================
+\ ==== overlay 16: motions =========================================================================
 overlay
 : xcol ( a u col -- i )                         \ the last byte that starts at or before col (0: none)
   0 0 { a u col c i }
@@ -318,7 +318,7 @@ overlay
     nip -1 swap
   endcase ;
 
-\ ==== overlay 12: operators, scrolling ==================================================================
+\ ==== overlay 17: operators, scrolling ============================================================
 overlay
 : kmapk ( k -- k' ) dup $100 < if exit then $101 - dup 10 u< if kmap + c@ else drop 0 then ;
 : count? ( n k -- n k f ) dup '0' - 10 u< over '0' <> 3 pick 0<> or and ; \ a digit of a count?
@@ -340,7 +340,7 @@ overlay
   over -1 = if nip else over -2 = if nip trows @ + 1- else drop cy @ + then then
   cy !  1 dall !  fix-cursor  cy @ fnb cx ! ;
 
-\ ==== overlay 13: normal mode ===========================================================================
+\ ==== overlay 18: normal mode =====================================================================
 overlay
 : ncmd ( -- )                                   \ one command: a count, a key, what it does
   0 begin getkey 0 msgl ! count? while '0' - swap 10 * + repeat
@@ -375,7 +375,7 @@ overlay
   quit @ until ;
 resident
 
-\ ==== overlay 14: starting and leaving ===================================================================
+\ ==== overlay 19: starting and leaving ============================================================
 overlay
 : vi-main ( a u -- )                            \ edit that file (u = 0: an empty buffer)
   hdl @ 3 = dup con ! if 1 0 0 19 3 (msg) drop then \ the console in raw mode (a pipe is already)

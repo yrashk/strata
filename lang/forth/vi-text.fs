@@ -3,7 +3,7 @@
 \ =============================================================================
 \ Included by vi.fs (which describes the editor); not a program of its own.
 
-\ ==== overlay 1: the data, the keyword tables, size reports ========================================
+\ ==== overlay 1: the data, the keyword tables, the messages =======================================
 \ Everything that is only data is here: the stubs of variables are code, and
 \ compiled code never runs them (it uses their addresses), so they need not
 \ take resident code space.
@@ -88,7 +88,7 @@ variable m-pos  $1000 m-pos !                   \ where the next message's text 
 : m" ( "text" -- ) m-text postpone literal postpone m-far ; immediate   \ the message is the text
 : m+" ( "text" -- ) m-text postpone literal postpone m-far+ ; immediate \ ... appended to the message
 
-\ ---- resident: reading the text, output, messages, keys ---------------------------------------
+\ ---- resident: finding lines of the text, output, the screen's bookkeeping ----------------------
 resident
 : ct ( c -- type ) ctype + c@ ;
 : ce ( i -- a ) 8 * ctab + ;                    \ chunk i's entry
@@ -135,7 +135,7 @@ resident
 : is-mod ( -- f ) u-end @ u-saved @ <> ins @ or ;
 : mo-line ( n -- ) nl @ 1- min 0 max mv-y ! ;  \ a motion's line: n, within the text
 
-\ ==== overlay 2: keys and messages ===================================================================
+\ ==== overlay 2: keys and messages ================================================================
 overlay
 : m-add ( a u -- ) 120 msgl @ - min 0 max  tuck msgbuf msgl @ + swap move  msgl +! ;
 : msg ( a u -- ) 0 msgl ! m-add ;
@@ -171,7 +171,7 @@ overlay
   k-pend @ ?dup if 0 k-pend ! else rq-pos @ rq-len @ < dotn @ or if dot-key else rd-key then then
   rec-len @ 64 < if dup recbuf rec-len @ 2* + w! 1 rec-len +! then ;
 
-\ ==== overlay 2: deleting lines, new chunks; file handles ===============================================
+\ ==== overlay 3: deleting lines, splitting chunks =================================================
 overlay
 : ln-touch ( n -- ) -1 lc-n !  hs-n @ < if 0 hs-n ! 0 hs-s ! then ; \ (again: something at line n changes)
 : ch-new ( i -- f )                             \ an empty chunk at index i (those from i move up)
@@ -203,7 +203,7 @@ overlay
   over cb@ over - 2 pick 1+ ce 2 + w!  over ce 2 + w!
   dup cbuf 1 ch-io  cbuf over cb@ + cbuf 2 pick 1+ cb@ move \ (no second buffer: cbuf is written,
   dup 1+ cbuf 1 ch-io  cbuf 0 ch-io  0 cdirty !  true ; \   shifted, written and read again)
-\ ==== overlay 3: highlighting assembly (site/hl.js's rules) =====================================
+\ ==== overlay 4: highlighting assembly (site/hl.js's rules) =======================================
 overlay
 : paint ( from to class -- ) >r over - 0 max swap cls + swap r> fill ;
 : lower ( c -- c' ) dup ct 32 and or ;
@@ -303,7 +303,7 @@ overlay
   w i 2 pick paint
   9 = i w - 4 = and a w + c@ 'c' = and  a u i 3 roll hl-ops ; \ csrr / csrw: CSR names follow
 
-\ ==== overlay 4: highlighting Forth (the same helpers again: called for every word) ================
+\ ==== overlay 5: highlighting Forth (the helpers again: they run for every word) ==================
 overlay
 : paint ( from to class -- ) >r over - 0 max swap cls + swap r> fill ;
 : lower ( c -- c' ) dup ct 32 and or ;
@@ -396,7 +396,7 @@ variable hf-want                                \ what the word before asked for
   hs-n ! dup hs-s ! ;
 
 
-\ ==== overlay 3: inserting and replacing lines; files in ===========================================================
+\ ==== overlay 6: inserting and replacing lines; reading a file ====================================
 overlay
 : ln-touch ( n -- ) -1 lc-n !  hs-n @ < if 0 hs-n ! 0 hs-s ! then ; \ something at line n changes
 : room? ( -- f ) nfree @ 2 < if m" buffer full" false else true then ;
@@ -414,7 +414,8 @@ overlay
     else ch-flush c ch-new 0= if false exit then  c cidx ! then then
   cbuf off + dup u 1+ +  c cb@ off - move  a cbuf off + u move  10 cbuf off + u + c!
   c ce 2 + dup w@ u + 1+ swap w!  c ce 4 + dup l@ 1+ swap l!  1 cdirty !  1 nl +!
-  c f-c !  off f-o !  u f-len !  n lc-n !  0 c 0 ?do i cl@ + loop f-b !  true ;
+  c f-c !  off f-o !  u f-len !  n lc-n !      \ found: the new line (inserting one after another is quick)
+  off 0= if n else c cb@ off u + 1+ = if n c cl@ 1- - else 0 c 0 ?do i cl@ + loop then then f-b !  true ;
 : lput ( n a u -- f )                           \ line n's text replaced (in its chunk if it fits)
   2 pick ln-touch  2 pick lfind nip { n a u old }
   f-c @ cb@ u + old - chsz > if room? 0= if false exit then  n ldel  n a u lins exit then
@@ -424,15 +425,23 @@ overlay
 : fixempty ( -- f ) nl @ if false else 0 lbuf 0 lins drop true then ; \ there is always a line
 : fs-read ( id u -- n ) 0 1 2 (msg) dup 0> if tbuf 64 2 pick aligned 5 tget then ; \ into tbuf
 : dl-add ( -- f ) nl @ lbuf lblen @ lins  0 lblen ! ; \ lbuf -> a new last line
+: nl-in ( a u -- k )                            \ the bytes before the first newline (all u if none: a code word)
+  [ %t2 %s0 0 ld,  %s0 %s0 8 addi,  %t1 %zero 10 addi,  %a0 %zero 0 addi,
+    mark  chere %a0 %s1 0 bge,  %a2 %t2 %a0 add,  %a2 %a2 0 lbu,  chere %a2 %t1 0 beq,
+    %a0 %a0 1 addi,  ahead, 3 roll resolve  mark resolve  mark resolve  %s1 %a0 0 addi, ] ;
 : dl-file ( id -- cut? )                        \ the file's lines into the text (lmax bytes make a line)
   false { id cut }
   begin cut 0= if id 1008 fs-read else 0 then dup 0> while
-    tbuf swap bounds ?do cut 0= if i c@ dup 10 = if drop dl-add 0= to cut else
-      lbuf lblen @ + c!  1 lblen +!  lblen @ lmax = if dl-add 0= to cut then then then loop
+    tbuf swap begin dup cut 0= and while        ( a u: what is left of this piece )
+      2dup nl-in lmax lblen @ - min             \ up to a newline, as much as the line takes
+      >r over lbuf lblen @ + r@ move  r@ lblen +!  r> /string
+      lblen @ lmax = if dl-add 0= to cut else   \ (a full line ends there, as in vi.s)
+        dup if over c@ 10 = if 1 /string dl-add 0= to cut then then then
+    repeat 2drop
   repeat drop
   lblen @ cut 0= and if dl-add 0= to cut then  cut ;
 
-\ ==== overlay 4: drawing ===========================================================================
+\ ==== overlay 7: drawing ==========================================================================
 overlay
 : hl-on ( -- syn ) synon @ if syn @ else 0 then ; \ (again: called for every row)
 : hl-line ( a u state -- state' ) syn @ 2 = if hl-forth else drop hl-asm 0 then ;
