@@ -479,6 +479,43 @@ Two calls let a program reduce or correct what a switch does:
   up to date is the program's job (it writes code there before installing
   it anyway).
 
+**What the next process may see.** What a switch leaves out (the D-LS
+above the data extent, below the live stack, a scratch range) still
+holds the previous thread's bytes. The dispatcher remembers whose bytes
+its D-LS holds (`w_dpid`): when it loads a thread of another process, and
+on a thread's first load, it restores the whole program D-LS,
+[0, 0xA000) and [0xE000, 0x10000) (48 KiB in two `tget`s), from the save
+area instead of only the extent and the stack. Outside those, the save
+area holds zeros (the arena is scrubbed when MEMORY hands it out, CREATE
+takes only such arenas, the program cannot reach its save area, and a
+switch writes there only the extent and the live stack) or older bytes of
+the same thread: never another process's. A first load takes the zeros
+and then the image's data section on top (transfers act in issue order),
+replacing a 40 KiB store loop (about 46,000 RTL cycles). A thread that
+returns to a core where nothing else ran meanwhile gets back only its
+extent and stack, as before. `tools/test-isolate.sh` checks it: two
+copies of `tools/dlsgap.s` pinned to one core, one filling its gaps with
+a pattern, the other looking for it in its own at its first load and
+after each of 8 switches back.
+
+Not covered, and why:
+- **The I-LS** above a program's resident code still holds the previous
+  program's code and code-cache units. Nothing can read it: loads and
+  `tget` use the D-LS, `tgetx` only writes the I-LS, `ltag`/`linst` work
+  on the D-LS tag table, and `xcall`/`xret` reach code only through the
+  overlay map, which every switch-in clears. A program could only jump
+  into it and execute it; overwriting it would cost up to 32 KiB of
+  far-bus traffic per switch.
+- **The Local Stores have no user/supervisor protection.** User-mode
+  loads, stores and `tgetx` reach every address, including the
+  dispatcher's data at 0xA000..0xDFFF (the records, and so the saved
+  registers, of the other threads on the core) and its code. Isolation
+  between the processes of one core is therefore against disclosure to
+  programs that read memory they did not write, not against a hostile
+  program; that needs a hardware bound on user-mode Local Store
+  addresses, which the ISA does not have. Far memory is protected by
+  capabilities either way.
+
 **The arena** (1 MiB unless the spawner asked for more, whole 256 KiB
 granules, zeroed when handed out), for a process with N threads, with
 P = 0xD0000 − (N−1) × 48 KiB. The offsets are from the arena's **layout
@@ -1393,7 +1430,8 @@ messages and the `:` and `/` lines take its place.
   survives, on both machines. `tools/test-sh.sh`: a scripted interactive
   shell session with editing keys, compared with `tools/test-sh.out`.
   `tools/test-preempt.sh`: two `spin` processes on one core both make
-  progress; `ps` shows context switches. `tools/test-boot-jit.sh`: the
+  progress; `ps` shows context switches. `tools/test-isolate.sh`: nothing
+  one process leaves in its core's D-LS is visible to the next (2.2). `tools/test-boot-jit.sh`: the
   demo session three times under the JIT's coarser interleaving.
 - `tools/test-fb.sh`: frames written with `-F` are byte-identical on the
   emulator and the RTL. `tools/test-jit.sh`: the JIT against the
