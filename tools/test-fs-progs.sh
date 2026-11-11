@@ -171,7 +171,8 @@ for i, (kind, name, cmd) in enumerate(cases):
     if kind in "xX" and s != f:
         fails.append("%s: %s:\n--- %s\n%s--- the port\n%s" % (name, cmd, cmd, s, f))
     if kind == "o":
-        own.append("==== " + cmd + "\n" + re.sub(r"\d+", "#", f))
+        # numbers masked, and the padding with them: a count with one digit more or less moves a column
+        own.append("==== " + cmd + "\n" + re.sub(r" +", " ", re.sub(r"\d+", "#", f)))
 own = "".join(own)
 if upd:
     open(expf, "w").write(own); print("tools/test-fs-progs.out updated")
