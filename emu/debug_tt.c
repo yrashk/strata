@@ -87,7 +87,7 @@ typedef struct {
 } Snap;
 
 /* the input log */
-enum { IN_BYTES, IN_BREAK, IN_XREG, IN_PC, IN_MEM }; /* IN_MEM + 0 dls, 1 ils, 2 t2, 3 t3, 4 disk */
+enum { IN_BYTES, IN_BREAK, IN_XREG, IN_PC, IN_PTR, IN_MEM }; /* IN_PTR: a = PTR_* kind, b = x | y << 32; IN_MEM + 0 dls, 1 ils, 2 t2, 3 t3, 4 disk */
 typedef struct {
   uint64_t pos;  /* 2 * tick + (after the round's start) */
   int kind, core;
@@ -458,6 +458,18 @@ static void inject(const InLog *e) {
   case IN_BREAK: press_break(); break;
   case IN_XREG: setx(&cores[e->core], (unsigned)e->a, e->b); break;
   case IN_PC: cores[e->core].pc = e->b; break;
+  case IN_PTR: { /* the pointer device, as web/web.c web_pointer */
+    int x = (int)(int32_t)(uint32_t)e->b, y = (int)(int32_t)(uint32_t)(e->b >> 32);
+    switch ((int)e->a) {
+    case PTR_MOVE: host_ptr_move(x, y); break;
+    case PTR_BUTTON: host_ptr_button(x, y != 0); break;
+    case PTR_WHEEL: host_ptr_wheel(x, y); break;
+    case PTR_ENTER: host_ptr_enter(true); break;
+    case PTR_LEAVE: host_ptr_enter(false); break;
+    }
+    pend_service(); /* (a waiting EVENT read completes now) */
+    break;
+  }
   default: {
     int sp = e->kind - IN_MEM;
     uint8_t *p = sp == 0 ? cores[e->core].dls : sp == 1 ? cores[e->core].ils : sp == 2 ? t2 : sp == 3 ? t3 : disk;

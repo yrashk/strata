@@ -206,7 +206,10 @@ EMSCRIPTEN_KEEPALIVE int web_port_listening(int port) {
  *                     result, 0 = call again, > 0 = idle (sleep that long or
  *                     until input), < 0 = it is not running (stopped);
  *   web_dbg_events()  the events since the last call (JSON lines), then
- *                     forgotten: console output, stops. */
+ *                     forgotten: console output, stops;
+ *   web_dbg_repaint() the next web_paint() sends the whole framebuffer.
+ * Keys and the pointer go through the engine (its input and pointer
+ * requests), which logs them for time travel, not web_input/web_pointer. */
 static JW web_dbg_resp, web_dbg_ev;
 
 EMSCRIPTEN_KEEPALIVE const char *web_dbg(const char *line) {
@@ -218,6 +221,10 @@ EMSCRIPTEN_KEEPALIVE double web_dbg_run(double ms) {
   con_flush();
   return r;
 }
+/* After the engine went to another point of the run (time travel), the
+ * framebuffer may differ anywhere: web_paint() sends all of it next. */
+EMSCRIPTEN_KEEPALIVE void web_dbg_repaint(void) { web_painted = false; }
+
 EMSCRIPTEN_KEEPALIVE const char *web_dbg_events(void) {
   con_flush();
   jw_reset(&web_dbg_ev);

@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
 <link rel="stylesheet" href="../style.css">
 <link rel="stylesheet" href="debug.css?v=__BUILD__">
 </head>
@@ -81,6 +82,18 @@
     <div id="cores" class="cores"></div>
   </section>
 
+  <section id="screen-panel" class="panel screen collapsed" aria-label="Framebuffer">
+    <div class="tag"><span>▸ SCREEN</span><em id="geom">opens when the program draws</em></div>
+    <div id="screen-box" class="screen-box">
+      <canvas id="screen" width="1280" height="800" tabindex="0" aria-label="The framebuffer; focus it to type, point at it to move the guest's pointer"></canvas>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Console">
+    <div class="tag"><span>▸ CONSOLE</span><em>click and type (Ctrl-C is the break key); keys and the mouse go through the engine, so going back replays them</em></div>
+    <div class="term-box"><div id="term"></div></div>
+  </section>
+
   <section class="panel xfers" id="xfers" aria-label="Transfer timeline">
     <div class="tag"><span>▸ TRANSFERS</span><em id="tlinfo">one row per core; rounds left to right</em>
       <div class="view">
@@ -140,11 +153,7 @@
     </section>
   </div>
 
-  <section class="panel" aria-label="Console">
-    <div class="tag"><span>▸ CONSOLE</span><em>the guest's console output; type a line for its input</em></div>
-    <pre id="con" class="con"></pre>
-    <form id="conform" class="form con-in"><input id="conin" placeholder="console input (Enter sends it with a newline)" spellcheck="false" aria-label="Console input"><button class="small">Send</button></form>
-  </section>
+
   </div><aside class="dock" id="dock" aria-label="Transfers, docked"></aside></div>
 
   <section class="notes">
@@ -159,7 +168,9 @@
         (or <code>?ws=host:port</code> from here). <code>strata-dbg</code> is the text front-end.</li>
       <li><b>StrataOS</b> (the first program) boots the play page's disk on 8 cores with the debugger aware of
         the kernel and its processes: cores show the process they run, symbols come from each program's map.
-        <b>Run</b> types a program's name at the shell and, if asked, stops at its first instruction.</li>
+        <b>Run</b> types a program's name at the shell and, if asked, stops at its first instruction.
+        Graphical programs (<code>ws</code>) draw on the <b>Screen</b>, which opens when the framebuffer is first
+        written; the keys and the mouse you give it are recorded, so going back replays them.</li>
       <li>The reference emulator copies a memory transfer at the instant it issues, so its bars have no
         length; device reads that wait (console input, the timer's WAIT) stay in flight, and their tags
         stay busy, until the device completes them. Stalls are the rounds a core could not make its step.</li>
@@ -175,6 +186,8 @@
     <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
 </footer>
 
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 <script src="debug.js?v=__BUILD__"></script>
 </body>
 </html>

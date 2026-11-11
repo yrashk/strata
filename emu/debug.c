@@ -2092,6 +2092,17 @@ static void dbg_request(const char *line, size_t len, JW *w) {
       }
       jw_aend(w);
     }
+  } else if (!strcmp(cmd, "pointer")) {
+    if (dbg_state == ST_DONE) snprintf(err, sizeof err, "the machine has stopped");
+    else {
+      int op = (int)json_int(json_get(rq, "op"), 0);
+      int64_t x = json_int(json_get(rq, "x"), 0), y = json_int(json_get(rq, "y"), 0);
+      if (op < PTR_MOVE || op > PTR_LEAVE) snprintf(err, sizeof err, "op: 1 move, 2 button, 3 wheel, 4 enter, 5 leave");
+      else {
+        tt_input_log(IN_PTR, NULL, 0, -1, (uint64_t)op, (uint64_t)(uint32_t)x | (uint64_t)(uint32_t)y << 32);
+        dbg_idle_skip = false;
+      }
+    }
   } else if (!strcmp(cmd, "input") || !strcmp(cmd, "ctrl-c")) {
     if (dbg_state == ST_DONE) snprintf(err, sizeof err, "the machine has stopped");
     else if (host_in_fd >= 0) snprintf(err, sizeof err, "console input comes from the -i file");

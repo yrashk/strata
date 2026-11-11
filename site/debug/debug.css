@@ -164,9 +164,21 @@ main.dbg.docked { max-width: 2200px; }
 .bplist button { padding: 1px 7px; font: 600 11px var(--mono); color: var(--dim); background: transparent; box-shadow: inset 0 0 0 1px rgba(31, 111, 139, 0.6); }
 .bplist button:hover { color: var(--amber); }
 
-.con { margin: 0; padding: 10px 18px; height: 200px; overflow: auto; font: 12.5px/1.45 var(--mono); color: var(--text); white-space: pre-wrap; }
-.con .emu { color: var(--amber); }
-.con-in { padding-bottom: 12px; }
+/* the console: xterm, as on the play page (#term is exactly the box the fit
+   addon fills with whole rows; the site's .terminal styles are undone) */
+.term-box { padding: 8px 8px 10px 14px; }
+#term { height: 320px; overflow: hidden; }
+#term .xterm { height: 100%; }
+#term .terminal { margin: 0; padding: 0; clip-path: none; box-shadow: none; background: transparent; overflow: hidden; }
+#term .xterm-viewport { background-color: transparent !important; }
+
+/* the framebuffer: hidden until the guest draws; as wide as the panel at most */
+.screen.collapsed .screen-box { display: none; }
+.screen-box { background: #000; overflow: hidden; }
+.screen-box canvas { display: block; width: 100%; max-width: max-content; height: auto; margin: 0 auto; outline: none;
+  image-rendering: pixelated; }
+.screen-box canvas.smooth { image-rendering: auto; }  /* below one device pixel: average, don't drop strokes */
+.screen-box canvas:focus { box-shadow: 0 0 0 1px var(--amber); }
 
 .dbg .notes { margin-top: 32px; }
 .dbg .notes h3 { margin: 0 0 6px; font-size: 19px; color: #fff; }

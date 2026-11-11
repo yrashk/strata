@@ -13,7 +13,8 @@
 // URL parameters: ?ex=NAME (a program to load), &cores=N, &do=A,B,...
 // (commands run after loading, for demos and screenshots: break:LOC,
 // continue, stepi:N, round:N, rstepi:N, rcontinue, goto:TICK, core:N,
-// watch:LOC:LEN, wait:MS), ?ws=host:port (a desktop engine).
+// watch:LOC:LEN, input:LINE, pause, wait:MS; continue waits up to 30 s for
+// a stop), ?ex=os (StrataOS), ?ws=host:port (a desktop engine).
 "use strict";
 const $ = (id) => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
@@ -50,6 +51,7 @@ class WorkerConn extends Conn {
         else if (m.t === "resp") this.line(m.line);
         else if (m.t === "ev") for (const l of m.lines) this.line(l);
         else if (m.t === "emu") emuMessage(m.text);
+        else if (m.t === "paint") paint(m);
       };
       this.w.onerror = (e) => rej(new Error(e.message || "the worker failed"));
       this.w.postMessage({ t: "start", files, image, args }, files.map((f) => f.data));
@@ -98,20 +100,113 @@ function setStatus(text, stopped) {
 function emuMessage(text) { conPut(text + "\n", true); }
 
 // ---------------------------------------------------------------- console
-let conText = "";
-function conPut(s, emu) {
-  const pre = $("con");
-  const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
-  if (emu) {
-    const span = document.createElement("span");
-    span.className = "emu";
-    span.textContent = s;
-    pre.appendChild(span);
-  } else pre.appendChild(document.createTextNode(s));
-  conText += s;
-  while (pre.childNodes.length > 4000) pre.removeChild(pre.firstChild);
-  if (atEnd) pre.scrollTop = pre.scrollHeight;
+// xterm, as on the play page; the emulator's own messages in amber.
+const term = new Terminal({
+  convertEol: true, cursorBlink: true, macOptionIsMeta: true, scrollback: 5000,
+  fontFamily: '"JetBrains Mono", ui-monospace, Menlo, monospace', fontSize: 13,
+  theme: {
+    background: "#05080f", foreground: "#cfe8ff", cursor: "#ffb347", cursorAccent: "#05080f",
+    selectionBackground: "rgba(77, 225, 255, 0.3)",
+    black: "#0b1120", red: "#ff6b6b", green: "#5be3a1", yellow: "#ffb347", blue: "#4d8dff",
+    magenta: "#c38bff", cyan: "#4de1ff", white: "#cfe8ff",
+    brightBlack: "#5b7088", brightRed: "#ff8f8f", brightGreen: "#8af0bf", brightYellow: "#ffd08a",
+    brightBlue: "#7fb0ff", brightMagenta: "#dab4ff", brightCyan: "#9bf0ff", brightWhite: "#ffffff",
+  },
+});
+const termFit = new FitAddon.FitAddon();
+term.loadAddon(termFit);
+term.open($("term"));
+function refitTerm() { try { termFit.fit(); } catch (e) { /* not laid out yet */ } }
+refitTerm();
+document.fonts.ready.then(() => { const f = term.options.fontFamily; term.options.fontFamily = "monospace"; term.options.fontFamily = f; refitTerm(); });
+new ResizeObserver(refitTerm).observe($("term"));
+function conPut(s, emu) { term.write(emu ? "\x1b[33m" + s + "\x1b[0m" : s); }
+
+// Keys go through the engine (input, ctrl-c): logged, so a recorded run replays them.
+const enc = new TextEncoder();
+async function sendKeys(s) {
+  if (!conn || done) return;
+  let text = "";
+  const flush = async () => { if (text) { const t = text; text = ""; await conn.request("input", { data: t }); } };
+  for (const ch of s) {
+    if (ch === "\x03") { await flush(); await conn.request("ctrl-c"); continue; } // Ctrl-C is the break key
+    text += ch === "\r" ? "\n" : ch;                                               // Enter is LF
+  }
+  await flush();
 }
+term.onData((d) => { term.scrollToBottom(); sendKeys(d); });
+
+// ---------------------------------------------------------------- screen
+// The framebuffer, painted by the in-page engine's worker (as the play page's):
+// it opens the first time the guest draws. Keys typed at it and its mouse go
+// to the guest's console and pointer device, through the engine.
+const screen = $("screen"), sctx = screen.getContext("2d");
+function paint(m) {
+  if (screen.width !== m.w || screen.height !== m.h) { screen.width = m.w; screen.height = m.h; }
+  const panel = $("screen-panel");
+  if (panel.classList.contains("collapsed")) {
+    panel.classList.remove("collapsed");
+    $("geom").textContent = `${m.w}x${m.h} · click it to type and point`;
+  }
+  sctx.putImageData(new ImageData(m.data, m.w, m.rows), 0, m.y0);
+  fitScreen();
+}
+function fitScreen() {
+  const css = screen.getBoundingClientRect().width / Math.max(1, screen.width);
+  screen.classList.toggle("smooth", css * (window.devicePixelRatio || 1) < 1);
+}
+addEventListener("resize", fitScreen);
+const SKEYS = {
+  Enter: "\n", Backspace: "\x7f", Tab: "\t", Escape: "\x1b",
+  ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", ArrowRight: "\x1b[C", ArrowLeft: "\x1b[D",
+  Home: "\x1b[H", End: "\x1b[F", Delete: "\x1b[3~", PageUp: "\x1b[5~", PageDown: "\x1b[6~",
+};
+screen.addEventListener("keydown", (e) => {
+  if (e.metaKey) return; // Cmd belongs to the host
+  let s = SKEYS[e.key];
+  const letter = /^Key([A-Z])$/.exec(e.code);
+  if (!s && e.ctrlKey && letter) s = String.fromCharCode(letter[1].charCodeAt(0) - 64);
+  else if (!s && e.altKey && letter) s = e.shiftKey ? letter[1] : letter[1].toLowerCase();
+  else if (!s && e.altKey && /^Digit\d$/.test(e.code) && !e.shiftKey) s = e.code[5];
+  else if (!s && !e.ctrlKey && e.key.length === 1) s = e.key;
+  if (!s) return;
+  e.preventDefault();
+  e.stopPropagation(); // (not the debugger's keys)
+  sendKeys(e.altKey && s !== "\x03" ? "\x1b" + s : s);
+});
+function sendPtr(op, x, y) { if (conn && !done) conn.request("pointer", { op, x, y }); }
+function ptrAt(e) {
+  const r = screen.getBoundingClientRect();
+  return [Math.floor((e.clientX - r.left) * screen.width / r.width), Math.floor((e.clientY - r.top) * screen.height / r.height)];
+}
+let ptrMove = null; // (moves: at most one per frame, each is logged)
+screen.addEventListener("pointermove", (e) => {
+  const first = !ptrMove;
+  ptrMove = ptrAt(e);
+  if (first) requestAnimationFrame(() => { const p = ptrMove; ptrMove = null; if (p) sendPtr(1, ...p); });
+});
+const BUTTON = [0, 2, 1]; // DOM left, middle, right -> device bit 0 left, 1 right, 2 middle
+screen.addEventListener("pointerdown", (e) => {
+  if (e.button > 2) return;
+  screen.focus({ preventScroll: true });
+  screen.setPointerCapture(e.pointerId);
+  sendPtr(1, ...ptrAt(e));
+  sendPtr(2, BUTTON[e.button], 1);
+});
+screen.addEventListener("pointerup", (e) => { if (e.button <= 2) sendPtr(2, BUTTON[e.button], 0); });
+screen.addEventListener("pointerenter", (e) => { sendPtr(4, 0, 0); sendPtr(1, ...ptrAt(e)); });
+screen.addEventListener("pointerleave", () => sendPtr(5, 0, 0));
+screen.addEventListener("contextmenu", (e) => e.preventDefault());
+let wheelY = 0, wheelX = 0;
+screen.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const k = e.deltaMode === 0 ? 1 : 100;
+  wheelY += e.deltaY * k; wheelX += e.deltaX * k;
+  const ny = Math.trunc(wheelY / 100), nx = Math.trunc(wheelX / 100);
+  if (!ny && !nx) return;
+  wheelY -= ny * 100; wheelX -= nx * 100;
+  sendPtr(3, -ny, nx);
+}, { passive: false });
 
 // ---------------------------------------------------------------- events
 function onEvent(m) {
@@ -728,7 +823,7 @@ $("bkadd").onclick = async () => {
 
 // ---------------------------------------------------------------- StrataOS: run a program
 const OS = "@os", OS_CORES = 8;
-const OS_RUN = ["ls", "ps", "hello", "cores", "free", "uptime", "tags", "pipeline", "parsum", "stream_sum", "race", "overlay", "swcache"];
+const OS_RUN = ["ls", "ps", "hello", "mandel", "ws", "cores", "free", "uptime", "tags", "pipeline", "parsum", "stream_sum", "race", "overlay", "swcache"];
 $("osrun").insertAdjacentHTML("beforeend", OS_RUN.map((n) => `<option>${n}</option>`).join(""));
 // Types the name at the shell (its input waits in the console queue until the
 // shell reads it, so this works while it boots), with a temporary breakpoint
@@ -747,19 +842,10 @@ $("osrun").addEventListener("change", async () => {
   if (!running && !done) await doCmd("continue");
 });
 
-// ---------------------------------------------------------------- console input
-$("conform").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  if (!conn) return;
-  const r = await conn.request("input", { data: $("conin").value + "\n" });
-  if (!r.ok) setStatus("input: " + r.error, true);
-  $("conin").value = "";
-});
-
 // ---------------------------------------------------------------- buttons and keys
 for (const b of document.querySelectorAll("[data-do]")) b.addEventListener("click", () => doCmd(b.dataset.do));
 addEventListener("keydown", (e) => {
-  if (e.target.closest("input, select, textarea") || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.closest("input, select, textarea, canvas#screen") || e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key;
   const map = { c: "continue", s: "stepi", n: "next", f: "finish", r: "step-round", S: "reverse-stepi", R: "reverse-step-round", C: "reverse-continue", Escape: "pause" };
   if (map[k]) { e.preventDefault(); doCmd(map[k]); }
@@ -790,7 +876,7 @@ async function loadOs() {
     ...progs.map((n) => get("/os/prog/" + n + ".map", ASSETS + "os/prog/" + n + ".map"))]);
   const c = new WorkerConn();
   c.onEvent = onEvent;
-  await c.start(files, "/os/bootrom.stx", ["-c", String(OS_CORES), "-j", "-T", "virtual", "-g", "none", "-d", "/disk.img", "--os", "/os"]);
+  await c.start(files, "/os/bootrom.stx", ["-c", String(OS_CORES), "-j", "-T", "virtual", "-d", "/disk.img", "--os", "/os"]);
   conn = c;
   $("mode").textContent = "StrataOS in this page (WebAssembly)";
   await connected();
@@ -810,7 +896,7 @@ async function loadExample(name, cores) {
   }
   const c = new WorkerConn();
   c.onEvent = onEvent;
-  await c.start(files, "/" + name + ".stx", ["-c", String(cores), "-j", "-T", "virtual", "-g", "none"]);
+  await c.start(files, "/" + name + ".stx", ["-c", String(cores), "-j", "-T", "virtual"]);
   conn = c;
   $("mode").textContent = "in this page (WebAssembly)";
   await connected();
@@ -833,7 +919,8 @@ async function connectWs(url) {
 function reset() {
   hello = null; ncores = 0; cur = 0; running = false; done = false; stopEv = null;
   evs = []; evNext = 0; hist = null; prevX = []; lastX = [];
-  $("con").textContent = ""; $("chain").textContent = ""; $("prov").textContent = "";
+  term.reset(); $("chain").textContent = ""; $("prov").textContent = "";
+  $("screen-panel").classList.add("collapsed"); $("geom").textContent = "opens when the program draws";
   clearInterval(poller); poller = 0;
   setFollow(true);
 }
@@ -870,6 +957,8 @@ async function runScript(s) {
     else if (c === "core") cur = +a;
     else if (c === "wait") await new Promise((r) => setTimeout(r, +a || 500));
     else if (c === "delete") await conn.request("delete", {});
+    else if (c === "input") await sendKeys(a + "\n");   // a line for the console (StrataOS: a command)
+    else if (c === "pause") await doCmd("pause");
     else {
       const cmd = { continue: "continue", stepi: "stepi", next: "next", finish: "finish", round: "step-round", rstepi: "reverse-stepi", rcontinue: "reverse-continue", rround: "reverse-step-round", goto: "goto" }[c];
       if (!cmd) continue;

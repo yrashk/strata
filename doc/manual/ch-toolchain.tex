@@ -341,7 +341,9 @@ slider over the recorded run. In the page it runs the WebAssembly emulator in a 
 over a WebSocket on the same port (\texttt{make debug-web}). On wide screens the transfers are docked
 on the right, beside the cores, with a list of the newest ones. Its first program is StrataOS: the play
 page's disk booted with \texttt{-{}-os}, and a Run menu that types a program's name at the shell and can
-stop at the process's first instruction (\texttt{make debug-web-os} on the desktop).
+stop at the process's first instruction (\texttt{make debug-web-os} on the desktop). In the page the
+console is a terminal and the framebuffer opens when the guest first draws; keys and the pointer go through
+the engine (\texttt{input}, \texttt{pointer}), which logs them for time travel.
 
 \section{The RTL simulator, \texttt{strata-rtl}}
 

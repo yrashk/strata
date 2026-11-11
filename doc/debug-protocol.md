@@ -196,6 +196,7 @@ read), `xfer-hazard`, `tag-busy`, `pending-full`, `twait`, `tany`,
 | `set-mem {core, space, addr, hex}` | writes bytes (dls, ils, t2, t3, disk) |
 | `input {data}` | console input bytes |
 | `ctrl-c` | the break key |
+| `pointer {op, x, y}` | the pointer device: `op` 1 move to (`x`, `y`) in framebuffer pixels, 2 button `x` (0 left, 1 right, 2 middle) down if `y` is 1 or up if 0, 3 wheel (`x` notches away from the user, `y` to the right), 4 the pointer enters the display, 5 leaves it |
 
 On a recorded run these are logged and replayed like any input.
 

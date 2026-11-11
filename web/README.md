@@ -63,6 +63,11 @@ The web debugger (`site/debug/`) uses the debug engine of `emu/emu.c`
   wasm` copies the kernel's and every program's map to `build/web/debug/os/`
   (`prog.txt` lists them). The Run menu types a program's name at the shell,
   with a temporary `pid` breakpoint at its start when asked.
+  The console is an xterm and the framebuffer a canvas that opens when the
+  guest first draws (the worker calls `web_paint()` as the play page's
+  does, and `web_dbg_repaint()` after time travel). Keys and the mouse go
+  through the engine's `input`, `ctrl-c` and `pointer` requests, which log
+  them, so a recorded GUI run replays with its clicks.
 - **Against the desktop.** `strata-emu --debug PORT --www site` serves the
   page and upgrades a WebSocket on the same port; the page asks
   `/dbg-info`, finds the engine and talks to it (`make debug-web`, then
