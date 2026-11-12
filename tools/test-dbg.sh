@@ -94,15 +94,15 @@ quit
 EOF
 run pipe "$tmp/pipe.cmd" -c 4 -j -T virtual "$b/examples/pipeline.stx"
 expect pipe \
-  "stopped: step" "core 0: 0xc <_start+12> (pipeline.s:56)  li    t1, 2" \
-  "* core 0  super 0xc <_start+12>" "  core 1  super 0x8 <_start+8>" \
-  "current core: 1" "stopped: step" "core 1: 0x10 <_start+16> (pipeline.s:57)" \
-  "  core 0  super 0x10 <_start+16>" "* core 1  super 0x10 <_start+16>" \
+  "stopped: step" "core 0: 0x24 <enough> (pipeline.s:63)  li    s6, 4096" \
+  "* core 0  super 0x24 <enough>" "  core 1  super 0x8 <_start+8>" \
+  "current core: 1" "stopped: step" "core 1: 0x28 <enough+4> (pipeline.s:64)" \
+  "  core 0  super 0x28 <enough+4>" "* core 1  super 0x28 <enough+4>" \
   "Watchpoint 1: dls [0x0, 0x8) w on core 1" \
   "stopped: watchpoint 1: dls [0x0, 0x8) w on core 1, core 1 tget wrote [0x0, 0x1000)" \
-  "core 1: 0xd0 <c_loop+8> (pipeline.s:117)" \
+  "core 1: 0xc8 <c_loop+8> (pipeline.s:116)" \
   "tg0  idle tget  t3 0x0  ls 0x0 len 4096" \
-  "stopped: reverse step" "core 1: 0xcc <c_loop+4> (pipeline.s:116)  tget  tg0, s5, c4, zero, s6" \
+  "stopped: reverse step" "core 1: 0xc4 <c_loop+4> (pipeline.s:115)  tget  tg0, s5, c4, zero, s6" \
   "core 1: no transfer yet on any tag" \
   "give t3 0x0+0x1000 rwx  by core 1 from node 0" \
   "split t3 0x0+0x1000 rwx  by core 0" \
@@ -128,10 +128,10 @@ expect clock \
   "Watchpoint 1: tg1 issue on core 0" \
   "stopped: watchpoint 1: tg1 issue on core 0, core 0 tg1 issued (pending)" \
   "tg1  BUSY tget  dev 0x3018" \
-  "core 0 tg1: timer WAIT (port 0x3018) into D-LS 0x210+8, issued round 390, waits for the timer deadline" \
+  "core 0 tg1: timer WAIT (port 0x3018) into D-LS 0x210+8, issued round 388, waits for the timer deadline" \
   "Watchpoint 2: dls" "stopped: watchpoint 2: dls [0x210, 0x218) w on core 0, core 0 device read wrote [0x210, 0x218)" \
   "tg1  idle tget  dev 0x3018" "completed round" \
-  "stopped: reverse: tg1 issued" "core 0: 0x310 <arm+52> (clock.s:288)  tget  tg1, t2, c5, t3, t4" \
+  "stopped: reverse: tg1 issued" "core 0: 0x308 <arm+52> (clock.s:287)  tget  tg1, t2, c5, t3, t4" \
   "tg0  idle tget  dev 0x3000"
 
 # ---- 4. StrataOS: break when `ls` runs; the processes
