@@ -1,7 +1,9 @@
 // Strata: one core (synthesizable).
 //
 // A multi-cycle implementation over block-RAM Local Stores:
-//   RST clear the integer registers and the save table after reset
+//   RST clear the integer registers and the save table after reset; after a
+//       core-control reset request also reload both Local Stores (below)
+//   RQ  a reset request is pending: wait until the Transfer Unit is quiet
 //   F0  present the instruction address to the I-LS (stall on an in-flight tgetx)
 //   F1  latch the instruction word
 //   EX  execute; stay here while stalled
@@ -17,6 +19,16 @@
 // Transfer Unit. Loads and stores reach only the D-LS; every far tier is
 // reached through the Transfer Unit or the far-atomic port, always through a
 // capability register. The emulator (emu/emu.c) is the reference semantics.
+//
+// A core-control reset request (reset_req, from the top level's core-control
+// target) is taken in any mode, also when halted: the core stops issuing
+// anything new and, at an instruction boundary (or while an instruction
+// waits), goes to RQ; when its Transfer Unit is quiet (every issued transfer
+// has taken effect but device reads that wait) it flushes the unit, takes
+// the power-on state and runs the reset sequencer, which now also writes
+// both Local Stores: the boot ROM (the first BOOT_WORDS of the boot image,
+// kept in a small ROM per Local Store) and zeros above it, one word per
+// cycle. Then it fetches from pc 0, as at power-on (emu.c core_reset).
 
 module strata_core
   import strata_pkg::*;
@@ -87,11 +99,13 @@ module strata_core
   input  logic [16:0]   gt_wd,
 
   input  logic        stop_req,        // a "stop" written through core control
+  input  logic        reset_req,       // a "reset" written through core control
+  output logic        reset_flush,     // this cycle the core is reset: its inbox and device state go
 
   output logic        halted
 );
   // ================================================================ state
-  typedef enum logic [3:0] {S_RST, S_F0, S_F1, S_EX, S_CT, S_LD, S_LG, S_LT, S_LW, S_DV, S_AM, S_HALT} state_t;
+  typedef enum logic [3:0] {S_RST, S_F0, S_F1, S_EX, S_CT, S_LD, S_LG, S_LT, S_LW, S_DV, S_AM, S_HALT, S_RQ} state_t;
 
   state_t      state;
   logic [63:0] pc;
@@ -110,10 +124,16 @@ module strata_core
   logic        ct_we, ct_x, ct_oor, ct_save;
   logic [CTW-1:0] ct_i, ct_wa;
   cap_t        ct_wd;
-  // the reset sequencer's slot / register number
-  localparam int RSW = CTW > 5 ? CTW : 5;
+  // the reset sequencer's slot / register / Local Store word number. At
+  // power-on it clears the registers and the save table (RSN steps); after a
+  // reset request (rs_ld) it also writes every word of both Local Stores
+  // (LSN steps, one more for the boot ROM's registered read)
+  localparam int LSN = ILS_WORDS > DLS_WORDS ? ILS_WORDS : DLS_WORDS;
   localparam int RSN = CTAB > 32 ? CTAB : 32;
+  localparam int RSW = $clog2(LSN) + 1;
   logic [RSW-1:0] rs_i;
+  logic           rs_ld;         // this reset reloads the Local Stores
+  logic           rpend;         // a reset request is pending
 
   // the overlay map: a far address (below its space's size: xmap checks the
   // bounds first) and an I-LS address (below ILS_BYTES) per entry
@@ -194,16 +214,43 @@ module strata_core
   logic [12:0] tu_dls_addr;
   logic [63:0] tu_dls_wdata, tu_dls_rdata;
 
+  // the boot ROM: the first BOOT_WORDS of each Local Store's boot image,
+  // which a reset request writes back (port B, while the Transfer Unit is
+  // flushed); the words above it are written with zeros
+  localparam int BW = $clog2(BOOT_WORDS);
+  logic [63:0] brom_i [BOOT_WORDS];
+  logic [63:0] brom_d [BOOT_WORDS];
+  logic [63:0] brom_iq, brom_dq;   // the word read last cycle
+  logic        rl_v, rl_boot;      // the sequencer writes word rl_a this cycle (from the ROM: rl_boot)
+  logic [12:0] rl_a;
+`ifdef SIMULATION
+  initial for (int i = 0; i < BOOT_WORDS; i++) begin
+    brom_i[i] = img_word(1, i);
+    brom_d[i] = img_word(2, i);
+  end
+`else
+  initial begin
+    if (ILS_INIT != "") $readmemh(ILS_INIT, brom_i, 0, BOOT_WORDS - 1);
+    if (DLS_INIT != "") $readmemh(DLS_INIT, brom_d, 0, BOOT_WORDS - 1);
+  end
+`endif
+  always_ff @(posedge clk) begin
+    brom_iq <= brom_i[rs_i[BW-1:0]];
+    brom_dq <= brom_d[rs_i[BW-1:0]];
+  end
+
   strata_ram #(.WORDS(ILS_WORDS), .INIT(ILS_INIT)) u_ils (
     .clk,
     .a_en(ia_en), .a_we(8'h00), .a_addr(ia_addr), .a_wdata(64'b0), .a_rdata(ia_rdata),
-    .b_en(tu_ils_en), .b_we(tu_ils_en ? 8'hff : 8'h00), .b_addr(tu_ils_addr), .b_wdata(tu_ils_wdata),
+    .b_en(tu_ils_en || rl_v), .b_we(tu_ils_en || rl_v ? 8'hff : 8'h00), .b_addr(rl_v ? rl_a : tu_ils_addr),
+    .b_wdata(rl_v ? (rl_boot ? brom_iq : 64'b0) : tu_ils_wdata),
     .b_rdata(ils_b_rdata)
   );
   strata_ram #(.WORDS(DLS_WORDS), .INIT(DLS_INIT)) u_dls (
     .clk,
     .a_en(da_en), .a_we(da_we), .a_addr(da_addr), .a_wdata(da_wdata), .a_rdata(da_rdata),
-    .b_en(tu_dls_en), .b_we(tu_dls_we), .b_addr(tu_dls_addr), .b_wdata(tu_dls_wdata),
+    .b_en(tu_dls_en || rl_v), .b_we(rl_v ? 8'hff : tu_dls_we), .b_addr(rl_v ? rl_a : tu_dls_addr),
+    .b_wdata(rl_v ? (rl_boot ? brom_dq : 64'b0) : tu_dls_wdata),
     .b_rdata(tu_dls_rdata)
   );
 
@@ -347,12 +394,12 @@ module strata_core
   end
 
   // ================================================================ Transfer Unit
-  logic        tu_iss_valid, tu_iss_ready, tu_iss_hz, tu_idle, tu_mem_idle;
+  logic        tu_iss_valid, tu_iss_ready, tu_iss_hz, tu_idle, tu_mem_idle, tu_put_idle, tu_cc_busy, tu_quiet;
   logic [15:0] tag_busy;
   logic [LSW-1:0] hz_addr, hz_len;   // (only meaningful inside the D-LS: see strata_tu)
   logic        hz_rd_stall, hz_wr_stall, hz_fetch_stall;
 
-  assign tu_iss_valid = state == S_EX && d.kind == K_XFER && xf_fault == 0;
+  assign tu_iss_valid = state == S_EX && d.kind == K_XFER && xf_fault == 0 && !rpend;
 
   // tag-lookup geometry. EX takes the line and set from the register; S_LG
   // computes set * ways (shift-add: ways < 16) and the set's entry address
@@ -385,12 +432,13 @@ module strata_core
     end
   end
 
+  assign reset_flush = state == S_RQ && tu_quiet;   // the reset is taken this cycle
   strata_tu u_tu (
-    .clk, .rst,
+    .clk, .rst, .flush(reset_flush),
     .iss_valid(tu_iss_valid), .iss_kind(d.xf_sub), .iss_tag(d.tag), .iss_ls(LSW'(ra)),
     .iss_space(xcap.space), .iss_far(xcap.base + rb[FW-1:0]), .iss_len(LSW'(rc)), .iss_ready(tu_iss_ready),
     .iss_hz(tu_iss_hz),
-    .tag_busy, .idle(tu_idle), .mem_idle(tu_mem_idle),
+    .tag_busy, .idle(tu_idle), .mem_idle(tu_mem_idle), .put_idle(tu_put_idle), .cc_busy(tu_cc_busy), .quiet(tu_quiet),
     .hz_addr, .hz_len, .hz_rd_stall, .hz_wr_stall, .hz_pc(LSW'(pc)), .hz_fetch_stall,
     .dls_en(tu_dls_en), .dls_we(tu_dls_we), .dls_addr(tu_dls_addr), .dls_wdata(tu_dls_wdata),
     .dls_rdata(tu_dls_rdata),
@@ -452,17 +500,20 @@ module strata_core
                      : ((user && csr_corecount == 0) || (csr_corecount != 0 && rb >= csr_corecount)
                         || give_node > 64'(NCORES) || dst_halted);
 
-  // csend's capability operand is in the rs1 field (cs), its endpoint in rd
+  // csend's capability operand is in the rs1 field (cs), its endpoint in rd.
+  // A gift waits for this core's transfers to memory; one to the block
+  // device also for its device writes (the command it pairs with must be
+  // there first: the device pairs a buffer only with its lender's command)
   assign give_valid = ((state == S_EX && d.kind == K_CAP && d.cap_fn == CF_GIVE) ||
                        (is_send && ep_cap.valid && ep_cap.space == SP_EP && ep_cap.perms[P_W])) &&
-                      live_a && !give_bad && tu_mem_idle;
+                      live_a && !give_bad && (give_node == 64'(NCORES) ? tu_put_idle : tu_mem_idle) && !rpend;
   assign give_dst   = give_node[7:0];
   assign give_cap   = cs_cap;
   // a time-shared user process (corecount 0) has no access to the core's inbox
   logic        inbox_priv;
   assign inbox_priv = user;                 // user mode: the inbox is the kernel's (it emulates ctake)
   assign take_req   = ((state == S_EX && d.kind == K_CAP && d.cap_fn == CF_TAKE && !inbox_priv) ||
-                       (is_recv && ep_cap.valid && ep_cap.space == SP_EP && ep_cap.perms[P_R])) && cd_ok;
+                       (is_recv && ep_cap.valid && ep_cap.space == SP_EP && ep_cap.perms[P_R])) && cd_ok && !rpend;
   assign take_any   = !is_recv && !d.flag;
   assign take_src   = is_recv ? ep_cap.base[7:0] : 8'(rb + csr_corebase);
   assign take_pop   = take_req && take_hit;
@@ -537,7 +588,7 @@ module strata_core
                   (ra[16:0] < {1'b0, xm_ils[i]} || ((ra[16:0] - {1'b0, xm_ils[i]}) & xv_mask) == 0);
 
   // ================================================================ far-atomic port
-  assign am_req   = state == S_EX && d.kind == K_TAMO && amo_fault == 0 && tu_mem_idle;
+  assign am_req   = state == S_EX && d.kind == K_TAMO && amo_fault == 0 && tu_mem_idle && !rpend;
   assign am_op    = d.amo_op;
   assign am_space = xcap.space;
   assign am_addr  = 64'(xcap.base + ra[FW-1:0]);        // inside the capability (amo_fault)
@@ -577,7 +628,7 @@ module strata_core
     endcase
   end
 
-  assign halted = state == S_HALT;
+  assign halted = state == S_HALT && !rpend && !reset_req;   // (a reset request revives a halted core)
 
   // revocation requests (supervisor only; validity checked in EX)
   logic c2_ok, revoker_ok, dom_src_ok;
@@ -589,7 +640,7 @@ module strata_core
   assign c2_ok      = state == S_EX && d.kind == K_CAP2 && !user && cd_i != cs_i && cd_ok &&
                       ((d.cap_fn == C2_DOM && dom_src_ok) ||
                        ((d.cap_fn == C2_REVOKE || d.cap_fn == C2_UNDOM) && revoker_ok && cs_cap.len != 0));
-  assign dom_req    = c2_ok;
+  assign dom_req    = c2_ok && !rpend;
   assign dom_op     = d.cap_fn == C2_DOM ? 2'd0 : d.cap_fn == C2_REVOKE ? 2'd1 : 2'd2;
   assign dom_t2     = cs_cap.space == SP_T2;
   assign dom_a      = GW'(cs_cap.base >> GRAN_SHIFT);
@@ -687,6 +738,53 @@ module strata_core
     else stall();
   endtask
 
+  // the power-on state of everything private to the core but the integer
+  // registers, the save table and the Local Stores (the reset sequencer's);
+  // at reset and when a reset request is taken
+  task automatic power_on();
+    pc <= '0;
+    ir <= '0;
+    for (int i = 0; i < NCAPS; i++) caps[i] <= CAP_NULL;
+    for (int i = 0; i < NXMAP; i++) xm_v[i] <= 0;
+    // reset capabilities: core 0 owns all memory and the device root;
+    // every core may write the console
+    if (COREID == 0) begin
+      caps[0] <= '{valid: 1, space: SP_T3,   perms: 6'b000111, base: 0, len: FW'(T3_BYTES), rv: 0, gen: 0};
+      caps[1] <= '{valid: 1, space: SP_T2,   perms: 6'b000111, base: 0, len: FW'(T2_BYTES), rv: 0, gen: 0};
+      caps[3] <= '{valid: 1, space: SP_DEV,  perms: 6'b010011, base: 0, len: FW'(DEV_LEN), rv: 0, gen: 0};
+      caps[4] <= '{valid: 1, space: SP_CORE, perms: 6'b010010, base: 0, len: FW'(NCORES * 8), rv: 0, gen: 0};
+    end
+    caps[2] <= '{valid: 1, space: SP_DEV, perms: 6'b010010, base: 0, len: FW'(1), rv: 0, gen: 0};
+    csr_cycle     <= '0;
+    csr_instret   <= '0;
+    s_cause       <= '0;
+    s_epc         <= '0;
+    s_tval        <= '0;
+    s_tvec        <= '0;
+    u_cause       <= '0;
+    u_epc         <= '0;
+    u_tval        <= '0;
+    u_tvec        <= '0;
+    sscratch      <= '0;
+    user          <= 0;
+    spp_user      <= 0;
+    ipend         <= 0;
+    xslot         <= '0;
+    csr_ccr       <= '0;
+    csr_ttag      <= '0;
+    csr_tdata     <= '0;
+    csr_tgeom     <= '0;
+    csr_scratch   <= '0;
+    csr_stalls    <= '0;
+    csr_takefrom  <= '0;
+    csr_corebase  <= '0;
+    csr_corecount <= '0;
+    lt_k          <= '0;
+    lt_ph         <= 0;
+    rs_i          <= '0;
+    state         <= S_RST;
+  endtask
+
   always_ff @(posedge clk) begin
     // the capability writes of this cycle: at most one to cd and one to cs
     // (an instruction that writes both has cd != cs), done at the end
@@ -704,62 +802,39 @@ module strata_core
     xa  = d.rd;
     xv  = '0;
     if (rst) begin
-      state <= S_RST;
-      rs_i  <= '0;
-      pc    <= '0;
-      ir    <= '0;
-      for (int i = 0; i < NCAPS; i++) caps[i] <= CAP_NULL;
-      for (int i = 0; i < NXMAP; i++) xm_v[i] <= 0;
-      // reset capabilities: core 0 owns all memory and the device root;
-      // every core may write the console
-      if (COREID == 0) begin
-        caps[0] <= '{valid: 1, space: SP_T3,   perms: 6'b000111, base: 0, len: FW'(T3_BYTES), rv: 0, gen: 0};
-        caps[1] <= '{valid: 1, space: SP_T2,   perms: 6'b000111, base: 0, len: FW'(T2_BYTES), rv: 0, gen: 0};
-        caps[3] <= '{valid: 1, space: SP_DEV,  perms: 6'b010011, base: 0, len: FW'(DEV_LEN), rv: 0, gen: 0};
-        caps[4] <= '{valid: 1, space: SP_CORE, perms: 6'b010010, base: 0, len: FW'(NCORES * 8), rv: 0, gen: 0};
-      end
-      caps[2] <= '{valid: 1, space: SP_DEV, perms: 6'b010010, base: 0, len: FW'(1), rv: 0, gen: 0};
-      csr_cycle     <= '0;
-      csr_instret   <= '0;
-      s_cause       <= '0;
-      s_epc         <= '0;
-      s_tval        <= '0;
-      s_tvec        <= '0;
-      u_cause       <= '0;
-      u_epc         <= '0;
-      u_tval        <= '0;
-      u_tvec        <= '0;
-      sscratch      <= '0;
-      user          <= 0;
-      spp_user      <= 0;
-      ipend         <= 0;
-      xslot         <= '0;
-      csr_ccr       <= '0;
-      csr_ttag      <= '0;
-      csr_tdata     <= '0;
-      csr_tgeom     <= '0;
-      csr_scratch   <= '0;
-      csr_stalls    <= '0;
-      csr_takefrom  <= '0;
-      csr_corebase  <= '0;
-      csr_corecount <= '0;
-      lt_k          <= '0;
-      lt_ph         <= 0;
+      power_on();
+      rs_ld <= 0;
+      rpend <= 0;
+      rl_v  <= 0;
     end else begin
       csr_cycle <= csr_cycle + 1;
       if (stop_req) ipend <= 1;                          // core control asked us to stop
+      if (reset_req) rpend <= 1;                         // ... or to restart
+      // the reset sequencer's Local Store write of next cycle (the boot ROM word read now)
+      rl_v    <= state == S_RST && rs_ld && rs_i < RSW'(LSN);
+      rl_a    <= rs_i[12:0];
+      rl_boot <= rs_i < RSW'(BOOT_WORDS);
 
       case (state)
         // ------------------------------------------------------------ reset sequencer
         S_RST: begin                                     // the save table: ct_we
           if (rs_i < RSW'(32)) begin xw = 1; xa = rs_i[4:0]; end   // x0..x31 = 0
-          rs_i <= rs_i + 1;
-          if (rs_i == RSW'(RSN - 1)) state <= S_F0;
+          rs_i <= rs_i + 1;                              // (the Local Stores: rl_v, the cycle after)
+          if (rs_ld ? rs_i == RSW'(LSN) : rs_i == RSW'(RSN - 1)) state <= S_F0;
+        end
+
+        // ------------------------------------------------------------ reset request
+        S_RQ: if (tu_quiet) begin                        // (reset_flush: the unit empties now)
+          power_on();
+          rs_ld <= 1;
+          rpend <= reset_req;                            // (another one already: again after this)
         end
 
         // ------------------------------------------------------------ fetch
         S_F0: begin
-          if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end
+          if (rpend) state <= S_RQ;                      // a reset request: in any mode
+          else if (tu_cc_busy) stall();                  // a core-control write takes effect first
+          else if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end
           else if (pc[1:0] != 0 || !pc_in) trap(C_IFAULT, pc);
           else if (hz_fetch_stall) stall();
           else state <= S_F1;
@@ -775,8 +850,11 @@ module strata_core
         // ------------------------------------------------------------ execute
         // (S_CT: the second cycle of a save-table instruction, in the supervisor)
         S_EX, S_CT: begin
-          // a stop is taken at instruction boundaries, also while an instruction waits
-          if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end
+          // a stop is taken at instruction boundaries, also while an instruction waits;
+          // a reset request likewise, in any mode (nothing of the instruction is done:
+          // requests to the rest of the machine are held back while one is pending)
+          if (rpend) state <= S_RQ;
+          else if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end
           else case (d.kind)
             K_ILLEGAL: trap(C_ILLEGAL, {32'b0, ir});
 
@@ -1165,6 +1243,7 @@ module strata_core
             lt_ebase <= lt_ebase_c;
             lt_ph    <= 1;
           end
+          else if (rpend) state <= S_RQ;                 // (as in EX)
           else if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end   // (as in EX)
           else if (!lt_ok) trap(C_LSFAULT, lt_ebase);
           else if (d.kind == K_LTAG ? hz_rd_stall : hz_wr_stall) pending(lt_ebase);
@@ -1203,7 +1282,7 @@ module strata_core
           else retire(pc4);                           // and the counter this one
         end
 
-        S_HALT: ;
+        S_HALT: if (rpend) state <= S_RQ;                // a reset request restarts a halted core
         default: state <= S_F0;
       endcase
       if (cdw) caps[cd_i] <= cdn;

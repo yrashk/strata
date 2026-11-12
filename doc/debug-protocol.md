@@ -143,7 +143,7 @@ should stay 0.
 
 | Request | Fields |
 |---|---|
-| `break` / `tbreak` | `kind`: `pc` (default; `loc` or `addr`), `trap` (`cause`: illegal, lsfault, capinv, perm, bounds, xalign, ifault, xmiss, pend, capop, priv, halt, stop, svc, or any), `svc`, `eret`, `halt` (a core halts), `capop` (`ops`: comma-separated give, take, send, recv, dom, revoke, undom, split, share, restrict, join, save, restore, mkep, atomic, or all), `pid` (`pid` or `name`: when that process starts running on a core; a name not running yet becomes a pc breakpoint at its program's `_start`). Common: `core` (default any), `ignore` (hits to skip), `cond` (`"REG OP VALUE"`, OP one of == != < > <= >=, REG an integer register, `pc` or `instret`), `prog` (StrataOS: only while this program runs), `temp`. Answer: `bp` (its id), `desc`. |
+| `break` / `tbreak` | `kind`: `pc` (default; `loc` or `addr`), `trap` (`cause`: illegal, lsfault, capinv, perm, bounds, xalign, ifault, xmiss, pend, capop, priv, halt, stop, svc, or any), `svc`, `eret`, `halt` (a core halts), `reset` (a core is restarted by a core-control reset request), `capop` (`ops`: comma-separated give, take, send, recv, dom, revoke, undom, split, share, restrict, join, save, restore, mkep, atomic, or all), `pid` (`pid` or `name`: when that process starts running on a core; a name not running yet becomes a pc breakpoint at its program's `_start`). Common: `core` (default any), `ignore` (hits to skip), `cond` (`"REG OP VALUE"`, OP one of == != < > <= >=, REG an integer register, `pc` or `instret`), `prog` (StrataOS: only while this program runs), `temp`. Answer: `bp` (its id), `desc`. |
 | `watch` | `kind`: `ls` (`mem`: dls / ils, `loc` or `addr`, `len`, `access`: r / w / rw), `far` (`space`: t2 / t3 / dev, `addr`, `len`, `access`), `cap` (`core`, `reg`), `tag` (`core`, `tag`, `access`: issue / complete / both). Answer: `bp`, `desc`. |
 | `delete {bp?}`, `enable {bp?}`, `disable {bp?}` | one, or all |
 | `breakpoints` | `bps`: `id`, `kind`, `on`, `temp`, `core`, `addr`, `len`, `hits`, `ignore`, `desc` |
@@ -174,14 +174,14 @@ or after the line; a basename is enough) or, under StrataOS, `prog:label`.
 | `inbox {core}` | `from`: `node`, `caps` per sender with something queued |
 | `xmap {core}` | `xslot`, `size` (the platform's NXMAP), `entries` (`size` of them): `index`, `valid`, `space`, `far`, `ils`, `sym` |
 | `tags {core?}` | `cores`: `core`, `tags` (16: `tag`, `busy`; for a tag that has had a transfer: `op` tget / tput / tgetx, `space`, `ls`, `len`, `far`, `port` (device), `pc`, `issued` and `completed` rounds, and ticks), `stall` |
-| `pending` | `reads`: every pending device read (`core`, `tag`, `port`, `name`, `ls`, `len`, `seq`, `issued`, `waits`: what it waits for, e.g. "the timer deadline 5002 (now 3, in 4999 ticks)"); `blk`: the block device's queues (`commands`, `partial`, `caps`, `completions`, `returning_to`); `input_queued`, `breaks`, `deadline`, `now` |
+| `pending` | `reads`: every pending device read (`core`, `tag`, `port`, `name`, `ls`, `len`, `seq`, `issued`, `waits`: what it waits for, e.g. "the timer deadline 5002 (now 3, in 4999 ticks)"); `blk`: the block device's queues (`commands`, `partial`, `caps`, `completions`, `returning_to`, `submitters`: the core that submitted each queued command, `lenders`: the core that gave each capability waiting there); `input_queued`, `breaks`, `deadline`, `now` |
 | `granules` | `units`: the revocation units (`space`, `base`, `len`, `gen`) |
 | `mem {space, core, addr or loc, len}` | `space` (dls, ils, t2, t3, disk), `addr`, `hex`, `sym` (D-LS). At most 64 KiB. |
 | `disasm {core, addr or loc, n, before}` | `lines`: `addr`, `word`, `text`, `label` (at a label), `sym`, `file`, `line`, `pc` (the core's pc), `bp` |
 | `sym {loc}` | `addr`, `section`, `prog` |
 | `source {file, from, n}` | `lines` of a source file (found through the maps' `root`) |
 | `backtrace {core}` | `frames`: `pc`, `sym`, `file`, `line`, `via` (ra / stack). There are no frame pointers: past `ra`, frames are words on the stack that point just after a `call`. |
-| `processes` | StrataOS: `procs`: `pid`, `parent`, `state`, `status`, `core`, `ncores`, `name`, `running` (the cores running it now) |
+| `processes` | StrataOS: `procs`: `pid`, `parent`, `state`, `status`, `core`, `ncores`, `name`, `running` (the cores running it now); `guests`: the guest OSes running on cores of their own (`id`, `cores`) |
 | `console` | `data`: the last 64 KiB of console output |
 | `history` | `history`, as above |
 
@@ -191,7 +191,8 @@ now), id, port}`; `live` is false for a revoked one.
 
 A **core summary** (`cores`, `stopped`) is `{core, pc, sym, file, line,
 halted, mode (super / user), instret, busy (busy tags), pid and proc
-(StrataOS), insn (the instruction at pc), stall}`. A **stall** says why the
+(StrataOS), guest (StrataOS: the guest id when a guest OS owns the core),
+insn (the instruction at pc), stall}`. A **stall** says why the
 core cannot make its step: `{reason, since (round), since_tick, detail,
 why}` with reason one of `ls-hazard` (an access over a pending device
 read), `xfer-hazard`, `tag-busy`, `pending-full`, `twait`, `tany`,
@@ -229,6 +230,7 @@ Every event has `seq`, `kind`, `tick`, `round`, `core`, and under StrataOS
 | `take`, `recv` | `from` (node), the same |
 | `dom`, `revoke`, `undom` | `space`, `base`, `len`, `gen` |
 | `halt` | `a0`, `instret`, `faulted` |
+| `reset` | a core-control reset request restarted the core: `by` (the core that wrote it), `pc` (that core's) |
 | `stall` | a stall that has ended: `from`, `to` (rounds), `reason`, `detail`, `pc` |
 | `input` | `bytes` |
 

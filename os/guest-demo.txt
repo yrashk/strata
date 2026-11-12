@@ -1,0 +1,14 @@
+guest gdemo 2 8
+cores
+guest
+guest stop 240
+cores
+-c 6 hello
+guest ghostile 2 8
+ps
+cat motd
+guest stop 240
+cores
+-c 7 hello
+cat motd | wc
+halt

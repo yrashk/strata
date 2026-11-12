@@ -264,7 +264,7 @@ static void blk_run(void) {
      * has no pending command is an orphan (a stray gift, e.g. from a hostile
      * guest): return it to its sender rather than pairing it with anyone. */
     if (bi_cnt && !blk_has_cmd(blk_inbox[bi_head].from)) {
-      blk_out = blk_inbox[bi_head];
+      blk_out = (Gift){blk_inbox[bi_head].cap, ncores}; /* back from the device's node */
       blk_out_to = blk_inbox[bi_head].from;
       bi_head = (bi_head + 1) % IQ;
       bi_cnt--;
@@ -472,15 +472,19 @@ static void dec_invalidate(Core *c, uint64_t ls, uint64_t len); /* the fast loop
 /* A core-control reset request (Section corectl): restart this core as if
  * just powered on, but leave the shared memories and devices alone. It is
  * taken in any mode, so a supervisor that will not yield a core can still be
- * stopped. Everything private to the core is cleared and its Local Stores are
- * reloaded from the boot image; it resumes at the boot ROM entry (pc 0) in
- * supervisor mode with the reset capabilities, as at power-on. */
+ * stopped. Everything private to the core is cleared: registers, the save
+ * table, the inbox, the overlay map, its device reads in flight, the CSRs.
+ * Its Local Stores get the boot ROM again (the first BOOTROM_BYTES of each
+ * from the boot image; the rest is cleared: the RTL keeps a boot ROM of that
+ * size, not a copy of the whole image), and it resumes at the boot ROM entry
+ * (pc 0) in supervisor mode with the reset capabilities, as at power-on. */
 static void core_reset(Core *c) {
   int id = c->id;
+  for (int k = 0; k < NPEND; k++) npending -= c->pend[k].on; /* its reads in flight are abandoned */
   memset((char *)c + offsetof(Core, halted), 0, sizeof(Core) - offsetof(Core, halted)); /* all but id */
   c->id = id;
-  memcpy(c->dls, boot_dls, DLS_BYTES);
-  memcpy(c->ils, boot_ils, ILS_BYTES);
+  memcpy(c->dls, boot_dls, BOOTROM_BYTES); /* (the rest of both stores: zero, from the memset) */
+  memcpy(c->ils, boot_ils, BOOTROM_BYTES);
   c->caps[2] = (Cap){true, SP_DEV, P_W | P_D, 0, 1, 0, 0}; /* console output: every core */
   if (id == 0) { /* core 0's reset set (a worker reset gets only the console) */
     c->caps[0] = (Cap){true, SP_T3, P_R | P_W | P_X, 0, T3_BYTES, 0, 0};
@@ -490,6 +494,7 @@ static void core_reset(Core *c) {
   }
   jit_invalidate(id, 0, ILS_BYTES); /* its code changed under the JIT */
   dec_invalidate(c, 0, ILS_BYTES);
+  if (dbg_on) dbg_core_reset(c);
 }
 
 static void fatal(Core *c, int cause, uint64_t tval, bool dbl) {
@@ -1448,7 +1453,7 @@ static bool jit_meets_others(const Core *c) {
  * was blocked at once (as when step() returns false). */
 static uint64_t run_jit(Core *c) {
   uint64_t done = 0;
-  while (done < JIT_QUANTUM && !c->halted) {
+  while (done < JIT_QUANTUM && !c->halted && !c->reset_req) { /* (a reset it asked for itself: before its next instruction) */
     /* A pending stop is taken at the next step. */
     if (!(c->user && c->ipend)) {
       /* Loads and stores wait for the bytes of a device read in flight:
@@ -1560,10 +1565,11 @@ static int machine_round(void) {
   pend_service();
   bool any_live = false, progress = false;
   uint64_t longest = 0;
+  for (int i = 0; i < ncores; i++) /* resets cores asked for themselves (in the last round) */
+    if (cores[i].reset_req) { cores[i].reset_req = false; core_reset(&cores[i]); progress = true; }
   if (use_jit) {
     for (int i = 0; i < ncores; i++) {
       Core *c = &cores[i];
-      if (c->reset_req) { c->reset_req = false; core_reset(c); progress = true; }
       if (c->halted) continue;
       any_live = true;
       uint64_t n = run_jit(c);
@@ -1574,8 +1580,6 @@ static int machine_round(void) {
     int nlive = 0, nlead = 0;
     bool stepped = false;
     uint64_t minlead = UINT64_MAX;
-    for (int i = 0; i < ncores; i++)
-      if (cores[i].reset_req) { cores[i].reset_req = false; core_reset(&cores[i]); progress = true; }
     for (int i = 0; i < ncores; i++) nlive += !cores[i].halted;
     any_live = nlive > 0;
     for (int i = 0; i < ncores; i++) {

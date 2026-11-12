@@ -50,10 +50,12 @@ found and how it was decided.
 | `devspan` | byte-per-beat device transfers across registers |
 | `console`, `break`, `brkrel`, `inrel` | output, input, end of input, Ctrl-C (`-b`), one release for every break read (F4) and for waiting input reads |
 | `blk` | the block device: identify, write/read/flush, errors, the completion queue |
+| `blkpair` | the block device and two cores: a command pairs only with a buffer from the core that submitted it, an orphan buffer comes straight back to its lender, a buffer returns to its lender whatever byte 1 says |
 | `plat` | the platform table: layout (the save table's and the overlay map's sizes in the header), checksum, every entry |
 | `ptr` | the pointer: STATE, EVENT order and packing, release by a write |
 | `mc` | gifts between cores, per-sender queues, `ctake` from, `cpoll`, `tany` on the inbox, windows, revocation across cores, stop, a halted target |
 | `reserved` | reserved CSRs, CCR bits, ignored fields |
+| `reset` | the core-control reset request: taken by a spinning supervisor, a halted core, a user-mode core and a core that resets itself (before its next instruction); clears registers, capabilities, the save table, CSRs, the overlay map, the inbox and waiting reads; the boot ROM (first 4 KiB of each Local Store) comes back and the rest is cleared; restart at pc 0 in supervisor mode |
 
 ## Not covered yet
 

@@ -479,13 +479,16 @@ fails moves no data and reports zero blocks transferred.
 \item The device pairs a command with a buffer \emph{from the same core that submitted the command},
   and only that core: it records the submitting core of each queued command, and a buffer whose sender
   has no pending command is an \term{orphan} --- a stray gift --- which the device returns to its
-  sender unchanged rather than slipping it under another core's command. This binds the DMA permission
+  sender unchanged (from the device's node, moving no data) rather than slipping it under another
+  core's command. This binds the DMA permission
   to the requester, so one core cannot have its buffer paired with another's command (it matters when
   mutually distrusting software shares the device; see Section~\ref{sec:os-guests}). Among a core's own
   buffers, the oldest is paired first. The device processes a command when it holds a matching buffer
   and has room in its four-entry completion queue; it moves the data between the disk and
   $[\textit{base} + \textit{offset}, \ldots)$ of the capability, appends a completion, and gives the
-  capability back to the core that lent it.
+  capability back to the core that lent it. A \insn{cgive} or \insn{csend} to the device's node
+  waits until the core's earlier device writes (the command) have reached the device, so a command
+  and the buffer that follows it in program order always meet.
 \item \insn{ctake} the capability back, from the device's node only (\insn{ctake cd, rs} with \reg{rs} = $N$). Its arrival means the operation has finished. (A user-mode driver, such as the StrataOS file server, is handed the capability by its supervisor instead.)
 \item Read the completion from the completion port and check the command id and status.
 \end{enumerate}

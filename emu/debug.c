@@ -110,10 +110,10 @@ static struct {
 /* ------------------------------------------------------------ breakpoints */
 
 enum {
-  BK_PC = 1, BK_TRAP, BK_SVC, BK_ERET, BK_CAPOP, BK_HALT, BK_PID, /* breakpoints */
+  BK_PC = 1, BK_TRAP, BK_SVC, BK_ERET, BK_CAPOP, BK_HALT, BK_PID, BK_RESET, /* breakpoints */
   WK_LS, WK_FAR, WK_CAP, WK_TAG,                                  /* watchpoints */
 };
-static const char *const bk_names[] = {"", "pc", "trap", "svc", "eret", "capop", "halt", "pid", "ls", "far", "cap", "tag"};
+static const char *const bk_names[] = {"", "pc", "trap", "svc", "eret", "capop", "halt", "pid", "reset", "ls", "far", "cap", "tag"};
 /* capability operations a capop breakpoint selects (bits) */
 enum {
   CO_GIVE = 1, CO_TAKE = 2, CO_SEND = 4, CO_RECV = 8, CO_DOM = 16, CO_REVOKE = 32, CO_UNDOM = 64,
@@ -171,10 +171,10 @@ static Stall dbg_stall[MAXCORES];
 
 enum {
   EV_XFER = 1, EV_XDONE, EV_TRAP, EV_ERET, EV_GIVE, EV_TAKE, EV_SEND, EV_RECV, EV_DOM, EV_REVOKE, EV_UNDOM,
-  EV_HALT, EV_STALL, EV_INPUT, EV_POKE,
+  EV_HALT, EV_STALL, EV_INPUT, EV_POKE, EV_RESET,
 };
 static const char *const ev_names[] = {"", "xfer", "xdone", "trap", "eret", "give", "take", "send", "recv", "dom",
-                                       "revoke", "undom", "halt", "stall", "input", "poke"};
+                                       "revoke", "undom", "halt", "stall", "input", "poke", "reset"};
 typedef struct {
   uint64_t tick, round;
   uint16_t kind;
@@ -611,6 +611,34 @@ static void pend_diff(void) {
 
 static void prov_after(Core *c, const Pre *p);
 
+/* A core-control reset request restarted core c (core_reset: in the slot of
+ * the core that wrote it, or at a round's start when c asked for itself).
+ * Its old capabilities, tags, stall and pending reads are gone: log it, give
+ * the reset capabilities "reset" provenance as at power-on, forget what the
+ * engine tracked for the core, and fire reset breakpoints. */
+static void dbg_core_reset(Core *c) {
+  int by = dbg_rs ? dbg_ci : c->id; /* (between rounds: a reset it asked for itself) */
+  Ev e = {0};
+  e.kind = EV_RESET;
+  e.core = (int8_t)c->id;
+  e.a = (uint64_t)by;
+  e.pc = cores[by].pc;
+  ev_add(&e);
+  for (int r = 0; r < NCAPS; r++)
+    if (c->caps[r].valid) prov_new(c, &c->caps[r], PO_RESET, 0, 0, -1);
+  memset(dbg_tags[c->id], 0, sizeof dbg_tags[c->id]);
+  memcpy(dbg_pshadow[c->id], c->pend, sizeof dbg_pshadow[c->id]); /* abandoned, not completed */
+  dbg_pnpend = npending;
+  dbg_stall[c->id].on = false;
+  dbg_pid_prev[c->id] = -1;
+  for (int i = 0; i < dbg_nbp; i++)
+    if (dbg_bp[i].on && dbg_bp[i].kind == BK_RESET && (dbg_bp[i].core < 0 || dbg_bp[i].core == c->id)) {
+      char w[64];
+      snprintf(w, sizeof w, "core %d reset by core %d", c->id, by);
+      bp_fire(&dbg_bp[i], c->id, w);
+    }
+}
+
 /* After core c's slot: what its instruction did. */
 static void post_step(Core *c, const Pre *p, bool ok) {
   bool exec = ok && !dbg_trapped && !p->halted; /* the instruction itself took effect */
@@ -878,6 +906,8 @@ static int dbg_tick1(void) {
     rounds++;
     if (opt_break_at && mach_steps >= opt_break_at) { opt_break_at = 0; press_break(); }
     host_ptr_script_run(mach_steps);
+    for (int i = 0; i < ncores; i++) /* resets cores asked for themselves (as machine_round()) */
+      if (cores[i].reset_req) { cores[i].reset_req = false; core_reset(&cores[i]); }
     if (rounds >= dbg_poll_at) { dbg_poll_at = rounds + 4096; host_poll(); net_host_poll(); }
     pend_service();
     pend_diff();
@@ -1118,6 +1148,8 @@ static void jw_core_brief(JW *w, const Core *c) {
     jw_int(w, "pid", pid);
     const char *nm = os_name_of(pid);
     if (nm) jw_str(w, "proc", nm);
+    int g = os_guest_of(c->id);
+    if (g) jw_int(w, "guest", g); /* a guest OS's core (-1: taken, no guest record) */
   }
   if (!c->halted && (c->pc & 3) == 0 && c->pc < ILS_BYTES) {
     uint32_t ir;
@@ -1417,6 +1449,7 @@ static void ev_json(JW *w, uint64_t seq, const Ev *e) {
     jw_hex(w, "pc", e->pc);
     break;
   case EV_INPUT: jw_uint(w, "bytes", e->a); break;
+  case EV_RESET: jw_int(w, "by", (int)e->a); jw_hex(w, "pc", e->pc); break;
   }
   jw_oend(w);
 }
@@ -1627,7 +1660,7 @@ static void dbg_request(const char *line, size_t len, JW *w) {
   } else if (!strcmp(cmd, "break") || !strcmp(cmd, "tbreak")) {
     const char *kind = json_str(json_get(rq, "kind"), "pc");
     int k = 0;
-    for (int i = 1; i <= BK_PID; i++)
+    for (int i = 1; i <= BK_RESET; i++)
       if (!strcmp(kind, bk_names[i])) k = i;
     Bp *b = k ? bp_alloc(k) : NULL;
     if (!k) snprintf(err, sizeof err, "unknown breakpoint kind %s", kind);
@@ -1695,7 +1728,8 @@ static void dbg_request(const char *line, size_t len, JW *w) {
         if (nm) snprintf(b->desc, sizeof b->desc, "process %s runs%s", nm, b->kind == BK_PC ? " (at its entry)" : "");
         else snprintf(b->desc, sizeof b->desc, "pid %d runs", b->arg);
         if (os_aware) for (int i = 0; i < ncores; i++) dbg_pid_prev[i] = cores[i].user ? os_cur_pid(i) : -1;
-      } else snprintf(b->desc, sizeof b->desc, "%s", kind);
+      } else if (k == BK_RESET) snprintf(b->desc, sizeof b->desc, "a core is reset");
+      else snprintf(b->desc, sizeof b->desc, "%s", kind);
       if (b->core >= 0) {
         size_t n = strlen(b->desc);
         snprintf(b->desc + n, sizeof b->desc - n, " on core %d", b->core);
@@ -1907,6 +1941,12 @@ static void dbg_request(const char *line, size_t len, JW *w) {
     jw_int(w, "caps", bi_cnt);
     jw_int(w, "completions", cq_cnt);
     jw_int(w, "returning_to", blk_out_to);
+    jw_arr(w, "submitters"); /* the core that submitted each queued command, oldest first */
+    for (int i = 0; i < sq_cnt; i++) jw_int(w, NULL, sq_from[(sq_head + i) % BLK_QDEPTH]);
+    jw_aend(w);
+    jw_arr(w, "lenders"); /* the core that gave each capability waiting there */
+    for (int i = 0; i < bi_cnt; i++) jw_int(w, NULL, blk_inbox[(bi_head + i) % IQ].from);
+    jw_aend(w);
     jw_oend(w);
     jw_int(w, "input_queued", host_in_cnt);
     jw_int(w, "breaks", host_breaks);
@@ -2121,6 +2161,20 @@ static void dbg_request(const char *line, size_t len, JW *w) {
         jw_arr(w, "running");
         for (int k = 0; k < ncores; k++)
           if (os_cur_pid(k) == o->pid) jw_int(w, NULL, k);
+        jw_aend(w);
+        jw_oend(w);
+      }
+      jw_aend(w);
+      jw_arr(w, "guests"); /* guest OSes on cores of their own: id, the cores */
+      for (int id = 0, k = 0; k < ncores; k++) {
+        int g = os_guest_of(k);
+        if (g <= 0 || g == id) continue;
+        id = g;
+        jw_obj(w, NULL);
+        jw_int(w, "id", g);
+        jw_arr(w, "cores");
+        for (int j = k; j < ncores; j++)
+          if (os_guest_of(j) == g) jw_int(w, NULL, j);
         jw_aend(w);
         jw_oend(w);
       }

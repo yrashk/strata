@@ -50,7 +50,10 @@ Device transfers do not hold a hand-over up. A device read can stay in flight in
 pending console break read completes only on Ctrl-C), and device space is not memory that a
 capability hand-over publishes, so a core may give, share or convert capabilities while it waits for a
 device event. \insn{halt} is different: it drains everything, so a core that is about to halt first
-retires a break read by writing the console's release port (Section~\ref{sec:break}).
+retires a break read by writing the console's release port (Section~\ref{sec:break}). So is a gift to
+the block device's node: it also waits for the core's device writes, so that the command it submitted
+just before is at the device when its buffer arrives (Section~\ref{sec:blkdev}). Core-control writes
+count as memory transfers here; besides, the next instruction waits for them (Section~\ref{sec:corectl}).
 
 Gifts from one sender are taken in the order they were given. Gifts from different senders are
 independent queues.

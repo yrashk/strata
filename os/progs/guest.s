@@ -24,7 +24,7 @@ GLIST   = 42                            ; ...
 args:   .space 512                      ; the argument text
 reqb:   .space 512                      ; the request data
 tab:    .space 8 + 32 * 4               ; the guest list
-m_start: .ascii "guest "                ; "guest N started on core C (N cores)"
+m_start: .ascii "guest"                 ; "guest started: id N, core C"
 m_start_e:
 m_on:   .ascii " started: id "
 m_on_e:

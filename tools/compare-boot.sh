@@ -2,7 +2,11 @@
 # Boots StrataOS on the C emulator and on the Verilated RTL with the same
 # disk image and the same scripted console input, and compares them.
 #
-#   tools/compare-boot.sh build/bootrom.stx build/disk.img os/demo.txt
+#   tools/compare-boot.sh build/bootrom.stx build/disk.img os/demo.txt [NAME]
+#
+# (NAME labels the result line; os/guest-demo.txt is the guest session: a
+# second OS started, stopped by core-control resets, a hostile one, the
+# reset cores reused.)
 #
 # EMU_ARGS: extra emulator flags that describe the same machine as the RTL
 # build (e.g. -X 8 for an RTL built with NXMAP=8).
@@ -71,5 +75,5 @@ while [ $c -lt "$n" ]; do
 done
 ins=$(cat "$tmp/e.count")
 cyc=$(sed -n 's/^total cycles: //p' "$tmp/r.err")
-if [ $ok -eq 1 ]; then printf '%-14s OK    %8s instructions  %9s RTL cycles (console compared; boot traces)\n' "boot" "$ins" "$cyc"; exit 0; fi
-printf '%-14s FAIL\n' boot; exit 1
+if [ $ok -eq 1 ]; then printf '%-14s OK    %8s instructions  %9s RTL cycles (console compared; boot traces)\n' "${4:-boot}" "$ins" "$cyc"; exit 0; fi
+printf '%-14s FAIL\n' "${4:-boot}"; exit 1

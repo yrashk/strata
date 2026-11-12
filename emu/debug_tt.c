@@ -42,6 +42,7 @@ typedef struct {
   uint8_t sq_buf[32];
   int sq_fill;
   uint8_t sq_cmds[BLK_QDEPTH][32];
+  int sq_from[BLK_QDEPTH];
   int sq_head, sq_cnt;
   Gift blk_inbox[IQ];
   int bi_head, bi_cnt;
@@ -190,6 +191,7 @@ static void misc_save(Misc *m) {
   memcpy(m->sq_buf, sq_buf, sizeof sq_buf);
   m->sq_fill = sq_fill;
   memcpy(m->sq_cmds, sq_cmds, sizeof sq_cmds);
+  memcpy(m->sq_from, sq_from, sizeof sq_from);
   m->sq_head = sq_head, m->sq_cnt = sq_cnt;
   memcpy(m->blk_inbox, blk_inbox, sizeof blk_inbox);
   m->bi_head = bi_head, m->bi_cnt = bi_cnt;
@@ -226,6 +228,7 @@ static void misc_load(const Misc *m) {
   memcpy(sq_buf, m->sq_buf, sizeof sq_buf);
   sq_fill = m->sq_fill;
   memcpy(sq_cmds, m->sq_cmds, sizeof sq_cmds);
+  memcpy(sq_from, m->sq_from, sizeof sq_from);
   sq_head = m->sq_head, sq_cnt = m->sq_cnt;
   memcpy(blk_inbox, m->blk_inbox, sizeof blk_inbox);
   bi_head = m->bi_head, bi_cnt = m->bi_cnt;

@@ -139,6 +139,30 @@ the I-LS-side compares (the link's "is the pc in this slot" and the tgetx
 invalidation, 17-bit subtracts per entry; requiring the I-LS slot to be
 aligned too would make the first an equality).
 
+### The reset request and the block device's sender binding
+
+The core-control reset request (a core restarted in any mode, its Local
+Stores rewritten with the boot ROM) and the block device's pairing of a
+buffer only with its submitter's command (manual, "core control" and
+"block device") cost, on 7-series with one core (`synth_xilinx`, the
+boot ROM images as initial contents, before / after):
+
+| | LUT | FF | RAMB36 | LUT-RAM |
+|---|---|---|---|---|
+| before | 30047 | 6871 | 88 | 173 |
+| after | 31568 (+1521, +5.1%) | 7269 (+398) | 90 (+2) | 159 |
+
+The two RAMB36 are the boot ROM, 4 KiB per Local Store, which each core
+keeps to rewrite its stores (a ROM shared by all cores would cost two per
+machine, at the price of an arbiter); the reset sequencer's Local Store
+write port shares the Transfer Unit's port B (muxes), and the Transfer
+Unit's quiet / flush logic is small. Most of the FF increase is the block
+device's capability queue, which now moves entries up when one from the
+middle is taken (a submitter's buffer behind another core's), so it left
+LUT-RAM for flip-flops, plus each queued command's and buffer's core
+number. The device's part is per machine; the ROMs and the reset path are
+per core.
+
 ### What fits where
 
 | System | Board | Use of the device (synthesis estimate) |

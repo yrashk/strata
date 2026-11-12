@@ -1609,28 +1609,39 @@ StrataOS workers. A guest that is halted by itself (`bye`) is reclaimed the
 same way: the reset un-halts the core.
 
 Reclaiming a *supervisor-mode* core needs two things the base ISA could not
-do, so two small, general additions were made (emulator `emu/emu.c`; the RTL
-and conformance tests are the remaining work):
+do, so two small, general additions were made to the ISA and the platform
+(emulator `emu/emu.c` and its JIT, the RTL `rtl/`, the debug engine; conformance
+tests `conformance/tests/reset.s` and `blkpair.s`; the guest session runs in
+lockstep on the emulator and the RTL, `tools/compare-boot.sh` with
+`os/guest-demo.txt`):
 
 1. **A core-control reset request.** A `tput` through a core-control
    capability that writes a doubleword with **bit 1** set (bit 0 is the
    existing stop request) resets the target core. Unlike a stop request, a
    reset is taken *in any mode*, so a supervisor that will not yield is stopped
-   anyway. A reset clears the core's registers, capability registers and save
-   table, inbox, overlay map, pending transfers and reads, and CSRs, reloads
-   its Local Stores from the boot image, and restarts it at the boot ROM entry
-   (pc 0) in supervisor mode with the reset capabilities — exactly as at
-   power-on. It runs the boot ROM's secondary path and waits for core 0 to
-   re-give it the OS shares, so core 0 re-provisions it like any worker. Who
-   may issue it: a holder of core control over that core (the same right as a
-   stop request).
+   anyway, also by a halted core. A reset clears the core's registers,
+   capability registers and save table, inbox, overlay map, transfer tags
+   (device reads still waiting are abandoned), and CSRs, reloads the boot ROM
+   (the first 4 KiB of each Local Store, from the boot image; the rest of both
+   stores is cleared), and restarts it at the boot ROM entry (pc 0) in
+   supervisor mode with the reset capabilities — as at power-on. It runs the
+   boot ROM's secondary path and waits for core 0 to re-give it the OS shares,
+   so core 0 re-provisions it like any worker. Who may issue it: a holder of
+   core control over that core (the same right as a stop request). The inbox
+   is emptied when the request arrives, so the gifts core 0 makes after its
+   `tput` reach the restarted core; in hardware the restart takes 8192 cycles
+   (the Local Stores are rewritten a doubleword per cycle from a 4 KiB ROM per
+   store), and those gifts wait in the inbox meanwhile.
 
 2. **The block device pairs a buffer only with a command from the same core.**
    The device records the submitting core of each queued command and pairs it
    only with an inbox buffer whose sender is that same core; a buffer whose
    sender has no pending command is an orphan (a stray gift, e.g. from a
-   hostile guest) and is returned to its sender rather than slipped under
-   another core's command. This closes the one receiving-side channel a
+   hostile guest) and is returned to its sender, from the device's node,
+   rather than slipped under another core's command; a buffer always goes back
+   to the core that lent it (the command's old "reply core" byte is ignored).
+   A gift to the device waits for the giver's earlier device writes, so a
+   command and its buffer always meet. This closes the one receiving-side channel a
    supervisor guest could otherwise abuse: without it, a guest could `cgive` a
    buffer into the block device's queue and have it paired with `fs`'s next
    command, corrupting `fs`'s I/O.
@@ -1654,6 +1665,14 @@ request is taken from the buffer's arena by the receiver, so it cannot be
 forged; and the block-device rule above closes the device channel. Revoking
 the arena kills every buffer the guest lent to a server, so a server holding a
 guest's request when the guest is killed simply finds a dead capability.
+
+**Known limit (availability, not integrity).** The block device gives an
+orphan back by an ordinary gift, and a gift waits for room in the receiver's
+inbox (two per sender). A guest that sends the device three orphans and never
+takes them back therefore stalls the device until it does, or until StrataOS
+stops it (the reset empties its inbox and the device carries on). It cannot
+corrupt anyone's I/O this way, only delay it; dropping an orphan the lender has
+no room for would close this, at the price of one more device rule.
 
 **Known gap (user mode is not bounded in the Local Store).** Neither the
 emulator nor the RTL checks the privilege mode on D-LS loads/stores or on the

@@ -14,7 +14,9 @@
 #   3. clock: info tags while a timer WAIT (a tget) is in flight, and a
 #      watchpoint on its destination fired by its completion; reverse-tag
 #      back to its issue (in front of the tget: its tag has no transfer yet);
-#   4. StrataOS: break when the process `ls` runs, info processes;
+#   4. StrataOS: break when the process `ls` runs, info processes; a guest
+#      OS (its cores in info cores and processes) and a break on the reset
+#      `guest stop` makes;
 #   5. the wasm engine: a breakpoint and a reverse step;
 #   6. fast continues (ff, with the JIT): hello to its end, StrataOS to the
 #      process ls, and the history starting again there.
@@ -150,6 +152,29 @@ EOF
     "stopped: breakpoint 1: process ls runs (at its entry)" "<_start> (ls.s:" \
     "pid parent state  core n  running  name" "  proc" "  sh" "  ls" \
     "pid 8 ls"
+  # a guest OS: its cores while it runs, then `guest stop`'s core-control resets
+  cp "$b/disk.img" "$tmp/disk.img"
+  cat > "$tmp/guest.cmd" <<'EOF'
+break process cores
+input guest gdemo 2 8\ncores\nguest stop 240\n
+continue
+info processes
+info cores
+delete 1
+break reset
+continue
+info cores
+quit
+EOF
+  run guest "$tmp/guest.cmd" -c 8 -j -T virtual -g none -d "$tmp/disk.img" --os "$b" "$b/bootrom.stx"
+  expect guest \
+    "console| guest: a second OS is live on its own cores, beside StrataOS." \
+    "stopped: breakpoint 1: process cores runs" \
+    "guest 240 on cores 6,7 (a second OS)" \
+    "  guest 240  " "  guest 240  " \
+    "stopped: breakpoint 2: a core is reset, core 6 reset by core 0" \
+    "* core 6  super 0x0 <_start> (bootrom.s:" \
+    "core 7  super"
 else
   echo "test-dbg: no StrataOS build (make os): skipping part 4"
 fi

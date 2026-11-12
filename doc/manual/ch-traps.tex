@@ -267,15 +267,33 @@ Core-control capabilities permit only \insn{tput}: \insn{tget} and \insn{tgetx} 
 \cause{perm}.
 
 A \term{reset request} restarts the target core as if it had just been powered on, but leaves the
-shared memories and devices alone. Unlike a stop request it is taken \emph{in any mode}, so a core
-whose supervisor will not yield can still be stopped. A reset clears the core's integer and capability
-registers, its capability save table, its inbox, its overlay map, its pending transfers and device
-reads, and its CSRs; reloads its Local Stores from the boot image; and restarts it at the boot ROM
-entry (\reg{pc} 0) in supervisor mode with the reset capabilities of Table~\ref{tab:resetcaps}. It then
-runs the boot ROM's secondary path and waits for the system core to hand it the operating system
-again, exactly as a core does at power-on. Whoever holds core control over a core may reset it: the
-same right that lets them stop it. An operating system uses this to reclaim a core from a guest that
-runs its own supervisor (Section~\ref{sec:os-guests}).
+shared memories and devices alone. Unlike a stop request it is taken \emph{in any mode}, also by a
+core that has halted, so a core whose supervisor will not yield can still be stopped. A reset clears
+the core's integer and capability registers, its capability save table, its inbox, its overlay map,
+its transfer tags, and its CSRs (\csr{instret} counts from the reset); reloads the \term{boot ROM},
+the first 4~KiB of each Local Store, from the boot image and clears the rest of both Local Stores; and
+restarts the core at the boot ROM entry (\reg{pc} 0) in supervisor mode with the reset capabilities of
+Table~\ref{tab:resetcaps}. It then runs the boot ROM's secondary path and waits for the system core to
+hand it the operating system again, exactly as a core does at power-on. Whoever holds core control
+over a core may reset it: the same right that lets them stop it. An operating system uses this to
+reclaim a core from a guest that runs its own supervisor (Section~\ref{sec:os-guests}).
+
+Precisely: the target's inbox is emptied when the request arrives, so a gift made after the
+\insn{tput} that carried it (a \insn{cgive} waits for that \insn{tput}, Section~\ref{sec:publication})
+reaches the restarted core. The target itself takes the request at its next instruction boundary, or
+while an instruction waits, without doing anything of that instruction: every transfer it issued
+before has then taken effect (they complete at issue), and a device read that is still waiting for its
+device (console input, the break port, WAIT, VSYNC, EVENT, RX) is abandoned, as if never issued. A
+core that writes a reset request to itself takes it before its next instruction. In hardware the
+restart is not instantaneous: the core rewrites its Local Stores one doubleword per cycle (8192 cycles
+on the prototype) before its first fetch; gifts sent to it meanwhile wait in its inbox. The RTL keeps
+the boot ROM in a small read-only memory beside each Local Store (that is why only 4~KiB come back:
+a program image larger than that loses the rest at a reset, so the code a reset core runs must lie in
+the first 4~KiB of each store, as the boot ROM does).
+
+More generally, a \insn{tput} through a core-control capability takes effect before the core that
+issued it starts its next instruction, so a stop or reset request a core sends is never overtaken by
+what it does next.
 
 A stop request sets the target core's \csr{ipend} bit. A core in user mode takes it before its next
 instruction, and also while an instruction is waiting (in \insn{ctake}, \insn{crecv}, \insn{cgive},

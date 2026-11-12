@@ -203,9 +203,30 @@ static uint64_t kst_word(uint64_t off) {
 }
 
 /* The pid core i runs now (KST CA_CUR), 0 if none or not known. */
+/* StrataOS guests (doc/strataos.md "Guests"): the guest id whose cores
+ * include core i, -1 for a core taken from StrataOS that no guest record
+ * covers (lost), 0 for one of StrataOS's own (core 0's K0_GMASK, K0_GUEST). */
+static int os_guest_of(int i) {
+  Map *k = map_scope(SC_KERNEL);
+  if (!os_aware || !k || i < 0 || i >= 64) return 0;
+  int64_t gm = map_abs(k, "K0_GMASK", -1), gr = map_abs(k, "K0_GUEST", -1), n = map_abs(k, "NGUEST", 4),
+          sz = map_abs(k, "GU_SIZE", 48), gid = map_abs(k, "GU_PID", 0), gco = map_abs(k, "GU_CORE", 8),
+          gn = map_abs(k, "GU_N", 16);
+  if (gm < 0 || gr < 0 || gm + 8 > DLS_BYTES || gr + n * sz > DLS_BYTES) return 0;
+  if (!(rd64(cores[0].dls + gm) >> i & 1)) return 0;
+  for (int64_t r = 0; r < n; r++) {
+    const uint8_t *g = cores[0].dls + gr + r * sz;
+    int id = (int)rd64(g + gid);
+    int64_t c0 = (int64_t)rd64(g + gco), cn = (int64_t)rd64(g + gn);
+    if (id && i >= c0 && i < c0 + cn) return id;
+  }
+  return -1;
+}
+
 static int os_cur_pid(int i) {
   Map *k = map_scope(SC_KERNEL);
   if (!os_aware || !k) return 0;
+  if (os_guest_of(i)) return 0; /* a guest's core runs no StrataOS process */
   int64_t ca = map_abs(k, "CAREA", -1), sz = map_abs(k, "CA_SIZE", -1), cur = map_abs(k, "CA_CUR", -1);
   if (ca < 0 || sz < 0 || cur < 0) return 0;
   return (int)(kst_word((uint64_t)(ca + i * sz + cur)) & 0xffff);
