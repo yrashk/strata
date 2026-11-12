@@ -1346,8 +1346,9 @@ cores free of servers for threads. The RTL simulator boots it on \texttt{NCORES}
 
 StrataOS can hand a bundle of its worker cores to a \term{guest}: a second operating system that runs
 on those cores, in supervisor mode, beside StrataOS, reaching only what it was given. The \texttt{guest}
-shell command (\texttt{guest \emph{image} [cores] [MiB]}, \texttt{guest stop \emph{id}}, \texttt{guest}
-to list) asks \texttt{proc}, which takes the cores out of StrataOS's scheduling and grants the guest:
+shell command (\texttt{guest [-d] \emph{image} [cores] [MiB]}, \texttt{guest attach \emph{id}},
+\texttt{guest stop \emph{id}}, \texttt{guest} to list) asks \texttt{proc}, which takes the cores out of
+StrataOS's scheduling and grants the guest:
 
 \begin{itemize}
 \item an \textbf{arena} (its memory, one revocation domain, sized by the request);
@@ -1360,7 +1361,10 @@ to list) asks \texttt{proc}, which takes the cores out of StrataOS's scheduling 
 
 Each guest core is started through a boot protocol (a loader code unit the kernel runs on the core
 installs the image and sets \csr{corebase}/\csr{corecount} so the guest sees itself as an $N$-core
-machine) and boots like a bare-metal program. \texttt{guest stop} \textbf{resets} each guest core
+machine) and boots like a bare-metal program. Before that the kernel scrubs the core of everything
+StrataOS kept on it --- every capability register, every save-table entry (a StrataOS worker keeps the
+shared table, core control and the device root there) and the dispatcher's data in the D-LS --- since a
+supervisor-mode guest could otherwise take them. \texttt{guest stop} \textbf{resets} each guest core
 (Section~\ref{sec:corectl}) --- a reset is taken even in supervisor mode, so a guest that will not
 yield is stopped anyway --- revokes the arena domain (every capability it holds or lent out dies), and
 returns the cores to StrataOS.
@@ -1374,6 +1378,21 @@ core (Section~\ref{sec:blkdev}). The remaining gap is within a core: user mode i
 Local Store, so a guest that ran its own user-mode children on a shared core could not yet confine them
 --- but a guest gets \emph{whole} cores, so that gap does not arise between StrataOS and a guest.
 \texttt{doc/strataos.md} gives the full grant, boot protocol and isolation argument.
+
+\paragraph{The console.} Output from a guest reaches the console as anyone's. Input goes to one side at a
+time: \texttt{guest} (without \texttt{-d}) \emph{attaches} the console to the guest and waits, so lines
+typed go to the guest's reads while the shell's wait; \texttt{Ctrl-]} gives the console back to
+StrataOS (as do \texttt{Ctrl-C}, the guest closing its console, and \texttt{guest stop}), and
+\texttt{guest attach \emph{id}} returns to the guest. A guest's read waits while StrataOS has the
+console, and the \texttt{tty} reads input only for a reader whose side has it, so nothing typed for
+one side reaches the other.
+
+\paragraph{Forth as a guest.} The bare-metal Strata Forth (Chapter~\ref{ch:forth}) also runs as a guest:
+\texttt{guest forth 2 16} boots it on two cores with a 16~MiB arena and gives it the console. A small
+platform layer (\texttt{lang/forth/guest/}) moves the granted capabilities into the bare-metal places,
+cuts its memory from the arena, talks to \texttt{tty} through the console endpoint (supervisor
+\insn{csend}, and \insn{crecv} from the \texttt{tty}'s node, since a guest has no \insn{svc}), reads
+the clock, and runs its multicore words on its own cores. It has no framebuffer, files or network.
 
 \section{Self-hosting}\label{sec:os-as}
 

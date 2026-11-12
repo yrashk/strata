@@ -1547,8 +1547,10 @@ demo/test guest images (`os/guests/`).
 
 #### The grant
 
-`guest <image> [cores] [MiB]` asks `proc`, which gets an arena from the kernel
-(`MEMORY`), loads the guest image (a bare STX) into the top of it, and calls
+`guest [-d] <image> [cores] [MiB]` asks `proc`, which gets an arena from the
+kernel (`MEMORY`), loads the guest image (a bare STX: a disk file tagged
+`guest`, named `<image>` or else `<image>.g`, so `guest forth` finds
+`forth.g` beside the StrataOS program `forth`) into the top of it, and calls
 the kernel's `GSTART`. The kernel:
 
 - takes N free worker cores out of its own scheduling (it chooses a run of
@@ -1579,6 +1581,34 @@ guest talks to `tty` with raw `csend`/`ctake` on the endpoint (it is a
 supervisor, so it does not use `svc`); StrataOS routes and confines those sends
 (below).
 
+#### The console: input goes to one side at a time
+
+A guest's requests carry its guest id (240..255; process pids are 4..239) as
+their pid, so the `tty` tells them apart. Output is written as anyone's.
+**Input** goes to one side at a time, StrataOS's processes or one guest:
+
+- `guest <image>` (without `-d`) starts the guest and then **attaches** the
+  console to it: a tty request (`ATTACH`, op 20, handle = the guest id) that
+  the `tty` answers only when the console comes back. Meanwhile only that
+  guest's `READ`s are answered; the shell's `READ` waits (the shell is
+  waiting for `guest` anyway). `guest attach <id>` attaches it again later.
+- The console comes back to StrataOS when **Ctrl-]** is typed (the `tty`
+  echoes `^]`), when the guest `CLOSE`s the console (Forth's `bye`), when the
+  guest is stopped (`proc` sends the `tty` a `CLEANUP` for the guest id), and
+  when the `guest` command is interrupted (Ctrl-C ends it) or ends (`CANCEL`
+  / `CLEANUP` for its pid). `guest` then says how it came back.
+- While StrataOS has the console, a guest's `READ` waits in the `tty` (it is
+  never answered with what the shell's user types), and while a guest has it,
+  StrataOS's do. The `tty` reads input only while a reader *whose side has
+  the console* waits, so nothing typed for one side is read ahead for the
+  other.
+- Only a StrataOS process may attach the console, and only one guest has it
+  at a time (`-7` otherwise). A guest cannot take it: its `ATTACH` is refused
+  (`-1`), and its `READ` is answered only while the console is attached to it.
+
+The scripted tests and `os/guest-demo.txt` start their output-only guests
+with `-d` (detached), so the shell keeps the console.
+
 #### The boot protocol
 
 The arena is split in two: the writable low part `[0, imgoff)` is the guest's
@@ -1590,7 +1620,15 @@ platform table (at `size − 0x1000`, inside the shared region) holds a magic,
 
 Each guest core is woken out of StrataOS idle by a gift — a **loader** code
 unit (`u_gload`) that the kernel's dispatcher (`w_guest`) copies into the I-LS
-and jumps to. The loader then `ctake`s, in order: the image share (`c5`), the
+and jumps to. First the core is **scrubbed** of everything StrataOS kept on
+it, which a supervisor-mode guest could otherwise take: `w_guest` empties
+every capability register and every save-table entry (a StrataOS worker keeps
+the KST, core control over *every* core, the device root and the console
+output in its save table; there is no instruction that empties an entry, so
+each is taken out — a linear capability leaves its entry — and overwritten
+with a copy of the read-only clock, which the guest is granted anyway), and
+the loader zeroes the D-LS (the dispatcher's variables and the saved registers
+of processes that ran on the core) but its own scratch page. The loader then `ctake`s, in order: the image share (`c5`), the
 console endpoint (`c1`), the clock (`c2`), core control (`c3`), and — on
 relative core 0 only — the writable arena (`c0`). It reads the platform table,
 sets `corebase`/`corecount` (so the guest sees itself as an N-core machine,
@@ -1652,7 +1690,11 @@ What a guest can *reach* is bounded by the capabilities it holds: a revocable
 arena, a `tty` endpoint, a read-only clock, and core control over its own
 cores. It holds no capability to any other memory, core or device, and no
 instruction forges one, so every out-of-grant access faults
-(`os/guests/ghostile.s` tries several and each is refused).
+(`os/guests/ghostile.s` tries several and each is refused; it also checks that
+no capability register but its grant holds anything and that every save-table
+entry is empty or a copy of its clock — before the scrubbing above it found
+the KST in c9, and core control over every core and the device root in the
+save table).
 
 What a guest can *send* is not bounded by its capabilities alone, because a
 supervisor-mode `cgive` reaches any core's inbox and `cmkep` mints an endpoint
@@ -1692,6 +1734,25 @@ devices, disturb StrataOS's cores, or outlast a `GSTOP`. The within-core grain
 next step, and needs the Local-Store protection discussed in the design notes
 (per-LS user-window bounds; see the report).
 
+#### Forth as a guest
+
+The bare-metal Strata Forth runs as a guest unchanged but for a small platform
+layer, `lang/forth/guest/` over `lang/forth/bare/` (lang/forth/README.md, "As
+a guest"): `guest forth 2 16` boots `forth.g` on 2 cores with a 16 MiB arena
+and gives it the console. Its stub moves the granted capabilities to the
+bare-metal places (console endpoint c2, clock c3, core control c4); plat_init
+cuts the arena into the kernel's MiB, message buffers, the job board (made
+atomic; there is no cluster store), worker pages and the far heap; `key` and
+`emit` are tty `READ` (cooked: the tty echoes and edits) and `WRITE` sent by
+hand (`csend c5, c2`, then `crecv c5, c2`, which takes only from the tty's
+node, so a worker's doorbell is not mistaken for the answer), one 4 KiB buffer
+per core as the receive-side filter wants; `ms` watches the clock's `NOW`;
+`bye` closes the console and halts. The multicore words, `demos/multicore.fs`
+and `demos/tiers.fs` run on its own cores; `demos/gfx.fs` cannot (no
+framebuffer, no device space), nor can files or the network.
+`tools/test-guest.sh` runs a session (arithmetic, a word on the worker,
+multicore.fs, Ctrl-], `guest attach`, `bye`, `guest stop`, the cores reused).
+
 #### Visibility
 
 A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
@@ -1716,6 +1777,11 @@ A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
   progress; `ps` shows context switches. `tools/test-isolate.sh`: nothing
   one process leaves in its core's D-LS is visible to the next (2.2). `tools/test-boot-jit.sh`: the
   demo session three times under the JIT's coarser interleaving.
+  `tools/test-guest.sh`: guests (2.13): a benign one, a hostile one (its
+  attacks refused, nothing of StrataOS's left on its cores), and the Forth
+  guest's session with the console attached, Ctrl-], `guest attach`, `bye`
+  and `guest stop`; `os/guest-demo.txt` is a guest session on the emulator
+  and the RTL in lockstep (`tools/compare-boot.sh`).
 - `tools/test-fb.sh`: frames written with `-F` are byte-identical on the
   emulator and the RTL. `tools/test-jit.sh`: the JIT against the
   interpreter. `conformance/run.sh`: the conformance suite on the

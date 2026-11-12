@@ -37,6 +37,7 @@ GROUPS = [
     ("Forth", ["lang/forth/forth.s", "lang/forth/bare/*.s", "lang/forth/core.fs",
                "lang/forth/tools.fs", "lang/forth/see.fs", "lang/forth/bare/*.fs",
                "lang/forth/os/*.s", "lang/forth/os/*.fs",
+               "lang/forth/guest/*.s", "lang/forth/guest/*.fs",
                "lang/forth/demos/*.fs", "lang/forth/tests/*.fs",
                "lang/forth/*.fs", "lang/forth/progs/*.fs"]),
     ("Conformance tests", ["conformance/tests/*.s", "conformance/tests/lib/*.s"]),

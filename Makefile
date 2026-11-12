@@ -234,6 +234,18 @@ GUESTIMG := $(patsubst %,$(BUILD)/guest/%,$(GUESTS))
 $(GUESTIMG): $(BUILD)/guest/%: os/guests/%.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/guest
 	$(BUILD)/sasm -g $@.map -o $@ $<
+# the bare-metal Forth as a guest (lang/forth/guest/ over lang/forth/bare/):
+# the disk file forth.g, tagged guest and forth, which `guest forth` finds (the
+# name forth is the StrataOS program's)
+FORTH_GUEST_SRC := lang/forth/forth.s $(wildcard lang/forth/bare/*.s) $(wildcard lang/forth/guest/*.s)
+FORTH_GUEST_FS  := lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs lang/forth/guest/start.fs
+$(BUILD)/forth-guest/corefs.s: $(FORTH_GUEST_FS)
+	@mkdir -p $(BUILD)/forth-guest
+	$(FORTH_EMBED) $(FORTH_GUEST_FS) > $@
+$(BUILD)/guest/forth.g: $(FORTH_GUEST_SRC) $(BUILD)/forth-guest/corefs.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/guest
+	$(BUILD)/sasm -I lang/forth/guest -I lang/forth/bare -I $(BUILD)/forth-guest -g $(BUILD)/guest/forth.map -o $@ lang/forth/forth.s
+FORTH_GUEST := $(BUILD)/guest/forth.g
 
 # untag is tag under another name (it looks at the name it was started by)
 $(BUILD)/prog/untag: $(BUILD)/prog/tag
@@ -338,8 +350,8 @@ WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)
 DISK_ARGS  += -t www $(WWW_FILES)
 
-$(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG)
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG)
+$(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST)
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) -t guest,forth $(FORTH_GUEST)
 
 os: $(BUILD)/bootrom.stx $(BUILD)/disk.img
 

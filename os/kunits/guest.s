@@ -46,7 +46,7 @@
 GA_LOADER = 0xE000                      ; guest loader runs at this I-LS address (dead after boot)
 GPT_END   = 0x1000                      ; the platform table sits GPT_END below the arena top
 GPT_MAGIC = 0x544c5047                  ; "GPLT"
-GUEST_ID0 = 240                         ; guest ids: 240 + index (clear of process pids 1..~200)
+GUEST_ID0 = 240                         ; guest ids: 240 + index (process pids are 1..239: proc's newpid)
 
 ; ---- u_gstart: set up and launch a guest; data[0] = first core, data[1] = id -----
 ; k_cdata (from proc): u64 ncores, pin (-1 any), allow-mask (server cores it may
@@ -373,6 +373,16 @@ ugc_ret:
         .align 2048
 u_gload:
         li    sp, STACKTOP              ; a stack (D-LS top)
+        li    t0, 0                     ; scrub the D-LS but the scratch page at 0xC000:
+        li    t1, 0x10000               ;   the dispatcher's data (its variables, the saved
+ugld_z:                                 ;   registers of processes that ran here) are not
+        sd    zero, 0(t0)               ;   the guest's to read. (w_guest scrubbed the
+        addi  t0, t0, 8                 ;   capability registers and the save table.)
+        li    t2, 0xC000                ; ...
+        bne   t0, t2, ugld_zn           ; ...
+        li    t0, 0xC100                ; (skip the scratch page)
+ugld_zn:
+        bltu  t0, t1, ugld_z            ; ...
         ctake c5, zero                  ; the image share (read+execute), from core 0
         ctake c1, zero                  ; the console endpoint
         ctake c2, zero                  ; the clock
