@@ -1,195 +1,214 @@
 # Hand-off
 
-Where the project stands at the first push, for whoever continues. Read
-this first, then `PLAN.md` (the full checkbox plan, decisions and history)
-and the per-area plans listed below. `ROADMAP.md` is the public summary.
+Where the project stands on 2026-11-12 (main at the commit that adds this
+file), for whoever continues. Read this first, then `PLAN.md` (decisions,
+per-step history, design notes such as sections R and P) and the READMEs
+listed under "Where things are written down". `ROADMAP.md` is the public
+summary, and is partly stale (see "Docs that lag").
 
 ## What this is
 
-Strata: a prototype 64-bit ISA where memory is explicit I/O, with
-- a C reference emulator (`emu/`: interpreter with a predecoded fast loop,
-  native JIT for arm64 and x86-64, WebAssembly JIT),
-- a synthesizable SystemVerilog implementation (`rtl/`, Verilator harness
-  in `sim/`),
-- StrataOS 0.1 (`os/`: microkernel, servers, shell, utilities, the window
-  server `ws` and its clients), firmware (`firmware/`),
-- Strata Forth (`lang/forth/`, bare metal and as a StrataOS program),
-- the debuggers: a debug engine in the emulator (`emu/debug*.c`,
-  `strata-emu --debug`, protocol in `doc/debug-protocol.md`), the text
-  debugger `strata-dbg` (`dbg/`) and the web debugger (`site/debug/`),
-- a conformance suite (`conformance/`), the manual (`doc/manual/`, LaTeX),
-- the website (`site/`: landing page, in-browser emulator `play/`, source
-  browser `code/`), deployed by `.github/workflows/pages.yml`.
+Strata: a prototype 64-bit ISA where memory is explicit I/O. Each core has
+two Local Stores (D-LS for data, I-LS for code, 4..64 KiB each, a platform
+parameter) instead of caches; everything else is reached through a Transfer
+Unit, with capabilities for authority. The tree has:
+- `emu/`: the C reference emulator (interpreter with a predecoded fast loop,
+  native JIT for arm64 and x86-64, WebAssembly JIT in the browser) and the
+  debug engine (`emu/debug*.c`).
+- `rtl/`: the synthesizable SystemVerilog, simulated with Verilator (`sim/`).
+  Every example, the conformance suite and two StrataOS sessions run on
+  both and are compared.
+- `os/`: StrataOS 0.1. A microkernel (core 0 plus a dispatcher per worker
+  core) that pages its own code units from T2; user-mode servers (`proc`,
+  `dev`, `fs`, `tty`, `pipe`, `net`); a shell with job control and `cd`;
+  utilities; a tag file system; TCP/IP with DNS and `httpd` (the emulator
+  gives it a user-mode NAT with `-N nat`, the browser a relay); the window
+  server `ws` with a terminal and demo clients; `vi`; guests (co-existing
+  OSes on whole cores, `os/guests/`, `guest` command).
+- `firmware/`: boot ROM and firmware library.
+- `lang/forth/`: Strata Forth, native code, on bare metal, as a StrataOS
+  program (new code goes into kernel-paged code units) and as a StrataOS
+  guest (`lang/forth/guest/`). `lang/forth/progs/` has 22 of the os/progs
+  ported to Forth; `vi.fs` is the editor in Forth.
+- `dbg/` and `site/debug/`: the text debugger `strata-dbg` and the web
+  debugger, both on the engine's JSON-lines protocol (`doc/debug-protocol.md`).
+- `conformance/`: 32 self-checking tests run on the interpreter, the JIT and
+  the RTL, plus a differential fuzzer.
+- `fpga/`: Yosys synthesis for Xilinx 7-series and ECP5, nextpnr place and
+  route on ECP5, the die drawing. `asic/`: LibreLane on GF180MCU.
+- `doc/manual/`: the Architecture Reference Manual (LaTeX, built by CI);
+  `doc/strataos.md`: the OS spec.
+- `site/`: https://yrashk.com/strata/ (landing page, the manual's ISA and
+  architecture pages, Forth reference and playground, Play (the emulator in
+  the browser, with networking), Debug, Hardware, the source browser),
+  deployed by `.github/workflows/pages.yml` on every push to main.
 
-The design spec is `doc/strataos.md` (the OS is **StrataOS 0.1**).
+## State
 
-## State at the push
+Verified on 2026-11-12 on an arm64 Mac, NCORES=8, at the last code commit
+(9894636): the full `make test` passed (exit 0), and the Pages deploy
+succeeded. `make test` builds everything and runs, in order:
+- the examples, emulator against RTL instruction by instruction;
+- two StrataOS sessions in lockstep with the RTL (`os/demo.txt` and the
+  guest session `os/guest-demo.txt`);
+- the OS tests: break, shell, vi, vi.fs, the Forth ports, network, HTTP,
+  window server, preemption, isolation, guests, process limits, boot under
+  the JIT, the framebuffer;
+- the JIT, the debuggers, the conformance suite;
+- `test-small` (the 8-entry overlay map), `test-ls` (Local Stores at 32/32,
+  16/4 and 4/32 KiB, and StrataOS refusing them);
+- `test-wasm` (needs node and emcc).
 
-Verified just before the push (on an arm64 Mac, NCORES=8):
-- `make all os examples` builds; `make lint` is clean.
-- `make conformance`: 21 tests pass on interpreter, JIT and RTL.
-- `make test-forth`: bare metal (emulator = RTL), under StrataOS, and the
-  preemption test pass.
-- `tools/test-sh.sh`, `tools/test-ws.sh`: pass.
-- The full `make test` finished green (exit 0) right after the first push.
+It takes around an hour, more when the machine is busy. `make lint`,
+`make manual` and `make wasm` also build. `make manual` prints a warning,
+"Object @table.D.1 already defined", that nobody has looked at.
 
 Not verified:
-- The Pages workflow's first run failed on Linux: the emulator did not
-  compile with `-std=c11` (`clock_gettime`, `usleep`); `CFLAGS` now uses
-  `-std=gnu11`. Whether the rest of the workflow passes is not yet known. It pins Emscripten 3.1.74 while all
-  local builds used a much newer emcc; if the wasm build fails in CI, bump
-  the pin in `pages.yml`.
-- `ws` was only driven with scripted input (`-i`), never by hand in the SDL
-  window.
-- The x86-64 JIT was tested only under Rosetta.
+- Nothing has run on a board: there is no ECP5 board top and no bitstream.
+- The x86-64 JIT has only run under Rosetta.
 
-## To finish the release
+## How the work is done
 
-1. `make test` green (see above).
-2. GitHub Pages: done. The `pages` workflow is green and the site, `/play/`,
-   `/code/` and the manual PDF are live at https://yrashk.com/strata/
-   (yrashk.github.io/strata redirects there).
-3. License: done. MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`).
-4. Spec renamed: `doc/strataos.md`.
-5. Fold the per-area plan files into their READMEs and delete them (see
-   "Plans" below).
+- **Tests gate every push.** Run the full `make test` and push only if it
+  exits 0 (chain the push behind it with `&&`; a push once went out after
+  a failing test because it was not).
+- **Git LFS:** `fpga/results/` and `asic/results/` keep logs, netlists and
+  full-size die pictures in LFS. Run `git lfs push origin main` before
+  `git push origin main`.
+- **One change, every place.** When an ISA rule changes, change the
+  emulator (interpreter and fast loop; the JITs' bounds masks), the RTL,
+  the debug engine (disassembler, `pre_decode`, `stall_reason`,
+  `prov_after`, the snapshot's `Misc` in `emu/debug_tt.c`), conformance
+  tests (checked to fail without the change), the manual and the spec
+  together.
+- **House style:** every assembly line has a comment. The lockstep tests
+  depend on `-j` / `-T virtual` behaving exactly the same on both machines.
+- **Parallel agents** worked in git worktrees (`.claude/worktrees/`), each on
+  its own branch, merged into main by hand after review and a full test.
+  When two branches touch `os/kernel.s`, check the worker's resident code
+  still ends below K0TEXT (0x7700): it ends at 0x76E8 now, 24 bytes to spare.
+  Anything new on the worker side should go into a kernel unit
+  (`os/kunits/`), not the resident part.
+- Commit messages end with a `Co-Authored-By:` line naming the model that
+  made the commit.
 
-## Unfinished work (in order of how close it is)
+## Hardware
 
-### Pointer device (mouse + wheel) — started, not functional
-- Design: `PLAN.md` has no section for it yet; the brief is: device window
-  0x4100 (EVENT 0x4100: a read that completes on an event, packed u16 x,
-  u16 y, u8 buttons, s8 wheel_y, s8 wheel_x, u8 kind; STATE 0x4108),
-  platform entry type 7, host input from SDL / the browser canvas / a `-P`
-  script, handed to `ws` by the `dev` server; in `ws`: cursor,
-  click-to-focus, palette click, wheel = terminal scrollback, client event
-  kinds 6 (pointer) and 7 (wheel), `wmandel` zoom/pan.
-- Done: the host side in `common/display.h` (event queue, coalescing,
-  script parser) and the constants in `common/platform.h`.
-- **Withdrawn for the push**: the platform-table entry (`PLAT_ENTRIES` is
-  back to 7 in `common/platform.h`) because the emulator device, the RTL
-  and the tests did not exist yet and `conformance/tests/plat.s` failed.
-  Re-add it together with the device.
-- Not started: the device in `emu/emu.c` and `rtl/strata_dev.sv`, the `-P`
-  flag, `dev` server, `ws`, clients, tests, docs.
+**FPGA** (`fpga/README.md`, `fpga/results/`)
+- One core is placed and routed on a Lattice LFE5U-85F (Radiona ULX3S part)
+  at 20.0 MHz with nextpnr-ecp5 0.11.1: 52.9% of the logic cells, 180 of 208
+  block RAMs. The critical path runs from the D-LS block RAM's read port to
+  the trap cause register. Two cores do not fit the 85F (103% logic, 118%
+  block RAM).
+- On Xilinx 7-series (Yosys, no place and route): one core about 32k LUTs,
+  each further core about 28k. Two fit an XC7A200T; the six StrataOS needs
+  (168,694 LUTs) need a Kintex-7 325T.
+- The Local Store size moves block RAM, not logic: about one RAMB36 per
+  4 KiB saved (88 at 64/64 KiB, 59 at 4/4).
+- Scripts: `fpga/synth.sh FAMILY N [NXMAP [D I]]`, `fpga/pnr.sh`,
+  `fpga/ecp5-runs.sh`; the die picture is drawn from nextpnr's output.
 
-### FPGA — numbers are real now; the design is big
-- Both families synthesize with every large memory in block RAM
-  (`fpga/README.md` has the tables and a per-module breakdown; the ECP5
-  problem was the D-LS: fixed with `(* no_rw_check *)` in
-  `rtl/strata_ram.sv`). No place-and-route, so no timing.
-- One core is 30,011 LUTs on xc7 (was 50,606), each further core about
-  28k; ECP5 one core 41,219 LUT4 sites (was 80,999). Two cores fit an
-  XC7A200T (Nexys Video). **StrataOS needs 6 cores (168,694 LUTs): more than
-  any Artix-7, within a Kintex-7 325T.** `make fpga-images` still builds a
-  StrataOS disk for the 2-core Arty top, which cannot boot it.
-- How it got there (one commit per step, fpga/README.md has the numbers):
-  27-bit capability bounds and overlay far addresses, two capability read
-  ports, the save table in block RAM, LUT-RAM integer registers and
-  inboxes, multi-cycle multiply and ltag entry address, slot-aligned xmap
-  (an ISA change) and NXMAP as a platform parameter (`make test-small`
-  boots StrataOS with 8).
-- The Local Stores' sizes are a platform parameter (PLAN.md section P):
-  powers of two 4..64 KiB, D-LS and I-LS independent, in the platform
-  table's header (u16 KiB at 24 and 26); `strata-emu -L D[,I]`, the RTL's
-  DLS_KIB / ILS_KIB, `fpga/synth.sh FAMILY N NXMAP D I`, `mkhex`. Reset
-  puts the D-LS size in sp, so no program sets sp any more (StrataOS
-  starts every thread with it). StrataOS and Forth need 64 KiB and refuse a
-  smaller machine with a message; `make test-ls` (in `make test`) runs the
-  examples, conformance/tests/lssize.s and the refusals in lockstep at
-  32/32, 16/4 and 4/32 KiB.
-- No place-and-route yet, so no timing (synthesis: 1 core ~2 min, 6 cores
-  ~11 min).
+**ASIC** (`asic/README.md`, `asic/results/`, site page `hardware/asic/`)
+- One core through LibreLane 3.0.17 (its arm64 Docker image, run under
+  OrbStack) on GF180MCU: a 10.34 × 9.05 mm die (93.6 mm²), 59% of it SRAM
+  (the PDK's 512 × 8 macros; no denser memory exists for GF180 with open
+  tools). With the 3.3 V cells (`gf180mcu_as_sc_mcu7t3v3`), 24.5 MHz
+  typical and 30.4 MHz fast, in 1 h 58 min. With the 5 V cells, 11.9 MHz,
+  in 2 h 47 min.
+- Not a tapeout. The Local Stores are a single-port stand-in for the RTL's
+  dual-port RAM. There is no timing repair (OpenROAD's `repair_timing`
+  crashed), hold is not fixed, and there is no DRC/LVS signoff.
+- LibreLane runs need a lot of memory: one run at a time, and watch swap.
 
-### Forth under StrataOS — works; docs/cleanup open
-- `forth`, `forth file.fs`, `forth -n N` run under the OS; tests pass.
-- The agent was cut off near the end: check `lang/forth/PLAN-forth.md`,
-  `lang/forth/README.md` (the StrataOS section may be stale), and that
-  `lang/forth/demos/gfx.fs` runs (it once failed with `.cap: undefined
-  word` when tools moved to `tools.fs` / `see.fs`).
+## Open work
 
-### The debuggers — done; what is open
-- Built: the engine (control, breakpoints and watchpoints, state, event
-  log, capability provenance, time travel with bounded memory, StrataOS
-  and Forth awareness), `sasm -g` maps for every image, `strata-dbg`
-  (gdb-like commands, `tui`, a pty for the guest's console), the web
-  debugger (in the page or over a WebSocket to `strata-emu --debug PORT`).
-  `tools/test-dbg.sh` (in `make test`) drives them.
-- The engine is included by `emu/emu.c` and observes from outside
-  `step()`; the only hooks in emu.c are in `far_wrote`, the block
-  device's disk write, `trap`, the console output port, and the halt /
-  fault messages (`emu/debug.h`). `Cap` got a 32-bit `id` (in its padding:
-  still 32 bytes); emu.c disables -Wmissing-field-initializers for the
-  capability literals that leave it 0. `machine_round` lost its idle
-  computation to `round_idle()`, which the engine shares.
-- When the ISA changes, the engine follows in three places: the
-  disassembler (`emu/debug_sym.c`), `pre_decode` / `stall_reason` /
-  `prov_after` (`emu/debug.c`) and the snapshot's list of machine state
-  (`Misc` in `emu/debug_tt.c`: every static that a run depends on must be
-  in it, or replays diverge; `info history` counts divergences).
-  NXMAP and CTAB are fixed for a run (-X / -S), so they are not in `Misc`;
-  `hello` reports both, `xmap` lists NXMAP entries, and the far address
-  of code in a mapped slot uses the unit's aligned start (`xm_unit` in
-  `emu/debug_sym.c`), as slot-aligned xmap defines it.
-- Open: the RTL behind the same protocol; a timing model; per-line
-  stepping; the timeline's axis is rounds, which jump when an idle
-  machine skips time (StrataOS).
+**Waiting on a decision**
+- *User-mode Local Store protection* (an ISA change). In user mode a load,
+  store or transfer can reach any Local Store address, including the
+  dispatcher's data (D-LS 0xA000..0xDFFF) and the kernel's code (I-LS
+  0x4000..0x7FFF), so a hostile program can take over its core's kernel.
+  Capabilities themselves are safe (they never live in Local Store bytes).
+  The proposal: supervisor-only bounds registers, a user window per Local
+  Store, checked on every user-mode access and transfer range; nestable
+  (any mode may narrow, only the outer level widens, a trap restores the
+  outer window). Not started.
+- *ASIC with two and six cores*: scripted (`asic/run.sh N`), paused by the
+  user.
 
-### Smaller open items
-- Console input reads cannot be cancelled: `halt` typed in a `term` under
-  `ws` takes effect at the next key. Needs a small ISA change (e.g. the
-  release port also completing input reads).
-- `ws`: TEXT/FILL/TITLE protocol calls are implemented but unused and
-  untested; Alt+arrows and `q` in `wmandel`/`wclock` were not exercised.
-- The emulator accepts 4 pending device reads per core; the manual says
-  one break read per core. `ltag`/`linst` do not check pending device
-  reads (`conformance/FINDINGS.md` F2 remainder).
+**Ready to do**
+- ASIC runs with smaller Local Stores (16 and 8 KiB per store, about two
+  hours each), to see whether a core fits a wafer.space slot (~20 mm²). It
+  needs the sizes wired into the flow first: `-set DLS_KIB d -set ILS_KIB i`
+  in `asic/run.sh`'s `chparam`, `DLS_KIB=d`, `ILS_KIB=i` in
+  `asic/mkconfig.py`'s `SYNTH_PARAMETERS`, and the floorplan (`ROWS = 16`
+  and the die arithmetic in `mkconfig.py`) following the row count, which
+  is KiB/4 per store.
+- ECP5 synthesis numbers at the smaller Local Store sizes (only xc7 was run).
+- A StrataOS (and Forth) layout for 32 KiB stores. It needs a new program
+  ABI: today's layout fills both 64 KiB stores (`os/kernel.s`'s header).
+
+**Guests**
+- `halt` does not stop cores a guest is running; stop guests first.
+- A guest whose console is not attached can still write to it.
+- `lang/forth/demos/gfx.fs` cannot run in a guest (no framebuffer).
+- StrataOS as a guest of StrataOS: not done (it was the optional second
+  part of the guest work, skipped).
+
+**Debuggers**
+- The RTL behind the same protocol; a timing model; per-line stepping; the
+  timeline's axis is rounds, which jump when an idle machine skips time.
+
+**Smaller**
 - The native JIT backends do not translate code while a device read is
   pending (they use the fast interpreter loop then).
-- Manual: `doc/manual/ch-os.tex` prose in "The client protocol" still
-  describes window surfaces as client memory; the implementation keeps
-  surfaces in the server and clients lend bands (the tables are right).
-- `os/ws/README.md` still has a "what remains" section from before the
-  integration.
-- Stretch goals: `PLAN.md` section S (Forth ahead-of-time compiler, more
-  than 3 threads per core: done as the save-table pool and a 256-entry table, 16 per core).
+- `conformance/FINDINGS.md` F7 and F8 (documentation) are open.
 
-## Plans and notes in the tree
+**Docs that lag**
+- `ROADMAP.md` "Known limitations" predates several fixes: console reads
+  can be cancelled (the release port completes them), the emulator's
+  `ltag`/`linst` wait for pending device reads, the shell has `cd`, the file
+  system has tags and subdirectories, and the core is placed and routed.
+- `PLAN.md`'s section headings still say TODO or IN PROGRESS for work that
+  is done (4, 6, 7, 8, 9, F), with unticked boxes; its "Resuming" section is
+  from before the first push.
+
+## Where things are written down
 
 | File | Covers |
 |---|---|
-| `PLAN.md` | Everything: decisions, per-step checklists, file ownership, history |
-| `os/PLAN-os.md` | Kernel, servers: decisions, deviations from the spec, requests R1–R3, halt |
+| `PLAN.md` | Decisions (do not reopen), per-step history, design notes (R: revocation by address, P: Local Store sizes) |
+| `doc/strataos.md` | The OS spec, incl. guests, code paging, the switch work's numbers |
+| `doc/debug-protocol.md` | The debug engine's protocol |
+| `os/PLAN-os.md` | Kernel and servers: decisions, deviations from the spec |
 | `os/progs/PLAN-sh.md` | The shell |
-| `os/ws/PLAN-ws.md`, `os/ws/README.md` | The window server |
-| `lang/forth/PLAN-forth.md` | Forth |
-| `emu/jit/PLAN-jit.md` | Native JIT |
-| `web/PLAN-fast.md`, `web/PLAN-web.md` | Browser build: worker, fast interpreter, wasm JIT |
-| `conformance/PLAN-conformance.md`, `conformance/FINDINGS.md` | Conformance suite and what it found |
-
-`PLAN.md` also has "Agent history": the work was done by parallel agents
-whose transcripts are on the original machine only; the plan files above
-are the portable record.
+| `os/ws/README.md` | The window server |
+| `lang/forth/README.md` | Forth: bare metal, StrataOS, code paging, as a guest |
+| `emu/jit/README.md` | Native JIT |
+| `web/README.md` | Browser build: worker, fast interpreter, wasm JIT, networking |
+| `conformance/README.md`, `conformance/FINDINGS.md` | Conformance suite and what it found |
+| `fpga/README.md`, `asic/README.md` | Hardware flows, numbers, what was tried |
 
 ## Useful commands
 
 ```
-make                 # sasm, strata-emu, strata-rtl
-make test            # everything (slow: the RTL boot comparison takes ~25 min)
-make conformance     # 21 tests x interpreter / JIT / RTL (~15 s)
-make boot            # StrataOS on the emulator (12 cores); type `ws`
-make show-gfx        # the framebuffer window
-make ws-demo         # the window server's drawing code with a simulated OS
-make forth           # Forth on bare metal
-make web-site        # the site incl. the wasm emulator -> build/web-site
+make                  # sasm, strata-emu, strata-rtl
+make test             # everything (about an hour)
+make conformance      # the conformance suite on interpreter / JIT / RTL
+make boot             # StrataOS on the emulator; boot-ws: with the window server
+make show-gfx         # an example's framebuffer in a window (show-NAME)
+make forth            # Forth on bare metal; test-forth: its tests
 make debug-pipeline   # strata-dbg on an example (debug-NAME); debug-os: StrataOS
-make debug-web        # the web debugger on the desktop engine: localhost:4444/debug/
-make manual          # the PDF (needs tectonic)
+make debug-web        # the web debugger on the desktop engine; debug-web-os: with StrataOS
+make web-site         # the site incl. the wasm emulator -> build/web-site
+make manual           # the PDF (needs tectonic)
+make DLS_KIB=16 ILS_KIB=16 all   # an RTL with smaller Local Stores (strata-emu -L 16)
 ```
 
 Rules that bit us:
 - sv2v/yosys: never put a `for` loop inside an `if` in `always_comb`.
-- Every assembly line is commented (house style); tests compare emulator
-  and RTL instruction by instruction, so keep `-j` / `-T virtual` exact.
-- When ISA rules change, change emulator, RTL, conformance tests, spec and
-  manual together.
+- `strata_ram` carries `(* no_rw_check *)`: keep the hazard stalls that
+  make same-cycle read-after-write through the other port unobservable.
+- The emulator-vs-RTL OS comparison can only compare what programs print:
+  emulator rounds and RTL cycles are different time bases, so preemption
+  points differ. Timing bugs show up as a hang on one side (the duplicated
+  capability send fixed on 2026-11-12 looked like that).
