@@ -6,7 +6,7 @@
 #
 # (NAME labels the result line; os/guest-demo.txt is the guest session: a
 # second OS started, stopped by core-control resets, a hostile one, the
-# reset cores reused.)
+# reset cores reused, and the bare-metal Forth as a guest with the console.)
 #
 # EMU_ARGS: extra emulator flags that describe the same machine as the RTL
 # build (e.g. -X 8 for an RTL built with NXMAP=8).
