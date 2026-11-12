@@ -1,0 +1,74 @@
+run: /Users/yrashk/Projects/IStrata/.claude/worktrees/agent-ad21a2308a881b51e/build/asic/gf180mcu-1/runs/run
+clock target: 40 ns (25.0 MHz)
+
+== area
+die                   93.635 mm2
+core                  93.159 mm2
+SRAM macros           55.226 mm2   (267 x gf180mcu_fd_ip_sram__sram512x8m8wm1, 0.2094 mm2 each)
+standard cells         5.392 mm2   (457042 cells)
+utilisation        65.1% of the core (standard cells alone 14.2% of the area outside the macros)
+
+== standard cells by class (count, area)
+  antenna_cell                            4062      0.018 mm2
+  buffer                                 13761      0.236 mm2
+  clock_buffer                            1706      0.093 mm2
+  clock_inverter                           345      0.008 mm2
+  endcap_cell                            13472      0.059 mm2
+  fill_cell                             979632     29.339 mm2
+  inverter                               12384      0.112 mm2
+  multi_input_combinational_cell        127634      2.001 mm2
+  sequential_cell                        11363      0.723 mm2
+  tap_cell                              229402      1.007 mm2
+  tie_cell                                  86      0.001 mm2
+  timing_repair_buffer                   42827      1.135 mm2
+
+== timing, after routing (OpenSTA, parasitics from OpenRCX)
+  max_ff_n40C_5v50     setup WNS  -21.154 ns  TNS -112673.50  hold WS  -3.722  -> period  61.15 ns =   16.4 MHz  reg-to-reg WNS  -20.538 ns ->  60.54 ns
+  max_ss_125C_4v50     setup WNS -120.610 ns  TNS -1056241.95  hold WS -12.346  -> period 160.61 ns =    6.2 MHz  reg-to-reg WNS -120.610 ns -> 160.61 ns
+  max_tt_025C_5v00     setup WNS  -51.965 ns  TNS -366932.64  hold WS  -6.270  -> period  91.96 ns =   10.9 MHz  reg-to-reg WNS  -51.965 ns ->  91.96 ns
+  min_ff_n40C_5v50     setup WNS  -11.828 ns  TNS  -42850.27  hold WS  -3.074  -> period  51.83 ns =   19.3 MHz  reg-to-reg WNS  -10.643 ns ->  50.64 ns
+  min_ss_125C_4v50     setup WNS  -95.231 ns  TNS -820886.95  hold WS -11.134  -> period 135.23 ns =    7.4 MHz  reg-to-reg WNS  -95.231 ns -> 135.23 ns
+  min_tt_025C_5v00     setup WNS  -37.835 ns  TNS -253074.02  hold WS  -5.533  -> period  77.84 ns =   12.8 MHz  reg-to-reg WNS  -37.142 ns ->  77.14 ns
+  nom_ff_n40C_5v50     setup WNS  -16.068 ns  TNS  -74410.69  hold WS  -3.361  -> period  56.07 ns =   17.8 MHz  reg-to-reg WNS  -15.160 ns ->  55.16 ns
+  nom_ss_125C_4v50     setup WNS -106.816 ns  TNS -927469.14  hold WS -11.693  -> period 146.82 ns =    6.8 MHz  reg-to-reg WNS -106.816 ns -> 146.82 ns
+  nom_tt_025C_5v00     setup WNS  -44.089 ns  TNS -303781.57  hold WS  -5.875  -> period  84.09 ns =   11.9 MHz  reg-to-reg WNS  -43.911 ns ->  83.91 ns
+
+== critical path (nom_tt_025C_5v00)
+  from _316909_ (rising edge-triggered flip-flop clocked by clk)
+  to   am_req (output port clocked by clk)
+  95 cells: 70.01 ns in cells, 1.68 ns in wires
+
+== run time per step (h:mm:ss)
+  01-yosys-jsonheader                           00:01:01
+  02-yosys-synthesis                            00:04:38
+  07-openroad-checkmacroinstances               00:00:01
+  08-openroad-floorplan                         00:00:05
+  09-openroad-dumprcvalues                      00:00:01
+  11-odb-setpowerconnections                    00:00:01
+  12-odb-manualmacroplacement                   00:00:01
+  13-openroad-cutrows                           00:00:02
+  14-openroad-tapendcapinsertion                00:00:05
+  16-openroad-generatepdn                       00:00:43
+  19-openroad-globalplacementskipio             00:01:36
+  20-openroad-ioplacement                       00:00:07
+  23-openroad-globalplacement                   00:00:45
+  26-openroad-repairdesignpostgpl               00:03:07
+  28-openroad-detailedplacement                 00:00:13
+  29-openroad-cts                               00:03:22
+  30-openroad-stamidpnr                         00:04:47
+  31-openroad-stamidpnr-1                       00:04:51
+  32-openroad-globalrouting                     00:02:17
+  33-openroad-checkantennas                     00:00:14
+  35-openroad-repairantennas                    00:01:37
+  36-openroad-stamidpnr-2                       00:04:44
+  37-openroad-detailedrouting                   00:50:01
+  39-openroad-checkantennas-1                   00:00:08
+  41-odb-reportdisconnectedpins                 00:00:08
+  43-odb-reportwirelength                       00:00:02
+  45-openroad-fillinsertion                     00:00:23
+  46-odb-cellfrequencytables                    00:00:10
+  47-openroad-rcx                               00:00:57
+  48-openroad-stapostpnr                        01:20:40
+  49-klayout-streamout                          00:00:09
+  50-klayout-render                             00:00:04
+  total                                         2:47:19

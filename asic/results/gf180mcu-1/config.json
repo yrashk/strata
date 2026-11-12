@@ -1,0 +1,110 @@
+{
+  "meta": {
+    "version": 2,
+    "flow": "Classic",
+    "substituting_steps": {
+      "OpenROAD.STAPrePNR": null,
+      "OpenROAD.STAMidPNR": null,
+      "Magic.SpiceExtraction": null,
+      "Checker.IllegalOverlap": null,
+      "Magic.WriteLEF": null,
+      "Magic.StreamOut": null,
+      "KLayout.XOR": null,
+      "Checker.XOR": null
+    }
+  },
+  "DESIGN_NAME": "strata_core",
+  "VERILOG_FILES": [
+    "dir::src/strata.v"
+  ],
+  "SYNTH_PARAMETERS": [
+    "NCORES=1"
+  ],
+  "SYNTH_STRATEGY": "AREA 3",
+  "SYNTH_HIERARCHY_MODE": "flatten",
+  "CLOCK_PORT": "clk",
+  "CLOCK_PERIOD": 40.0,
+  "IO_DELAY_CONSTRAINT": 5,
+  "FP_SIZING": "absolute",
+  "DIE_AREA": [
+    0,
+    0,
+    10341.76,
+    9054.08
+  ],
+  "PL_TARGET_DENSITY_PCT": 22,
+  "PL_ROUTABILITY_DRIVEN": false,
+  "PL_TIMING_DRIVEN": false,
+  "PL_MAX_DISPLACEMENT_X": 1000,
+  "PL_MAX_DISPLACEMENT_Y": 600,
+  "GPL_CELL_PADDING": 2,
+  "DPL_CELL_PADDING": 2,
+  "MACROS": {
+    "gf180mcu_fd_ip_sram__sram512x8m8wm1": {
+      "gds": [
+        "pdk_dir::libs.ref/gf180mcu_fd_ip_sram/gds/gf180mcu_fd_ip_sram__sram512x8m8wm1.gds"
+      ],
+      "lef": [
+        "pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lef/gf180mcu_fd_ip_sram__sram512x8m8wm1.lef"
+      ],
+      "lib": {
+        "*": [
+          "pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.lib"
+        ]
+      },
+      "vh": [
+        "dir::gf180mcu_fd_ip_sram__sram512x8m8wm1.bb.v"
+      ],
+      "instances": {}
+    },
+    "gf180mcu_fd_ip_sram__sram256x8m8wm1": {
+      "gds": [
+        "pdk_dir::libs.ref/gf180mcu_fd_ip_sram/gds/gf180mcu_fd_ip_sram__sram256x8m8wm1.gds"
+      ],
+      "lef": [
+        "pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lef/gf180mcu_fd_ip_sram__sram256x8m8wm1.lef"
+      ],
+      "lib": {
+        "*": [
+          "pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lib/gf180mcu_fd_ip_sram__sram256x8m8wm1__tt_025C_5v00.lib"
+        ]
+      },
+      "vh": [
+        "dir::gf180mcu_fd_ip_sram__sram256x8m8wm1.bb.v"
+      ],
+      "instances": {}
+    }
+  },
+  "MACRO_PLACEMENT_CFG": "dir::macro_placement.cfg",
+  "PDN_MACRO_CONNECTIONS": [
+    ".*u_m VDD VSS VDD VSS"
+  ],
+  "PDN_CFG": "dir::pdn_cfg.tcl",
+  "FP_MACRO_HORIZONTAL_HALO": 6,
+  "FP_MACRO_VERTICAL_HALO": 6,
+  "DESIGN_REPAIR_MAX_WIRE_LENGTH": 800.0,
+  "EXTRA_EXCLUDED_CELLS": [
+    "gf180mcu_fd_sc_mcu7t5v0__dly*"
+  ],
+  "GRT_OVERFLOW_ITERS": 10,
+  "GRT_ALLOW_CONGESTION": true,
+  "DRT_THREADS": 8,
+  "DRT_OPT_ITERS": 64,
+  "STA_THREADS": 4,
+  "PRIMARY_GDSII_STREAMOUT_TOOL": "klayout",
+  "RUN_MAGIC_DRC": false,
+  "RUN_KLAYOUT_DRC": false,
+  "RUN_LVS": false,
+  "RUN_EQY": false,
+  "RUN_LINTER": false,
+  "RUN_IRDROP_REPORT": false,
+  "RUN_KLAYOUT_XOR": false,
+  "RUN_MAGIC_STREAMOUT": false,
+  "RUN_MAGIC_WRITE_LEF": false,
+  "RUN_POST_CTS_RESIZER_TIMING": false,
+  "RUN_POST_GRT_RESIZER_TIMING": false,
+  "RUN_POST_GRT_DESIGN_REPAIR": false,
+  "ERROR_ON_MAGIC_DRC": false,
+  "ERROR_ON_LVS_ERROR": false,
+  "ERROR_ON_TR_DRC": false
+}

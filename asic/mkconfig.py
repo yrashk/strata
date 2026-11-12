@@ -30,10 +30,30 @@ MACRO = "gf180mcu_fd_ip_sram__sram512x8m8wm1"
 MACRO_CT = "gf180mcu_fd_ip_sram__sram256x8m8wm1"
 MW, MH = 431.86, 484.88
 MH_CT = 340.88
-GX, GY = 12.0, 36.0          # gaps between macros: sides; below each row (the pins are on the bottom edge)
+# The macros' pins are all on one edge (the bottom, placed N). Rows go in
+# pairs facing each other: the lower row flipped (FS, pins on top), a
+# channel CH for the pins' wiring, the upper row N; between pairs the backs
+# are GB apart. (With every row N over a 36 um channel, the channels could
+# not take the wiring: 400,000 shorts in Metal2 / Metal3 after the first
+# detailed-routing pass.)
+GX, GB, CH = 12.0, 12.0, 120.0
 COLS, ROWS = 8, 16           # one 64 KiB store
+
+
+def rows_h(rows, mh):
+    return (rows // 2) * (2 * mh + CH + GB)
+
+
+def row_y(rr, rows, mh):
+    """Row rr (0 at the top) of a grid of `rows`: its y offset and orientation."""
+    k = rows - 1 - rr                    # from the bottom
+    pair, upper = divmod(k, 2)
+    y = GB / 2 + pair * (2 * mh + CH + GB) + (mh + CH if upper else 0)
+    return y, "N" if upper else "FS"
+
+
 SW = COLS * (MW + GX)        # a store block
-SH = ROWS * (MH + GY)
+SH = rows_h(ROWS, MH)
 LW = float(os.environ.get("ASIC_STRIP_UM", "3000"))  # a core's logic strip
 M = 120.0                    # die margin (pins, the PDN ring)
 
@@ -62,20 +82,22 @@ def place_store(cells, x0, y0, rows=ROWS, cols=COLS, flip_cols=False):
         if flip_cols:
             cc = cols - 1 - cc
         x = x0 + cc * (MW + GX) + GX / 2
-        y = y0 + (rows - 1 - rr) * (MH + GY) + GY
-        lines.append(f"{n} {x:.2f} {y:.2f} N")
+        dy, o = row_y(rr, rows, MH)
+        lines.append(f"{n} {x:.2f} {y0 + dy:.2f} {o}")
     return lines
 
 
 def place_ctab(cells, x0, y0, per_row=3):
     """A save table's macros at the foot of a logic strip [x0, x0 + LW)."""
     w = per_row * (MW + GX)
+    rows = (len(cells) + per_row - 1) // per_row
+    rows += rows % 2
     lines = []
     for b, n in sorted(cells):
         r, c = divmod(b, per_row)
         x = x0 + (LW - w) / 2 + c * (MW + GX) + GX / 2
-        y = y0 + r * (MH_CT + GY) + GY
-        lines.append(f"{n} {x:.2f} {y:.2f} N")
+        dy, o = row_y(rows - 1 - r, rows, MH_CT)
+        lines.append(f"{n} {x:.2f} {y0 + dy:.2f} {o}")
     return lines
 
 
@@ -89,7 +111,7 @@ if ncores == 1:
 else:
     per_row = min(ncores, 3)
     nrows = (ncores + per_row - 1) // per_row
-    t2_w, t2_h = 2 * COLS * (MW + GX), (ROWS // 2) * (MH + GY)
+    t2_w, t2_h = 2 * COLS * (MW + GX), rows_h(ROWS // 2, MH)
     band_h = t2_h + 600.0         # T2 plus room for the system logic around it
     die_w = per_row * tile_w + 2 * M
     die_h = nrows * tile_h + band_h + 2 * M
@@ -127,6 +149,7 @@ cfg = {
             "Magic.SpiceExtraction": None,
             "Checker.IllegalOverlap": None,
             "Magic.WriteLEF": None,
+            "Odb.CheckDesignAntennaProperties": None,   # needs Magic's LEF
             "Magic.StreamOut": None,
             "KLayout.XOR": None,
             "Checker.XOR": None,
@@ -150,9 +173,10 @@ cfg = {
     "IO_DELAY_CONSTRAINT": 5,
     "FP_SIZING": "absolute",
     "DIE_AREA": [0, 0, round(die_w, 2), round(die_h, 2)],
-    # low: the logic strips have room, and at 60% the placer packed the
-    # logic into dense clumps that global routing could not clear
-    "PL_TARGET_DENSITY_PCT": int(os.environ.get("ASIC_DENSITY", "30")),
+    # low, with two sites of padding per cell: the strips have room, and the
+    # register-file and granule-table read multiplexers routed into a million
+    # Metal2 / Metal3 shorts at 30% (and the placer packed them at 60%)
+    "PL_TARGET_DENSITY_PCT": int(os.environ.get("ASIC_DENSITY", "22")),
     # global placement without the routability and timing loops: with them,
     # one core's placement oscillated (overflow ~0.5) for 90 minutes and
     # 21,000 iterations without converging
@@ -162,8 +186,8 @@ cfg = {
     # the channels between macro rows (up to half a macro's height away)
     "PL_MAX_DISPLACEMENT_X": 1000,
     "PL_MAX_DISPLACEMENT_Y": 600,
-    "GPL_CELL_PADDING": 0,
-    "DPL_CELL_PADDING": 0,
+    "GPL_CELL_PADDING": 2,
+    "DPL_CELL_PADDING": 2,
     "MACROS": {
         mac: {
             "gds": [f"{sram}/gds/{mac}.gds"],
@@ -190,7 +214,11 @@ cfg = {
     "GRT_OVERFLOW_ITERS": 10,
     "GRT_ALLOW_CONGESTION": True,
     "DRT_THREADS": threads,
+    "DRT_OPT_ITERS": int(os.environ.get("ASIC_DRT_ITERS", "64")),
     "STA_THREADS": min(threads, 4),
+    # post-route STA at the three nominal-interconnect corners (LibreLane's
+    # nine took an hour on one core, mostly in the clock-skew reports)
+    "STA_CORNERS": ["nom_tt_025C_5v00", "nom_ss_125C_4v50", "nom_ff_n40C_5v50"],
     "PRIMARY_GDSII_STREAMOUT_TOOL": "klayout",
     "RUN_MAGIC_DRC": False,
     "RUN_KLAYOUT_DRC": False,
@@ -210,6 +238,7 @@ cfg = {
     "RUN_POST_GRT_DESIGN_REPAIR": False,
     "ERROR_ON_MAGIC_DRC": False,
     "ERROR_ON_LVS_ERROR": False,
+    "ERROR_ON_TR_DRC": os.environ.get("ASIC_DRT_STRICT", "1") == "1",
 }
 with open(os.path.join(out, "config.json"), "w") as f:
     json.dump(cfg, f, indent=2)

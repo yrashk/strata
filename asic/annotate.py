@@ -72,5 +72,5 @@ res.save(out, optimize=True)
 if web:
     for src, suffix in ((res, "-annotated"), (img, "-full")):
         w = 1600
-        src.resize((w, int(src.height * w / src.width)), Image.LANCZOS).save(
-            f"{web}{suffix}.png", optimize=True)
+        small = src.resize((w, int(src.height * w / src.width)), Image.LANCZOS)
+        small.convert("P", palette=Image.ADAPTIVE, colors=256).save(f"{web}{suffix}.png", optimize=True)

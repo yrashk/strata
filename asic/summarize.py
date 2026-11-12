@@ -15,7 +15,12 @@ import re
 import sys
 
 run, period = sys.argv[1], float(sys.argv[2])
-m = json.load(open(os.path.join(run, "final", "metrics.json")))
+# the metrics of the run's last step (final/metrics.json is only written when
+# the flow gets to its end)
+last = max((d for d in glob.glob(os.path.join(run, "[0-9]*-*"))
+            if os.path.exists(os.path.join(d, "state_out.json"))),
+           key=lambda d: int(os.path.basename(d).split("-")[0]))
+m = json.load(open(os.path.join(last, "state_out.json")))["metrics"]
 um2 = lambda v: f"{v / 1e6:9.3f} mm2"   # noqa: E731
 
 print(f"run: {run}")

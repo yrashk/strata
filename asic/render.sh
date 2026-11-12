@@ -13,7 +13,7 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 n=$1
 out="$here/build/asic/gf180mcu-$n"
 run="$out/runs/${ASIC_TAG:-run}"
-lay=${2:-$(ls "$run"/final/gds/*.gds 2>/dev/null | head -1)}
+lay=${2:-$(ls "$run"/final/gds/*.gds "$run"/*-klayout-streamout/*.klayout.gds 2>/dev/null | head -1)}
 res="$here/asic/results/gf180mcu-$n"
 web="$here/site/hardware/asic/img"
 mkdir -p "$res" "$web"
@@ -21,13 +21,7 @@ tech="$here/build/asic/pdk/gf180mcuD/libs.tech/klayout/tech"
 ref="$here/build/asic/pdk/gf180mcuD/libs.ref"
 
 die=$(python3 -c "import json; d = json.load(open('$out/config.json'))['DIE_AREA']; print(f'{d[2]},{d[3]}')")
-# the zoom box: from the config's geometry (asic/mkconfig.py: margin 120,
-# a store block 8 x (431.86 + 12) wide, the die's middle height)
-zoom=$(python3 -c "
-W, H = map(float, '$die'.split(','))
-x = 120 + 8 * (431.86 + 12)
-y = H / 2 if $n == 1 else H - 120 - 16 * (484.88 + 36) / 2
-print(f'{x - 350:.0f},{y - 300:.0f},{x + 450:.0f},{y + 300:.0f}')")
+zoom=$(python3 "$here/asic/zoombox.py" "$out/macro_placement.cfg")
 lefs="$(ls "$ref"/gf180mcu_fd_sc_mcu7t5v0/techlef/*__nom.tlef),$(ls "$ref"/gf180mcu_fd_sc_mcu7t5v0/lef/*.lef | paste -sd, -),$(ls "$ref"/gf180mcu_fd_ip_sram/lef/*.lef | paste -sd, -)"
 
 ASIC_THREADS=2 "$here/asic/container.sh" "$out" \
@@ -41,5 +35,5 @@ H=${die#*,}
 "$here/build/asic/venv/bin/python" -c "
 from PIL import Image
 im = Image.open('$res/die-zoom.png'); w = 1200
-im.resize((w, int(im.height * w / im.width)), Image.LANCZOS).save('$web/gf180mcu-$n-zoom.png', optimize=True)"
+im.resize((w, int(im.height * w / im.width)), Image.LANCZOS).convert('P', palette=Image.ADAPTIVE, colors=256).save('$web/gf180mcu-$n-zoom.png', optimize=True)"
 ls -la "$res"/die-*.png "$web"/gf180mcu-"$n"-*.png

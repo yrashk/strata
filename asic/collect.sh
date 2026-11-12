@@ -21,7 +21,13 @@ res="$here/asic/results/gf180mcu-$n"
 mkdir -p "$res"
 period=$(python3 -c "import json; print(json.load(open('$out/config.json'))['CLOCK_PERIOD'])")
 python3 "$here/asic/summarize.py" "$run" "$period" > "$res/summary.txt"
-cp "$run/final/metrics.json" "$res/metrics.json"
+python3 - "$run" "$res/metrics.json" <<'PY'
+import glob, json, os, sys
+run, dst = sys.argv[1], sys.argv[2]
+steps = [d for d in glob.glob(os.path.join(run, "[0-9]*-*")) if os.path.exists(os.path.join(d, "state_out.json"))]
+last = max(steps, key=lambda d: int(os.path.basename(d).split("-")[0]))
+json.dump(json.load(open(os.path.join(last, "state_out.json")))["metrics"], open(dst, "w"), indent=1, sort_keys=True)
+PY
 cp "$out/config.json" "$out/macro_placement.cfg" "$res/"
 cp "$run"/*-yosys-synthesis/reports/stat.rpt "$res/synth-stat.rpt"
 sta=$(ls -d "$run"/*-openroad-stapostpnr | tail -1)

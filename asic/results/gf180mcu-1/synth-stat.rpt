@@ -1,0 +1,115 @@
+167. Printing statistics.
+
+=== strata_core ===
+
+        +----------Local Count, excluding submodules.
+        |        +-Local Area, excluding submodules.
+        |        | 
+   166932        - wires
+   167591        - wire bits
+    13812        - public wires
+    14471        - public wire bits
+       50        - ports
+      709        - port bits
+   165495 3.03E+06 cells
+       11        -   gf180mcu_fd_ip_sram__sram256x8m8wm1
+      256        -   gf180mcu_fd_ip_sram__sram512x8m8wm1
+     1061 1.86E+04   gf180mcu_fd_sc_mcu7t5v0__and2_1
+       65 1.28E+03   gf180mcu_fd_sc_mcu7t5v0__and2_2
+        5  186.592   gf180mcu_fd_sc_mcu7t5v0__and2_4
+      239 5.25E+03   gf180mcu_fd_sc_mcu7t5v0__and3_1
+        6  144.883   gf180mcu_fd_sc_mcu7t5v0__and3_2
+      295 7.12E+03   gf180mcu_fd_sc_mcu7t5v0__and4_1
+        4   114.15   gf180mcu_fd_sc_mcu7t5v0__and4_2
+      744 1.63E+04   gf180mcu_fd_sc_mcu7t5v0__aoi211_1
+       25   932.96   gf180mcu_fd_sc_mcu7t5v0__aoi211_2
+       11  869.299   gf180mcu_fd_sc_mcu7t5v0__aoi211_4
+     7905 1.39E+05   gf180mcu_fd_sc_mcu7t5v0__aoi21_1
+     1096 3.13E+04   gf180mcu_fd_sc_mcu7t5v0__aoi21_2
+     1098 5.78E+04   gf180mcu_fd_sc_mcu7t5v0__aoi21_4
+     2597 6.27E+04   gf180mcu_fd_sc_mcu7t5v0__aoi221_1
+       13  656.365   gf180mcu_fd_sc_mcu7t5v0__aoi221_2
+       21 1.84E+03   gf180mcu_fd_sc_mcu7t5v0__aoi221_4
+     2482  4.9E+04   gf180mcu_fd_sc_mcu7t5v0__aoi22_1
+       23  807.834   gf180mcu_fd_sc_mcu7t5v0__aoi22_2
+        7  491.725   gf180mcu_fd_sc_mcu7t5v0__aoi22_4
+    11179 1.47E+05   gf180mcu_fd_sc_mcu7t5v0__buf_1
+       40 3.34E+03   gf180mcu_fd_sc_mcu7t5v0__buf_12
+       29  3183.04   gf180mcu_fd_sc_mcu7t5v0__buf_16
+     1044 1.83E+04   gf180mcu_fd_sc_mcu7t5v0__buf_2
+       24 3.27E+03   gf180mcu_fd_sc_mcu7t5v0__buf_20
+      238 5.22E+03   gf180mcu_fd_sc_mcu7t5v0__buf_3
+      537 1.65E+04   gf180mcu_fd_sc_mcu7t5v0__buf_4
+      199 1.14E+04   gf180mcu_fd_sc_mcu7t5v0__buf_8
+       18  237.082   gf180mcu_fd_sc_mcu7t5v0__clkbuf_1
+        2  166.835   gf180mcu_fd_sc_mcu7t5v0__clkbuf_12
+       38  667.341   gf180mcu_fd_sc_mcu7t5v0__clkbuf_2
+        1   30.733   gf180mcu_fd_sc_mcu7t5v0__clkbuf_3
+      235 7.22E+03   gf180mcu_fd_sc_mcu7t5v0__clkbuf_4
+       77  4394.79   gf180mcu_fd_sc_mcu7t5v0__clkbuf_8
+    10703  9.4E+04   gf180mcu_fd_sc_mcu7t5v0__clkinv_1
+       37  487.334   gf180mcu_fd_sc_mcu7t5v0__clkinv_2
+        5   87.808   gf180mcu_fd_sc_mcu7t5v0__clkinv_3
+        6  131.712   gf180mcu_fd_sc_mcu7t5v0__clkinv_4
+        1   39.514   gf180mcu_fd_sc_mcu7t5v0__clkinv_8
+    11363 7.23E+05   gf180mcu_fd_sc_mcu7t5v0__dffq_1
+        3   72.442   gf180mcu_fd_sc_mcu7t5v0__dlya_1
+       97 2.77E+03   gf180mcu_fd_sc_mcu7t5v0__dlya_2
+     1412 1.24E+04   gf180mcu_fd_sc_mcu7t5v0__inv_1
+        1   57.075   gf180mcu_fd_sc_mcu7t5v0__inv_12
+      147 1.94E+03   gf180mcu_fd_sc_mcu7t5v0__inv_2
+       40  702.464   gf180mcu_fd_sc_mcu7t5v0__inv_3
+       26  570.752   gf180mcu_fd_sc_mcu7t5v0__inv_4
+        6  237.082   gf180mcu_fd_sc_mcu7t5v0__inv_8
+    54932 6.03E+05   gf180mcu_fd_sc_mcu7t5v0__nand2_1
+     1131 2.23E+04   gf180mcu_fd_sc_mcu7t5v0__nand2_2
+       44 1.55E+03   gf180mcu_fd_sc_mcu7t5v0__nand2_4
+    16997 2.61E+05   gf180mcu_fd_sc_mcu7t5v0__nand3_1
+      175  4994.08   gf180mcu_fd_sc_mcu7t5v0__nand3_2
+       18 1.03E+03   gf180mcu_fd_sc_mcu7t5v0__nand3_4
+     1926 3.81E+04   gf180mcu_fd_sc_mcu7t5v0__nand4_1
+        6  210.739   gf180mcu_fd_sc_mcu7t5v0__nand4_2
+        1   70.246   gf180mcu_fd_sc_mcu7t5v0__nand4_4
+     6359 8.38E+04   gf180mcu_fd_sc_mcu7t5v0__nor2_1
+      172 3.78E+03   gf180mcu_fd_sc_mcu7t5v0__nor2_2
+        7  276.595   gf180mcu_fd_sc_mcu7t5v0__nor2_4
+      617 1.08E+04   gf180mcu_fd_sc_mcu7t5v0__nor3_1
+       23  706.854   gf180mcu_fd_sc_mcu7t5v0__nor3_2
+        1   57.075   gf180mcu_fd_sc_mcu7t5v0__nor3_4
+      327 7.18E+03   gf180mcu_fd_sc_mcu7t5v0__nor4_1
+        4  158.054   gf180mcu_fd_sc_mcu7t5v0__nor4_2
+     6456 1.42E+05   gf180mcu_fd_sc_mcu7t5v0__oai211_1
+        4  158.054   gf180mcu_fd_sc_mcu7t5v0__oai211_2
+        1   72.442   gf180mcu_fd_sc_mcu7t5v0__oai211_4
+    15140 2.66E+05   gf180mcu_fd_sc_mcu7t5v0__oai21_1
+      403 1.33E+04   gf180mcu_fd_sc_mcu7t5v0__oai21_2
+      116 6.88E+03   gf180mcu_fd_sc_mcu7t5v0__oai21_4
+     1394 3.67E+04   gf180mcu_fd_sc_mcu7t5v0__oai221_1
+     1016 2.23E+04   gf180mcu_fd_sc_mcu7t5v0__oai22_1
+       11  458.797   gf180mcu_fd_sc_mcu7t5v0__oai22_2
+        2  153.664   gf180mcu_fd_sc_mcu7t5v0__oai22_4
+      317 7.65E+03   gf180mcu_fd_sc_mcu7t5v0__oai31_1
+        5  208.544   gf180mcu_fd_sc_mcu7t5v0__oai31_2
+      268 7.06E+03   gf180mcu_fd_sc_mcu7t5v0__oai32_1
+        7  353.427   gf180mcu_fd_sc_mcu7t5v0__oai32_2
+     1710    3E+04   gf180mcu_fd_sc_mcu7t5v0__or2_1
+      154 3.38E+03   gf180mcu_fd_sc_mcu7t5v0__or2_2
+        4  158.054   gf180mcu_fd_sc_mcu7t5v0__or2_4
+      109 2.39E+03   gf180mcu_fd_sc_mcu7t5v0__or3_1
+        6  158.054   gf180mcu_fd_sc_mcu7t5v0__or3_2
+       45 1.19E+03   gf180mcu_fd_sc_mcu7t5v0__or4_1
+       86  755.149   gf180mcu_fd_sc_mcu7t5v0__tiel
+        8  228.301   gf180mcu_fd_sc_mcu7t5v0__xnor2_1
+        1   46.099   gf180mcu_fd_sc_mcu7t5v0__xnor2_4
+       16  842.957   gf180mcu_fd_sc_mcu7t5v0__xnor3_1
+        1   61.466   gf180mcu_fd_sc_mcu7t5v0__xnor3_2
+        1   26.342   gf180mcu_fd_sc_mcu7t5v0__xor2_1
+        1    50.49   gf180mcu_fd_sc_mcu7t5v0__xor3_1
+        1   63.661   gf180mcu_fd_sc_mcu7t5v0__xor3_2
+
+   Area for cell type \gf180mcu_fd_ip_sram__sram512x8m8wm1 is unknown!
+   Area for cell type \gf180mcu_fd_ip_sram__sram256x8m8wm1 is unknown!
+
+   Chip area for module '\strata_core': 3033755.424000
+     of which used for sequential elements: 723377.670400 (23.84%)
+

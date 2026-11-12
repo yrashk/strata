@@ -35,6 +35,22 @@ else:
     view.load_layout(src, opt, arg("lyt"))
 view.load_layer_props(lyp)
 view.max_hier()
+# only the routing metals, in the site's colours: the cells' PR boundaries
+# (0/0), the 5 V marker, wells, implants, Metal1 (the rails and the fill
+# cells) cover everything else
+SHOW = {"36/0": 0x2f8fd0, "42/0": 0x3fbf7a, "46/0": 0xe0a040, "81/0": 0xc060b0}
+it = view.begin_layers()
+while not it.at_end():
+    lp = it.current()
+    ld = f"{lp.source_layer}/{lp.source_datatype}"
+    if ld in SHOW:
+        lp.fill_color = lp.frame_color = SHOW[ld]
+        lp.dither_pattern = 5          # a sparse stipple, so the layers mix
+        lp.visible = True
+    else:
+        lp.visible = False
+    view.set_layer_properties(it, lp)
+    it.next()
 view.set_config("background-color", "#0b0f14")
 view.set_config("grid-visible", "false")
 view.set_config("text-visible", "false")
