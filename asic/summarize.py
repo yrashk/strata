@@ -93,10 +93,10 @@ def path(rpt):
     return start, end, cell, wire, hops
 
 
-tt = [d for d in glob.glob(os.path.join(run, "*-openroad-stapostpnr", "nom_tt_025C_5v00"))]
+tt = sorted(glob.glob(os.path.join(run, "*-openroad-stapostpnr", "nom_tt_*")))
 if tt:
     s, e, c, w, h = path(os.path.join(tt[0], "max.rpt"))
-    print("== critical path (nom_tt_025C_5v00)")
+    print(f"== critical path ({os.path.basename(tt[0])})")
     print(f"  from {s}\n  to   {e}")
     print(f"  {h} cells: {c:.2f} ns in cells, {w:.2f} ns in wires\n")
 

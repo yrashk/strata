@@ -24,6 +24,12 @@ out, ncores, period, macro_list = sys.argv[1], int(sys.argv[2]), float(sys.argv[
 here = os.path.dirname(os.path.abspath(__file__))
 pdk = os.environ.get("ASIC_PDK", "gf180mcuD")
 threads = int(os.environ.get("ASIC_THREADS", "8"))
+# the standard cells: GF's 5 V 7-track library (default), or the 3.3 V
+# "Avalon" library (gf180mcu_as_sc_mcu7t3v3: 3.3 V devices; LibreLane's PDK
+# configuration has typical and fast corners for it). The SRAM macros are
+# characterized at both voltages.
+scl = os.environ.get("ASIC_SCL", "gf180mcu_fd_sc_mcu7t5v0")
+v3 = scl == "gf180mcu_as_sc_mcu7t3v3"
 
 # the macros (their LEF: SIZE 431.860 BY 484.880, and BY 340.880)
 MACRO = "gf180mcu_fd_ip_sram__sram512x8m8wm1"
@@ -192,7 +198,9 @@ cfg = {
         mac: {
             "gds": [f"{sram}/gds/{mac}.gds"],
             "lef": [f"{sram}/lef/{mac}.lef"],
-            "lib": {"*": [f"{sram}/lib/{mac}__tt_025C_5v00.lib"]},
+            "lib": ({"*_tt_025C_3v30": [f"{sram}/lib/{mac}__tt_025C_3v30.lib"],
+                     "*_ff_n40C_3v60": [f"{sram}/lib/{mac}__ff_n40C_3v60.lib"]} if v3 else
+                    {"*": [f"{sram}/lib/{mac}__tt_025C_5v00.lib"]}),
             "vh": [f"dir::{mac}.bb.v"],
             "instances": {},
         } for mac in (MACRO, MACRO_CT)
@@ -207,7 +215,7 @@ cfg = {
     "DESIGN_REPAIR_MAX_WIRE_LENGTH": float(os.environ.get("ASIC_MAX_WIRE_UM", "800")),
     # without this the resizer buffers with delay cells (dlyb_1: slews over
     # 1 ns, 1.6 ns per stage); hold repair then uses buffers too
-    "EXTRA_EXCLUDED_CELLS": ["gf180mcu_fd_sc_mcu7t5v0__dly*"],
+    "EXTRA_EXCLUDED_CELLS": [] if v3 else ["gf180mcu_fd_sc_mcu7t5v0__dly*"],
     # global routing: at most 10 rip-up iterations, leaving what congestion
     # is left to the detailed router (one core spent 4 minutes per
     # iteration, 50 allowed)
@@ -218,7 +226,8 @@ cfg = {
     "STA_THREADS": min(threads, 4),
     # post-route STA at the three nominal-interconnect corners (LibreLane's
     # nine took an hour on one core, mostly in the clock-skew reports)
-    "STA_CORNERS": ["nom_tt_025C_5v00", "nom_ss_125C_4v50", "nom_ff_n40C_5v50"],
+    "STA_CORNERS": (["nom_tt_025C_3v30", "nom_ff_n40C_3v60"] if v3 else
+                    ["nom_tt_025C_5v00", "nom_ss_125C_4v50", "nom_ff_n40C_5v50"]),
     "PRIMARY_GDSII_STREAMOUT_TOOL": "klayout",
     "RUN_MAGIC_DRC": False,
     "RUN_KLAYOUT_DRC": False,
@@ -240,6 +249,9 @@ cfg = {
     "ERROR_ON_LVS_ERROR": False,
     "ERROR_ON_TR_DRC": os.environ.get("ASIC_DRT_STRICT", "1") == "1",
 }
+if v3:
+    # (asic/pdk.sh patches the library's configuration so that it loads)
+    cfg["DEFAULT_CORNER"] = "nom_tt_025C_3v30"
 with open(os.path.join(out, "config.json"), "w") as f:
     json.dump(cfg, f, indent=2)
 print(f"die {die_w / 1000:.3f} x {die_h / 1000:.3f} mm, {len(placement)} macros")
