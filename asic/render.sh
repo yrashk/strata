@@ -35,5 +35,5 @@ H=${die#*,}
 "$here/build/asic/venv/bin/python" -c "
 from PIL import Image
 im = Image.open('$res/die-zoom.png'); w = 1200
-im.resize((w, int(im.height * w / im.width)), Image.LANCZOS).convert('P', palette=Image.ADAPTIVE, colors=256).save('$web/gf180mcu-$n-zoom.png', optimize=True)"
-ls -la "$res"/die-*.png "$web"/gf180mcu-"$n"-*.png
+im.convert('RGB').resize((w, int(im.height * w / im.width)), Image.LANCZOS).save('$web/gf180mcu-$n-zoom.webp', quality=82, method=6)"
+ls -la "$res"/die-*.png "$web"/gf180mcu-"$n"-*.webp

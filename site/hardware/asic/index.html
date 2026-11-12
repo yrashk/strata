@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strata hardware — on GF180MCU</title>
+<meta name="description" content="One Strata core through the open-source LibreLane flow on GlobalFoundries' GF180MCU: the routed die, the area split between SRAM and logic, the clock, the run time of every stage, and the caveats.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="icon" href="../../favicon.ico" sizes="32x32">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../../apple-touch-icon.png">
+<link rel="stylesheet" href="../../style.css">
+<link rel="stylesheet" href="../hardware.css">
+<link rel="stylesheet" href="asic.css">
+</head>
+<body>
+
+<nav class="top">
+  <a class="mark" href="../../">STRATA</a>
+  <div class="links">
+    <a href="../../#idea">Idea</a>
+    <a href="../../arch/">Architecture</a>
+    <a href="../../isa/">Instructions</a>
+    <a href="../../forth/">Forth</a>
+    <a href="../" aria-current="page">Hardware</a>
+    <a href="../../play/">Play</a>
+    <a href="../../debug/">Debug</a>
+    <a href="../../code/">Source</a>
+    <a class="pill" href="../../Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
+    <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
+  </div>
+</nav>
+
+<main class="hw asic">
+
+<header class="hw-hero">
+  <p class="kicker"><a href="../">Strata in hardware</a> · an ASIC experiment</p>
+  <h1>ON SILICON</h1>
+  <p class="lede">One Strata core, the same SystemVerilog as the simulator and the FPGA, through an open RTL-to-GDS flow
+    on GlobalFoundries' 180&nbsp;nm GF180MCU: placed, clocked and routed.</p>
+  <p class="note">A measurement, not a tapeout. Nothing here was signed off (no DRC or LVS run), the timing was not
+    repaired, and the Local Stores are a single-port stand-in for the dual-port RAM the RTL describes. The
+    <a href="#caveats">caveats</a> say what that means. Two and six cores are planned.</p>
+</header>
+
+<section class="section" id="die">
+  <h2><span class="num">01</span>The die</h2>
+  <p class="intro">KLayout's drawing of the final layout, only the four routing metals shown: Metal2 blue, Metal3 green,
+    Metal4 amber, Metal5 pink. The SRAM macros are the regular blocks on both sides, in pairs of rows that face a
+    shared channel for their pins; the logic is the strip between them, its wiring densest where the register file
+    and the capability checks sit.</p>
+  <figure class="die">
+    <a class="zoom" href="img/gf180mcu-1-annotated-2800.webp" title="Open a larger picture">
+      <img src="img/gf180mcu-1-annotated.webp" width="1600" height="1400" style="aspect-ratio: 8 / 7"
+           alt="The routed one-core die: the I-LS on the left and the D-LS on the right, each 128 SRAM macros in paired rows; the logic strip in the middle with its wiring in two dense clouds; the save table's 11 macros at the foot of the strip.">
+    </a>
+    <figcaption><b>One core, 10.34&nbsp;&times;&nbsp;9.05&nbsp;mm.</b> Click for 2800 pixels. Full size (4000 pixels):
+      <a href="https://github.com/yrashk/strata/blob/main/asic/results/gf180mcu-1/die-annotated.png">annotated</a>,
+      <a href="https://github.com/yrashk/strata/blob/main/asic/results/gf180mcu-1/die-full.png">plain</a>.</figcaption>
+  </figure>
+  <figure class="shot">
+    <img src="img/gf180mcu-1-zoom.webp" width="1200" height="900" loading="lazy"
+         alt="An 800 by 600 micrometre detail: on the left the periphery and part of the array of an I-LS SRAM macro, on the right standard cells and their wiring in the logic strip.">
+    <figcaption>800&nbsp;&times;&nbsp;600&nbsp;µm at the edge of the I-LS: an SRAM macro's periphery and array on the left,
+      standard cells and their wires on the right
+      (<a href="https://github.com/yrashk/strata/blob/main/asic/results/gf180mcu-1/die-zoom.png">full size</a>).</figcaption>
+  </figure>
+  <div class="stats">
+    <div class="stat hot"><b>11.9 MHz</b><span>typical corner, routed</span></div>
+    <div class="stat"><b>93.6 mm²</b><span>die</span></div>
+    <div class="stat"><b>59%</b><span>of it SRAM: 55.2 mm²</span></div>
+    <div class="stat"><b>4.3 mm²</b><span>logic</span></div>
+    <div class="stat"><b>0</b><span>routing DRC violations</span></div>
+  </div>
+</section>
+
+<section class="section" id="area">
+  <h2><span class="num">02</span>Where the area goes</h2>
+  <p class="intro">The memories dominate. GF180MCU's largest SRAM macro holds 512 bytes in 0.21&nbsp;mm², so each
+    64&nbsp;KiB Local Store is 128 of them, 26.8&nbsp;mm²; the logic of the whole core is a sixth of one store.</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>What</th><th class="n">Instances</th><th class="n">Area, mm²</th></tr></thead>
+      <tbody>
+        <tr><td>I-LS and D-LS: <code>sram512x8</code> macros</td><td class="n">256</td><td class="n">53.61</td></tr>
+        <tr><td>Capability save table: <code>sram256x8</code> macros (256 × 81 bits)</td><td class="n">11</td><td class="n">1.62</td></tr>
+        <tr><td>Flip-flops</td><td class="n">11,363</td><td class="n">0.72</td></tr>
+        <tr><td>Combinational cells</td><td class="n">127,634</td><td class="n">2.00</td></tr>
+        <tr><td>Buffers and inverters (synthesis, design repair)</td><td class="n">68,972</td><td class="n">1.48</td></tr>
+        <tr><td>Clock tree</td><td class="n">2,051</td><td class="n">0.10</td></tr>
+        <tr><td>Well taps, end caps, antenna diodes</td><td class="n">246,936</td><td class="n">1.08</td></tr>
+        <tr class="me"><td>Die (10.34 × 9.05 mm)</td><td class="n"></td><td class="n">93.64</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">The rest of the die is filler and the channels around the macros. The flip-flops are the integer
+    registers (three read ports), each core's copy of the revocation-granule table (three asynchronous read ports), the
+    capability registers, the overlay map and the Transfer Unit's queue. As flip-flops, the save table was 20,736 more
+    of them and a 256-way multiplexer; as SRAM it is what block RAM is on the FPGA.</p>
+  <h3 class="sub">Against the FPGA</h3>
+  <p>The same core is 30,011 LUTs and 6,869 flip-flops on Xilinx 7-series (Yosys), and 44,253 logic cells routed at
+    20.0&nbsp;MHz on a Lattice ECP5-85F (<a href="../">the Hardware page</a>). On GF180MCU it has 11,363 flip-flops (the
+    granule table and the registers are flip-flops here, LUT-RAM there) and runs at 11.9&nbsp;MHz without timing
+    repair: the FPGA's block RAMs and carry chains are faster than 180&nbsp;nm SRAM macros and unrepaired gates.</p>
+</section>
+
+<section class="section" id="clock">
+  <h2><span class="num">03</span>How fast</h2>
+  <p class="intro">OpenSTA after routing, with parasitics extracted by OpenRCX, against a 40&nbsp;ns target. The period
+    each corner allows is the target minus the worst setup slack.</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Corner</th><th class="n">Worst setup slack</th><th class="n">Period</th><th class="n">Clock</th><th class="n">Worst hold slack</th></tr></thead>
+      <tbody>
+        <tr class="me"><td>typical, 25 °C, 5.0 V</td><td class="n">−44.1 ns</td><td class="n">84.1 ns</td><td class="n">11.9 MHz</td><td class="n">−5.9 ns</td></tr>
+        <tr><td>slow, 125 °C, 4.5 V</td><td class="n">−106.8 ns</td><td class="n">146.8 ns</td><td class="n">6.8 MHz</td><td class="n">−11.7 ns</td></tr>
+        <tr><td>fast, −40 °C, 5.5 V</td><td class="n">−16.1 ns</td><td class="n">56.1 ns</td><td class="n">17.8 MHz</td><td class="n">−3.4 ns</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The longest path, at the typical corner, runs 95 cells from a flip-flop to <code>am_req</code>, the atomic-operation
+    request to the far bus: decode, the capability checks and the request in one cycle. Almost all of its 82&nbsp;ns
+    is in the cells, which drive long wires with slow edges because nothing resized them for timing; register to register
+    the worst path is as long. Hold violations are at the pins and between flip-flops, unrepaired.</p>
+  <p class="note">The flow could do better: timing-driven placement, post-CTS and post-route timing repair are all off
+    here (see the caveats), and the multi-cycle core has no pipeline to shorten its paths.</p>
+</section>
+
+<section class="section" id="stages">
+  <h2><span class="num">04</span>Every stage, timed</h2>
+  <p class="intro">The successful run's steps, on an arm64 Mac (18 cores, shared with other jobs), LibreLane's
+    container with 8 threads. Getting there took a day of failed attempts; they are in
+    <a href="https://github.com/yrashk/strata/blob/main/asic/README.md"><code>asic/README.md</code></a>.</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Stage</th><th class="opt">Tool</th><th class="n">Time</th></tr></thead>
+      <tbody>
+        <tr><td>Synthesis</td><td class="opt">sv2v, Yosys 0.62, ABC (area script)</td><td class="n">5 min 39 s</td></tr>
+        <tr><td>Floorplan, macros, power grid</td><td class="opt">OpenROAD</td><td class="n">58 s</td></tr>
+        <tr><td>Global placement, pins</td><td class="opt">OpenROAD</td><td class="n">2 min 28 s</td></tr>
+        <tr><td>Design repair (slew, capacitance, wire length)</td><td class="opt">OpenROAD resizer</td><td class="n">3 min 7 s</td></tr>
+        <tr><td>Clock tree</td><td class="opt">OpenROAD TritonCTS</td><td class="n">3 min 22 s</td></tr>
+        <tr><td>Global routing, antenna repair</td><td class="opt">OpenROAD FastRoute</td><td class="n">4 min 8 s</td></tr>
+        <tr><td>Detailed routing (17 passes, to 0 violations)</td><td class="opt">OpenROAD TritonRoute</td><td class="n">50 min 1 s</td></tr>
+        <tr><td>Parasitics</td><td class="opt">OpenRCX</td><td class="n">57 s</td></tr>
+        <tr><td>Timing: three estimates on the way, then 9 corners after routing</td><td class="opt">OpenSTA</td><td class="n">1 h 35 min</td></tr>
+        <tr><td>GDS</td><td class="opt">KLayout</td><td class="n">9 s</td></tr>
+        <tr class="me"><td>In all</td><td class="opt"></td><td class="n">2 h 47 min</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section" id="chip">
+  <h2><span class="num">05</span>What is on the chip</h2>
+  <p class="intro"><code>strata_core</code> with its Transfer Unit, multiplier, divider and decoder, the 16-entry overlay
+    map, as the FPGA builds it. Its ports are the chip's 711 pins: the far bus (transfers and atomics), gift and take,
+    the granule broadcast and stop. The far bus's other end (T2, system memory, the devices, the other cores' inboxes)
+    is off-chip. Nothing in <a href="https://github.com/yrashk/strata/tree/main/rtl"><code>rtl/</code></a> changes: a script
+    makes the ASIC copies, and the RAM module is swapped.</p>
+  <ul class="ticks">
+    <li><b>Local Stores</b>: 16 rows of 8 byte-wide 512&nbsp;&times;&nbsp;8 macros each
+      (<a href="https://github.com/yrashk/strata/blob/main/asic/rtl/gf180mcu/strata_ram.sv"><code>asic/rtl/gf180mcu/strata_ram.sv</code></a>).</li>
+    <li><b>Save table</b>: 11 of the 256&nbsp;&times;&nbsp;8 macros for 256 capabilities of 81 bits. It is read in one state
+      and written in others, so a single-port SRAM is the same memory.</li>
+    <li><b>Floorplan</b>: the I-LS on the left, a 3&nbsp;mm strip for the logic, the D-LS on the right; the macros' pins
+      are all on one edge, so the rows go in pairs facing a 120&nbsp;µm channel.</li>
+  </ul>
+</section>
+
+<section class="section" id="caveats">
+  <h2><span class="num">06</span>Caveats</h2>
+  <ul class="ticks">
+    <li><b>The Local Stores are a stand-in.</b> The RTL's Local Store is a true dual-port RAM, as FPGA block RAM is;
+      GF180MCU's macros have one port. The stand-in shares it, the core first, so a Transfer Unit access in the same
+      cycle is lost. A real chip needs dual-port SRAM (roughly 1.5 to 2 times the area per bit), banks with a stall, or
+      a double-pumped port.</li>
+    <li><b>No timing repair.</b> OpenROAD's post-CTS <code>repair_timing</code> died without a message in its first
+      iteration three times, so it is off; placement is not timing-driven either. Hold violations are not repaired.</li>
+    <li><b>No signoff.</b> Detailed routing ended with no violations, but there is no Magic or KLayout DRC, no LVS, and
+      one antenna violation remains. There is no pad ring; the input and output delays are 5% of the period.</li>
+    <li><b>One core only.</b> Two and six cores (with T2 and the inbox network on the chip) are scripted and planned,
+      not run to the end.</li>
+  </ul>
+</section>
+
+<section class="section" id="reproduce">
+  <h2><span class="num">07</span>Do it yourself</h2>
+  <p class="intro">Docker (LibreLane 3.0.17's arm64 or amd64 image), sv2v and Yosys on the host, and Python for ciel
+    and the pictures. Everything else runs in the container.</p>
+  <div class="cmds">
+    <div><code>asic/pdk.sh gf180mcu</code><span>the PDK (open_pdks, the version LibreLane pins), with ciel</span></div>
+    <div><code>asic/run.sh 1</code><span>one core through LibreLane's Classic flow, about three hours</span></div>
+    <div><code>asic/render.sh 1</code><span>the die pictures, with KLayout</span></div>
+    <div><code>asic/collect.sh 1</code><span>the reports into <code>asic/results/gf180mcu-1/</code></span></div>
+  </div>
+  <p class="note">The settings and why each one is there:
+    <a href="https://github.com/yrashk/strata/blob/main/asic/README.md"><code>asic/README.md</code></a>; the reports
+    (area, cell counts, timing paths per corner, run times):
+    <a href="https://github.com/yrashk/strata/tree/main/asic/results/gf180mcu-1"><code>asic/results/gf180mcu-1/</code></a>.</p>
+</section>
+</main>
+
+<footer>
+  <div class="bands small" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+  <p>Strata — a prototype architecture, its RTL, emulator, firmware, OS and languages.
+    <a href="../">Hardware</a> ·
+    <a href="../../arch/">architecture outline</a> ·
+    <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
+</footer>
+</body>
+</html>

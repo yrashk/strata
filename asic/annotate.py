@@ -70,7 +70,6 @@ d.text((bx + X(1000) + fs * 0.4, by - fs * 0.35), "1 mm", font=small, fill=(255,
 res = Image.alpha_composite(img.convert("RGBA"), over).convert("RGB")
 res.save(out, optimize=True)
 if web:
-    for src, suffix in ((res, "-annotated"), (img, "-full")):
-        w = 1600
-        small = src.resize((w, int(src.height * w / src.width)), Image.LANCZOS)
-        small.convert("P", palette=Image.ADAPTIVE, colors=256).save(f"{web}{suffix}.png", optimize=True)
+    for src, suffix, w in ((res, "-annotated", 1600), (res, "-annotated-2800", 2800)):
+        small = src.convert("RGB").resize((w, int(src.height * w / src.width)), Image.LANCZOS)
+        small.save(f"{web}{suffix}.webp", quality=82, method=6)
