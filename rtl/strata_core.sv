@@ -147,6 +147,13 @@ module strata_core
   // trap state, banked by mode: the supervisor's and the user program's
   logic [63:0] s_cause, s_epc, s_tval, s_tvec, u_cause, u_epc, u_tval, u_tvec, sscratch;
   logic        user, spp_user, ipend;
+  // An instruction that a stop (user mode, ipend) or a reset request (rpend)
+  // preempts in S_EX is not executed: its trap or reset is taken that cycle, so
+  // it must not reach the rest of the machine either. Without this a gift
+  // (cgive / csend) acknowledged in the cycle its stop was taken was delivered
+  // AND re-executed after the stop: a linear capability arrived twice.
+  logic        held;
+  assign held = rpend || (user && ipend);
   logic [5:0]  xslot;
   logic [63:0] csr_ccr, csr_ttag, csr_tdata, csr_tgeom, csr_scratch, csr_stalls;
   logic [63:0] csr_takefrom, csr_corebase, csr_corecount;
@@ -399,7 +406,7 @@ module strata_core
   logic [LSW-1:0] hz_addr, hz_len;   // (only meaningful inside the D-LS: see strata_tu)
   logic        hz_rd_stall, hz_wr_stall, hz_fetch_stall;
 
-  assign tu_iss_valid = state == S_EX && d.kind == K_XFER && xf_fault == 0 && !rpend;
+  assign tu_iss_valid = state == S_EX && d.kind == K_XFER && xf_fault == 0 && !held;
 
   // tag-lookup geometry. EX takes the line and set from the register; S_LG
   // computes set * ways (shift-add: ways < 16) and the set's entry address
@@ -506,14 +513,14 @@ module strata_core
   // there first: the device pairs a buffer only with its lender's command)
   assign give_valid = ((state == S_EX && d.kind == K_CAP && d.cap_fn == CF_GIVE) ||
                        (is_send && ep_cap.valid && ep_cap.space == SP_EP && ep_cap.perms[P_W])) &&
-                      live_a && !give_bad && (give_node == 64'(NCORES) ? tu_put_idle : tu_mem_idle) && !rpend;
+                      live_a && !give_bad && (give_node == 64'(NCORES) ? tu_put_idle : tu_mem_idle) && !held;
   assign give_dst   = give_node[7:0];
   assign give_cap   = cs_cap;
   // a time-shared user process (corecount 0) has no access to the core's inbox
   logic        inbox_priv;
   assign inbox_priv = user;                 // user mode: the inbox is the kernel's (it emulates ctake)
   assign take_req   = ((state == S_EX && d.kind == K_CAP && d.cap_fn == CF_TAKE && !inbox_priv) ||
-                       (is_recv && ep_cap.valid && ep_cap.space == SP_EP && ep_cap.perms[P_R])) && cd_ok && !rpend;
+                       (is_recv && ep_cap.valid && ep_cap.space == SP_EP && ep_cap.perms[P_R])) && cd_ok && !held;
   assign take_any   = !is_recv && !d.flag;
   assign take_src   = is_recv ? ep_cap.base[7:0] : 8'(rb + csr_corebase);
   assign take_pop   = take_req && take_hit;
@@ -588,7 +595,7 @@ module strata_core
                   (ra[16:0] < {1'b0, xm_ils[i]} || ((ra[16:0] - {1'b0, xm_ils[i]}) & xv_mask) == 0);
 
   // ================================================================ far-atomic port
-  assign am_req   = state == S_EX && d.kind == K_TAMO && amo_fault == 0 && tu_mem_idle && !rpend;
+  assign am_req   = state == S_EX && d.kind == K_TAMO && amo_fault == 0 && tu_mem_idle && !held;
   assign am_op    = d.amo_op;
   assign am_space = xcap.space;
   assign am_addr  = 64'(xcap.base + ra[FW-1:0]);        // inside the capability (amo_fault)
@@ -640,7 +647,7 @@ module strata_core
   assign c2_ok      = state == S_EX && d.kind == K_CAP2 && !user && cd_i != cs_i && cd_ok &&
                       ((d.cap_fn == C2_DOM && dom_src_ok) ||
                        ((d.cap_fn == C2_REVOKE || d.cap_fn == C2_UNDOM) && revoker_ok && cs_cap.len != 0));
-  assign dom_req    = c2_ok && !rpend;
+  assign dom_req    = c2_ok && !held;
   assign dom_op     = d.cap_fn == C2_DOM ? 2'd0 : d.cap_fn == C2_REVOKE ? 2'd1 : 2'd2;
   assign dom_t2     = cs_cap.space == SP_T2;
   assign dom_a      = GW'(cs_cap.base >> GRAN_SHIFT);
