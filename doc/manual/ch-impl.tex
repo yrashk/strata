@@ -209,7 +209,11 @@ ECP5, 1 core & 41,219 LUT4 sites & 6,831 & 180 DP16KD & 4 MULT18X18D\\
 These are pre-placement figures: nothing has been placed and routed, and no clock frequency is known.
 The ECP5 column counts LUT4 sites, that is LUT4 cells plus two for each carry cell. One more core costs
 about 28,000 LUTs, 4,800 flip-flops, 32 RAMB36 (its two 64~KiB Local Stores), 3 RAMB18 (its save table)
-and 4 DSP slices on 7-series. No latches are inferred, and every large memory is block RAM on both
+and 4 DSP slices on 7-series. Smaller Local Stores save block RAM, one RAMB36 per 4~KiB, and almost no
+logic (addresses keep their width; only the bounds move): one core on 7-series with 64/64, 32/32,
+16/16, 64/16 and 4/4~KiB stores (D-LS/I-LS) takes 88, 72, 64, 76 and 59 RAMB36 for 31,967, 32,060,
+31,719, 31,544 and 31,621 LUTs (later RTL than the table: the same core on the commit before the
+parameter, 31,817 LUTs and 88 RAMB36). No latches are inferred, and every large memory is block RAM on both
 families. The Local Stores are written through both ports, and the ECP5's block RAM does not define what
 one port reads from a byte that the other is writing; the hazard stalls of invariant I1 guarantee that
 nobody reads such a byte, and the RAM is marked accordingly so that it maps to block RAM on both

@@ -26,7 +26,7 @@ are in T2 (`doc/strataos.md`, 2.1 and 2.9).
 
 ## Synthesis numbers
 
-`fpga/synth.sh xc7|ecp5 [NCORES]` synthesizes the system with Yosys 0.70
+`fpga/synth.sh xc7|ecp5 [NCORES [NXMAP [DLS_KIB [ILS_KIB]]]]` synthesizes the system with Yosys 0.70
 (through `sv2v`): a 64 KiB cluster store (T2), a 128 KiB block-RAM disk and
 a 32 KiB block-RAM stand-in for system memory, which is external DRAM on a
 board. It prints the cell counts and checks the log for latches and for
@@ -44,6 +44,26 @@ summaries, cell counts and logs are kept in `fpga/results/`:
 | Xilinx 7-series, 2 cores | 58,066 LUTs | 11,713 | 120 RAMB36 + 7 RAMB18 | 8 DSP48E1 |
 | Xilinx 7-series, 6 cores | 168,694 LUTs | 31,102 | 248 RAMB36 + 19 RAMB18 | 24 DSP48E1 |
 | Lattice ECP5, 1 core | 35,473 LUT4 + 2,873 carry cells = 41,219 LUT4 sites | 6,831 | 180 DP16KD | 4 MULT18X18D |
+
+The Local Stores' sizes (`fpga/synth.sh xc7 1 - D I`: DLS_KIB, ILS_KIB),
+one core on xc7, on the RTL that made them a parameter (the commit before
+it: 31,817 LUTs, 7,270 FF, 88 RAMB36 + 4 RAMB18, the same as 64/64 within
+Yosys's noise):
+
+| D-LS / I-LS | LUTs | FF | Block RAM |
+|---|---|---|---|
+| 64 / 64 KiB (the default) | 31,967 | 7,266 | 88 RAMB36 + 4 RAMB18 |
+| 32 / 32 KiB | 32,060 | 7,267 | 72 RAMB36 + 4 RAMB18 |
+| 16 / 16 KiB | 31,719 | 7,263 | 64 RAMB36 + 4 RAMB18 |
+| 64 / 16 KiB | 31,544 | 7,270 | 76 RAMB36 + 4 RAMB18 |
+| 4 / 4 KiB (the smallest) | 31,621 | 7,263 | 59 RAMB36 + 4 RAMB18 |
+
+A 4 KiB store is one RAMB36 (512 x 72); the logic hardly changes, since
+addresses keep the 16-bit width of the largest store and only the bounds
+move. StrataOS and Strata Forth need 64 KiB of each; the bare-metal examples
+run on less (`make test-ls`). A board top with smaller stores passes
+DLS_KIB / ILS_KIB to `strata_top`, `mkhex ils|dls image out.hex KIB` for
+its boot ROM images and `mkhex plat ... NXMAP T2 D I` for its table.
 
 Before it (commit 0a4bd8a, with the 256-entry save table): 1 core 50,606
 LUTs, 12,638 FF, 30 DSP48E1; 2 cores 94,130 LUTs; 6 cores 290,431 LUTs,
