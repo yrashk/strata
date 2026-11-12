@@ -35,7 +35,17 @@ fail=0
 run() {
   name=$1 script=$2
   shift 2
-  "$b/strata-dbg" "$@" < "$script" > "$tmp/$name.out" 2>&1
+  # (a session that hangs is ended after DBG_TIMEOUT seconds: its expectations then fail)
+  "$b/strata-dbg" "$@" < "$script" > "$tmp/$name.out" 2>&1 &
+  dpid=$!
+  ( trap 'kill $s 2>/dev/null; exit 0' TERM
+    sleep "${DBG_TIMEOUT:-600}" </dev/null >/dev/null 2>&1 & s=$!
+    wait $s
+    echo "test-dbg: $name: no exit after ${DBG_TIMEOUT:-600} s, ended" >&2
+    pkill -P $dpid 2>/dev/null; kill $dpid 2>/dev/null ) &
+  wpid=$!
+  wait $dpid
+  kill $wpid 2>/dev/null; wait $wpid 2>/dev/null
   [ $verbose = 1 ] && { echo "==== $name"; cat "$tmp/$name.out"; }
 }
 # expect NAME TEXT...: each TEXT (a fixed string) appears in the transcript, in order
@@ -156,7 +166,7 @@ EOF
   cp "$b/disk.img" "$tmp/disk.img"
   cat > "$tmp/guest.cmd" <<'EOF'
 break process cores
-input guest gdemo 2 8\ncores\nguest stop 240\n
+input guest -d gdemo 2 8\ncores\nguest stop 240\n
 continue
 info processes
 info cores
