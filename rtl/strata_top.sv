@@ -109,6 +109,7 @@ module strata_top
   cap_t                g_cap [NS];
   logic                dev_in_ready, dev_in_push;
   cap_t                dev_in_cap;
+  logic [7:0]          dev_in_from;    // the core that gives it (the device pairs it with that core's command)
 
   logic [NCORES-1:0]       take_req, take_any, take_hit, take_pop, halted;
   logic [NCORES-1:0][7:0]  take_src, take_from;
@@ -116,7 +117,7 @@ module strata_top
   logic [NCORES-1:0][15:0] poll_mask;
 
   // revocation granules and core control
-  logic [NCORES-1:0]          dom_req, dom_done, dom_t2, stop_req;
+  logic [NCORES-1:0]          dom_req, dom_done, dom_t2, stop_req, reset_req, reset_flush;
   logic [NCORES-1:0][1:0]     dom_op;
   logic [NCORES-1:0][GW-1:0]  dom_a, dom_n;
   logic [15:0]                dom_gen;
@@ -134,7 +135,8 @@ module strata_top
     .m_wvalid(m_wvalid[2*NCORES]), .m_wdata(m_wdata[2*NCORES]), .m_gnt(m_gnt[2*NCORES]),
     .m_wready(m_wready[2*NCORES]), .m_rvalid(m_rvalid[2*NCORES]), .m_rdata(m_rdata),
     .m_done(m_done[2*NCORES]),
-    .in_push(dev_in_push), .in_cap(dev_in_cap), .in_ready(dev_in_ready),
+    .in_push(dev_in_push), .in_cap(dev_in_cap), .in_from(dev_in_from), .in_ready(dev_in_ready),
+    .core_clr(reset_flush),
     .give_valid(g_valid[NCORES]), .give_dst(g_dst[NCORES]), .give_cap(g_cap[NCORES]),
     .give_ack(g_ack[NCORES]),
     .uart_txd, .uart_rxd
@@ -173,6 +175,7 @@ module strata_top
       .take_pop(take_pop[i]), .poll_mask(poll_mask[i]), .halted_vec(halted),
       .dom_req(dom_req[i]), .dom_op(dom_op[i]), .dom_t2(dom_t2[i]), .dom_a(dom_a[i]), .dom_n(dom_n[i]),
       .dom_done(dom_done[i]), .dom_gen, .gt_we, .gt_t2, .gt_idx, .gt_wd, .stop_req(stop_req[i]),
+      .reset_req(reset_req[i]), .reset_flush(reset_flush[i]),
       .halted(halted[i])
     );
   end
@@ -268,19 +271,26 @@ module strata_top
 
   // ================================================================ core control
   // A far-bus target: a written word with bit 0 set asks core (address / 8)
-  // to stop. Reads return zeros.
+  // to stop, with bit 1 set to restart (a reset request: the core's inbox is
+  // emptied now, so a gift made after the request reaches the restarted
+  // core; the core takes the request itself, see strata_core). Reads return
+  // zeros.
   logic        cc_busy, cc_we;
   logic [63:0] cc_addr;
   logic [23:0] cc_left;
   always_comb begin
     stop_req     = '0;
+    reset_req    = '0;
     t_wready[3]  = cc_busy && cc_we;
     t_rvalid[3]  = cc_busy && !cc_we;
     t_rdata[3]   = '0;
     t_retry[3]   = 0;
     t_done[3]    = cc_busy && cc_left == 1 && (cc_we ? t_wvalid : 1'b1);
     for (int c = 0; c < NCORES; c++)
-      if (cc_busy && cc_we && t_wvalid && t_wdata[0] && cc_addr[63:3] == 61'(c)) stop_req[c] = 1;
+      if (cc_busy && cc_we && t_wvalid && cc_addr[63:3] == 61'(c)) begin
+        if (t_wdata[0]) stop_req[c] = 1;
+        if (t_wdata[1]) reset_req[c] = 1;
+      end
   end
   always_ff @(posedge clk) begin
     if (rst) cc_busy <= 0;
@@ -317,6 +327,7 @@ module strata_top
     g_ack       = '0;
     dev_in_push = 0;
     dev_in_cap  = CAP_NULL;
+    dev_in_from = '0;
     ib_we       = '0;
     ib_ws       = '0;
     for (int c = 0; c < NCORES; c++)
@@ -331,6 +342,7 @@ module strata_top
         g_ack[s]    = 1;
         dev_in_push = 1;
         dev_in_cap  = g_cap[s];
+        dev_in_from = 8'(s);
       end
   end
 
@@ -395,6 +407,7 @@ module strata_top
           push = ib_we[c] && int'(ib_ws[c]) == s;
           if (pop) ib_h[c][s] <= ib_h[c][s] + SQW'(1);
           ib_n[c][s] <= ib_n[c][s] + (push ? 2'd1 : 2'd0) - (pop ? 2'd1 : 2'd0);
+          if (reset_req[c]) ib_n[c][s] <= '0;              // a reset request empties the inbox
         end
     end
   end

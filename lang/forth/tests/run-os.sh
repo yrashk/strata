@@ -12,7 +12,11 @@
 #      shares its core; its output is right, and `ps`, a little later, shows
 #      that both were switched (forth at least 5 times);
 #   4. the network words (tests/nettest.fs) and httpd.fs over loopback give
-#      tests/net.out.
+#      tests/net.out;
+#   5. code paging: `forth paging.fs`, a program about twice the code cache,
+#      with call chains deeper than the cache, sleeps and a long loop in its
+#      words, gives the same result as one recursive word while `spin` shares
+#      its core (its units evicted and paged back in, also across switches).
 #   BUILD=build lang/forth/tests/run-os.sh        (UPDATE=1 rewrites tests/os.out and tests/net.out)
 set -u
 BUILD=${BUILD:-build}
@@ -114,5 +118,16 @@ if cmp -s "$OUT/os4.out" "$HERE/net.out"; then
   echo "test-forth: StrataOS network words and httpd.fs (loopback) match tests/net.out ($(wc -l < "$HERE/net.out" | tr -d ' ') lines)"
 else
   echo "test-forth: StrataOS network output differs from tests/net.out:"; diff "$HERE/net.out" "$OUT/os4.out" | head -20; ok=0
+fi
+# ---- 5. code paging under preemption: forth paging.fs and spin on core 7
+printf -- '-c 7 spin 80 a > sa &\n-c 7 forth paging.fs > po &\nspin 6 x\nps\nwait\ncat po\nhalt\n' > "$OUT/os5.in"
+boot os5
+fsw=$(awk '$4 == 7 && $8 == "forth" { print $6 }' "$OUT/os5.con")
+res=$(sed -n '/^strata\$ cat po/,/^strata\$ halt/p' "$OUT/os5.con" | sed -e '1d' -e '$d' | tr '\n' '|')
+want='paged 1602438 resident 1602438 equal|the units were paged in again and again|'
+if [ "${fsw:-0}" -ge 5 ] && [ "$res" = "$want" ]; then
+  echo "test-forth: code paging OK (a program twice the code cache, units evicted and paged back in; $fsw switches when ps looked)"
+else
+  echo "test-forth: code paging FAILED (switches: ${fsw:-none}, output: $res)"; tail -15 "$OUT/os5.con"; ok=0
 fi
 [ $ok = 1 ] || exit 1

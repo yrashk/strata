@@ -102,13 +102,18 @@ examples: $(IMAGES)
 test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/compare.sh $(IMAGES)
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/compare-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/demo.txt
+	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/compare-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/guest-demo.txt guests
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-break.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-sh.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vi.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vifs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-fs-progs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-net.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-http.sh $(BUILD)/bootrom.stx $(BUILD)/http-test/disk.img
 	BUILD=$(BUILD) ./tools/test-ws.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-preempt.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-isolate.sh $(BUILD)/bootrom.stx $(BUILD)/isol-test/disk.img
+	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-guest.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) ./tools/test-procs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-boot-jit.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/demo.txt
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-fb.sh $(BUILD)/examples/gfx.stx
@@ -200,13 +205,13 @@ OS_EXCLUDE := clock gfx
 OS_EXAMPLES := $(filter-out $(OS_EXCLUDE),$(patsubst examples/%.s,%,$(EXAMPLES)))
 PROGS   := $(patsubst %,$(BUILD)/prog/%,$(OS_EXAMPLES))
 SERVERS := proc dev fs tty pipe net
-UTILS   := sh ls cat rm df ps free uptime devs hexdump cores sched seq grep wc upper spin tag tags cp mv touch
+UTILS   := sh ls cat rm df ps free uptime devs hexdump cores sched seq grep wc upper spin tag tags cp mv touch guest
 SPROGS  := $(patsubst %,$(BUILD)/prog/%,$(SERVERS))
 UPROGS  := $(patsubst %,$(BUILD)/prog/%,$(UTILS))
 # the network programs (os/servers/net.s is the server): no sources on the disk
 NETUTILS := ping nc tcpecho ifconfig netstat host httpd
 NPROGS  := $(patsubst %,$(BUILD)/prog/%,$(NETUTILS))
-USRCS   := $(patsubst %,$(BUILD)/src/%.s,$(UTILS))
+USRCS   := $(patsubst %,$(BUILD)/src/%.s,$(filter-out guest,$(UTILS)))  # guest: binary on the disk, source kept off /src (unchanged listing)
 EXSRCS  := $(patsubst %,$(BUILD)/src/%.s,$(OS_EXAMPLES))
 SRCS    := $(EXSRCS) $(BUILD)/src/as.s $(BUILD)/src/units.s
 
@@ -222,6 +227,13 @@ $(SPROGS): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sa
 $(UPROGS) $(NPROGS): $(BUILD)/prog/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
+
+# guest OS images: bare STX (no "SYS2", no system library), booted as a guest
+GUESTS  := gdemo ghostile
+GUESTIMG := $(patsubst %,$(BUILD)/guest/%,$(GUESTS))
+$(GUESTIMG): $(BUILD)/guest/%: os/guests/%.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/guest
+	$(BUILD)/sasm -g $@.map -o $@ $<
 
 # untag is tag under another name (it looks at the name it was started by)
 $(BUILD)/prog/untag: $(BUILD)/prog/tag
@@ -244,6 +256,18 @@ $(WSPROGS): $(BUILD)/prog/%: os/progs/%.s $(wildcard os/ws/*.s) os/lib/gfx.s os/
 $(BUILD)/vi-syntax.s: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth/README.md site/hl.js
 	@mkdir -p $(BUILD)
 	python3 tools/vi-syntax.py $@
+
+# the same tables for the Forth port, lang/forth/vi.fs, as Forth source (a disk file next to it)
+$(BUILD)/forth-os/vi-syntax.fs: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth/README.md site/hl.js os/progs/vi.s
+	@mkdir -p $(BUILD)/forth-os
+	python3 tools/vi-syntax.py $@
+
+# the Forth ports of os/progs (lang/forth/progs/*.fs) and their library, packed into
+# one disk file (the directory has room for 128 files) behind a loader, lang/forth/progs.fs
+FORTH_PROGS := lang/forth/sys.fs $(sort $(wildcard lang/forth/progs/*.fs))
+$(BUILD)/forth-os/progs.pk: tools/forth-pack.py lang/forth/progs.fs $(FORTH_PROGS)
+	@mkdir -p $(BUILD)/forth-os
+	python3 tools/forth-pack.py -o $@ lang/forth/progs.fs $(FORTH_PROGS) untag.fs=tag.fs retag.fs=tag.fs
 
 $(BUILD)/prog/vi: os/progs/vi.s os/lib/sys.s $(BUILD)/vi-syntax.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
@@ -289,6 +313,10 @@ FORTH_DISK := $(BUILD)/prog/forth lang/forth/core.fs lang/forth/tools.fs lang/fo
               $(wildcard lang/forth/demos/*.fs)
 # the network words (loaded on demand, like tools.fs) and the web server built on them
 FORTH_DISK += lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd.fs lang/forth/httpd-ps.fs
+# the editor, with its keyword tables
+FORTH_DISK += lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUILD)/forth-os/vi-syntax.fs
+# the ports of os/progs, with their library and loader: one file
+FORTH_DISK += $(BUILD)/forth-os/progs.pk
 
 DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as \
               $(BUILD)/prog/units $(BUILD)/prog/vi $(SRCS) $(USRCS) $(BUILD)/src/vi.s $(FORTH_DISK)
@@ -301,6 +329,8 @@ DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc
              -t demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units $(BUILD)/prog/vi \
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) $(BUILD)/src/vi.s \
              -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
+             lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUILD)/forth-os/vi-syntax.fs \
+             $(BUILD)/forth-os/progs.pk \
              -t forth,demo $(wildcard lang/forth/demos/*.fs) \
              -t forth,net lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd-ps.fs -t forth,net,demo lang/forth/httpd.fs
 # the web site httpd serves (index.html at /, the stylesheet of every page)
@@ -308,8 +338,8 @@ WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)
 DISK_ARGS  += -t www $(WWW_FILES)
 
-$(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS)
+$(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG)
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG)
 
 os: $(BUILD)/bootrom.stx $(BUILD)/disk.img
 
@@ -363,7 +393,7 @@ fpga-images: $(BUILD)/mkhex $(BUILD)/bootrom.stx $(BUILD)/kernel.stx $(BUILD)/mk
 	$(BUILD)/mkhex ils $(BUILD)/bootrom.stx $(FPGA)/bootrom_ils.hex
 	$(BUILD)/mkhex dls $(BUILD)/bootrom.stx $(FPGA)/bootrom_dls.hex
 	$(BUILD)/mkhex disk $(FPGA)/disk.img 16384 $(FPGA)/disk.hex
-	$(BUILD)/mkhex plat 2 256 $(FPGA)/plat.hex
+	$(BUILD)/mkhex plat 2 256 $(FPGA)/plat.hex 16 65536
 
 # ---- Strata Forth (lang/forth): make forth, forth-rtl, test-forth ------------
 .PHONY: forth forth-rtl test-forth
@@ -400,6 +430,15 @@ $(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	  printf '\r\nAccept: */*\r\n\r\n'; } >$(BUILD)/http-test/cookie.req
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
 test: $(BUILD)/http-test/disk.img
+
+# the disk of tools/test-isolate.sh: the standard one plus dlsgap (tools/dlsgap.s),
+# which checks that no process sees what another left in its core's D-LS
+$(BUILD)/isol-test/dlsgap: tools/dlsgap.s os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/isol-test
+	$(BUILD)/sasm -T 0x8000 -o $@ $<
+$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin,test $(BUILD)/isol-test/dlsgap
+test: $(BUILD)/isol-test/disk.img
 
 # the disk of `make test-forth`: the standard one plus the test files
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs) \

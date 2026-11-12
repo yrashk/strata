@@ -361,9 +361,17 @@ greater length.
   entry: 16 by default, read from the platform table's header at boot) from
   I-LS 0x8000 of the system core, with the same `xslot`/`xmiss`/`xret`
   mechanism programs use. The kernel counts the unit loads (INFO, `uptime`).
+  Once start-up is over the units (64 KiB) are copied into T2 after the
+  KST, bounced through core 0's D-LS (there is no far-to-far transfer),
+  and c12 becomes a read+execute share of the copy (`u_fart2`, called from
+  resident code so that no far link into the old image remains): a unit
+  then starts arriving after T2's 4 bus cycles instead of T3's 20. Only if
+  it fits beside the KST, decided from the platform table's T2 size: on
+  the 64 KiB T2 of the FPGA builds it does not, and c12 stays in T3.
 - **Shared state.** The system core and the dispatchers share one 32 KiB
-  table at the bottom of system memory (the KST), accessed only with far
-  atomics: per-core counters, the published state of each core's thread
+  table at the bottom of the cluster store, T2 (the KST; in T3 if a
+  platform's T2 is smaller), accessed only with far atomics (an atomic
+  takes about 7 bus cycles in T2, 23 in T3): per-core counters, the published state of each core's thread
   slots, exit events, job records for threads being created, deadlines of
   timed waits. Commands from the system core to a worker are a job record
   plus a doorbell.
@@ -472,7 +480,29 @@ and **the parts of its Local Stores it uses**. On a switch the dispatcher:
    (sp..0x10000) — not the whole 64 KiB;
 5. restores the next thread: D-LS back in, **code reloaded from the
    process's image** in its arena (code is never saved: it is read-only),
-   code-cache units reloaded on demand, capabilities, registers, `eret`.
+   the code units its cache held put back into their slots and mapped
+   again, capabilities, registers, `eret`.
+
+Nothing waits for the transfers of steps 4 and 5. A far atomic, `cgive`
+and `csend` wait until none of the core's memory transfers is in flight
+(the publication rule), so the dispatcher makes every atomic of a switch
+(the switch and byte counters, the published slot states and runnable
+count, the running pid) before its first transfer; the sizes are known by
+then. The save is not waited for either: one core's transfers take
+effect, on the Local Store side as well as the far side, in issue order
+(invariant I2 of the manual's execution model), so the restore that
+follows cannot overtake it, and a store that would overwrite bytes the
+save still reads waits (I1). The next thread's code goes first (it is
+the I-LS, which the save does not read), then the save (tg14 data, tg15
+stack), then the restore (tg12 data, tg13 stack; a first load's data
+and a code mirror on tg14); with tags of their own no issue waits for a
+busy tag, only, past the fourth, for room in the Transfer Unit's
+four-entry queue, i.e. for the code and then the save to have moved.
+The thread then runs while its
+D-LS and code stream in: by the as-if-synchronous rule it cannot tell,
+since a load, store or fetch that touches bytes still arriving waits for
+them. (A program that issues a transfer on one of those tags right after
+a switch merely waits for the dispatcher's; `tpoll` may show it busy.)
 
 Two calls let a program reduce or correct what a switch does:
 
@@ -489,7 +519,57 @@ Two calls let a program reduce or correct what a switch does:
   a2 = length); from then on the dispatcher reloads the I-LS from the
   mirror instead of from the image on every switch-in. Keeping the mirror
   up to date is the program's job (it writes code there before installing
-  it anyway).
+  it anyway). A program whose generated code is paged (code units: Strata
+  Forth) declares only its resident part: the code cache starts after the
+  mirror.
+- **Code units.** A program's code cache (the I-LS after its resident code
+  or code mirror, slots of 2^xslot bytes into which the dispatcher pages
+  code units on an `xmiss`) is part of its state like its D-LS. The record
+  keeps the unit of every slot (PR_UNITS, written by `page_in`), and a
+  switch-in clears the previous process's map, copies each recorded unit
+  back into its slot and maps it again. Code in a unit calls resident code
+  with a plain link (`jalr`) and is interrupted with its pc in a slot: both
+  lead back into the slot, which must hold the same code then (before this,
+  a unit interrupted while another program ran on its core resumed in that
+  program's code). It costs the cache's bytes per switch-in, which the
+  switch counts in its KiB moved; `units` and `forth units.fs` show it.
+
+**What the next process may see.** What a switch leaves out (the D-LS
+above the data extent, below the live stack, a scratch range) still
+holds the previous thread's bytes. The dispatcher remembers whose bytes
+its D-LS holds (`w_dpid`): when it loads a thread of another process, and
+on a thread's first load, it restores the whole program D-LS,
+[0, 0xA000) and [0xE000, 0x10000) (48 KiB in two `tget`s), from the save
+area instead of only the extent and the stack. Outside those, the save
+area holds zeros (the arena is scrubbed when MEMORY hands it out, CREATE
+takes only such arenas, the program cannot reach its save area, and a
+switch writes there only the extent and the live stack) or older bytes of
+the same thread: never another process's. A first load takes the zeros
+and then the image's data section on top (transfers act in issue order),
+replacing a 40 KiB store loop (about 46,000 RTL cycles). A thread that
+returns to a core where nothing else ran meanwhile gets back only its
+extent and stack, as before. `tools/test-isolate.sh` checks it: two
+copies of `tools/dlsgap.s` pinned to one core, one filling its gaps with
+a pattern, the other looking for it in its own at its first load and
+after each of 8 switches back.
+
+Not covered, and why:
+- **The I-LS** above a program's resident code and its code units still
+  holds the previous program's code and code-cache units. Nothing can read it: loads and
+  `tget` use the D-LS, `tgetx` only writes the I-LS, `ltag`/`linst` work
+  on the D-LS tag table, and `xcall`/`xret` reach code only through the
+  overlay map, which every switch-in clears. A program could only jump
+  into it and execute it; overwriting it would cost up to 32 KiB of
+  far-bus traffic per switch.
+- **The Local Stores have no user/supervisor protection.** User-mode
+  loads, stores and `tgetx` reach every address, including the
+  dispatcher's data at 0xA000..0xDFFF (the records, and so the saved
+  registers, of the other threads on the core) and its code. Isolation
+  between the processes of one core is therefore against disclosure to
+  programs that read memory they did not write, not against a hostile
+  program; that needs a hardware bound on user-mode Local Store
+  addresses, which the ISA does not have. Far memory is protected by
+  capabilities either way.
 
 **The arena** (1 MiB unless the spawner asked for more, whole 256 KiB
 granules, zeroed when handed out), for a process with N threads, with
@@ -512,7 +592,40 @@ stack at 0xA000.. (8 KiB at most).
 
 The kernel counts switches and bytes moved per process and per core
 (shown by `ps`, `cores`, `uptime`, `sched`, and drawn by the window
-server). Memory map of a worker core: I-LS 0x0000 boot ROM, 0x4000 kernel,
+server). Each worker's dispatcher also times itself with the `cycle`
+CSR, and `cores` shows the averages: **cycles per switch**, from deciding
+to switch to having issued the next thread's restore (`w_out` + `w_in`),
+and **cycles per trap**, from a trap's entry to the `eret` that resumes a
+thread, its idle time not counted (on the emulator `cycle` counts
+instructions). The sums and counts are published in the KST core area
+(CA_SWCYC, CA_NSWP, CA_KCYC, CA_NTRAP) with the other per-core words.
+
+Measured on the RTL (8 cores, `os/demo.txt`, `strata-rtl -T virtual -g
+none`), one row per step of the 2026-11 switch work: the counters alone,
+then the isolation fix (whole D-LS from the save area when another
+process ran), the KST in T2, a switch that waits for none of its
+transfers, and the kernel's code units in T2. Cores 3, 5 and 6 are the
+ones that switch (fs and `sh`, pipe and the programs, the two `spin`s
+pinned to core 6); per-core cycle and stall totals are dominated by idle
+time and the session's fixed waits, so the session total moves little.
+
+| Step | Total cycles | Switches | KiB moved | Cycles/switch (cores 3/5/6) | Cycles/trap (3/5/6) | First load (core 1) |
+|---|---|---|---|---|---|---|
+| counters only | 151,962,794 | 726 | 33,638 | 17,007 / 11,920 / 8,985 | 18,446 / 16,516 / 19,307 | 52,108 |
+| + isolation | 154,186,031 | 738 | 55,116 | 14,403 / 14,294 / 12,654 | 18,226 / 16,942 / 22,751 | 12,860 |
+| + KST in T2 | 148,860,825 | 738 | 55,129 | 14,039 / 13,962 / 12,500 | 16,978 / 16,040 / 21,742 | 12,860 |
+| + no waiting | 147,362,921 | 728 | 54,699 | 10,674 / 10,355 / 9,589 | 16,449 / 14,670 / 15,379 | 12,201 |
+| + units in T2 | 147,662,013 | 730 | 54,856 | 10,667 / 10,478 / 9,588 | 16,452 / 14,787 / 15,375 | 12,201 |
+
+The isolation fix costs bus traffic (+64% KiB moved: 48 KiB in on every
+switch between processes, against the extent and stack before) and
+about 3,700 cycles per switch on core 6, but makes first loads four
+times cheaper (a transfer instead of a 40 KiB store loop). The KST in T2
+takes about 1,000 cycles off a trap (some 25 atomics at 7 bus cycles
+instead of 23). Not waiting takes a quarter off a switch although the
+publishing now counts inside it, and nearly a third off core 6's traps. The
+units in T2 save 16 bus cycles per unit paged in (about 550 in the
+session): too little to see here. Memory map of a worker core: I-LS 0x0000 boot ROM, 0x4000 kernel,
 0x8000.. program code (+ code cache); D-LS 0x0000..0x9FFF program data,
 0xA000 kernel data, 0xE000..0xFFFF the program's stack (the kernel uses a
 stack of its own in its data).
@@ -553,12 +666,14 @@ the result filled in.
   | 4 | YIELD | let the core's other runnable threads run |
   | 5 | EXIT | a1 = exit code (`halt` also exits, with the code in a0) |
   | 6 | NOTIFY_WAIT | a2 = timeout: block until a notification (an interrupt; a child's exit for `proc`) → its bits, or -8 |
-  | 7 | SET_MIRROR | a1 = arena offset of the code mirror, a2 = its length (2.2) |
+  | 7 | SET_MIRROR | a1 = arena offset of the code mirror, a2 = its length (2.2): the code cache starts after it, and is emptied; → 0, a1 = NXMAP (the overlay map's entries) |
   | 8 | PARK | servers. The kernel keeps the request in c6 → its park id |
   | 9 | UNPARK | servers. a1 = park id: the request returns to c6 |
   | 10 | CLOCK | the clock capability is put in c7 again |
   | 11 | SET_SCRATCH | a1 = D-LS start, a2 = length (0: none) (2.2) |
   | 12 | SEND | a1 = endpoint register (1..7), a5 = attachment register (0..7, -1 none), a2..a4 as WAIT_REPLY: the dispatcher sends the attachment and then c5 through the endpoint, rings the doorbell and waits like WAIT_REPLY; -1 (nothing sent) if a register is empty or not a send endpoint |
+  | 13 | UNITS | → the code units the dispatcher paged in for this thread, a1 = the slots of its code cache that hold one |
+  | 14 | PAGE | a1 = a missed far address (utval of an xmiss), a2 = the pc of the miss (uepc): a program with its own trap handler (which gets its misses) hands one over; the dispatcher pages the unit in as for its own miss and resumes it at once → 0, or 1 if it cannot (2.2) |
 
   A server that cannot answer a request yet PARKs it and answers after a
   later UNPARK (a reader of an empty pipe, a WAIT for a running child, an
@@ -914,6 +1029,15 @@ whole.
   seq, grep, wc, upper, spin, as, units, vi (the editor, 2.12), and the
   examples (all but `clock` and `gfx`, which need the device root that only
   `dev` holds).
+- **In Forth.** Most of these also exist as Strata Forth programs,
+  `forth NAME.fs ARGS` (`lang/forth/progs/`, README "The ports of
+  os/progs"): seq, cat, upper, wc, grep, hexdump, touch, rm, cp, mv, tag
+  (untag, retag), tags, ls, df, free, uptime, devs, cores, ps, sched, spin
+  and units, with the same arguments, output, errors and exit codes. They
+  share `sys.fs` and are packed into one disk file, `progs.pk` (the
+  directory has room for 128 files), which Forth's `include` looks in for a
+  name that is no file. A start costs about 2.5 M instructions more than the
+  assembly program; long inputs about 1.1 to 1.8 times its instructions.
 - Not there: globbing, `2>`; completion
   assumes an 80-column terminal, and a line longer than the terminal's
   width redraws wrongly.
@@ -1106,8 +1230,15 @@ in `os/ws/`).
   [16 MiB, 48 MiB)**: system memory above the load area and below the
   framebuffer window; and core 0 also gets **c14 = the framebuffer window
   [48 MiB, 64 MiB)** (read/write).
-- The kernel's use of system memory: [0, 32 KiB) the shared table (KST);
-  [32 KiB, 64 KiB) the system core's own message buffers; the **arena
+- The kernel's use of the cluster store (T2, c1 from the boot ROM, of the
+  size the platform table gives): [0, 32 KiB) the shared table (KST); the
+  rest holds a copy of the kernel's code units (64 KiB, if they fit: not
+  in the FPGA builds' 64 KiB T2) and is otherwise unused. T2 is a single
+  256 KiB revocation granule, so it can only be revoked whole: it holds
+  only what is the kernel's for good. If T2 is smaller than the KST, the
+  KST takes T3's first 32 KiB instead.
+- The kernel's use of system memory: [0, 32 KiB) unused (the KST's place
+  without T2); [32 KiB, 64 KiB) the system core's own message buffers; the **arena
   pool**: [1 MiB, 15 MiB) and c13 = [16 MiB, 48 MiB) (on a machine with
   16 MiB, only the first), each made one revocable region at boot, of
   which core 0 keeps only the revokers and a bitmap of the 256 KiB
@@ -1388,6 +1519,185 @@ messages and the `:` and `/` lines take its place.
   cannot be written back. Every line is written with a newline after it.
   No counts on inserts, no `f t`, no marks or named registers, no regular
   expressions.
+- **In Forth.** `forth vi.fs FILE` (or `include vi.fs` at the Forth prompt,
+  then `vi FILE`) is the same editor written in Strata Forth
+  (`lang/forth/vi.fs`, with `vi-text.fs` and `vi-edit.fs`; the README there
+  has the details): the same keys, modes, highlighting and screen; given the
+  same keys it writes the same files. Its code (about 60 KiB) is several
+  times a program's I-LS: like everything Forth compiles, it is in code
+  units the dispatcher pages into Forth's code cache (the units above, and
+  the README's "Code paging"). Its text is in Forth's far heap:
+  400 KiB of text at most, 96 KiB of undo history, 48 KiB in the register;
+  `.` repeats up to 64 keys. Its keyword tables come from the same generator
+  (`tools/vi-syntax.py` -> `vi-syntax.fs`). Every start compiles it (about
+  6 M instructions); a 333 KiB file takes about 1.3 times vi's instructions
+  to open, a key in normal mode about the same.
+
+### 2.13 Guests: co-existing OSes at whole-core granularity
+
+StrataOS can hand a bundle of its worker cores to a **guest**: a second
+operating system that runs on those cores, in supervisor mode, beside
+StrataOS. The guest is not trusted. It reaches only what it was given, and
+StrataOS can end it at any time and get the cores back clean. There is no ISA
+change for the grant itself; two small, general ISA additions make *ending* a
+guest sound (below). Code: `os/kunits/guest.s` (the kernel units), the system
+endpoint ops `GSTART`/`GSTOP`/`GINFO` (`os/kunits/ops.s`), `proc` ops 40/41/42
+(`os/servers/proc.s`), the `guest` shell command (`os/progs/guest.s`), and
+demo/test guest images (`os/guests/`).
+
+#### The grant
+
+`guest <image> [cores] [MiB]` asks `proc`, which gets an arena from the kernel
+(`MEMORY`), loads the guest image (a bare STX) into the top of it, and calls
+the kernel's `GSTART`. The kernel:
+
+- takes N free worker cores out of its own scheduling (it chooses a run of
+  cores that hold no StrataOS thread — empty cores — and marks them `CF_GUEST`
+  so placement skips them and `k_wake`/`k_ring` leave them alone);
+- gives the guest, through a defined boot protocol, exactly:
+  - **an arena** (its memory, sized by the request), which is **one revocation
+    domain**: it is cut from the pool with `cdom` and every capability derived
+    from it dies when the domain is revoked;
+  - **a console endpoint** to the `tty` server (read and write) — see the
+    console choice below;
+  - **a read-only clock** (the timer's `NOW`/`FREQ`), cut from the device root;
+  - **core control over its own cores only** (`[8·base, 8·(base+N))`,
+    write-only), so it can run its own workers but can never touch a StrataOS
+    core;
+  - **nothing else**: no KST, no device root, no core control over StrataOS, no
+    endpoint to `proc` or to the kernel.
+
+**Why a console endpoint, not the raw console device.** The raw console
+*output* port is copyable and several cores already hold it, so handing the
+guest a copy would be sound for output. The console *input* port, however, is
+owned exclusively by the `tty` server (which is `F_SOLO` on its own core and
+keeps a read in flight); a second reader would race it for keystrokes. One
+endpoint to `tty` carries both directions through the channel StrataOS already
+gives its own programs, with line discipline, and makes the guest no more
+privileged for I/O than a StrataOS process — the simplest sound choice. The
+guest talks to `tty` with raw `csend`/`ctake` on the endpoint (it is a
+supervisor, so it does not use `svc`); StrataOS routes and confines those sends
+(below).
+
+#### The boot protocol
+
+The arena is split in two: the writable low part `[0, imgoff)` is the guest's
+memory (relative core 0's `c0`); the high part `[imgoff, size)` is the image
+plus a small **guest platform table** and is handed to every guest core as a
+read+execute share (`c5`) so each core can load its own Local Stores. The
+platform table (at `size − 0x1000`, inside the shared region) holds a magic,
+`corebase`, `corecount` and `imgoff`.
+
+Each guest core is woken out of StrataOS idle by a gift — a **loader** code
+unit (`u_gload`) that the kernel's dispatcher (`w_guest`) copies into the I-LS
+and jumps to. The loader then `ctake`s, in order: the image share (`c5`), the
+console endpoint (`c1`), the clock (`c2`), core control (`c3`), and — on
+relative core 0 only — the writable arena (`c0`). It reads the platform table,
+sets `corebase`/`corecount` (so the guest sees itself as an N-core machine,
+`coreid` 0..N−1, `ncores` = N), copies the image's sections into the core's
+Local Stores (and, on core 0, the image's T3 section into the writable arena),
+and jumps to the image entry in supervisor mode. A multi-core guest's workers
+then wait for its own core 0, exactly as a bare-metal program does.
+
+#### Ending a guest, and the two ISA additions
+
+`guest stop <id>` (kernel `GSTOP`) revokes the guest's arena domain — one
+`crevoke`, after which **everything the guest holds or lent out is dead**
+(its memory, the message buffers it lent to `tty`, any block-device buffer it
+submitted) — and then **resets each of its cores** and re-provisions them as
+StrataOS workers. A guest that is halted by itself (`bye`) is reclaimed the
+same way: the reset un-halts the core.
+
+Reclaiming a *supervisor-mode* core needs two things the base ISA could not
+do, so two small, general additions were made to the ISA and the platform
+(emulator `emu/emu.c` and its JIT, the RTL `rtl/`, the debug engine; conformance
+tests `conformance/tests/reset.s` and `blkpair.s`; the guest session runs in
+lockstep on the emulator and the RTL, `tools/compare-boot.sh` with
+`os/guest-demo.txt`):
+
+1. **A core-control reset request.** A `tput` through a core-control
+   capability that writes a doubleword with **bit 1** set (bit 0 is the
+   existing stop request) resets the target core. Unlike a stop request, a
+   reset is taken *in any mode*, so a supervisor that will not yield is stopped
+   anyway, also by a halted core. A reset clears the core's registers,
+   capability registers and save table, inbox, overlay map, transfer tags
+   (device reads still waiting are abandoned), and CSRs, reloads the boot ROM
+   (the first 4 KiB of each Local Store, from the boot image; the rest of both
+   stores is cleared), and restarts it at the boot ROM entry (pc 0) in
+   supervisor mode with the reset capabilities — as at power-on. It runs the
+   boot ROM's secondary path and waits for core 0 to re-give it the OS shares,
+   so core 0 re-provisions it like any worker. Who may issue it: a holder of
+   core control over that core (the same right as a stop request). The inbox
+   is emptied when the request arrives, so the gifts core 0 makes after its
+   `tput` reach the restarted core; in hardware the restart takes 8192 cycles
+   (the Local Stores are rewritten a doubleword per cycle from a 4 KiB ROM per
+   store), and those gifts wait in the inbox meanwhile.
+
+2. **The block device pairs a buffer only with a command from the same core.**
+   The device records the submitting core of each queued command and pairs it
+   only with an inbox buffer whose sender is that same core; a buffer whose
+   sender has no pending command is an orphan (a stray gift, e.g. from a
+   hostile guest) and is returned to its sender, from the device's node,
+   rather than slipped under another core's command; a buffer always goes back
+   to the core that lent it (the command's old "reply core" byte is ignored).
+   A gift to the device waits for the giver's earlier device writes, so a
+   command and its buffer always meet. This closes the one receiving-side channel a
+   supervisor guest could otherwise abuse: without it, a guest could `cgive` a
+   buffer into the block device's queue and have it paired with `fs`'s next
+   command, corrupting `fs`'s I/O.
+
+#### The isolation argument, and its limits
+
+What a guest can *reach* is bounded by the capabilities it holds: a revocable
+arena, a `tty` endpoint, a read-only clock, and core control over its own
+cores. It holds no capability to any other memory, core or device, and no
+instruction forges one, so every out-of-grant access faults
+(`os/guests/ghostile.s` tries several and each is refused).
+
+What a guest can *send* is not bounded by its capabilities alone, because a
+supervisor-mode `cgive` reaches any core's inbox and `cmkep` mints an endpoint
+to any node. StrataOS therefore confines the guest on the **receiving** side:
+a worker's dispatcher and core 0 drop everything arriving from a guest core
+except a 4 KiB request to a server the guest was explicitly given (`G_GALLOW`),
+and accept at most one such request outstanding (`G_GOUT`), so a guest can
+never make a StrataOS core wait on its full inbox; the sender pid stamped on a
+request is taken from the buffer's arena by the receiver, so it cannot be
+forged; and the block-device rule above closes the device channel. Revoking
+the arena kills every buffer the guest lent to a server, so a server holding a
+guest's request when the guest is killed simply finds a dead capability.
+
+**Known limit (availability, not integrity).** The block device gives an
+orphan back by an ordinary gift, and a gift waits for room in the receiver's
+inbox (two per sender). A guest that sends the device three orphans and never
+takes them back therefore stalls the device until it does, or until StrataOS
+stops it (the reset empties its inbox and the device carries on). It cannot
+corrupt anyone's I/O this way, only delay it; dropping an orphan the lender has
+no room for would close this, at the price of one more device rule.
+
+**Known gap (user mode is not bounded in the Local Store).** Neither the
+emulator nor the RTL checks the privilege mode on D-LS loads/stores or on the
+Local-Store ranges of `tget`/`tput`/`tgetx`. A StrataOS *user* program can
+therefore read or write the dispatcher's own area (D-LS `0xA000..0xDFFF`:
+thread records, saved registers) and overwrite the dispatcher's code in the
+I-LS with `tgetx` — i.e. take over its core in supervisor mode. This gap is
+*within* a core, between StrataOS's dispatcher and the user programs that share
+that core. It does **not** apply between StrataOS and a guest, because a guest
+gets *whole cores*: there is no StrataOS dispatcher on a guest's core to
+corrupt, and the guest cannot reach any other core's Local Store (it has no
+far capability to it, and its `cgive`s are filtered on arrival). So a guest can
+do anything it likes *inside its own cores and its own arena* and nothing
+outside them; it cannot read or write StrataOS's memory, drive StrataOS's
+devices, disturb StrataOS's cores, or outlast a `GSTOP`. The within-core grain
+— a guest OS confining its *own* user-mode children on a shared core — is the
+next step, and needs the Local-Store protection discussed in the design notes
+(per-LS user-window bounds; see the report).
+
+#### Visibility
+
+A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
+`CF_GUEST` flag and run no StrataOS pid. `guest` with no arguments (or
+`guest list`) lists the running guests — id, cores, arena size, state — through
+`proc` op 42 / kernel `GINFO`.
 
 ## 3. Tests
 
@@ -1403,7 +1713,8 @@ messages and the `:` and `/` lines take its place.
   survives, on both machines. `tools/test-sh.sh`: a scripted interactive
   shell session with editing keys, compared with `tools/test-sh.out`.
   `tools/test-preempt.sh`: two `spin` processes on one core both make
-  progress; `ps` shows context switches. `tools/test-boot-jit.sh`: the
+  progress; `ps` shows context switches. `tools/test-isolate.sh`: nothing
+  one process leaves in its core's D-LS is visible to the next (2.2). `tools/test-boot-jit.sh`: the
   demo session three times under the JIT's coarser interleaving.
 - `tools/test-fb.sh`: frames written with `-F` are byte-identical on the
   emulator and the RTL. `tools/test-jit.sh`: the JIT against the
@@ -1444,7 +1755,18 @@ messages and the `:` and `/` lines take its place.
   comment carried over a line). A second boot sends Ctrl-C (`-b`) while
   vi runs: it carries on. `tools/vi-shots.sh` (not run by `make test`)
   takes pictures of vi in the window server's terminal:
-  `build/vi-shots/asm.png`, `forth.png`.
+  `build/vi-shots/asm.png`, `forth.png` (`-f`: of `forth vi.fs`,
+  `fs-asm.png`, `fs-forth.png`).
+- `tools/test-vifs.sh`: the Forth editor (`forth vi.fs`) with the keys of
+  `tools/test-vi.sh`; the files it writes are compared with
+  `tools/test-vifs.out` and with `tools/test-vi.out` (the assembly vi's:
+  they must be the same files), then the highlighting, a Ctrl-C while it
+  runs, and `vi FILE` at the Forth prompt after `include vi.fs`.
+- `tools/test-fs-progs.sh`: the Forth ports of the programs (`forth
+  seq.fs 20`, ...) against the assembly programs in one session: 36 cases
+  must give the same bytes on the console, 10 status reports (ps, cores,
+  uptime, ...) are compared with `tools/test-fs-progs.out`, numbers masked;
+  then a Ctrl-C and the ports at the Forth prompt.
 - `tools/test-as.sh` (run on its own, not by `make test`): the self-hosted
   assembler against `sasm`, including a StrataOS boot that assembles and
   runs a program.

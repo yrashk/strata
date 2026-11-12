@@ -423,7 +423,7 @@ with one \insn{tget} from the completion port.
 \toprule
 \multicolumn{3}{@{}l}{\textbf{Command}} & \multicolumn{3}{l@{}}{\textbf{Completion}}\\\midrule
 0 & u8 & opcode: 1 read, 2 write, 3 flush & 0 & u16 & command id\\
-1 & u8 & core to return the buffer to & 2 & u16 & status\\
+1 & u8 & reserved (the buffer returns to its lender) & 2 & u16 & status\\
 2 & u16 & command id (echoed) & 4 & u32 & blocks transferred\\
 4 & u32 & block count & 8 & u8[8] & reserved, zero\\
 8 & u64 & first block (LBA) & & & \\
@@ -475,11 +475,20 @@ fails moves no data and reports zero blocks transferred.
 \begin{enumerate}
 \item Write the command to the submission port (\insn{tput} of 32 bytes to window offset \hex{100}).
 \item Give the buffer capability to the device's node (from the platform table entry), with
-  \insn{cgive} or, from user mode, with \insn{csend} through an endpoint for that node. The device pairs a command and a capability whenever both have arrived, so the order in which they reach it does not matter.
-\item The device processes a command when it holds both a command and a capability, pairing them in
-  arrival order, and when it has room in its four-entry completion queue. It moves the data between the disk and
+  \insn{cgive} or, from user mode, with \insn{csend} through an endpoint for that node.
+\item The device pairs a command with a buffer \emph{from the same core that submitted the command},
+  and only that core: it records the submitting core of each queued command, and a buffer whose sender
+  has no pending command is an \term{orphan} --- a stray gift --- which the device returns to its
+  sender unchanged (from the device's node, moving no data) rather than slipping it under another
+  core's command. This binds the DMA permission
+  to the requester, so one core cannot have its buffer paired with another's command (it matters when
+  mutually distrusting software shares the device; see Section~\ref{sec:os-guests}). Among a core's own
+  buffers, the oldest is paired first. The device processes a command when it holds a matching buffer
+  and has room in its four-entry completion queue; it moves the data between the disk and
   $[\textit{base} + \textit{offset}, \ldots)$ of the capability, appends a completion, and gives the
-  capability back to the core named in byte 1 of the command (core 0 if that is not a valid core).
+  capability back to the core that lent it. A \insn{cgive} or \insn{csend} to the device's node
+  waits until the core's earlier device writes (the command) have reached the device, so a command
+  and the buffer that follows it in program order always meet.
 \item \insn{ctake} the capability back, from the device's node only (\insn{ctake cd, rs} with \reg{rs} = $N$). Its arrival means the operation has finished. (A user-mode driver, such as the StrataOS file server, is handed the capability by its supervisor instead.)
 \item Read the completion from the completion port and check the command id and status.
 \end{enumerate}

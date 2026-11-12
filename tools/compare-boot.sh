@@ -2,7 +2,11 @@
 # Boots StrataOS on the C emulator and on the Verilated RTL with the same
 # disk image and the same scripted console input, and compares them.
 #
-#   tools/compare-boot.sh build/bootrom.stx build/disk.img os/demo.txt
+#   tools/compare-boot.sh build/bootrom.stx build/disk.img os/demo.txt [NAME]
+#
+# (NAME labels the result line; os/guest-demo.txt is the guest session: a
+# second OS started, stopped by core-control resets, a hostile one, the
+# reset cores reused.)
 #
 # EMU_ARGS: extra emulator flags that describe the same machine as the RTL
 # build (e.g. -X 8 for an RTL built with NXMAP=8).
@@ -47,11 +51,11 @@ erc=$?
 rrc=$?
 wait $pe $pr
 # normalise what depends on timing: ps rows keep pid, parent, core, cores and
-# name; cores lines keep processes and flags (not switches, KiB, free slots); uptime keeps nothing but itself;
+# name; cores lines keep processes and flags (not switches, KiB, cycles, free slots); uptime keeps nothing but itself;
 # sched keeps the slice, not the rates
 norm() {
   sed -E -e 's/^( +[0-9]+ +[0-9]+) +(running|ready|blocked|zombie) +([0-9]+ +[0-9]+) +[0-9]+ +[0-9]+ +(.*)$/\1 \3 \4/' \
-         -e 's/^(core [0-9]+): (running [0-9]+|idle), [0-9]+ runnable,(.*); [0-9]+ switches, [0-9]+ KiB moved, [0-9]+ slots free$/\1:\3/' \
+         -e 's/^(core [0-9]+): (running [0-9]+|idle), [0-9]+ runnable,(.*); [0-9]+ switches, [0-9]+ KiB moved, [0-9]+ cycles\/switch, [0-9]+ cycles\/trap, [0-9]+ slots free$/\1:\3/' \
          -e 's/^up [0-9.]+ s, .*$/up .../' \
          -e 's/^(time slice: [0-9]+ us); .*$/\1/' "$1"
 }
@@ -71,5 +75,5 @@ while [ $c -lt "$n" ]; do
 done
 ins=$(cat "$tmp/e.count")
 cyc=$(sed -n 's/^total cycles: //p' "$tmp/r.err")
-if [ $ok -eq 1 ]; then printf '%-14s OK    %8s instructions  %9s RTL cycles (console compared; boot traces)\n' "boot" "$ins" "$cyc"; exit 0; fi
-printf '%-14s FAIL\n' boot; exit 1
+if [ $ok -eq 1 ]; then printf '%-14s OK    %8s instructions  %9s RTL cycles (console compared; boot traces)\n' "${4:-boot}" "$ins" "$cyc"; exit 0; fi
+printf '%-14s FAIL\n' "${4:-boot}"; exit 1

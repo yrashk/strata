@@ -46,7 +46,7 @@ def insn_id(key):
 
 # ---------------------------------------------------------------- the page shell
 NAV = [("../#idea", "Idea", None), ("../arch/", "Architecture", "arch"), ("../isa/", "Instructions", "isa"),
-       ("../forth/", "Forth", "forth"), ("../play/", "Play", None),
+       ("../forth/", "Forth", "forth"), ("../hardware/", "Hardware", None), ("../play/", "Play", None),
        ("../debug/", "Debug", None), ("../code/", "Source", None)]
 
 
@@ -63,8 +63,11 @@ def page(here, title, desc, side, main, head="", tail=""):
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
 <link rel="stylesheet" href="../style.css">
-<link rel="stylesheet" href="../hl.css">
+<link rel="stylesheet" href="../hl.css?v=__BUILD__">
 <link rel="stylesheet" href="../docs.css">
 %(head)s
 </head>
@@ -90,7 +93,7 @@ def page(here, title, desc, side, main, head="", tail=""):
 </div>
 
 <script src="../code/syntax.js"></script>
-<script src="../hl.js"></script>
+<script src="../hl.js?v=__BUILD__"></script>
 <script src="../docs.js"></script>
 %(tail)s
 </body>

@@ -17,3 +17,13 @@ FAR_SRC   = 0x10000                     ; c0 offset: the embedded source text (c
 PLAT_COMPACT = 0                        ; 0: every word has its own prologue and return (fast; 64 KiB of code space)
 PLAT_INLINE = 16                        ; primitives of up to 16 code bytes (4 instructions) are copied inline
 A_FILES   = 0                           ; (no files on bare metal: INCLUDED fails before it uses this)
+PLAT_PAGE = 0                           ; 0: no code paging (every word is resident; forth.s, "Code paging")
+XSLOT     = 0                           ; (unused)
+UBASE     = 0                           ; ...
+UEND      = 0                           ; ...
+TPV       = 0                           ; ...
+
+        .data                           ; D-LS (before the kernel's data)
+        .align 8                        ; ...
+plat_handles: .dword 0, 0, 0, 0, 0, 0   ; KVAR 38: standard handles (none on bare metal: zeros)
+plat_lkname: .dword 0                   ; KVAR 41: the server (msg) register 6 looks up (no servers on bare metal)

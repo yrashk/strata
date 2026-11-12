@@ -21,8 +21,9 @@ cp "$2" "$tmp/d1.img"; cp "$2" "$tmp/d2.img"
 # -b counts emulator steps but RTL cycles: both land while spin runs
 "$b/strata-emu" -c "$n" -T virtual -g none -b 4000000 -m 400000000 -d "$tmp/d1.img" -i "$tmp/in.txt" "$1" >"$tmp/e.out" 2>/dev/null
 "$b/strata-rtl" -T virtual -g none -b 30000000 -m 200000000 -d "$tmp/d2.img" -i "$tmp/in.txt" "$1" >"$tmp/r.out" 2>/dev/null
-# spin's progress dots depend on timing: drop them before comparing
-sed -i.bak -E 's/^\.*\^C$/^C/' "$tmp/e.out" "$tmp/r.out"
+# spin's progress dots depend on timing: drop them before comparing (its last
+# one may also reach the console just after the ^C echo, before the prompt)
+sed -i.bak -E -e 's/^\.*\^C$/^C/' -e 's/^\.+(\[[0-9]+\] )/\1/' "$tmp/e.out" "$tmp/r.out"
 if cmp -s "$tmp/e.out" "$tmp/r.out" && grep -q '^\^C$' "$tmp/r.out" &&
    grep -q 'Hello from Strata core 1 of 2' "$tmp/r.out" && grep -q 'all cores halted' "$tmp/r.out"; then
   printf '%-14s OK    spin stopped by Ctrl-C, the shell carried on\n' ctrl-c; exit 0

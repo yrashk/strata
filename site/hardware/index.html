@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strata hardware — on an FPGA</title>
+<meta name="description" content="Strata's synthesizable RTL placed and routed with open tools: one core on a Lattice ECP5-85F at 20 MHz, the die drawn from nextpnr's placement and routing, the sizes on Xilinx 7-series, and what fits where.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="hardware.css">
+</head>
+<body>
+
+<nav class="top">
+  <a class="mark" href="../">STRATA</a>
+  <div class="links">
+    <a href="../#idea">Idea</a>
+    <a href="../arch/">Architecture</a>
+    <a href="../isa/">Instructions</a>
+    <a href="../forth/">Forth</a>
+    <a href="./" aria-current="page">Hardware</a>
+    <a href="../play/">Play</a>
+    <a href="../debug/">Debug</a>
+    <a href="../code/">Source</a>
+    <a class="pill" href="../Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
+    <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
+  </div>
+</nav>
+
+<main class="hw">
+
+<header class="hw-hero">
+  <p class="kicker">Strata in hardware</p>
+  <h1>ON THE FABRIC</h1>
+  <p class="lede">The same SystemVerilog that the simulator checks instruction by instruction against the emulator,
+    synthesized, placed and routed with open tools: one Strata core on a Lattice ECP5-85F, at 20&nbsp;MHz.</p>
+  <p class="note">Every number here is from the RTL of commit <code>d70790f</code> (2026-11-10)
+    unless a row says otherwise. Nothing has run on a board yet: there is no ECP5 board top, and no bitstream was made.</p>
+</header>
+
+<section class="section" id="die">
+  <h2><span class="num">01</span>The die</h2>
+  <p class="intro">An FPGA has no die of its own design, but it has a floor plan: nextpnr puts every LUT and flip-flop
+    on a site and every connection on real wires. This is that, drawn from nextpnr's output: each logic tile as
+    four slices of two LUTs over two flip-flops, each cell coloured by the part of Strata it belongs to, and each
+    routed wire along its real span, glowing in its net's colour.</p>
+
+  <figure class="die" id="die-fig">
+    <div class="view" role="group" aria-label="Which view of the die">
+      <span>Wiring</span>
+      <button type="button" data-view="routed" aria-pressed="true">on</button>
+      <button type="button" data-view="placed" aria-pressed="false">off</button>
+    </div>
+    <a class="zoom" id="die-zoom" href="die-ecp5-1-2800.webp" title="Open a larger picture">
+      <img id="die-img" src="die-ecp5-1.webp" width="1600" height="1200"
+           alt="The placed and routed Strata core on an ECP5-85F: execute in cyan across the top and right, capabilities in pink on the left, devices in red and the bus in yellow along the bottom, the overlay map in orange in the middle, block RAM rows across.">
+    </a>
+    <figcaption><b id="die-what">One core on an LFE5U-85F, placed and routed.</b> Click for 2800 pixels; the full
+      5200&times;3900 picture is <a id="die-full" href="https://github.com/yrashk/strata/blob/main/fpga/results/ecp5-1/die.png">on GitHub</a>
+      (<code id="die-path">fpga/results/ecp5-1/die.png</code>).</figcaption>
+  </figure>
+
+  <p class="note">The colours follow the RTL signal each cell is named after (<a href="https://github.com/yrashk/strata/blob/main/fpga/classify.py"><code>fpga/classify.py</code></a>):
+    exact for registers and memories, the nearest named signal for logic, so the borders between the colours are
+    approximate. The block RAM rows hold the two Local Stores (blue), the save table (pink) and the
+    cluster store, disk and system-memory stand-in (yellow).</p>
+
+  <div class="stats">
+    <div class="stat hot"><b>20.0 MHz</b><span>Fmax, nextpnr, routed</span></div>
+    <div class="stat"><b>52.9%</b><span>logic cells: 44,253 of 83,640</span></div>
+    <div class="stat"><b>86.5%</b><span>block RAM: 180 of 208</span></div>
+    <div class="stat"><b>8.2%</b><span>flip-flops: 6,831</span></div>
+    <div class="stat"><b>6 min</b><span>to place and route</span></div>
+  </div>
+
+</section>
+
+<section class="section" id="speed">
+  <h2><span class="num">02</span>How fast</h2>
+  <p class="intro">nextpnr's timing analysis after routing: <b>20.02&nbsp;MHz</b> for one core (the estimate after
+    placement was 14.5&nbsp;MHz; the target given was 10&nbsp;MHz). Strata's core is multi-cycle, not pipelined:
+    most instructions take three cycles, loads four, so this is a few million instructions per second, a working
+    prototype rather than a fast one.</p>
+  <h3 class="sub">The longest path</h3>
+  <p>49.9&nbsp;ns, of which 15.4&nbsp;ns is logic and 34.6&nbsp;ns wire (69%), through 79 cells. It starts at a read
+    port of the D-LS block RAM (5.8&nbsp;ns from the clock to the data: the block RAM's own output register is not used),
+    runs through the <code>ltag</code>&nbsp;/&nbsp;<code>linst</code> victim compare (a carry chain), the register file and the
+    trap logic, and ends at the trap cause register <code>s_cause</code>.
+    The critical path is in <a href="https://github.com/yrashk/strata/blob/main/fpga/results/ecp5-1/timing.txt"><code>fpga/results/ecp5-1/timing.txt</code></a>.</p>
+  <p>The next step is to register the Local Store read: use the block RAM's output register, or give loads one more
+    cycle; then run nextpnr again to see what is longest next.</p>
+
+  <h3 class="sub">Two cores</h3>
+  <p>Two cores do not fit any ECP5. They synthesize to 81,654 LUT4 sites, which pack into 86,932 logic cells (103% of
+    an 85F, the largest ECP5), and need 247 block RAMs where the 85F has 208: each core's two 64&nbsp;KiB Local Stores
+    are 64 DP16KD. nextpnr could not make a legal placement, so there is no two-core clock from this flow.
+    The Xilinx 7-series has room (below), but no open timing yet: the OSS CAD Suite's nextpnr has no Xilinx support,
+    and openXC7 has to be built separately.</p>
+</section>
+
+<section class="section" id="stages">
+  <h2><span class="num">03</span>Every stage, timed</h2>
+  <p class="intro">Wall-clock time on an arm64 Mac with 18 cores (other jobs running alongside), nextpnr with 4 threads.</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Stage</th><th class="opt">Tool</th><th class="n">1 core</th><th class="n">2 cores</th></tr></thead>
+      <tbody>
+        <tr><td>Synthesis</td><td class="opt">sv2v, Yosys 0.70 <code>synth_ecp5</code></td><td class="n">98 s</td><td class="n">208 s</td></tr>
+        <tr><td>Placement</td><td class="opt">nextpnr-ecp5 0.11.1, static placer + annealing</td><td class="n">71 s</td><td class="n">no legal placement<br><small>stopped at 538 s</small></td></tr>
+        <tr><td>Routing</td><td class="opt">nextpnr, router1</td><td class="n">288 s</td><td class="n">—</td></tr>
+        <tr><td>nextpnr in all</td><td class="opt">with packing and timing</td><td class="n">366 s</td><td class="n">—</td></tr>
+        <tr><td>Both pictures</td><td class="opt"><code>fpga/render.py</code></td><td class="n">17 s</td><td class="n">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section" id="parts">
+  <h2><span class="num">04</span>What the core is made of</h2>
+  <p class="intro">The routed one-core system on the LFE5U-85F above, by part: 44,253 logic cells (each a LUT4, or half
+    of a carry or a LUT-RAM slice) and 6,831 flip-flops, in the die's colours. The bars compare the parts with each
+    other.</p>
+  <div class="parts" role="list" aria-label="Logic cells and flip-flops by part of the system">
+    <div class="part" role="listitem">
+      <span class="l"><i style="background:#4de1ff"></i><b>Execute, registers, CSRs</b> <small>the multi-cycle state machine and its result multiplexers, the integer registers (LUT-RAM), the trap registers banked by mode, the ltag / linst sequencer</small></span>
+      <span class="t"><i style="width:100.0%;background:#4de1ff"></i></span>
+      <span class="v">26,407 <small>59.7%</small><br><small>1,761 FF</small></span>
+    </div>
+    <div class="part" role="listitem">
+      <span class="l"><i style="background:#ff5fa2"></i><b>Capabilities and revocation</b> <small>the sixteen capability registers and their bounds checks, the save table's port, the copy of the granule table, the inboxes, the revocation walker</small></span>
+      <span class="t"><i style="width:26.6%;background:#ff5fa2"></i></span>
+      <span class="v">7,026 <small>15.9%</small><br><small>1,401 FF</small></span>
+    </div>
+    <div class="part" role="listitem">
+      <span class="l"><i style="background:#d63a3a"></i><b>Devices and core control</b> <small>the console UART, the disk controller and its DMA, the timer, framebuffer, pointer and network registers, the platform ROM, starting and stopping cores</small></span>
+      <span class="t"><i style="width:14.3%;background:#d63a3a"></i></span>
+      <span class="v">3,768 <small>8.5%</small><br><small>1,437 FF</small></span>
+    </div>
+    <div class="part" role="listitem">
+      <span class="l"><i style="background:#ff9f1c"></i><b>Overlay map</b> <small>sixteen entries mapping far slots to the I-LS, slot-aligned</small></span>
+      <span class="t"><i style="width:10.0%;background:#ff9f1c"></i></span>
+      <span class="v">2,637 <small>6.0%</small><br><small>752 FF</small></span>
+    </div>
+    <div class="part" role="listitem">
+      <span class="l"><i style="background:#fff27a"></i><b>Bus, T2, T3, disk</b> <small>the far bus's arbiter and the controllers of the memories behind it</small></span>
+      <span class="t"><i style="width:7.0%;background:#fff27a"></i></span>
+      <span class="v">1,850 <small>4.2%</small><br><small>544 FF</small></span>
+    </div>
+    <div class="part" role="listitem">
+      <span class="l"><i style="background:#7ef05a"></i><b>Transfer Unit</b> <small>the queue of transfers and the hazard checks on Local Store ranges</small></span>
+      <span class="t"><i style="width:5.0%;background:#7ef05a"></i></span>
+      <span class="v">1,332 <small>3.0%</small><br><small>371 FF</small></span>
+    </div>
+    <div class="part" role="listitem">
+      <span class="l"><i style="background:#b38cff"></i><b>ALU, multiplier, divider, decode</b> <small>one adder for addresses, branches and compares, a 4-cycle multiplier, an iterative divider, the decoder</small></span>
+      <span class="t"><i style="width:4.7%;background:#b38cff"></i></span>
+      <span class="v">1,229 <small>2.8%</small><br><small>565 FF</small></span>
+    </div>
+  </div>
+  <p class="note">The parts come from the names Yosys gives the cells (exact for registers and memories, the nearest
+    named signal for logic), so the counts are good to a few percent. 375 of the slices are LUT-RAM: the integer
+    registers, the granule-table copy, the inboxes and the devices' queues.</p>
+
+  <h3 class="sub">Block RAM: 180 of 208</h3>
+  <div class="bars" role="list" aria-label="DP16KD block RAMs by use">
+    <div class="bar" role="listitem"><span class="l">disk (128 KiB)</span><span class="t"><i style="width:100.0%;background:#fff27a"></i></span><span class="v">64</span></div>
+    <div class="bar" role="listitem"><span class="l">I-LS, the core's instructions (64 KiB)</span><span class="t"><i style="width:50.0%;background:#2f6bff"></i></span><span class="v">32</span></div>
+    <div class="bar" role="listitem"><span class="l">D-LS, the core's data (64 KiB)</span><span class="t"><i style="width:50.0%;background:#2f6bff"></i></span><span class="v">32</span></div>
+    <div class="bar" role="listitem"><span class="l">T2, the cluster store (64 KiB)</span><span class="t"><i style="width:50.0%;background:#fff27a"></i></span><span class="v">32</span></div>
+    <div class="bar" role="listitem"><span class="l">T3, system memory's stand-in (32 KiB)</span><span class="t"><i style="width:25.0%;background:#fff27a"></i></span><span class="v">16</span></div>
+    <div class="bar" role="listitem"><span class="l">capability save table</span><span class="t"><i style="width:4.7%;background:#ff5fa2"></i></span><span class="v">3</span></div>
+    <div class="bar" role="listitem"><span class="l">granule table</span><span class="t"><i style="width:1.6%;background:#ff5fa2"></i></span><span class="v">1</span></div>
+    <div class="bar" role="listitem"><span class="l">unused</span><span class="t"><i style="width:43.8%;background:#1b2a40"></i></span><span class="v">28</span></div>
+  </div>
+  <p class="note">Each DP16KD holds 2 KiB. The disk, T2 and the T3 stand-in are there because this system has no DRAM
+    yet; on a board, system memory is DRAM and the disk could be too. Multipliers: 4 of 156 MULT18X18D, the 32&times;32
+    multiplier, which takes four cycles.
+    How the core got this size (from 50,606 to 30,011 LUTs on Xilinx 7-series):
+    <a href="https://github.com/yrashk/strata/blob/main/fpga/README.md#synthesis-numbers"><code>fpga/README.md</code></a>.</p>
+</section>
+
+
+<section class="section" id="sizes">
+  <h2><span class="num">05</span>Sizes by family and core count</h2>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Yosys, after synthesis</th><th class="n">Logic</th><th class="n opt">Flip-flops</th><th class="n opt">Block RAM</th><th class="n opt">Multipliers</th></tr></thead>
+      <tbody>
+        <tr><td>Xilinx 7-series, 1 core</td><td class="n">30,011 LUTs</td><td class="n opt">6,869</td><td class="n opt">88 RAMB36 + 4 RAMB18</td><td class="n opt">4 DSP48E1</td></tr>
+        <tr><td>Xilinx 7-series, 1 core, 8 map entries</td><td class="n">29,078 LUTs</td><td class="n opt">6,495</td><td class="n opt">88 + 4</td><td class="n opt">4</td></tr>
+        <tr><td>Xilinx 7-series, 2 cores</td><td class="n">58,066 LUTs</td><td class="n opt">11,713</td><td class="n opt">120 + 7</td><td class="n opt">8</td></tr>
+        <tr><td>Xilinx 7-series, 6 cores</td><td class="n">168,694 LUTs</td><td class="n opt">31,102</td><td class="n opt">248 + 19</td><td class="n opt">24</td></tr>
+        <tr class="me"><td>Lattice ECP5, 1 core <small>placed and routed: 20.0&nbsp;MHz</small></td><td class="n">41,219 LUT4 sites</td><td class="n opt">6,831</td><td class="n opt">180 DP16KD</td><td class="n opt">4 MULT18X18D</td></tr>
+        <tr><td>Lattice ECP5, 2 cores <small>does not fit</small></td><td class="n">81,654 LUT4 sites</td><td class="n opt">11,683</td><td class="n opt">247 DP16KD</td><td class="n opt">8</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">On the ECP5 a carry cell takes both LUT4 sites of a slice, so "LUT4 sites" counts carries twice: that is
+    the number to compare with the device. The system around the cores: a 64&nbsp;KiB cluster store (T2), a 128&nbsp;KiB
+    block-RAM disk and a 32&nbsp;KiB stand-in for system memory, which is DRAM on a board.</p>
+
+  <h3 class="sub">Against the devices</h3>
+  <div class="bars" role="list" aria-label="Xilinx 7-series LUTs against device sizes">
+    <div class="bar" role="listitem"><span class="l">7-series, 1 core</span><span class="t"><i style="width:14.3%;background:#4de1ff"></i><u style="left:30.2%"></u><u style="left:64.1%"></u><u style="left:97%"></u></span><span class="v">30,011</span></div>
+    <div class="bar" role="listitem"><span class="l">7-series, 2 cores</span><span class="t"><i style="width:27.7%;background:#4de1ff"></i><u style="left:30.2%"></u><u style="left:64.1%"></u><u style="left:97%"></u></span><span class="v">58,066</span></div>
+    <div class="bar" role="listitem"><span class="l">7-series, 6 cores</span><span class="t"><i style="width:80.3%;background:#ffb347"></i><u style="left:30.2%"></u><u style="left:64.1%"></u><u style="left:97%"></u></span><span class="v">168,694</span></div>
+  </div>
+  <p class="marks">Marks: <span><b>63,400</b> Artix-7 100T (Arty A7)</span> <span><b>134,600</b> Artix-7 200T (Nexys Video)</span> <span><b>203,800</b> Kintex-7 325T</span></p>
+  <div class="bars" role="list" aria-label="ECP5 logic and block RAM against the 85F">
+    <div class="bar" role="listitem"><span class="l">ECP5, 1 core: logic cells</span><span class="t"><i style="width:49.2%;background:#4de1ff"></i><u style="left:92.9%"></u></span><span class="v">44,253</span></div>
+    <div class="bar" role="listitem"><span class="l">ECP5, 2 cores: logic cells</span><span class="t"><i style="width:96.6%;background:#d63a3a"></i><u style="left:92.9%"></u></span><span class="v">86,932</span></div>
+    <div class="bar" role="listitem"><span class="l">ECP5, 1 core: block RAM</span><span class="t"><i style="width:69.2%;background:#2f6bff"></i><u style="left:80%"></u></span><span class="v">180</span></div>
+    <div class="bar" role="listitem"><span class="l">ECP5, 2 cores: block RAM</span><span class="t"><i style="width:95%;background:#d63a3a"></i><u style="left:80%"></u></span><span class="v">247</span></div>
+  </div>
+  <p class="marks">Marks: <span><b>83,640</b> logic cells, <b>208</b> block RAMs: the LFE5U-85F, the largest ECP5</span></p>
+</section>
+
+<section class="section" id="fits">
+  <h2><span class="num">06</span>What fits where</h2>
+  <p class="intro">StrataOS needs six cores today: the system core and five servers. One and two cores run bare-metal
+    programs, the boot ROM and Forth.</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Cores</th><th>Device</th><th>Use</th><th class="opt">Tools</th></tr></thead>
+      <tbody>
+        <tr class="me"><td>1</td><td>Lattice LFE5U-85F (Radiona ULX3S)</td><td><b>placed and routed, 20.0&nbsp;MHz</b> (<a href="#die">the die</a>)</td><td class="opt">open: Yosys, nextpnr, Project Trellis</td></tr>
+        <tr><td>1</td><td>Artix-7 100T (Digilent Arty A7)</td><td>47% of the LUTs</td><td class="opt">Vivado, or openXC7</td></tr>
+        <tr><td>2</td><td>Artix-7 100T</td><td>92% of the LUTs: on paper only, too full to route comfortably</td><td class="opt"></td></tr>
+        <tr><td>2</td><td>Artix-7 200T (Digilent Nexys Video)</td><td>43% of the LUTs</td><td class="opt">Vivado, or openXC7</td></tr>
+        <tr><td>2</td><td>any ECP5</td><td>does not fit: 103% of the logic, 118% of the block RAM</td><td class="opt"></td></tr>
+        <tr><td>6 (StrataOS)</td><td>Kintex-7 325T</td><td>83% of the LUTs</td><td class="opt">Vivado</td></tr>
+        <tr><td>6 and more</td><td>Kintex-7 410T / 480T, Virtex-7, UltraScale+</td><td>room to spare</td><td class="opt">Vivado</td></tr>
+        <tr><td>many</td><td>AWS EC2 F1 / F2 (Virtex UltraScale+, over a million LUTs)</td><td>dozens of cores by this count; not tried. Needs Vivado, which the AWS FPGA Developer AMI includes</td><td class="opt">Vivado</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">All but the ECP5 row are synthesis estimates. The block RAM counts leave out the system-memory
+    stand-in, which is DRAM on a board. There is no video output on an FPGA yet: the framebuffer is system memory
+    and nothing scans it out; the console on the UART is the only output.</p>
+</section>
+
+<section class="section" id="open">
+  <h2><span class="num">07</span>The open route</h2>
+  <div class="cards">
+    <div class="card accent"><h3>ECP5: done</h3>
+      <p>Yosys, nextpnr and Project Trellis's chip database take one core from SystemVerilog to a routed design at
+        20&nbsp;MHz in under eight minutes. A bitstream is one more step (<code>ecppack</code>); there is no board top
+        with SDRAM for it yet.</p></div>
+    <div class="card"><h3>Artix-7: next</h3>
+      <p>openXC7 (Yosys, nextpnr-xilinx, Project X-Ray) covers the Artix-7: one core on a 100T, two on a 200T by
+        the LUT counts above. Not tried yet; the Arty top (<code>fpga/arty/</code>) is written for Vivado and LiteDRAM.</p></div>
+    <div class="card"><h3>Six cores</h3>
+      <p>StrataOS's six cores need a Kintex-7 or larger, and Vivado. A StrataOS for fewer cores is designed but paused.</p></div>
+    <div class="card"><h3>ASIC experiment</h3>
+      <p>An open-silicon flow (LibreLane on the GF180MCU process) is under way:
+        <a href="#asic">below</a>, once it has results.</p></div>
+  </div>
+</section>
+
+<section class="section" id="machine">
+  <h2><span class="num">08</span>What is on the chip</h2>
+  <p class="intro">The system the die shows, as the RTL builds it (<code>rtl/strata_top.sv</code>): cores, the far bus,
+    the memories and devices behind it, and the capability machinery between the cores. The colours are the die's.</p>
+  <div class="diagram">
+    <svg viewBox="0 0 960 520" role="img" aria-label="Block diagram: a core with decode, execute, ALU, capability registers, overlay map, two Local Stores and a Transfer Unit; the far bus to system memory, the cluster store and devices; capability inboxes and the revocation granule tables between the cores.">
+      <defs>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L8 4 L0 8 z" fill="#5b7088"/>
+        </marker>
+      </defs>
+      <rect x="16" y="16" width="584" height="368" fill="none" stroke="#1f6f8b" stroke-dasharray="6 4"/>
+      <text x="30" y="40" class="h">core</text><text x="72" y="40" class="m">× N (1 on the ECP5)</text>
+
+      <g>
+        <rect x="32" y="56" width="120" height="56" fill="#b38cff" fill-opacity=".14" stroke="#b38cff"/>
+        <text x="44" y="80" class="h">Decode</text><text x="44" y="100" class="m">one 32-bit word</text>
+        <rect x="168" y="56" width="248" height="112" fill="#4de1ff" fill-opacity=".12" stroke="#4de1ff"/>
+        <text x="180" y="80" class="h">Execute</text>
+        <text x="180" y="100" class="m">multi-cycle state machine</text>
+        <text x="180" y="120" class="m">x0–x31 (LUT-RAM)</text>
+        <text x="180" y="140" class="m">trap CSRs, banked by mode</text>
+        <text x="180" y="160" class="m">ltag / linst sequencer</text>
+        <rect x="432" y="56" width="152" height="112" fill="#b38cff" fill-opacity=".14" stroke="#b38cff"/>
+        <text x="444" y="80" class="h">ALU</text>
+        <text x="444" y="100" class="m">one adder for all</text>
+        <text x="444" y="120" class="m">mul: 4 cycles</text>
+        <text x="444" y="140" class="m">div: iterative</text>
+
+        <rect x="32" y="184" width="264" height="88" fill="#ff5fa2" fill-opacity=".12" stroke="#ff5fa2"/>
+        <text x="44" y="208" class="h">Capabilities</text>
+        <text x="44" y="228" class="m">c0–c15, bounds checks</text>
+        <text x="44" y="248" class="m">save table (block RAM)</text>
+        <text x="44" y="266" class="m">granule-table copy</text>
+        <rect x="312" y="184" width="272" height="88" fill="#ff9f1c" fill-opacity=".12" stroke="#ff9f1c"/>
+        <text x="324" y="208" class="h">Overlay map</text>
+        <text x="324" y="228" class="m">NXMAP entries (16; 8 enough)</text>
+        <text x="324" y="248" class="m">far slot → I-LS, slot-aligned</text>
+
+        <rect x="32" y="288" width="128" height="80" fill="#2f6bff" fill-opacity=".16" stroke="#2f6bff"/>
+        <text x="44" y="312" class="h">I-LS</text><text x="44" y="332" class="m">64 KiB</text><text x="44" y="352" class="m">block RAM</text>
+        <rect x="176" y="288" width="128" height="80" fill="#2f6bff" fill-opacity=".16" stroke="#2f6bff"/>
+        <text x="188" y="312" class="h">D-LS</text><text x="188" y="332" class="m">64 KiB</text><text x="188" y="352" class="m">block RAM</text>
+        <rect x="320" y="288" width="264" height="80" fill="#7ef05a" fill-opacity=".12" stroke="#7ef05a"/>
+        <text x="332" y="312" class="h">Transfer Unit</text>
+        <text x="332" y="332" class="m">tget / tput / tgetx queue</text>
+        <text x="332" y="352" class="m">hazard checks on LS ranges</text>
+      </g>
+
+      <rect x="640" y="16" width="44" height="368" fill="#fff27a" fill-opacity=".12" stroke="#fff27a"/>
+      <text x="668" y="200" class="h" transform="rotate(-90 668 200)" text-anchor="middle">far bus</text>
+      <text x="652" y="376" class="s">one burst at a time</text>
+
+      <rect x="720" y="16" width="224" height="72" fill="#fff27a" fill-opacity=".12" stroke="#fff27a"/>
+      <text x="732" y="40" class="h">T3 system memory</text><text x="732" y="60" class="m">DRAM on a board</text><text x="732" y="78" class="m">(block RAM stand-in)</text>
+      <rect x="720" y="104" width="224" height="64" fill="#fff27a" fill-opacity=".12" stroke="#fff27a"/>
+      <text x="732" y="128" class="h">T2 cluster store</text><text x="732" y="148" class="m">64 KiB block RAM</text>
+      <rect x="720" y="184" width="224" height="200" fill="#d63a3a" fill-opacity=".12" stroke="#d63a3a"/>
+      <text x="732" y="208" class="h">Devices</text>
+      <text x="732" y="230" class="m">console UART</text>
+      <text x="732" y="250" class="m">disk + DMA (bus master)</text>
+      <text x="732" y="270" class="m">timer</text>
+      <text x="732" y="290" class="m">framebuffer registers</text>
+      <text x="732" y="310" class="m">pointer, network</text>
+      <text x="732" y="330" class="m">platform table ROM</text>
+
+      <line x1="584" y1="328" x2="636" y2="328" stroke="#5b7088" stroke-width="2" marker-end="url(#ar)"/>
+      <text x="590" y="320" class="s">TU</text>
+      <line x1="584" y1="96" x2="636" y2="96" stroke="#5b7088" stroke-width="2" marker-end="url(#ar)"/>
+      <text x="590" y="88" class="s">tamo</text>
+      <line x1="684" y1="52" x2="716" y2="52" stroke="#5b7088" stroke-width="2" marker-end="url(#ar)"/>
+      <line x1="684" y1="136" x2="716" y2="136" stroke="#5b7088" stroke-width="2" marker-end="url(#ar)"/>
+      <line x1="684" y1="284" x2="716" y2="284" stroke="#5b7088" stroke-width="2" marker-end="url(#ar)"/>
+
+      <rect x="16" y="416" width="280" height="88" fill="#ff5fa2" fill-opacity=".12" stroke="#ff5fa2"/>
+      <text x="28" y="440" class="h">Capability inboxes</text>
+      <text x="28" y="460" class="m">cgive / ctake between cores</text>
+      <text x="28" y="480" class="m">and the disk; a small RAM each</text>
+      <rect x="312" y="416" width="288" height="88" fill="#ff5fa2" fill-opacity=".12" stroke="#ff5fa2"/>
+      <text x="324" y="440" class="h">Revocation by address</text>
+      <text x="324" y="460" class="m">256 KiB granules, generations</text>
+      <text x="324" y="480" class="m">a walker broadcasts to the cores</text>
+      <rect x="640" y="416" width="304" height="88" fill="#d63a3a" fill-opacity=".12" stroke="#d63a3a"/>
+      <text x="652" y="440" class="h">Core control</text>
+      <text x="652" y="460" class="m">start / stop cores, halted state</text>
+      <line x1="156" y1="384" x2="156" y2="412" stroke="#5b7088" stroke-width="2" marker-end="url(#ar)"/>
+      <line x1="456" y1="384" x2="456" y2="412" stroke="#5b7088" stroke-width="2" marker-end="url(#ar)"/>
+    </svg>
+  </div>
+  <p class="note">Gate-level schematics from Yosys (the system's top level, the divider, the UART) are in
+    <a href="https://github.com/yrashk/strata/tree/main/doc/figures"><code>doc/figures/</code></a>, and the
+    microarchitecture in the <a href="../Strata-Architecture-Reference-Manual.pdf">manual</a>'s implementation chapter.</p>
+</section>
+
+<section class="section" id="reproduce">
+  <h2><span class="num">09</span>Do it yourself</h2>
+  <p class="intro">Yosys and sv2v (Homebrew has both), nextpnr-ecp5 from YosysHQ's
+    <a href="https://github.com/YosysHQ/oss-cad-suite-build">OSS CAD Suite</a> (these results: the 2026-11-10 build,
+    nextpnr 0.11.1), and Python with numpy and Pillow for the pictures.</p>
+  <div class="cmds">
+    <div><code>fpga/synth.sh ecp5 1</code><span>synthesize one core (xc7 or ecp5, any core count, optional overlay map size)</span></div>
+    <div><code>fpga/pnr.sh</code><span>place and route it on an LFE5U-85F with nextpnr</span></div>
+    <div><code>fpga/ecp5-runs.sh 1 2</code><span>all of it for 1 and 2 cores, with both pictures and every stage's time</span></div>
+    <div><code>fpga/ecp5-runs.sh render 1</code><span>redraw the pictures from the kept data alone, in 17 seconds</span></div>
+  </div>
+  <p class="note">The results, logs, the extract the pictures are drawn from and the full-size pictures are kept in
+    <a href="https://github.com/yrashk/strata/tree/main/fpga/results"><code>fpga/results/</code></a> (in Git LFS); the
+    flow and the numbers are explained in <a href="https://github.com/yrashk/strata/blob/main/fpga/README.md"><code>fpga/README.md</code></a>.</p>
+</section>
+
+<!-- ============================================================ ASIC
+     The ASIC section: its own heading, markup and content; nothing in the
+     FPGA sections above depends on it. To be filled by the ASIC work (an open
+     flow, LibreLane on GF180MCU), whose own page is hardware/asic/. -->
+<section class="section" id="asic">
+  <h2><span class="num">10</span>ASIC (open flow, GF180MCU)</h2>
+  <p class="intro">Coming: Strata through an open ASIC flow, LibreLane on GlobalFoundries' 180&nbsp;nm GF180MCU process.
+    Its results and dies will be here, with more at <a href="asic/">hardware/asic/</a>, once they are published.</p>
+</section>
+<!-- ============================================================ end ASIC -->
+
+</main>
+
+<script>
+// The die: the routed picture, or the placement alone (the wiring off), in
+// the same frame; the larger picture and the full-size link follow.
+(function () {
+  const views = {
+    routed: { img: "die-ecp5-1.webp", zoom: "die-ecp5-1-2800.webp", png: "die.png",
+              what: "One core on an LFE5U-85F, placed and routed.",
+              alt: "The placed and routed Strata core on an ECP5-85F: execute in cyan across the top and right, capabilities in pink on the left, devices in red and the bus in yellow along the bottom, the overlay map in orange in the middle, block RAM rows across." },
+    placed: { img: "die-ecp5-1-placed.webp", zoom: "die-ecp5-1-placed-2800.webp", png: "die-placed.png",
+              what: "One core on an LFE5U-85F, the placement alone.",
+              alt: "The same placement without the routing: only the cells, coloured by the part of Strata they belong to." },
+  };
+  const $ = (id) => document.getElementById(id);
+  new Image().src = views.placed.img;          // preload the other view
+  document.querySelectorAll("#die-fig .view button").forEach((b) => {
+    b.addEventListener("click", () => {
+      const v = views[b.dataset.view];
+      $("die-img").src = v.img;
+      $("die-img").alt = v.alt;
+      $("die-zoom").href = v.zoom;
+      $("die-full").href = "https://github.com/yrashk/strata/blob/main/fpga/results/ecp5-1/" + v.png;
+      $("die-path").textContent = "fpga/results/ecp5-1/" + v.png;
+      $("die-what").textContent = v.what;
+      document.querySelectorAll("#die-fig .view button").forEach((o) => o.setAttribute("aria-pressed", o === b));
+    });
+  });
+})();
+</script>
+
+<footer>
+  <div class="bands small" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+  <p><a href="../">Strata</a> ·
+    <a href="../Strata-Architecture-Reference-Manual.pdf">Architecture Reference Manual</a> ·
+    <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
+</footer>
+
+</body>
+</html>

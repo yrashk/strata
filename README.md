@@ -230,6 +230,20 @@ strata$ ws                          # the window server takes the screen
 - **Bare-metal programs run unchanged.** Inbox instructions trap in user
   mode and the dispatcher emulates them, so the examples run as
   time-shared threads on a window of cores.
+- **A second OS can run beside it.** `guest IMAGE [cores] [MiB]` takes free
+  worker cores out of StrataOS's scheduling and boots an untrusted guest
+  operating system on them in supervisor mode, with only an arena (its
+  memory, one revocation domain), a console channel through `tty`, a
+  read-only clock and core control over its own cores. The guest reaches
+  nothing else; `cores` shows its cores as a guest's, and `guest stop ID`
+  **resets** those cores (a core-control reset stops a supervisor that will
+  not yield), revokes everything the guest holds or lent out, and returns
+  the cores to StrataOS. `guest gdemo 2 8` boots a tiny demo guest;
+  `guest ghostile 2 8` is a hostile one whose every out-of-grant access
+  faults (`os/guests/`, `doc/strataos.md` "Guests"). Two small ISA
+  additions make reclaiming a supervisor-mode core sound: a core-control
+  reset request, and a block device that pairs a buffer only with a command
+  from the same core.
 - **The shell** (`sh`) has line editing, history, Tab completion of
   commands and file names, quoting and variables, `;` `&&` `||`, pipelines
   of up to four stages, redirection, background jobs (`jobs`, `fg`, `wait`,

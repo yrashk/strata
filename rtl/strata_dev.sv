@@ -49,8 +49,16 @@
 // capability inbox (node number NCORES). The engine moves the blocks between
 // its storage and the far memory the capability names using its own far-bus
 // port, posts a completion entry, and gives the capability back to the core
-// named in the command. Having the capability is the only way it can touch
-// that memory.
+// that lent it. Having the capability is the only way it can touch that
+// memory. A command is paired only with a buffer from the core that
+// submitted it (each queued command and each held buffer remembers its
+// core): the oldest command waits for its submitter's oldest buffer, and a
+// buffer whose lender has no command queued is an orphan, given straight
+// back (emu.c blk_run). So one core cannot slip a buffer under another's
+// command.
+//
+// Per-core state (a core's waiting break / input / VSYNC / EVENT / RX read)
+// is forgotten when that core takes a core-control reset (core_clr).
 
 module strata_dev
   import strata_pkg::*;
@@ -94,7 +102,9 @@ module strata_dev
   // capability inbox of the block device, and its gifts back to cores
   input  logic        in_push,
   input  cap_t        in_cap,
+  input  logic [7:0]  in_from,               // the core that gives it
   output logic        in_ready,
+  input  logic [NCORES-1:0] core_clr,        // these cores are being reset: forget their waiting reads
   output logic        give_valid,
   output logic [7:0]  give_dst,
   output cap_t        give_cap,
@@ -162,9 +172,11 @@ module strata_dev
   logic [7:0]  sq_buf [32];
   logic [4:0]  sq_fill;
   logic [255:0] cmdq [CMDQ];
+  logic [7:0]  cmdf [CMDQ];   // the core that submitted each command
   logic [2:0]  cmd_cnt;
   logic [1:0]  cmd_head;
   cap_t        capq [CMDQ];
+  logic [7:0]  capf [CMDQ];   // the core that lent each capability
   logic [2:0]  cap_cnt;
   logic [1:0]  cap_head;
   logic [127:0] cq [CQD];
@@ -466,6 +478,12 @@ module strata_dev
           if (done) in_rel[c] <= 0;
         end
         if (ts == T_RUN && t_we && t_port == DEV_CON_REL && wvalid && in_wait[c]) in_rel[c] <= 1;
+        if (core_clr[c]) begin
+          brk_wait[c] <= 0;
+          brk_rel[c]  <= 0;
+          in_wait[c]  <= 0;
+          in_rel[c]   <= 0;
+        end
       end
     end
   end
@@ -500,6 +518,10 @@ module strata_dev
           if (rvalid) net_rel[c] <= 0;
         end
         if (ts == T_RUN && t_we && t_port == DEV_NET_CANCEL && wvalid && net_wait[c]) net_rel[c] <= 1;
+        if (core_clr[c]) begin
+          net_wait[c] <= 0;
+          net_rel[c]  <= 0;
+        end
       end
     end
   end
@@ -532,6 +554,10 @@ module strata_dev
           if (rvalid) ptr_rel[c] <= 0;
         end
         if (ts == T_RUN && t_we && t_port == DEV_PTR_EVENT && wvalid && ptr_wait[c]) ptr_rel[c] <= 1;
+        if (core_clr[c]) begin
+          ptr_wait[c] <= 0;
+          ptr_rel[c]  <= 0;
+        end
       end
     end
   end
@@ -570,6 +596,8 @@ module strata_dev
           end
       end
     end
+    if (!rst)
+      for (int c = 0; c < NCORES; c++) if (core_clr[c]) vs_armed[c] <= 0;
   end
 
 `ifdef SIMULATION
@@ -626,7 +654,7 @@ module strata_dev
   gstate_t     gs;
   logic [255:0] cmd;
   cap_t        gcap;
-  logic [7:0]  op, reply;
+  logic [7:0]  op, reply, ret_to;   // (reply: reserved; the capability goes back to ret_to, its lender)
   logic [15:0] cid;
   logic [31:0] nblk;
   logic [63:0] lba, boff, bytes;
@@ -658,7 +686,7 @@ module strata_dev
   assign disk_rd    = gs == G_RDISK;
   assign disk_wr    = gs == G_RDATA && m_rvalid;
   assign give_valid = gs == G_GIVE;
-  assign give_dst   = reply < 8'(NCORES) ? reply : 8'd0;
+  assign give_dst   = ret_to;
   assign give_cap   = gcap;
 
   always_ff @(posedge clk) begin
@@ -682,10 +710,14 @@ module strata_dev
           for (int i = 0; i < 31; i++) c[8*i +: 8] = sq_buf[i];
           c[255:248] = wdata[7:0];
           cmdq[2'(cmd_head + cmd_cnt[1:0])] <= c;
+          cmdf[2'(cmd_head + cmd_cnt[1:0])] <= t_core;
         end
       end
       // ---- capability inbox
-      if (in_push && in_ready) capq[2'(cap_head + cap_cnt[1:0])] <= in_cap;
+      if (in_push && in_ready) begin
+        capq[2'(cap_head + cap_cnt[1:0])] <= in_cap;
+        capf[2'(cap_head + cap_cnt[1:0])] <= in_from;
+      end
       // ---- completion bytes are consumed one at a time
       if (cq_pop_byte) begin
         cq_byte <= cq_byte + 1;
@@ -698,12 +730,37 @@ module strata_dev
         take_cap = 0;
         post     = 0;
         case (gs)
-          G_IDLE: if (cmd_cnt != 0 && cap_cnt != 0 && cq_cnt != 4'(CQD)) begin
-            cmd      <= cmdq[cmd_head];
-            gcap     <= capq[cap_head];
-            take_cmd = 1;
-            take_cap = 1;
-            gs       <= G_CHECK;
+          G_IDLE: if (cap_cnt != 0 && cq_cnt != 4'(CQD)) begin
+            logic       orphan, found;
+            logic [1:0] k;
+            orphan = 1;                    // the oldest capability's lender has no command queued?
+            for (int i = 0; i < CMDQ; i++)
+              if (3'(i) < cmd_cnt && cmdf[2'(cmd_head + 2'(i))] == capf[cap_head]) orphan = 0;
+            found = 0;                     // the oldest capability of the oldest command's submitter
+            k     = '0;
+            for (int i = CMDQ - 1; i >= 0; i--)
+              if (3'(i) < cap_cnt && cmd_cnt != 0 && capf[2'(cap_head + 2'(i))] == cmdf[cmd_head]) begin
+                found = 1;
+                k     = 2'(i);
+              end
+            if (orphan) begin              // a stray gift: straight back to its lender
+              gcap     <= capq[cap_head];
+              ret_to   <= capf[cap_head];
+              take_cap = 1;
+              gs       <= G_GIVE;
+            end else if (found) begin
+              cmd      <= cmdq[cmd_head];
+              gcap     <= capq[2'(cap_head + k)];
+              ret_to   <= cmdf[cmd_head];
+              take_cmd = 1;
+              take_cap = 1;
+              for (int j = CMDQ - 1; j > 0; j--)     // close the gap: the older ones move up
+                if (2'(j) <= k) begin
+                  capq[2'(cap_head + 2'(j))] <= capq[2'(cap_head + 2'(j - 1))];
+                  capf[2'(cap_head + 2'(j))] <= capf[2'(cap_head + 2'(j - 1))];
+                end
+              gs       <= G_CHECK;
+            end
           end
           G_CHECK: begin
             wi     <= '0;

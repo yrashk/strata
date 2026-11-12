@@ -1,0 +1,50 @@
+==== uptime
+strata$ uptime
+up #.# s, # processes, # context switches (# KiB moved), # kernel code units paged in
+==== free
+strata$ free
+total: # KiB (# MiB)
+free: # KiB (# MiB)
+processes: #
+==== cores
+strata$ cores
+core #: system
+core #: running #, # runnable, # processes, server, solo; # switches, # KiB moved, # slots free
+core #: idle, # runnable, # processes, server; # switches, # KiB moved, # slots free
+core #: idle, # runnable, # processes, server; # switches, # KiB moved, # slots free
+core #: idle, # runnable, # processes, server, solo; # switches, # KiB moved, # slots free
+core #: idle, # runnable, # processes, server; # switches, # KiB moved, # slots free
+core #: idle, # runnable, # processes; # switches, # KiB moved, # slots free
+core #: idle, # runnable, # processes; # switches, # KiB moved, # slots free
+==== ps
+strata$ ps
+ PID PPID STATE CORE CPUS SWITCHES KIB NAME
+ # # running # # # # proc (server)
+ # # blocked # # # # dev (server)
+ # # blocked # # # fs (server)
+ # # blocked # # # # tty (server)
+ # # blocked # # # pipe (server)
+ # # blocked # # # # sh
+ # # blocked # # # # forth
+==== sched
+strata$ sched
+time slice: # us; # switches/s, # KiB/s moved by switches
+==== sched 3ms
+strata$ sched #ms
+==== sched 2000
+strata$ sched #
+==== sched 1x
+strata$ sched #x
+usage: sched [N | Nus | Nms] (#us .. #ms)
+[exit #]
+==== sched 1s
+strata$ sched #s
+usage: sched [N | Nus | Nms] (#us .. #ms)
+[exit #]
+==== units
+strata$ units
+units: # functions of # KiB, chains # calls deep
+paged sum = #
+resident sum= #
+check: ok
+[# code units paged in]

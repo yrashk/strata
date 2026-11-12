@@ -4,14 +4,19 @@
 ;
 ;   cores
 ;   core 0: system
-;   core 1: running 3, 1 runnable, 4 processes, server; 120 switches, 40 KiB moved, 41 slots free
-;   core 5: idle, 0 runnable, 1 processes, exclusive; 0 switches, 0 KiB moved, 53 slots free
+;   core 1: running 3, 1 runnable, 4 processes, server; 120 switches, 40 KiB moved, 2210 cycles/switch, 640 cycles/trap, 41 slots free
+;   core 5: idle, 0 runnable, 1 processes, exclusive; 0 switches, 0 KiB moved, 0 cycles/switch, 412 cycles/trap, 53 slots free
 ;
 ; Asks the process server with sys_cores: one 32-byte record per core (u8
 ; core, u8 pid running (0 none), u8 runnable, u8 processes, u8 flags (1
 ; exclusive, 2 server, 4 solo), u8 free slots of the core's capability save
-; table (its pool: threads and queues), 2 reserved, u32 switches, u32 KiB moved).
+; table (its pool: threads and queues), 2 reserved, u32 switches, u32 KiB moved,
+; u32 cycles per switch, u32 cycles per trap).
 ; Core 0 runs the system (the kernel of the system core, pid 0).
+; The two cycle counts are the worker's dispatcher's own: cycles per switch from
+; deciding to switch to having issued the restore of the next thread (w_out +
+; w_in), averaged over its switches; cycles per trap from a trap's entry to the
+; eret that resumes a thread (idle time not counted), averaged over its traps.
 
         .data                           ; data Local Store
         .align 8                        ; aligned buffer
@@ -34,12 +39,18 @@ m_serv: .ascii ", server"               ; flag text
 m_serv_e:                               ; end of the text above
 m_solo: .ascii ", solo"                 ; flag text
 m_solo_e:                               ; end of the text above
+m_guest: .ascii ", guest"               ; flag text (a guest OS's core)
+m_guest_e:                              ; end of the text above
 m_sw:   .ascii "; "                     ; output text
 m_sw_e:                                 ; end of the text above
 m_swn:  .ascii " switches, "            ; output text
 m_swn_e:                                ; end of the text above
 m_kib:  .ascii " KiB moved, "           ; output text
 m_kib_e:                                ; end of the text above
+m_cps:  .ascii " cycles/switch, "       ; output text
+m_cps_e:                                ; end of the text above
+m_cpt:  .ascii " cycles/trap, "         ; output text
+m_cpt_e:                                ; end of the text above
 m_slot: .ascii " slots free\n"          ; output text
 m_slot_e:                               ; end of the text above
 m_comma: .ascii ", "                    ; output text
@@ -118,9 +129,16 @@ f_serv:
 f_solo:
         lbu   t0, 4(s1)                 ; solo?
         andi  t0, t0, 4                 ; ...
-        beqz  t0, f_done                ; no
+        beqz  t0, f_guest               ; no
         la    a0, m_solo                ; ", solo"
         li    a1, m_solo_e - m_solo     ; ...
+        call  out_str                   ; ...
+f_guest:
+        lbu   t0, 4(s1)                 ; a guest's core?
+        andi  t0, t0, 8                 ; (CF_GUEST)
+        beqz  t0, f_done                ; no
+        la    a0, m_guest               ; ", guest"
+        li    a1, m_guest_e - m_guest   ; ...
         call  out_str                   ; ...
 f_done:
         la    a0, m_sw                  ; "; "
@@ -135,6 +153,16 @@ f_done:
         call  out_dec                   ; ...
         la    a0, m_kib                 ; " KiB moved, "
         li    a1, m_kib_e - m_kib       ; ...
+        call  out_str                   ; ...
+        lwu   a0, 16(s1)                ; cycles per switch
+        call  out_dec                   ; ...
+        la    a0, m_cps                 ; " cycles/switch, "
+        li    a1, m_cps_e - m_cps       ; ...
+        call  out_str                   ; ...
+        lwu   a0, 20(s1)                ; cycles per trap
+        call  out_dec                   ; ...
+        la    a0, m_cpt                 ; " cycles/trap, "
+        li    a1, m_cpt_e - m_cpt       ; ...
         call  out_str                   ; ...
         lbu   a0, 5(s1)                 ; free save-table slots
         call  out_dec                   ; ...

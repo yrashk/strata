@@ -530,7 +530,7 @@ static void cmd_break(char *args, bool temp) {
   jw_obj(&w, NULL);
   jw_str(&w, "cmd", temp ? "tbreak" : "break");
   if (!k) { snprintf(cond, sizeof cond, "0x%x", 0); k = NULL; }
-  if (k && (!strcmp(k, "trap") || !strcmp(k, "svc") || !strcmp(k, "eret") || !strcmp(k, "halt") || !strcmp(k, "capop") ||
+  if (k && (!strcmp(k, "trap") || !strcmp(k, "svc") || !strcmp(k, "eret") || !strcmp(k, "halt") || !strcmp(k, "reset") || !strcmp(k, "capop") ||
             !strcmp(k, "pid") || !strcmp(k, "process"))) {
     char *v = word(&a);
     jw_str(&w, "kind", !strcmp(k, "process") ? "pid" : k);
@@ -718,7 +718,8 @@ static void info_cores(void) {
     char w[256];
     where(w, sizeof w, e, "pc");
     fprintf(out, "%c core %-2d %-5s %s", c == cur ? '*' : ' ', c, S(e, "mode"), json_bool(json_get(e, "halted"), false) ? "halted" : w);
-    if (json_get(e, "pid")) fprintf(out, "  pid %d %s", json_int(json_get(e, "pid"), 0), S(e, "proc"));
+    if (json_get(e, "guest")) fprintf(out, "  guest %d", json_int(json_get(e, "guest"), 0));
+    else if (json_get(e, "pid")) fprintf(out, "  pid %d %s", json_int(json_get(e, "pid"), 0), S(e, "proc"));
     if (!json_bool(json_get(e, "halted"), false)) fprintf(out, "  %s", S(e, "insn"));
     const JVal *st = json_get(e, "stall");
     if (st) fprintf(out, "\n      stalled since round %llu: %s", (unsigned long long)json_u64(json_get(st, "since"), 0), S(st, "why"));
@@ -783,6 +784,16 @@ static void info_list(const char *cmd, int c) {
       fprintf(out, "%5d %6d %5d %5d %d  %-8s %s\n", json_int(json_get(e, "pid"), 0), json_int(json_get(e, "parent"), 0),
               json_int(json_get(e, "state"), 0), json_int(json_get(e, "core"), 0), json_int(json_get(e, "ncores"), 0),
               run[0] ? run : "-", S(e, "name"));
+    }
+    const JVal *g = json_get(r, "guests");
+    for (const JVal *e = g ? g->kid : NULL; e; e = e->next) {
+      char cs[64] = "";
+      const JVal *cl = json_get(e, "cores");
+      for (const JVal *k = cl ? cl->kid : NULL; k; k = k->next) {
+        size_t l = strlen(cs);
+        snprintf(cs + l, sizeof cs - l, "%s%d", l ? "," : "", json_int(k, 0));
+      }
+      fprintf(out, "guest %d on cores %s (a second OS)\n", json_int(json_get(e, "id"), 0), cs);
     }
   } else if (!strcmp(cmd, "granules")) {
     const JVal *a = json_get(r, "units");
@@ -938,6 +949,7 @@ static void cmd_log(int n) {
     else if (!strcmp(k, "stall")) fprintf(out, " rounds %llu..%llu %s", (unsigned long long)json_u64(json_get(e, "from"), 0), (unsigned long long)json_u64(json_get(e, "to"), 0), S(e, "reason"));
     else if (!strcmp(k, "eret")) fprintf(out, " %s -> %s%s", S(e, "from"), S(e, "to"), json_bool(json_get(e, "user"), false) ? " (user)" : "");
     else if (!strcmp(k, "halt")) fprintf(out, " a0 %s", S(e, "a0"));
+    else if (!strcmp(k, "reset")) fprintf(out, " by core %d at %s", json_int(json_get(e, "by"), 0), S(e, "pc"));
     else if (!strcmp(k, "dom") || !strcmp(k, "revoke") || !strcmp(k, "undom")) fprintf(out, " %s 0x%llx+0x%llx gen %d", S(e, "space"), (unsigned long long)hexv(json_get(e, "base")), (unsigned long long)hexv(json_get(e, "len")), json_int(json_get(e, "gen"), 0));
     if (json_get(e, "pid")) fprintf(out, "  [pid %d]", json_int(json_get(e, "pid"), 0));
     fputc('\n', out);

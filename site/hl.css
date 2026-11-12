@@ -49,3 +49,16 @@
 .hl .addr { color: var(--s-com); }
 /* a coloured block takes the font and colour of the box it sits in */
 pre > code.language-strata-asm, pre > code.language-forth { font: inherit; color: inherit; }
+/* hover help (hl.js): a mnemonic or Forth word with documentation, and its one-line tip */
+.hl .hl-doc { cursor: help; }
+.hl .hl-doc:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
+.hl-tip {
+  position: fixed; z-index: 60; max-width: min(520px, 92vw); padding: 5px 10px;
+  font: 12.5px/1.45 var(--mono, ui-monospace, monospace); color: var(--text, #cfe8ff); background: rgba(9, 14, 26, 0.98);
+  box-shadow: 0 0 0 1px var(--cyan, #4de1ff), 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+.hl-tip[hidden] { display: none; }
+.hl-tip code { color: var(--cyan, #4de1ff); margin-right: 2px; }
+.hl-tip .hl-tip-e { color: var(--dim, #5b7088); }
+.hl-tip a { color: var(--amber, #ffb347); text-decoration: none; margin-left: 6px; font-weight: 600; }
+.hl-tip a:hover { color: #fff; }

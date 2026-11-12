@@ -5,6 +5,7 @@
 
 #define DLS_BYTES 65536u
 #define ILS_BYTES 65536u
+#define BOOTROM_BYTES 4096u /* what a core-control reset reloads: the first 4 KiB of each Local Store's boot image (the boot ROM); the rest is cleared */
 #define T2_BYTES  262144u
 #define T3_BYTES  0x4000000u /* 64 MiB; the top 16 MiB is the framebuffer window */
 #define GRAN_SHIFT 18        /* revocation granules of T2 and T3: 256 KiB */

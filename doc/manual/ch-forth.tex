@@ -196,3 +196,64 @@ and \texttt{dump}. Compiling \texttt{core.fs} at power-on takes about one millio
 Strata Forth runs on the bare machine. A program of its kind under StrataOS, which installs code at
 run time, declares its far mirror to the kernel as a code mirror, so that a context switch reloads the
 I-LS from it (Section~\ref{sec:os-switch}).
+
+\subsection{Code paging}\label{sec:forth-paging}
+Under StrataOS a program has 32~KiB of I-LS. A Forth of one thread keeps only its kernel there:
+16~KiB, its code mirror. Everything compiled after it, \texttt{core.fs} on, goes into \emph{code
+units}: 2~KiB slot-aligned pieces of a store in far memory (104~KiB of \reg{c0}), each holding whole
+definitions. StrataOS pages them (Section~\ref{sec:os-paging}): the program sets \csr{xslot} to 11,
+a call of a unit that is not in the I-LS misses, and the dispatcher copies the unit into a slot of
+the code cache, the I-LS after the mirror (seven slots), maps it with \insn{xmap} and retries.
+Forth's own trap handler, which turns faults into \texttt{throw}s, gets the miss first and hands it
+over with svc PAGE.
+
+A unit's code runs in whatever slot it got, so the compiler makes it independent of its place. A
+call of another unit, or of a word in the same one, is \texttt{addi t5, tp, \textit{offset}} and
+\insn{xcall}~\texttt{ra, c0, t5}, which leaves a far link: the return pages the caller back in if it
+was evicted meanwhile. A call of the kernel is \texttt{jalr ra, gp, \textit{offset}} (\reg{gp} holds
+\hex{10000}), a plain link, safe because the kernel never pages, except for the few kernel words that
+run code they are given (\texttt{execute}, \texttt{catch}, \texttt{evaluate}, \texttt{included},
+\ldots): those are reached through their entries in a gateway unit, by \insn{xcall}, and return with
+\insn{xret}. The prologue and the return go through \reg{gp} to the kernel's shared ones. An execution
+token is the code's address: an I-LS address for the kernel, a far offset for a unit. A definition is
+staged as before and placed at \texttt{;}: where the last one ended, or at the start of the next unit
+if it does not fit there (its few absolute references to itself move with it); installing it is a
+\insn{tput} to the unit, after which the overlay map is cleared, since a stale copy may be in the
+cache. A definition must fit in a unit. The dispatcher puts a program's cache back as it was after
+every context switch, since a slot may hold the code a plain link, or the interrupted program
+counter, leads back to. With threads (\texttt{forth -n N}) every word is resident, as before: a
+worker installs the code from the parcel it is lent.
+
+The editor \texttt{lang/forth/vi.fs}, the Forth port of StrataOS's \texttt{vi}
+(Section~\ref{sec:os-vi}), is some 60~KiB of code in units, with no annotations; a key costs about
+what it did when the editor was built on code overlays of its own (54~K instructions). Its byte loops
+are code words assembled by \texttt{core.fs}'s assembler. Data space is its limit (16~KiB holds a
+chunk of text, the line being edited and every word's name), so its text, undo history, register,
+keyword tables and message texts are in far memory.
+
+\subsection{The ports of StrataOS's programs}\label{sec:forth-progs}
+Twenty-two of StrataOS's programs are also written in Strata Forth, \texttt{lang/forth/progs/},
+and run as \texttt{forth NAME.fs ARGS}: the same arguments, output, error messages and exit codes,
+in pipes and with redirections. At the Forth prompt \texttt{include NAME.fs} defines the word
+\texttt{NAME}, which runs the program on the rest of its line.
+
+\begin{center}\small
+\begin{tabular}{@{}l l@{}}
+\toprule
+\textbf{Ports} & \textbf{What they are}\\\midrule
+\texttt{seq cat upper wc grep hexdump} & data through standard input and output, a disk block\\
+\texttt{touch rm cp mv tag untag retag tags ls} & files and tags, through the file server\\
+\texttt{df free uptime devs cores ps sched} & status reports from \texttt{fs}, \texttt{proc} and \texttt{dev}\\
+\texttt{spin units} & a busy loop; 24 functions of 1~KiB, each in a code unit of its own\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+They share a library, \texttt{sys.fs} (the command line, standard input by lines, standard error,
+messages to the servers; about 2.9~KiB of code). The disk's directory has room for 128 files, so
+the ports are packed into one, \texttt{progs.pk}: \texttt{included}, given a name that is no file,
+runs the word in a kernel variable instead, and that includes the pack, whose head
+(\texttt{progs.fs}) finds the port in its index and interprets that part of the pack's text. A start costs about 2.5~M instructions more
+than the assembly program; past that, with the byte loops as code words, a long input takes about
+1.1 to 1.8 times its instructions. \texttt{tools/test-fs-progs.sh} runs every port against its
+assembly program.

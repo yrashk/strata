@@ -33,25 +33,44 @@ variable pc                                     \ the instruction being shown
 : dis-branch ( insn op -- )
   $20 - s" beq  bne  blt  bge  bltu bgeu " rot (name) space
   dup 21 5 field reg. ., dup 16 5 field reg. ., 0 16 field 16 sext cells 2/ pc @ + target. ;
-: dis ( insn -- )                                \ one instruction
-  dup 26 6 field case
-    0 of dis-alu endof
-    $0A of ." lui  " dup 21 5 field reg. ., 0 16 field 16 sext . endof
-    $28 of dup 21 5 field case 0 of ." j    " endof 1 of ." call " endof ." jal  " dup reg. ., endcase
-           0 21 field 21 sext cells 2/ pc @ + target. endof
-    $29 of dup $03ffffff and $10000 = if drop ." ret" else
-           ." jalr " dup 21 5 field reg. ., dup 16 5 field reg. ., 0 16 field 16 sext . then endof
-    $30 of dup 23 3 field s" tget tput tgetx" rot (name) ."  tg" dup 19 4 field 0 .r .,
-           dup 14 5 field reg. ., ." c" dup 10 4 field 0 .r ., dup 5 5 field reg. ., 0 5 field reg. endof
+: dis-jal ( insn -- )
+  dup 21 5 field case 0 of ." j    " endof 1 of ." call " endof ." jal  " dup reg. ., endcase
+  0 21 field 21 sext cells 2/ pc @ + target. ;
+: dis-jalr ( insn -- )                           \ through gp (paged code): a resident word
+  dup $03ffffff and $10000 = if drop ." ret" exit then
+  ." jalr " dup 21 5 field reg. ., dup 16 5 field dup reg. ., swap 0 16 field 16 sext
+  swap 3 = if $10000 + target. else . then ;
+: dis-xfer ( insn -- )
+  dup 23 3 field s" tget tput tgetx" rot (name) ."  tg" dup 19 4 field 0 .r .,
+  dup 14 5 field reg. ., ." c" dup 10 4 field 0 .r ., dup 5 5 field reg. ., 0 5 field reg. ;
+: dis-x ( insn -- )                              \ the overlay map: xcall, xret, xmap, xunmap
+  dup 26 6 field $3E = if
+    dup 4 rshift 1 and if ." xret " 16 5 field reg. exit then
+    ." xcall " dup 21 5 field reg. ., ." c" dup 0 4 field 0 .r ., 16 5 field reg. exit then
+  dup 4 rshift 1 and if ." xunmap " 21 5 field . exit then
+  ." xmap " dup 21 4 field 0 .r ., dup 16 5 field reg. ., ." c" dup 0 4 field 0 .r ., 11 5 field reg. ;
+: dis-sys ( insn op -- )
+  case
     $31 of ." twait " 0 16 field h. endof
     $33 of ." tamo " h. endof
     $34 of ." cap-op " h. endof
     $38 of ." csrr " dup 21 5 field reg. ., 0 16 field . endof
     $3A of ." sys " 0 16 field . endof
+    ." .word " over h. nip
+  endcase ;
+: dis ( insn -- )                                \ one instruction
+  dup 26 6 field case
+    0 of dis-alu endof
+    $0A of ." lui  " dup 21 5 field reg. ., 0 16 field 16 sext . endof
+    $28 of dis-jal endof
+    $29 of dis-jalr endof
+    $30 of dis-xfer endof
+    $3D of dis-x endof
+    $3E of dis-x endof
     dup 1 $0A within if dup >r dis-imm r> else
     dup $20 $26 within if dup >r dis-branch r> else
     dup $10 $1C within if dup >r dis-ldst r> else
-    ." .word " over h. nip then then then
+    tuck dis-sys then then then
   endcase ;
 : disasm ( a u -- )                              \ disassemble u bytes of code at a
   base @ >r hex
@@ -59,7 +78,8 @@ variable pc                                     \ the instruction being shown
   r> base ! ;
 : .flags ( nt -- )
   name>flags  dup 1 and if ." immediate " then  dup 2 and if ." inline " then
-  dup 8 and if ." created " then  dup 16 and if ." constant " then  32 and if ." value " then ;
+  dup 8 and if ." created " then  dup 16 and if ." constant " then  dup 32 and if ." value " then
+  64 and if ." pages " then ;
 : see ( "name" -- )                              \ show a word's machine code
   parse-name 2dup find-name ?dup 0= if type -13 throw then nip nip
   cr ." : " dup name>string type ."   ( xt " dup name>xt h. ." , " dup name>size . ." bytes) " dup .flags

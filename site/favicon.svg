@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Strata: the storage strata (Local Stores, cluster store, system memory, devices), as on the manual's cover -->
+  <rect width="32" height="32" rx="6" fill="#070a12"/>
+  <rect x="5" y="5"  width="10" height="4" rx="1" fill="#4de1ff"/>
+  <rect x="5" y="11" width="15" height="4" rx="1" fill="#4de1ff" opacity="0.8"/>
+  <rect x="5" y="17" width="19" height="4" rx="1" fill="#ffb347"/>
+  <rect x="5" y="23" width="22" height="4" rx="1" fill="#1f9fc4"/>
+</svg>

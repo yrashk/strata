@@ -233,6 +233,8 @@ resolv                        184  etc
 forth.html                   3158  www
 index.html                   2789  www
 style.css                    1312  www
+gdemo                         312  guest
+ghostile                      616  guest
 tfile                          11 
 f1                             15 
 s1                             33 
@@ -241,6 +243,7 @@ f3                              0
 doc/
 etc/
 www/
+guest/
 strata$ cat /proj/p2
 two
 strata$ cat /proj/todo/p2 

@@ -1,0 +1,53 @@
+; =============================================================================
+; os/guests/gdemo.s: a tiny guest OS image for StrataOS's guest mechanism
+; =============================================================================
+; A bare STX image StrataOS boots as a GUEST on whole cores in supervisor mode,
+; beside itself (doc/strataos.md, "Guests"). Boot registers (os/kunits/guest.s):
+;   a0 = relative core, c0 = arena (core 0), c1 = console endpoint (tty),
+;   c2 = clock, c3 = core control (own cores).
+; Relative core 0 prints a banner through the console endpoint, then spins;
+; every other core spins. StrataOS ends the guest by revoking its arena and
+; resetting its cores.
+
+OP_WRITE = 2                            ; tty: write the data to the console
+STACKTOP = 0x10000                      ; top of the D-LS
+
+        .data                           ; D-LS
+        .align 8                        ; ...
+hdr:    .space 64                       ; message header
+cnt:    .dword 0                        ; a liveness counter
+s_ban:  .ascii "guest: a second OS is live on its own cores, beside StrataOS.\n"
+s_ban_e:
+
+        .text                           ; entry at 0
+_start:
+        li    sp, STACKTOP              ; a stack
+        bnez  a0, spin                  ; relative core 1+: just spin
+        clen  t0, c0                    ; carve a 4 KiB console buffer from the TOP of the arena
+        addi  t0, t0, -4096             ; (csplit keeps [0, x) in cs and gives [x, len) to cd,
+        csplit c6, c0, t0               ;  so split at len-4096: c6 = the last 4 KiB, c0 = the rest)
+        la    t0, hdr                   ; build the WRITE header
+        sd    zero, 0(t0)               ; ...
+        sd    zero, 8(t0)               ; ...
+        sd    zero, 16(t0)              ; ...
+        sd    zero, 24(t0)              ; ...
+        sd    zero, 32(t0)              ; ...
+        li    t1, OP_WRITE              ; op
+        sd    t1, 0(t0)                 ; ...
+        la    t2, s_ban                 ; length of the banner
+        la    t3, s_ban_e               ; ...
+        sub   t3, t3, t2                ; ...
+        sd    t3, 16(t0)                ; ...
+        li    t1, 64                    ; the header -> the buffer
+        tput  tg0, t0, c6, zero, t1     ; ...
+        la    t0, s_ban                 ; the banner text -> buffer offset 64
+        li    t1, 64                    ; ...
+        addi  t3, t3, 7                 ; (transfers to far memory are 8-aligned: round up)
+        srli  t3, t3, 3                 ; ...
+        slli  t3, t3, 3                 ; ...
+        tput  tg0, t0, c6, t1, t3       ; ...
+        twait 1                         ; ...
+        csend c6, c1                    ; lend the buffer to the tty server
+        ctake c6                        ; the reply: the buffer comes back
+spin:
+        j     spin                      ; spin forever (StrataOS ends us with a reset)

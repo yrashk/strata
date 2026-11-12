@@ -85,8 +85,8 @@ ws & the window server, started on demand: owns the framebuffer and, while it ru
 \end{table}
 
 The kernel shares no memory with processes and almost none between its own cores. The system core and
-the dispatchers coordinate through the \term{kernel shared table}, 32~KiB of system memory that every
-core reaches through a copy of one \emph{atomic} capability: the system core posts job records, kills
+the dispatchers coordinate through the \term{kernel shared table}, 32~KiB of the cluster store (T2) that
+every core reaches through a copy of one \emph{atomic} capability: the system core posts job records, kills
 and notifications there, and each dispatcher publishes its run-queue length, its counters and its exit
 events. All access is by far atomics, which is the only way several cores can touch the same memory.
 
@@ -111,8 +111,11 @@ D-LS & \hex{E000}--\hex{FFFF} & the running program's stack\\
 The system core uses the program ranges for itself: its I-LS \hex{8000}--\hex{FFFF} is the kernel's code
 cache (Section~\ref{sec:os-kpaging}) and its D-LS \hex{0000}--\hex{9FFF} holds the kernel's tables.
 
-System memory is used as follows: $[0, 32~\text{KiB})$ the kernel shared table; $[32, 64~\text{KiB})$ the
-system core's own message buffers; the \term{arena pool}, $[1, 15~\text{MiB})$ and $[16, 48~\text{MiB})$
+The cluster store holds the kernel shared table in its first 32~KiB, where an atomic takes about 7 bus
+cycles instead of 23 in system memory (on a platform whose T2 is smaller, the table takes system
+memory's first 32~KiB). T2 is a single revocation granule and can only be revoked whole, so it holds
+nothing but the kernel's own. System memory is used as follows: $[0, 32~\text{KiB})$ unused (the
+table's place without T2); $[32, 64~\text{KiB})$ the system core's own message buffers; the \term{arena pool}, $[1, 15~\text{MiB})$ and $[16, 48~\text{MiB})$
 (46~MiB; the boot ROM's load area lies between); and the framebuffer window $[48, 64~\text{MiB})$, which the
 kernel makes a revocable region of its own at boot and lends to the window server.
 
@@ -332,8 +335,9 @@ D-LS data & the thread's \term{data extent}, from address 0 to the end of its da
 D-LS stack & only the live part, from \reg{sp} to \hex{10000}\\
 I-LS code & never saved: it is read-only. It is reloaded with \insn{tgetx} from the image in the
   thread's arena, or from the program's code mirror\\
-Code cache, overlay map & not saved: the \insn{tgetx} that reloads the code invalidates the map, and
-  units are paged in again on demand\\
+Code cache, overlay map & the units the dispatcher paged in are recorded per thread, a slot each: on
+  switch-in the map is cleared and every recorded unit is copied back into its slot and mapped again,
+  so that an interrupted unit, and a return address into a slot, find their code where it was\\
 Software cache & its CSRs are restored; its tag table and lines are data and travel with the data extent\\
 \bottomrule
 \end{tabularx}
@@ -344,6 +348,20 @@ every byte of a switch is a byte moved by a transfer. A switch between two small
 kilobytes; one between two programs that each use their whole data extent moves more than a hundred.
 The dispatcher counts context switches and bytes moved per process and per core; \texttt{ps},
 \texttt{cores}, \texttt{uptime} and \texttt{sched} print them, and the window server draws them.
+It also times itself with \csr{cycle}: \texttt{cores} shows, per core, its cycles per switch (from
+deciding to switch to having issued the next thread's restore) and per trap (from the trap to the
+\insn{eret} that resumes a thread, idle time not counted).
+
+The dispatcher waits for none of these transfers. A far atomic, \insn{cgive} and \insn{csend} wait until
+none of the core's memory transfers is in flight (the publication rule), so every atomic of a switch
+(the counters, the published slot states, the running process) is made before its first transfer, when
+the sizes are already known. The save need not complete before the restore begins, because one core's
+transfers take effect on the Local Store side, as on the far side, in issue order (invariant I2,
+Chapter~\ref{ch:model}); a store that would overwrite bytes still being read waits (I1). The save
+and the restore use transfer tags of their own (\reg{tg12}--\reg{tg15}), so that no issue waits for a
+busy tag, and the thread is resumed while its D-LS and code are still arriving: by the
+as-if-synchronous rule (Section~\ref{sec:asif}) it cannot tell, since every access to bytes in flight
+waits for them.
 
 Two supervisor calls let a program reduce or correct what a switch does.
 
@@ -356,9 +374,41 @@ Two supervisor calls let a program reduce or correct what a switch does.
   with \insn{tgetx} from its arena. The image no longer describes the I-LS of such a program, and the
   dispatcher cannot read the I-LS to save it. The program therefore declares a \term{code mirror}: a
   range of its arena that holds a copy of its I-LS program range from \hex{8000}. From then on the
-  dispatcher reloads the code from the mirror on every switch-in. Keeping the mirror current is the
-  program's job, and costs nothing: the code is written to far memory before it is installed anyway.
+  dispatcher reloads the code from the mirror on every switch-in, and the code cache (code paging,
+  Section~\ref{sec:os-paging}) starts after it: a program that generates code and has it paged keeps
+  only its resident part in the mirror (Strata Forth, Section~\ref{sec:forth-paging}). Keeping the
+  mirror current is the program's job, and costs nothing: the code is written to far memory before it
+  is installed anyway.
 \end{description}
+
+\subsection{What the next process may see}\label{sec:os-isolate}
+
+What a switch leaves out, the D-LS above the data extent, below the live stack and in a scratch range,
+still holds the previous thread's bytes, and the next one could read them. So the dispatcher remembers
+whose bytes its D-LS holds. When it loads a thread of another process, and on a thread's first load,
+it restores the thread's whole D-LS, \hex{0000}--\hex{9FFF} and \hex{E000}--\hex{FFFF} (48~KiB, two
+\insn{tget}s), from the save area instead of only the extent and the stack. Outside those the save area
+holds zeros: the arena is scrubbed when MEMORY hands it out, CREATE accepts only such arenas, the
+program cannot reach its save area, and a switch writes there only the extent and the live stack.
+What it holds is therefore zeros or older bytes of the same thread, never another process's. A first
+load takes the zeros and then the image's data section on top (the transfers act in issue order),
+which replaces a 40~KiB store loop. A thread that returns to a core where nothing else ran meanwhile
+gets back only its extent and stack, as before. \texttt{tools/test-isolate.sh} checks this with
+two copies of \texttt{tools/dlsgap.s} on one core: one fills its gaps with a pattern, the other must
+never find it in its own, at its first load and after each switch back.
+
+The I-LS above a program's resident code still holds the previous program's code and code-cache units.
+Nothing can read it: loads and \insn{tget} use the D-LS, \insn{tgetx} only writes the I-LS, \insn{ltag}
+and \insn{linst} work on the D-LS tag table, and \insn{xcall} and \insn{xret} reach code only through
+the overlay map, which every switch-in clears. A program could only jump into that code and execute it;
+overwriting it would cost up to 32~KiB of far-bus traffic per switch, and it is not done.
+
+Neither Local Store is protected from user mode: loads, stores and \insn{tgetx} reach every address,
+including the dispatcher's own data at \hex{A000}--\hex{DFFF} (which holds the records, and so the saved
+registers, of the other threads on the core) and its code. Isolation between the processes on one core
+is therefore against disclosure to programs that read memory they did not write, not against a hostile
+program, which only a hardware bound on user-mode Local Store addresses would stop. Far memory is
+protected by capabilities either way.
 
 \section{Emulating the inbox}\label{sec:os-emul}
 
@@ -458,7 +508,9 @@ $-1$ for none.
 4 & YIELD & let the core's other runnable threads run\\
 5 & EXIT & \reg{a1} = exit code. \insn{halt} also exits, with the code in \reg{a0}\\
 6 & NOTIFY\_WAIT & \reg{a2} = timeout. Blocks until a notification; returns its bits, or $-8$\\
-7 & SET\_MIRROR & \reg{a1} = arena offset of the code mirror, \reg{a2} = its length (Section~\ref{sec:os-switch})\\
+7 & SET\_MIRROR & \reg{a1} = arena offset of the code mirror, \reg{a2} = its length
+  (Section~\ref{sec:os-switch}); the code cache starts after it, and is emptied. Returns 0, and
+  \reg{a1} = $\textit{NXMAP}$, the overlay map's entries\\
 8 & PARK & servers. The request in \reg{c6} is kept by the kernel; returns its id\\
 9 & UNPARK & servers. \reg{a1} = id; the parked request returns to \reg{c6}\\
 10 & CLOCK & the clock capability is put in \reg{c7} again\\
@@ -468,6 +520,11 @@ $-1$ for none.
   then the buffer in \reg{c5} through the endpoint, with nothing of this core in between, rings the
   destination and waits as WAIT\_REPLY does. $-1$, with nothing sent, if a register is empty or is not a
   send endpoint\\
+13 & UNITS & returns the code units the dispatcher has paged in for the thread, and in \reg{a1} the
+  slots of its code cache that hold one\\
+14 & PAGE & \reg{a1} = a missed far address, \reg{a2} = the pc of the miss: a program with its own trap
+  handler, which gets its misses, hands one to the dispatcher, which pages the unit in as for a miss
+  of its own and resumes the program at once; 0, or 1 if it cannot (Section~\ref{sec:os-paging})\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -849,24 +906,34 @@ to the dispatcher, which:
 \item takes the far address from \csr{tval} (clearing bit~63 for a return), and rejects the miss if
   \csr{xslot} is 0, the program no longer holds \reg{c0}, \reg{c0}'s base is not a multiple of the
   slot size (\insn{xmap} needs aligned units), or the unit is not a whole slot inside it;
-\item uses the I-LS from the end of the program's resident code, rounded up to a slot, to \hex{10000}
-  as the code cache, at most one slot per overlay map entry ($\textit{NXMAP}$, which the kernel takes
-  from the platform table), replaced round robin;
-\item loads the unit into the victim slot with \insn{tgetx}, maps it with \insn{xmap} and resumes the
-  program at the instruction that missed.
+\item uses the I-LS from the end of the program's resident code (or of its code mirror, if that ends
+  later), rounded up to a slot, to \hex{10000} as the code cache, at most one slot per overlay map
+  entry ($\textit{NXMAP}$, which the kernel takes from the platform table), replaced round robin, never
+  the slot of the instruction that missed;
+\item loads the unit into the victim slot with \insn{tgetx}, records it as that slot's unit, maps it
+  with \insn{xmap} and resumes the program at the instruction that missed.
 \end{itemize}
-A miss the dispatcher cannot serve ends the program with a fault of cause \cause{xmiss}. The
-\texttt{units} program runs 24 one-KiB units through sixteen slots (eight on an eight-entry platform) with call chains seven deep and
-checks its result against the same computation done by resident code. After a context switch the
-cache is empty and refills on demand.
+A miss the dispatcher cannot serve ends the program with a fault of cause \cause{xmiss}. A program
+with its own trap handler gets its misses there and passes them on with svc PAGE (Strata Forth does).
+The cache is part of the thread's state: after a context switch every recorded unit is back in its
+slot (Section~\ref{sec:os-switch}), so the unit that was running, and one that a plain return address
+leads back to (code in a unit may call resident code with \insn{jalr}), are where they were;
+\texttt{UNITS} counts the misses. The \texttt{units} program runs 24 one-KiB units through sixteen
+slots (eight on an eight-entry platform) with call chains seven deep and checks its result against the
+same computation done by resident code.
 
 \subsection{The kernel pages itself}\label{sec:os-kpaging}
 
 The resident kernel is the 16~KiB at I-LS \hex{4000}--\hex{7FFF} of every core: the dispatcher, and on
 the system core the event loop and the paging handler. Everything the system core does rarely
 (start-up, creating and destroying processes, memory, statistics, exits) is \term{kernel code units}:
-27 units of 2~KiB in the kernel image's \texttt{.far} section, which the boot ROM loads into the load
-area and hands to core 0 as the far image share \reg{c12} (Section~\ref{sec:boot}).
+32 units of 2~KiB in the kernel image's \texttt{.far} section, which the boot ROM loads into the load
+area and hands to core 0 as the far image share \reg{c12} (Section~\ref{sec:boot}). When start-up is
+over, the system core copies the units into the cluster store after the shared table, through its D-LS
+(there is no far-to-far transfer), and makes \reg{c12} a read+execute share of the copy, so that a unit
+starts arriving after T2's 4 bus cycles instead of system memory's 20. It does this from resident
+code, where no far link into the old image remains, and only if the units fit beside the table: on a
+platform whose T2 is 64~KiB they stay in system memory.
 
 Resident code calls a unit with \insn{xcall ra, c12, t5}. A miss traps to the system core's own
 supervisor handler, which copies the unit into one of $\textit{NXMAP}$ cache slots (sixteen by
@@ -1046,6 +1113,12 @@ its keys replayed); searches with \texttt{/} \texttt{?} \texttt{n} \texttt{N} (p
   arrow's \texttt{ESC [ A} by time: vi polls with READs that do not block (which have \texttt{tty}
   read a byte ahead) for 30~ms. vi catches interrupts: Ctrl-C ends insert mode or cancels what is
   being typed, and does not end the editor.
+\item[In Forth] \texttt{forth vi.fs} \textit{file} (or \texttt{include vi.fs} at the Forth prompt,
+  then \texttt{vi} \textit{file}) is the same editor written in Strata Forth
+  (\texttt{lang/forth/vi.fs}): the same keys, screen and highlighting; given the same keys it writes
+  the same files. Its code is several times a program's I-LS; like everything Forth compiles under
+  StrataOS, it is in code units that the dispatcher pages (Section~\ref{sec:forth-paging}). Its text,
+  undo history and register are in Forth's far heap (400, 96 and 48~KiB).
 \end{description}
 
 \section{The window server}\label{sec:os-ws}
@@ -1268,6 +1341,39 @@ quads and \texttt{localhost} need no query. \texttt{net\_resolve} in the library
 
 \texttt{make boot} boots StrataOS on the emulator with 12 cores: the system core, five servers, and six
 cores free of servers for threads. The RTL simulator boots it on \texttt{NCORES} cores (8 by default).
+
+\section{Guests: a second OS on whole cores}\label{sec:os-guests}
+
+StrataOS can hand a bundle of its worker cores to a \term{guest}: a second operating system that runs
+on those cores, in supervisor mode, beside StrataOS, reaching only what it was given. The \texttt{guest}
+shell command (\texttt{guest \emph{image} [cores] [MiB]}, \texttt{guest stop \emph{id}}, \texttt{guest}
+to list) asks \texttt{proc}, which takes the cores out of StrataOS's scheduling and grants the guest:
+
+\begin{itemize}
+\item an \textbf{arena} (its memory, one revocation domain, sized by the request);
+\item a \textbf{console endpoint} to the \texttt{tty} server --- the one I/O channel, chosen over the raw
+  console because console input is owned exclusively by \texttt{tty}, so a second reader would race it;
+\item a \textbf{read-only clock}, and \textbf{core control over its own cores only};
+\item nothing else: no shared table, no device root, no core control over StrataOS, no endpoint to
+  \texttt{proc} or the kernel.
+\end{itemize}
+
+Each guest core is started through a boot protocol (a loader code unit the kernel runs on the core
+installs the image and sets \csr{corebase}/\csr{corecount} so the guest sees itself as an $N$-core
+machine) and boots like a bare-metal program. \texttt{guest stop} \textbf{resets} each guest core
+(Section~\ref{sec:corectl}) --- a reset is taken even in supervisor mode, so a guest that will not
+yield is stopped anyway --- revokes the arena domain (every capability it holds or lent out dies), and
+returns the cores to StrataOS.
+
+What a guest can \emph{reach} is bounded by the capabilities it holds, so every out-of-grant access
+faults. What it can \emph{send} is not (supervisor \insn{cgive} and \insn{cmkep} name any node), so
+StrataOS confines it on the \emph{receiving} side: a dispatcher and core~0 drop everything from a guest
+core except a request to a server the guest was explicitly given, the sender pid is stamped by the
+receiver and cannot be forged, and the block device pairs a buffer only with a command from the same
+core (Section~\ref{sec:blkdev}). The remaining gap is within a core: user mode is not bounded in the
+Local Store, so a guest that ran its own user-mode children on a shared core could not yet confine them
+--- but a guest gets \emph{whole} cores, so that gap does not arise between StrataOS and a guest.
+\texttt{doc/strataos.md} gives the full grant, boot protocol and isolation argument.
 
 \section{Self-hosting}\label{sec:os-as}
 

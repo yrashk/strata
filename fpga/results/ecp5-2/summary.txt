@@ -1,0 +1,35 @@
+     4882   CCU2C
+      247   DP16KD
+     1444   L6MUX21
+    71890   LUT4
+        8   MULT18X18D
+    11232   PFUMX
+      651   TRELLIS_DPR16X4
+    11683   TRELLIS_FF
+ecp5: 71890 LUT4 + 4882 carry cells (2 LUT4 sites each) = 81654 LUT4 sites, 11683 FF, 247 DP16KD, 8 MULT18X18D, 651 LUT-RAM cells
+latches inferred: 0
+memories built from flip-flops (fine when small; a Local Store, T2, T3 or the disk here is a bug):
+  $auto$memory_bmux2rom.cc:63:execute$199682
+  $auto$memory_bmux2rom.cc:63:execute$199685
+  g_core[0].u_core.caps
+  g_core[0].u_core.gt2
+  g_core[0].u_core.u_tu.q_end
+  g_core[0].u_core.u_tu.q_kind
+  g_core[0].u_core.u_tu.q_ls
+  g_core[0].u_core.u_tu.q_sp
+  g_core[0].u_core.xm_far
+  g_core[0].u_core.xm_ils
+  g_core[0].u_core.xm_sp
+  g_core[0].u_core.xm_v
+  g_core[1].u_core.caps
+  g_core[1].u_core.gt2
+  g_core[1].u_core.u_tu.q_end
+  g_core[1].u_core.u_tu.q_kind
+  g_core[1].u_core.u_tu.q_ls
+  g_core[1].u_core.u_tu.q_sp
+  g_core[1].u_core.xm_far
+  g_core[1].u_core.xm_ils
+  g_core[1].u_core.xm_sp
+  g_core[1].u_core.xm_v
+  mt2
+  u_dev.sq_buf

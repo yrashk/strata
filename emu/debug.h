@@ -18,5 +18,6 @@ static void dbg_far_written(uint8_t space, uint64_t addr); /* 8 bytes of T2 / T3
 static void dbg_disk_written(uint64_t off, uint64_t len);  /* the block device wrote the disk */
 static void dbg_trap(Core *c, int cause, uint64_t tval);   /* a trap is being taken */
 static void dbg_con_out(uint8_t b);                  /* a console output byte (instead of stdout) */
+static void dbg_core_reset(Core *c);                 /* a core-control reset request restarted core c */
 
 #endif

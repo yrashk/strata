@@ -13,6 +13,13 @@
 // <pre><code class="language-forth"> is coloured. A Forth block with
 // data-session is a transcript: a trailing "ok" is the prompt, and indented
 // "addr:  insn" lines (the output of see) are coloured as assembly.
+//
+// Hovering an instruction's mnemonic or a Forth word shows what it is in one
+// line, with ↗ to its entry in the instruction or Forth pages (a new tab).
+// The scanners mark them (data-mn, data-fw); the text comes from
+// isa/insns.json and forth/words.json, written with those pages
+// (doc/manual/gen/genweb.py, genforth.py), or from the published site when
+// this one has no generated pages (site/ served by the debug engine).
 "use strict";
 (function () {
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -55,7 +62,7 @@
       const cat = MN.get(w);
       if (cat || w[0] === ".") {
         mn = w;
-        o += m[1] + sp(cat ? "k-" + cat : "d", m[2]);
+        o += m[1] + (cat ? `<span class="k-${cat}" data-mn="${esc(w)}">${esc(m[2])}</span>` : sp("d", m[2]));
         p += m[0].length;
       }
     }
@@ -99,6 +106,7 @@
   const F_NAMED = new Set("variable constant create value defer 2variable 2constant buffer: field: +field marker is to".split(" "));
   const F_DEF = new Set(": :noname ; [: ;]".split(" "));
   const RE_FNUM = /^-?(?:\$-?[0-9a-f]+|#-?\d+|%-?[01]+|\d+\.?|'.')$/i;
+  const fw = (cls, t) => `<span class="${cls}" data-fw="${esc(t.toLowerCase())}">${esc(t)}</span>`;
 
   function forthLines(lines) {
     let inParen = false;
@@ -137,18 +145,18 @@
           o += sp("s", s.slice(m.index, stop)); last = re.lastIndex = stop;
           continue;
         }
-        if (F_DEF.has(w)) { o += sp("f-def", t); if (w === ":") want = "name"; continue; }
+        if (F_DEF.has(w)) { o += fw("f-def", t); if (w === ":") want = "name"; continue; }
         if (t === "{") { o += sp("f-loc", t); want = "locals"; continue; }
         if (F_DW.has(w)) {
-          o += sp("f-dw", t);
+          o += fw("f-dw", t);
           if (F_NAMED.has(w)) want = "name";
           else if (w === "[char]" || w === "char") want = "char";
           continue;
         }
-        if (F_CTL.has(w)) o += sp("f-ctl", t);
-        else if (F_ST.has(w)) o += sp("f-st", t);
+        if (F_CTL.has(w)) o += fw("f-ctl", t);
+        else if (F_ST.has(w)) o += fw("f-st", t);
         else if (RE_FNUM.test(t)) o += sp("n", t);
-        else o += esc(t);
+        else o += fw("f-w", t);
       }
       return o + esc(s.slice(last));
     });
@@ -181,6 +189,65 @@
   function highlightAll(root) {
     for (const el of (root || document).querySelectorAll("code.language-strata-asm, code.language-forth")) colour(el);
   }
+
+  // -------------------------------------------------------------- hover help
+  const ROOT = document.currentScript ? new URL(".", document.currentScript.src).href : "";
+  const PUBLISHED = "https://yrashk.com/strata/";
+  const docs = { mn: null, fw: null };
+  const loading = {};
+  function load(kind) {   // the table and the site root its links are relative to
+    if (!loading[kind]) {
+      const file = kind === "mn" ? "isa/insns.json" : "forth/words.json";
+      loading[kind] = (async () => {
+        for (const base of [ROOT, PUBLISHED]) {
+          try {
+            const r = await fetch(base + file);
+            if (r.ok) { docs[kind] = { base, t: await r.json() }; return; }
+          } catch (e) { /* the next one */ }
+        }
+        docs[kind] = { base: "", t: {} };
+      })();
+    }
+    return loading[kind];
+  }
+  let tip = null, hideT = 0;
+  function tipEl() {
+    if (tip) return tip;
+    tip = document.createElement("div");
+    tip.className = "hl-tip";
+    tip.hidden = true;
+    tip.addEventListener("mouseenter", () => clearTimeout(hideT));
+    tip.addEventListener("mouseleave", later);
+    document.body.appendChild(tip);
+    return tip;
+  }
+  function later() { clearTimeout(hideT); hideT = setTimeout(() => { if (tip) tip.hidden = true; }, 350); }
+  async function show(el) {
+    const kind = el.dataset.mn !== undefined ? "mn" : "fw", key = el.dataset[kind];
+    await load(kind);
+    const d = docs[kind], e = d.t[key];
+    if (!e) return;
+    el.classList.add("hl-doc");
+    const url = new URL(e.u, d.base);
+    const here = url.origin === location.origin && url.pathname === location.pathname;
+    const t = tipEl();
+    clearTimeout(hideT);
+    t.innerHTML = `<code>${esc(el.textContent)}</code>` + (e.e ? ` <span class="hl-tip-e">${esc(e.e)}</span>` : "") +
+      (e.t ? ` ${esc(e.t)}` : "") +
+      ` <a href="${esc(here ? url.hash : url.href)}"${here ? "" : ' target="_blank" rel="noopener"'} title="Its entry in the documentation${here ? "" : " (a new tab)"}">↗</a>`;
+    t.hidden = false;
+    const r = el.getBoundingClientRect();
+    t.style.left = Math.max(4, Math.min(r.left, innerWidth - t.offsetWidth - 8)) + "px";
+    t.style.top = (r.bottom + t.offsetHeight + 6 > innerHeight ? r.top - t.offsetHeight - 2 : r.bottom + 2) + "px";
+  }
+  document.addEventListener("mouseover", (ev) => {
+    const el = ev.target.closest && ev.target.closest(".hl [data-mn], .hl [data-fw]");
+    if (el) show(el);
+  });
+  document.addEventListener("mouseout", (ev) => {
+    if (ev.target.closest && ev.target.closest(".hl [data-mn], .hl [data-fw]")) later();
+  });
+  addEventListener("scroll", () => { if (tip) tip.hidden = true; }, { passive: true, capture: true });
 
   window.StrataHL = { init, asmLines, forthLines, sessionLines, highlightAll, colour };
   if (window.STRATA_SYNTAX) init(window.STRATA_SYNTAX);

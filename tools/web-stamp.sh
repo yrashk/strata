@@ -10,8 +10,11 @@
 set -e
 DIR=$1
 STAMP=$2
-for f in "$DIR/play/index.html" "$DIR/play/play.js" "$DIR/play/worker.js" \
-         "$DIR/forth/index.html" "$DIR/forth/forth.js" "$DIR/debug/index.html" "$DIR/debug/debug.js"; do
+# Every page links the shared highlighter as hl.js?v=__BUILD__ / hl.css?v=__BUILD__
+# too (the site's host caches plain URLs for hours), so all pages are stamped.
+for f in $(find "$DIR" -name '*.html') "$DIR/play/play.js" "$DIR/play/worker.js" \
+         "$DIR/forth/forth.js" "$DIR/debug/debug.js"; do
   [ -f "$f" ] || continue
+  grep -q __BUILD__ "$f" || continue
   sed "s/__BUILD__/$STAMP/g" "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 done

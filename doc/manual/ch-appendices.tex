@@ -214,8 +214,8 @@ Chapter~\ref{ch:encoding}. Table~\ref{tab:insindex} lists every instruction.
   (Section~\ref{sec:determinism}).
 \item[Atomic reads] An atomic segment can only be read with an atomic (e.g.\ \insn{tamo.add} of 0).
 \item[Block device] Commands submitted beyond the queue depth are discarded silently; an empty
-  completion queue reads as zeros; the return core in a command is a physical core number and is not
-  translated by \csr{corebase}; a user-mode program reaches the device only through an endpoint for its
+  completion queue reads as zeros; a buffer is paired only with a command from the same core, and
+  an unmatched buffer is returned to its sender; a user-mode program reaches the device only through an endpoint for its
   node, and its supervisor must hand it the buffer that comes back.
 \item[Cores] At most 15 cores: fifteen cores and the block device are the sixteen inbox senders that
   the masks of \insn{cpoll} and \insn{tany} describe.

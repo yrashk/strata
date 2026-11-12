@@ -24,12 +24,21 @@
 // query that matters (a load, store or tag-table access outside the D-LS
 // traps first; a fetch outside the I-LS likewise). Each queue entry keeps
 // its range's end, so the overlap checks are comparisons only.
+//
+// A core-control reset request empties the unit (flush): the core asks for
+// it only when the unit is `quiet`, i.e. every transfer the core issued has
+// taken effect except device reads that are waiting for their device (they
+// were tried and answered `retry`), and no bus transaction is under way. So
+// a reset never cuts a transfer in half: what the core issued completed (as
+// on the emulator, where a transfer completes at issue) or is a read still
+// waiting, which a reset abandons (as the emulator drops a pending read).
 
 module strata_tu
   import strata_pkg::*;
 (
   input  logic        clk,
   input  logic        rst,
+  input  logic        flush,        // a reset request: forget everything (only when quiet)
 
   // command issue (from the core's execute stage)
   input  logic        iss_valid,
@@ -46,6 +55,9 @@ module strata_tu
   output logic [15:0] tag_busy,
   output logic        idle,
   output logic        mem_idle,     // no far-memory transfer in flight (what handing over a capability waits for)
+  output logic        put_idle,     // nothing in flight but device reads (what a gift to the block device waits for)
+  output logic        cc_busy,      // a core-control write in flight (the next instruction waits for it)
+  output logic        quiet,        // only waiting device reads are left, and no bus transaction runs
 
   // hazard queries
   input  logic [LSW-1:0] hz_addr,
@@ -89,6 +101,7 @@ module strata_tu
   logic [LSW-1:0] q_ls  [QD];
   logic [LSW-1:0] q_end [QD];   // q_ls + q_len
   logic [QD-1:0]  q_nz;         // q_len != 0
+  logic [QD-1:0]  q_w;          // a device read that has been tried and waits (answered retry)
   logic [2:0]    q_sp   [QD];
   logic [FW-1:0] q_far  [QD];
   logic [LSW-1:0] q_len [QD];
@@ -129,7 +142,22 @@ module strata_tu
   assign idle      = count == 0;
   always_comb begin
     mem_idle = 1;     // device transfers (a break read may wait forever) do not count
-    for (int i = 0; i < QD; i++) if (q_v[i] && q_sp[i] != SP_DEV) mem_idle = 0;
+    put_idle = 1;
+    cc_busy  = 0;
+    for (int i = 0; i < QD; i++) begin
+      if (q_v[i] && q_sp[i] != SP_DEV) mem_idle = 0;
+      if (q_v[i] && !(q_sp[i] == SP_DEV && q_kind[i] == XF_GET)) put_idle = 0;
+      if (q_v[i] && q_sp[i] == SP_CORE) cc_busy = 1;
+    end
+  end
+  // quiet: every entry is a device read that waits, and the bus is not
+  // being used (not granted this cycle, not transferring unless the device
+  // has just answered retry, which ends the transaction)
+  always_comb begin
+    quiet = !(es == E_REQ && b_gnt) && !(es == E_XFER && !b_retry);
+    for (int i = 0; i < QD; i++)
+      if (q_v[i] && !(q_sp[i] == SP_DEV && q_kind[i] == XF_GET && (q_w[i] || (es == E_XFER && b_retry && 2'(i) == head))))
+        quiet = 0;
   end
 
   // ------------------------------------------------------------ hazards
@@ -230,8 +258,9 @@ module strata_tu
 
   // ------------------------------------------------------------ sequencing
   always_ff @(posedge clk) begin
-    if (rst) begin
+    if (rst || flush) begin
       q_v         <= '0;
+      q_w         <= '0;
       head        <= '0;
       tail        <= '0;
       count       <= '0;
@@ -257,6 +286,7 @@ module strata_tu
             // the device had no data yet: ask again, after the other queued
             // transfers if it has not started (a break read may wait forever)
             es <= off == 0 && count > 1 ? E_ROT : E_REQ;
+            q_w[head] <= 1;
           end else begin
             if (!h_put && b_rvalid) off <= off + step;
             if (h_put) begin
@@ -294,6 +324,7 @@ module strata_tu
       if (es == E_ROT) begin
         q_v[head]    <= 0;
         q_v[tail]    <= 1;
+        q_w[tail]    <= q_w[head];
         q_kind[tail] <= q_kind[head];
         q_tag[tail]  <= q_tag[head];
         q_ls[tail]   <= q_ls[head];
@@ -313,6 +344,7 @@ module strata_tu
       end
       if (do_issue) begin
         q_v[tail]    <= 1;
+        q_w[tail]    <= 0;
         q_kind[tail] <= iss_kind;
         q_tag[tail]  <= iss_tag;
         q_ls[tail]   <= iss_ls;

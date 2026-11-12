@@ -7,11 +7,12 @@
 ;     capacity in blocks (32768 with no disk image), 256 blocks per command,
 ;     queue depth 4.
 ;   * A command is 32 bytes written to the submission port (0x2100):
-;     u8 op (1 read, 2 write, 3 flush), u8 reply core, u16 id, u32 blocks,
+;     u8 op (1 read, 2 write, 3 flush), u8 reserved, u16 id, u32 blocks,
 ;     u64 lba, u64 byte offset into the capability, 8 bytes reserved. It runs
 ;     once a capability for the data has been given to the device's node
-;     (cgive to node ncores); the capability then comes back to the reply
-;     core (core 0 when the reply core does not exist), from sender ncores.
+;     (cgive to node ncores); the capability then comes back to the core
+;     that gave it (here core 0, whatever byte 1 says), from sender ncores.
+;     (Two cores sharing the device: blkpair.s.)
 ;   * The completion port (0x2200) yields 16-byte entries: u16 id, u16
 ;     status, u32 blocks moved (0 on error), 8 reserved; an empty queue
 ;     reads as zeros.
@@ -287,7 +288,7 @@ fill:
 blkdo:
         la    t0, cmd                   ; t0 = command buffer
         sb    a0, 0(t0)                 ; op
-        sb    a1, 1(t0)                 ; reply core
+        sb    a1, 1(t0)                 ; byte 1 (reserved: was the reply core)
         sh    a2, 2(t0)                 ; id
         sw    a3, 4(t0)                 ; blocks
         sd    a4, 8(t0)                 ; lba
