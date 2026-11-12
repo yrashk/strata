@@ -907,6 +907,21 @@ def intro_html(words, tools):
     return re.sub(r"\{\{(\w+)\}\}", lambda m: str(counts[m.group(1)]), web_file("forth.html"))
 
 
+def words_json(words):
+    """forth/words.json: every word's stack effect, the first sentence of its
+    description and its anchor on the Forth page (the site's hover help on
+    Forth code, site/hl.js). Keys are lower case, as Forth finds words."""
+    import json
+    out = {}
+    for w in words:
+        eff, desc, _ = w["doc"]
+        desc = re.sub(r"`([^`]+)`", r"\1", desc or "").strip()
+        m = re.match(r"(.+?[.!?])(\s|$)", desc)
+        out[w["name"].lower()] = {"e": eff or "", "t": (m.group(1) if m else desc)[:200],
+                                  "u": "forth/#" + word_id(w["name"])}
+    return json.dumps(out, indent=0, sort_keys=True)
+
+
 def write(out, page, link_sources=None, files=None):
     """forth/index.html under out; page is genweb.page."""
     words, tools = collect()
@@ -926,6 +941,8 @@ def write(out, page, link_sources=None, files=None):
     os.makedirs(os.path.join(out, "forth"), exist_ok=True)
     with open(os.path.join(out, "forth", "index.html"), "w") as f:
         f.write(text)
+    with open(os.path.join(out, "forth", "words.json"), "w") as f:
+        f.write(words_json(words) + "\n")
     n_try = sum(1 for v in ex.values() if v)
     return len(words), sum(1 for w in words if w["kind"] == "primitive"), n_try
 
