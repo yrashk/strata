@@ -1,2 +1,4 @@
 fpga/results/**/*.gz filter=lfs diff=lfs merge=lfs -text
 fpga/results/**/*.png filter=lfs diff=lfs merge=lfs -text
+asic/results/**/*.png filter=lfs diff=lfs merge=lfs -text
+asic/results/**/*.gz filter=lfs diff=lfs merge=lfs -text
