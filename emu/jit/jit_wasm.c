@@ -243,7 +243,7 @@ static uint32_t myfn; /* the table slot the region will get */
 static uint32_t a_fn, a_blk, a_dls; /* addresses of the core's fn[], blk[] and D-LS */
 
 static bool plain_at(const JCore *j, uint64_t pc, uint32_t *w) {
-  if ((pc & 3) || pc >= ILS_BYTES) return false;
+  if ((pc & 3) || pc >= L.ils_size) return false;
   memcpy(w, j->core + L.ils + pc, 4);
   return jit_plain(*w);
 }
@@ -269,7 +269,7 @@ static void emit_exit(int why, uint64_t pc, int n) {
 
 /* Control goes to pc after n retired instructions of the block. */
 static void emit_goto(uint64_t pc, int n) {
-  int m = !(pc & 3) && pc < ILS_BYTES ? leader[pc / 4] - 1 : -1;
+  int m = !(pc & 3) && pc < L.ils_size ? leader[pc / 4] - 1 : -1;
   if (m < 0) { emit_exit(JX_LINK, pc, n); return; }
   ic_sub(n);
   if (m > cur) { op1(W_BR, d_block(m)); return; }
@@ -344,11 +344,11 @@ static void emit_insn(uint32_t ir, uint64_t pc, int i) {
   if (o >= OP_LD && o <= OP_SB) {
     bool store = o >= OP_SD;
     int lg = store ? 3 - (int)(o - OP_SD) : o == OP_LD ? 3 : o <= OP_LWU ? 2 : o <= OP_LHU ? 1 : 0;
-    /* the address; out of bounds or misaligned iff it has a bit outside DLS_BYTES - size */
+    /* the address; out of bounds or misaligned iff it has a bit outside the D-LS size - size */
     rget(rs1);
     if (simm) i64c(simm), op(W_I64_ADD);
     ltee(LT0);
-    i64c(~(uint64_t)(DLS_BYTES - (1u << lg))), op(W_I64_AND), i64c(0), op(W_I64_NE);
+    i64c(~(uint64_t)(L.dls_size - (1u << lg))), op(W_I64_AND), i64c(0), op(W_I64_NE);
     lget(LT0), lget(LHB), op(W_I64_SUB), lget(LHS), op(W_I64_LT_U); /* a device read in flight */
     op(W_I32_OR);
     op(W_IF), op(T_VOID);
@@ -402,7 +402,7 @@ static void emit_jump(uint32_t ir, uint64_t pc, int n, bool self) {
     if (rd) i64c(pc + 4), rset(rd);
     ic_sub(n);
     /* a target with a block in this region: go round the loop */
-    lget(LXPC), i64c(ILS_BYTES), op(W_I64_LT_U), op(W_IF), op(T_VOID);
+    lget(LXPC), i64c(L.ils_size), op(W_I64_LT_U), op(W_IF), op(T_VOID);
     nest++;
     lget(LXPC), op(W_I32_WRAP_I64), ltee(LA), mem(W_I32_LOAD, 2, a_fn), i32c((int32_t)myfn), op(W_I32_EQ);
     op(W_IF), op(T_VOID);
@@ -465,7 +465,7 @@ static void emit_block(const JCore *j) {
   /* falls through to `end`: the next block if it starts there, else out */
   uint32_t w;
   if (cur + 1 < nrb && rb[cur + 1].pc == end) ic_sub(b->n);
-  else if (end < ILS_BYTES && !plain_at(j, end, &w)) emit_exit(JX_INTERP, end, b->n);
+  else if (end < L.ils_size && !plain_at(j, end, &w)) emit_exit(JX_INTERP, end, b->n);
   else emit_exit(JX_LINK, end, b->n);
 }
 
@@ -482,7 +482,7 @@ static void find_blocks(const JCore *j, uint64_t pc0) {
   LEAD(pc0);
   for (int h = 0; h < nq && scanned < MAXRI; h++) {
     for (uint64_t p = (uint64_t)q[h] * 4;; p += 4) {
-      if (p != (uint64_t)q[h] * 4 && p < ILS_BYTES && leader[p / 4]) break; /* runs into a block */
+      if (p != (uint64_t)q[h] * 4 && p < L.ils_size && leader[p / 4]) break; /* runs into a block */
       if (!plain_at(j, p, &w)) { LEAD(p + 4); break; } /* after the interpreter's instruction */
       scanned++;
       unsigned o = w >> 26;
@@ -614,7 +614,7 @@ static bool translate(JCore *j, uint64_t pc0) {
   i32c(0), i32c(0), mem(W_I64_LOAD, 3, (uint32_t)(uintptr_t)&jw_limit), lget(LIC), op(W_I64_SUB);
   mem(W_I64_STORE, 3, core + (uint32_t)L.instret);
   if (tailcalls) { /* straight on into the region that has a block at pc */
-    lget(LWHY), i32c(JX_LINK), op(W_I32_EQ), lget(LXPC), i64c(ILS_BYTES), op(W_I64_LT_U), op(W_I32_AND);
+    lget(LWHY), i32c(JX_LINK), op(W_I32_EQ), lget(LXPC), i64c(L.ils_size), op(W_I64_LT_U), op(W_I32_AND);
     op(W_IF), op(T_VOID);
     lget(LXPC), op(W_I32_WRAP_I64), ltee(LA), mem(W_I32_LOAD, 2, a_fn), ltee(LNEXT);
     op(W_IF), op(T_VOID);
@@ -688,7 +688,7 @@ void jit_exec(int id, uint64_t limit) {
   jw_limit = limit;
   while (*ip < limit) {
     uint64_t pc = *pcp;
-    if ((pc & 3) || pc >= ILS_BYTES) return; /* the interpreter raises the fetch fault */
+    if ((pc & 3) || pc >= L.ils_size) return; /* the interpreter raises the fetch fault */
     uint32_t w = (uint32_t)pc / 4, f = j->fn[w];
     if (!f) { /* cold, or not for the JIT: count, and translate at HOT */
       if (j->hot[w] == HOT_NEVER) return;

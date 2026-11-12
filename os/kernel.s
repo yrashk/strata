@@ -27,6 +27,10 @@
 ;              D-LS 0x0000..0x9FFF program data | 0xA000 kernel data | 0xE000.. stack
 ; Core 0 runs no programs: its I-LS 0x8000..0xFFFF is the kernel code cache
 ; and its D-LS 0x0000..0x9FFF holds the kernel's tables (K0_* below).
+; This layout needs Local Stores of 64 KiB, the largest (the platform table
+; gives their size): every core checks at entry, and on a smaller machine
+; core 0 says so and every core halts (the boot ROM already refuses an OS
+; image that does not fit).
 ;
 ; Cluster store (T2, c1 from the boot ROM, 256 KiB; the platform table's
 ; size counts): [0, 32 KiB) the kernel shared table (KST, below; in T3's
@@ -446,6 +450,14 @@ g_tmp    = K0_SCR + 0x840                ; 64 bytes: platform table / reset word
 kentry:
         li    sp, STACKTOP              ; a stack for now
         la    gp, GPBASE                ; kernel data base
+        li    t0, 0x1000 + 24           ; the platform table's Local Store sizes (u16 KiB each),
+        li    t1, 4                     ;   through the device root (every core has c3 here)
+        tget  tg0, zero, c3, t0, t1     ;   -> D-LS 0 (nothing lives there yet)
+        lwu   t0, 0(zero)               ; D-LS KiB | I-LS KiB << 16 (0: an older table, 64 each)
+        beqz  t0, ke_ls                 ; ...
+        li    t1, 64 | 64 << 16         ; this layout needs both at 64 KiB
+        bne   t0, t1, ke_small          ; ...
+ke_ls:
         bnez  a0, ke_drop               ; core 0 keeps the boot ROM's image shares: a core a
         csave c10, K_KCODE              ;   guest gives back loads the kernel from them
         csave c11, K_KDATA              ;   (see "Guests")
@@ -453,6 +465,21 @@ ke_drop:
         cclear c10                      ; the boot ROM's image shares are not needed any more
         cclear c11                      ; (copyable capabilities: dropping them loses nothing)
         bnez  a0, wboot                 ; every core but 0 is a worker
+        j     k0_start                  ; (ke_small: below)
+ke_small:                               ; the Local Stores are too small for this layout
+        bnez  a0, ke_halt               ; a worker just stops
+        cmov  c15, c12                  ; core 0: the firmware clobbers c12..c14 (the far
+        cclear c13                      ;   image is kept, the memory pieces are dropped:
+        cclear c14                      ;   nothing will run)
+        call  fw_init                   ; the console window
+        cmov  c12, c15                  ; the far image, for the text
+        la    a0, s_lsmall              ; "StrataOS 0.1 needs 64 KiB Local Stores"
+        li    a1, s_lsmall_e - s_lsmall ; (text in the far image: c12, from the boot ROM)
+        call  k_fputs                   ; ...
+ke_halt:
+        li    a0, 1                     ; exit code 1
+        halt                            ; ...
+k0_start:
 
 ; =============================================================================
 ; Core 0: the system core

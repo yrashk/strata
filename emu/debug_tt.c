@@ -444,8 +444,8 @@ static void tt_restore(int i) {
   dbg_muted = dbg_tick < dbg_frontier;
   dbg_idle_pending = false;
   for (int k = 0; k < ncores; k++) {
-    dec_invalidate(&cores[k], 0, ILS_BYTES);
-    if (use_jit) jit_invalidate(k, 0, ILS_BYTES);
+    dec_invalidate(&cores[k], 0, ils_size);
+    if (use_jit) jit_invalidate(k, 0, ils_size);
   }
   host_fb_touch(0, host_fb_bytes());
   os_procs_at = ~0ull;

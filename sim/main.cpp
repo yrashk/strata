@@ -36,6 +36,12 @@
 #ifndef NXMAP
 #define NXMAP NXMAP_DEF /* the RTL's NXMAP parameter (the Makefile passes both) */
 #endif
+#ifndef DLS_KIB
+#define DLS_KIB LS_DEF_KIB /* the RTL's DLS_KIB / ILS_KIB parameters (the Makefile passes them) */
+#endif
+#ifndef ILS_KIB
+#define ILS_KIB LS_DEF_KIB
+#endif
 #ifndef NCORES
 #define NCORES 4
 #endif
@@ -54,8 +60,8 @@ static svScope t3_scope;
 
 extern "C" long long img_word(int kind, int widx) {
   switch (kind) {
-  case SK_ILS: return widx < (int)(ILS_BYTES / 8) ? (long long)stx_word(img.ils, (uint32_t)widx) : 0;
-  case SK_DLS: return widx < (int)(DLS_BYTES / 8) ? (long long)stx_word(img.dls, (uint32_t)widx) : 0;
+  case SK_ILS: return widx < (int)(ILS_KIB * 128) ? (long long)stx_word(img.ils, (uint32_t)widx) : 0;
+  case SK_DLS: return widx < (int)(DLS_KIB * 128) ? (long long)stx_word(img.dls, (uint32_t)widx) : 0;
   case SK_T3: return widx < (int)(T3_BYTES / 8) ? (long long)stx_word(img.t3, (uint32_t)widx) : 0;
   case SK_T2: return widx < (int)(T2_BYTES / 8) ? (long long)stx_word(img.t2, (uint32_t)widx) : 0;
   }
@@ -226,13 +232,18 @@ int main(int argc, char **argv) {
   }
   if (!path) usage();
   stx_load(path, &img);
+  if (img.dls_size > DLS_KIB * 1024 || img.ils_size > ILS_KIB * 1024) {
+    fprintf(stderr, "strata-rtl: %s needs %u KiB of D-LS and %u KiB of I-LS; this build has %u and %u\n", path,
+            (img.dls_size + 1023) / 1024, (img.ils_size + 1023) / 1024, DLS_KIB, ILS_KIB);
+    return 2;
+  }
   disk = stx_disk_load(disk_path, &disk_blocks);
   if (disk_blocks > DISK_WORDS / 64) {
     fprintf(stderr, "disk image has %llu blocks; this build holds %d\n", (unsigned long long)disk_blocks,
             DISK_WORDS / 64);
     return 2;
   }
-  plat_build_fb(plat, NCORES, DISK_WORDS / 64, fb_w, fb_h, CTAB_DEF, NXMAP); /* rtl/strata_pkg.sv CTAB */
+  plat_build_fb(plat, NCORES, DISK_WORDS / 64, fb_w, fb_h, CTAB_DEF, NXMAP, DLS_KIB, ILS_KIB); /* rtl/strata_pkg.sv CTAB */
   if (!host_input_open(in_path)) { perror("input"); return 2; }
   host_clock_start();
   host_display_init(gfx, scale, ppm, fb_w, fb_h);

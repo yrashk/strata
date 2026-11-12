@@ -60,7 +60,9 @@
  *                u16 cores, u32 total length, u32 checksum, u16 entries
  *                of each core's capability save table (CTAB; 0 means 64),
  *                u16 entries of each core's overlay map (NXMAP; 0 means
- *                16), 8 B reserved
+ *                16), u16 each core's D-LS size in KiB, u16 its I-LS
+ *                size in KiB (powers of two, 4..64; 0 means 64), 4 B
+ *                reserved
  *   entry  32 B: u16 type, u16 index, u16 space, u16 node (cgive target,
  *                0xffff if none), u64 info, u64 base, u64 size
  *   checksum = sum of all bytes with the checksum field zero, mod 2^32 */
@@ -150,6 +152,27 @@ enum { PTR_MOVE = 1, PTR_BUTTON, PTR_WHEEL, PTR_ENTER, PTR_LEAVE }; /* event kin
 #define NXMAP_MIN 4u
 #define NXMAP_MAX 16u
 
+/* the Local Stores: KiB per core of each (a power of two; asm/isa.h) */
+#define LS_DEF_KIB 64u /* the default, and the largest */
+#define LS_MIN_KIB (LS_MIN_BYTES / 1024u)
+#define LS_MAX_KIB (DLS_BYTES / 1024u)
+
+/* True if kib is a valid Local Store size. */
+static inline bool ls_kib_ok(unsigned kib) {
+  return kib >= LS_MIN_KIB && kib <= LS_MAX_KIB && !(kib & (kib - 1));
+}
+
+/* Parses "D[,I]" (KiB; I defaults to D); false if malformed or out of range. */
+static inline bool ls_parse(const char *s, unsigned *dkib, unsigned *ikib) {
+  char *e;
+  unsigned long d = strtoul(s, &e, 10), i = d;
+  if (*e == ',') i = strtoul(e + 1, &e, 10);
+  if (*e || !ls_kib_ok((unsigned)d) || !ls_kib_ok((unsigned)i) || d > LS_MAX_KIB || i > LS_MAX_KIB) return false;
+  *dkib = (unsigned)d;
+  *ikib = (unsigned)i;
+  return true;
+}
+
 /* block commands and statuses */
 #define BLK_OP_READ 1
 #define BLK_OP_WRITE 2
@@ -175,10 +198,10 @@ static inline void plat_entry(uint8_t *e, int type, int index, int space, int no
   plat_put(e + 24, size, 8);
 }
 
-/* Fills buf[PLAT_LEN] for a framebuffer of fb_w x fb_h pixels, a save table of ctab entries and
- * an overlay map of nxmap entries. */
+/* Fills buf[PLAT_LEN] for a framebuffer of fb_w x fb_h pixels, a save table of ctab entries,
+ * an overlay map of nxmap entries and Local Stores of dls_kib / ils_kib KiB. */
 static inline void plat_build_fb(uint8_t *buf, int ncores, uint64_t disk_blocks, unsigned fb_w, unsigned fb_h,
-                                 unsigned ctab, unsigned nxmap) {
+                                 unsigned ctab, unsigned nxmap, unsigned dls_kib, unsigned ils_kib) {
   memset(buf, 0, PLAT_LEN);
   memcpy(buf, "STPD", 4);
   plat_put(buf + 4, 1, 2);
@@ -188,6 +211,8 @@ static inline void plat_build_fb(uint8_t *buf, int ncores, uint64_t disk_blocks,
   plat_put(buf + 12, PLAT_LEN, 4);
   plat_put(buf + 20, ctab, 2);
   plat_put(buf + 22, nxmap, 2);
+  plat_put(buf + 24, dls_kib, 2);
+  plat_put(buf + 26, ils_kib, 2);
   uint8_t *e = buf + 32;
   plat_entry(e + 0 * 32, PT_MEMORY, 0, 3, 0xffff, 0, T3_BYTES, 0);
   plat_entry(e + 1 * 32, PT_MEMORY, 1, 2, 0xffff, 0, T2_BYTES, 0);
@@ -205,8 +230,9 @@ static inline void plat_build_fb(uint8_t *buf, int ncores, uint64_t disk_blocks,
 }
 
 /* Fills buf[PLAT_LEN] with the default framebuffer geometry and save table. */
-static inline void plat_build(uint8_t *buf, int ncores, uint64_t disk_blocks, unsigned nxmap) {
-  plat_build_fb(buf, ncores, disk_blocks, FB_DEF_WIDTH, FB_DEF_HEIGHT, CTAB_DEF, nxmap);
+static inline void plat_build(uint8_t *buf, int ncores, uint64_t disk_blocks, unsigned nxmap, unsigned dls_kib,
+                              unsigned ils_kib) {
+  plat_build_fb(buf, ncores, disk_blocks, FB_DEF_WIDTH, FB_DEF_HEIGHT, CTAB_DEF, nxmap, dls_kib, ils_kib);
 }
 
 /* Parses -r WxH; false if malformed or out of range. */

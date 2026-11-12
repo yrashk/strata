@@ -159,7 +159,6 @@ _start:
         j     main                      ; skip the marker
         .word 0x32535953                ; "SYS2": a StrataOS 0.1 program
 main:
-        li    sp, 65536                 ; stack at the top of the D-LS
         call  sys_init                  ; ...
         li    a0, 2                     ; dev (c2): the disk
         li    a1, 30                    ; GETDISK

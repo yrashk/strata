@@ -152,6 +152,7 @@ The \emph{Operation} section of each entry is written in a small pseudocode lang
 \texttt{WaitPendingReads(ls, n)} & if $n \neq 0$ and D-LS range $[\textit{ls}, \textit{ls}+n)$ overlaps the destination of an in-flight device read of this core: \texttt{Trap(pend, ls)} when CCR.PTRAP is set, otherwise wait until the read completes\\
 \texttt{BusyTags()} & 16-bit mask of tags with transfers in flight (in $\mathcal{S}$, only pending device reads)\\
 \texttt{N} & number of cores; node \texttt{N} is block device 0\\
+\texttt{DLS\_SIZE}, \texttt{ILS\_SIZE} & the sizes of the D-LS and the I-LS in bytes: powers of two, 4~KiB--64~KiB, the platform's (Section~\ref{sec:lssize})\\
 \bottomrule
 \end{tabularx}
 \end{center}

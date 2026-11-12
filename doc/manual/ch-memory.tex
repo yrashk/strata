@@ -3,21 +3,41 @@
 \section{The Local Stores}
 
 \subsection{Data Local Store}
-The D-LS is a 64~KiB byte-addressed memory private to its core. Loads and stores address it with
-\reg{rs1} plus a sign-extended 16-bit offset. An access of size $n$ (1, 2, 4 or 8 bytes) must be
-naturally aligned and lie entirely inside $[0, 65536)$; otherwise it traps with cause \cause{lsfault} and
-\csr{tval} set to the address. There is no address translation: D-LS addresses are physical, and
-address 0 is a valid location.
+The D-LS is a byte-addressed memory private to its core, \texttt{DLS\_SIZE} bytes long
+(Section~\ref{sec:lssize}; 64~KiB by default). Loads and stores address it with \reg{rs1} plus a
+sign-extended 16-bit offset. An access of size $n$ (1, 2, 4 or 8 bytes) must be naturally aligned and
+lie entirely inside $[0, \texttt{DLS\_SIZE})$; otherwise it traps with cause \cause{lsfault} and
+\csr{tval} set to the address. Addresses are full 64-bit values: one at or past the size is out of
+range whatever its low bits, so no address wraps around into a smaller store. There is no address
+translation: D-LS addresses are physical, and address 0 is a valid location.
 
-Because a 16-bit signed offset from \reg{x0} reaches addresses 0--32767, data placed in the lower half
-of the D-LS can be addressed absolutely, as in \insn{ld t1, counter(zero)}, without a base register.
-Trap handlers use this to save registers before they have any free register.
+Because a 16-bit signed offset from \reg{x0} reaches addresses 0--32767, data placed in the lowest
+32~KiB of the D-LS (all of a D-LS of 32~KiB or less) can be addressed absolutely, as in
+\insn{ld t1, counter(zero)}, without a base register. Trap handlers use this to save registers before
+they have any free register.
 
 \subsection{Instruction Local Store}
-The I-LS is a 64~KiB memory from which, and only from which, instructions are fetched. Before each
-instruction the core checks that \reg{pc} is a multiple of 4 and less than 65536; if not, the fetch
-traps with cause \cause{ifault} and \csr{tval} = \reg{pc}. No load or store can read or write the I-LS.
-It is filled at reset from the boot image and at run time only by \insn{tgetx}.
+The I-LS is a memory of \texttt{ILS\_SIZE} bytes (64~KiB by default) from which, and only from which,
+instructions are fetched. Before each instruction the core checks that \reg{pc} is a multiple of 4 and
+less than \texttt{ILS\_SIZE}; if not, the fetch traps with cause \cause{ifault} and \csr{tval} =
+\reg{pc}. No load or store can read or write the I-LS. It is filled at reset from the boot image and at
+run time only by \insn{tgetx}.
+
+\subsection{The Local Stores' sizes}\label{sec:lssize}
+\texttt{DLS\_SIZE} and \texttt{ILS\_SIZE} are properties of the platform: each a power of two from
+4~KiB to 64~KiB, chosen independently, the same on every core of a machine, and fixed while it runs.
+The platform table's header gives both in KiB (Section~\ref{sec:stpd}). The smallest, 4~KiB, holds the
+boot ROM that a core-control reset reloads into each store (Section~\ref{sec:corectl}). Every check that
+names a Local Store uses its size: loads, stores, \insn{ltag} and \insn{linst} (the set's entry) and
+the D-LS range of \insn{tget} and \insn{tput} against \texttt{DLS\_SIZE}; the fetch, the I-LS range of
+\insn{tgetx} and the I-LS address of \insn{xmap} against \texttt{ILS\_SIZE}. A smaller store adds no
+fault: an address the store does not have traps exactly as an address past 64~KiB does.
+
+Software learns the sizes from the platform table; system software reads it at boot. Every core also
+starts with the D-LS size in \reg{sp} (Section~\ref{sec:reset}), so that a bare-metal program, on any
+core and without a device capability, has its stack at the top of its D-LS without knowing the number.
+A program image whose Local Store sections do not fit the machine's sizes cannot be loaded; the
+simulators refuse it.
 
 \section{Far spaces}
 

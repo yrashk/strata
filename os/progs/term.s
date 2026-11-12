@@ -65,7 +65,6 @@ tm_rbuf:  .space GRID_STR * 2           ; a row of far history, being drawn
         .text                           ; code
 
 main:
-        li    sp, 65536                 ; stack at the top of the D-LS
         call  sys_init                  ; handles and arguments
         li    a0, 1                     ; interrupts make our calls return -2
         call  sys_catch                 ; ...

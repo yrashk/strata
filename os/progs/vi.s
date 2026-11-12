@@ -551,7 +551,6 @@ extab:  .ascii "w\0\0\0\0\0"            ; write
 ; =============================================================================
 
 main:
-        li    sp, 65536                 ; stack at the top of the D-LS
         call  sys_init                  ; handles, arguments
         li    a0, 1                     ; Ctrl-C makes a read return -2 (it does not end us)
         call  sys_catch                 ; ...

@@ -46,7 +46,6 @@ m_mis_e:                                ; end of the text above (its length = en
 _start:                                 ; entry point: every core starts executing here, at I-LS address 0
         csrr  t0, coreid                ; which core?
         bnez  t0, park                  ; core 0 only
-        li    sp, 65536                 ; stack at the top of D-LS
         la    t0, handler               ; t0 = address of our trap handler
         csrw  tvec, t0                  ; install it: traps now jump there instead of stopping the core
 

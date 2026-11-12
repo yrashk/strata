@@ -23,7 +23,6 @@ _start:
         j     main                      ; skip the marker
         .word 0x32535953                ; "SYS2": a StrataOS 0.1 program
 main:
-        li    sp, 65536                 ; stack at the top of the D-LS
         call  sys_init                  ; handles and arguments
         li    s0, 0                     ; s0 = count (0 = forever)
         li    s1, '.'                   ; s1 = the character

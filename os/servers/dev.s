@@ -51,7 +51,6 @@ _start:
         j     main                      ; skip the marker
         .word 0x32535953                ; "SYS2": a StrataOS 0.1 program
 main:
-        li    sp, 65536                 ; stack at the top of the D-LS
         call  sys_init                  ; ...
         cclear c0                       ; the arena is not needed: c0 is scratch
         cclear c7                       ; the clock is not needed here

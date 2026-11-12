@@ -49,7 +49,7 @@ DLEN    = 34                            ; description width
 _start:                                 ; entry point: every core starts executing here, at I-LS address 0
         csrr  t0, coreid                ; which core?
         bnez  t0, park                  ; core 0 only
-        li    sp, 65536                 ; stack at the top of D-LS
+        mv    s10, sp                   ; s10 = the D-LS size (reset puts sp at the top of the D-LS)
         la    t0, handler               ; t0 = handler address
         csrw  tvec, t0                  ; install the trap handler
 
@@ -84,8 +84,7 @@ _start:                                 ; entry point: every core starts executi
         call  report                    ; print
 
 ; ---- 5. load outside the Local Store ------------------------------------------------
-        li    t1, 65536                 ; t1 = first address past the 64 KiB D-LS
-        ld    t2, 0(t1)                 ; loads reach only the Local Store
+        ld    t2, 0(s10)                ; the first address past the D-LS: loads reach only the Local Store
         la    a0, d5                    ; describe
         call  report                    ; print
 

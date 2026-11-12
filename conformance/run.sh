@@ -26,6 +26,9 @@
 #   conformance/run.sh [-v] [test ...]     (default: every conformance/tests/*.s)
 #   -v: show the outputs of failing cells
 #
+# EMU_ARGS: emulator flags describing the machine the RTL in $BUILD was built
+# as (e.g. "-L 16,4" for DLS_KIB=16 ILS_KIB=4: make test-ls runs lssize.s so).
+#
 # Every run uses the virtual timer (-T virtual) and no window (-g none).
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -75,9 +78,9 @@ for t in "$@"; do
     args="$args -i $fifo"
   fi
   # the three machines run at once
-  ( cd "$here" && "$b/strata-emu" -c "$ncores" -j -T virtual -g none -m 100000000 $args "$img" \
+  ( cd "$here" && "$b/strata-emu" -c "$ncores" ${EMU_ARGS:-} -j -T virtual -g none -m 100000000 $args "$img" \
       >"$out/$t.interp.out" 2>"$out/$t.interp.err" </dev/null; echo $? >"$out/$t.interp.ec" ) &
-  ( cd "$here" && "$b/strata-emu" -c "$ncores" -J -T virtual -g none -m 100000000 $args "$img" \
+  ( cd "$here" && "$b/strata-emu" -c "$ncores" ${EMU_ARGS:-} -J -T virtual -g none -m 100000000 $args "$img" \
       >"$out/$t.jit.out" 2>"$out/$t.jit.err" </dev/null; echo $? >"$out/$t.jit.ec" ) &
   ( cd "$here" && "$b/strata-rtl" -T virtual -g none -m 400000000 $args "$img" \
       >"$out/$t.rtl.out" 2>"$out/$t.rtl.err" </dev/null; echo $? >"$out/$t.rtl.ec" ) &

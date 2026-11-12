@@ -15,7 +15,13 @@ root \reg{c3}, which under StrataOS only the \texttt{dev} server holds.
 
 \section{Conventions shared by the examples}
 \begin{itemize}
-\item Every core starts at \texttt{\_start}; cores not needed by an example \insn{halt} at once.
+\item Every core starts at \texttt{\_start}; cores not needed by an example \insn{halt} at once. The
+  stack is where reset put \reg{sp}, at the top of the D-LS; no example assumes a Local Store size.
+  What each needs is its image and its stack: every example runs with 32~KiB Local Stores;
+  \texttt{clock}, \texttt{faults}, \texttt{hello}, \texttt{mandel} and \texttt{race} with 4~KiB of D-LS,
+  \texttt{pipeline} with 8~KiB; all but \texttt{overlay} (its slots are at I-LS \hex{7700}) with a 4~KiB
+  I-LS; \texttt{gfx}, \texttt{parsum}, \texttt{stream\_sum} and \texttt{swcache} need 32~KiB of D-LS for
+  their buffers (\texttt{make test-ls}).
 \item Output goes through \reg{c2} with \insn{tput} on tag \reg{tg15} (\texttt{print\_str},
   \texttt{print\_dec}, \texttt{print\_hex}, \texttt{print\_nl}, \texttt{print\_kv}). The helpers do not
   wait: reusing their buffer stalls until the previous \insn{tput} has read it.

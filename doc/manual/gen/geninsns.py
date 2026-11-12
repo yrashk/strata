@@ -227,8 +227,8 @@ LOADS = [("ld", "LD", 8, False, "doubleword"), ("lw", "LW", 4, True, "word, sign
          ("lwu", "LWU", 4, False, "word, zero-extended"), ("lh", "LH", 2, True, "halfword, sign-extended"),
          ("lhu", "LHU", 2, False, "halfword, zero-extended"), ("lb", "LB", 1, True, "byte, sign-extended"),
          ("lbu", "LBU", 1, False, "byte, zero-extended")]
-LS_EXC_L = lambda n: [("lsfault", r"\texttt{addr} $>$ 65536 $-$ %d, or \texttt{addr} is not a multiple of %d" % (n, n)
-                       if n > 1 else r"\texttt{addr} $>$ 65535", r"\texttt{addr}"),
+LS_EXC_L = lambda n: [("lsfault", r"\texttt{addr} $>$ \texttt{DLS\_SIZE} $-$ %d, or \texttt{addr} is not a multiple of %d" % (n, n)
+                       if n > 1 else r"\texttt{addr} $\geq$ \texttt{DLS\_SIZE}", r"\texttt{addr}"),
                       ("pend", r"CCR.PTRAP = 1 and the bytes overlap the D-LS destination of an in-flight "
                                r"\insn{tget} (only in implementations with real transfer latency)", r"\texttt{addr}")]
 LTITLE = dict(ld="Load doubleword", lw="Load word", lwu="Load word unsigned", lh="Load halfword",
@@ -257,8 +257,8 @@ if addr > DLS_SIZE - %d or addr MOD %d != 0 then Trap(lsfault, addr); end
 Stall while [addr, addr+%d) overlaps the destination of an in-flight tget
                        or the source of an in-flight tput;
 DLS.Write(addr, %d, %s);""" % (n, n, n, n, val)
-    exc = [("lsfault", r"\texttt{addr} $>$ 65536 $-$ %d, or \texttt{addr} is not a multiple of %d" % (n, n)
-            if n > 1 else r"\texttt{addr} $>$ 65535", r"\texttt{addr}"),
+    exc = [("lsfault", r"\texttt{addr} $>$ \texttt{DLS\_SIZE} $-$ %d, or \texttt{addr} is not a multiple of %d" % (n, n)
+            if n > 1 else r"\texttt{addr} $\geq$ \texttt{DLS\_SIZE}", r"\texttt{addr}"),
            ("pend", r"CCR.PTRAP = 1 and the bytes overlap an in-flight \insn{tget} destination or \insn{tput} source",
             r"\texttt{addr}")]
     ins("ls", mn.upper(), "Store " + what,
@@ -338,7 +338,7 @@ else
     DLS[ls .. ls+n-1] = Far.Read(cap.space, cap.base + off, n);
 end
 MarkBusy(tag) until the transfer completes;         // visible through tpoll and tany""",
-    XF_EXC("R", "65536", r", or names core-control space (space 5)") + [XF_PEND],
+    XF_EXC("R", r"\texttt{DLS\_SIZE}", r", or names core-control space (space 5)") + [XF_PEND],
     notes=r"A memory transfer moves whole doublewords; device transfers move one byte per beat, beat $i$ "
           r"addressing device offset \texttt{base + X[ro]} + $i$, and may have any length and alignment "
           r"(\S\ref{sec:devxfer}). Issuing on a tag that is still busy waits for that tag. A zero-length "
@@ -370,7 +370,7 @@ else
     Far.Write(cap.space, cap.base + off, n, DLS[ls .. ls+n-1]);
 end
 MarkBusy(tag) until the transfer completes;""",
-    XF_EXC("W", "65536") + [XF_PEND],
+    XF_EXC("W", r"\texttt{DLS\_SIZE}") + [XF_PEND],
     notes=r"A \insn{tput} to a device moves one byte per beat: beat $i$ goes to device offset "
           r"\texttt{base + X[ro]} + $i$, except that a transfer starting at a stream port (console output, "
           r"the block device's submission port) delivers every byte to that stream. An 8-byte device register "
@@ -392,7 +392,7 @@ for e = 0 to 15 do
 end
 ILS[ls .. ls+n-1] = Far.Read(cap.space, cap.base + off, n);
 MarkBusy(tag) until the transfer completes;""",
-    XF_EXC("X", "65536", r", or names device or core-control space"),
+    XF_EXC("X", r"\texttt{ILS\_SIZE}", r", or names device or core-control space"),
     notes=r"Instruction fetch from a range an in-flight \insn{tgetx} is filling stalls, so a program may jump "
           r"to freshly loaded code immediately; there is no instruction-synchronisation barrier. "
           r"\insn{tgetx} writes the I-LS only, so it never waits for a pending device read.",
@@ -1027,7 +1027,7 @@ XMAP[idx] = (valid: TRUE, space: cap.space, far: cap.base + X[roff], ils: X[rils
      ("perm", r"\texttt{C[cs]} lacks \perm{X}", r"\texttt{cs}"),
      ("bounds", r"$\texttt{X[roff]} \geq \texttt{C[cs].len}$", r"\texttt{X[roff]}"),
      ("xalign", r"$\csr{xslot} = n \neq 0$ and the far address is not a multiple of $2^n$", r"\texttt{X[roff]}"),
-     ("lsfault", r"\texttt{X[rils]} misaligned or $\geq$ 65536", r"\texttt{X[rils]}")],
+     ("lsfault", r"\texttt{X[rils]} misaligned or $\geq$ \texttt{ILS\_SIZE}", r"\texttt{X[rils]}")],
     notes=r"Entries are not checked for duplicates; a lookup uses the lowest-numbered matching entry. The map "
           r"is per-core state and is available in user mode. $\textit{NXMAP}$, the number of entries, is a "
           r"property of the platform (4--16, 16 by default; the platform table's header says). The alignment "

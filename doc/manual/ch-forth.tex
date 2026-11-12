@@ -186,6 +186,11 @@ T2 & $[0, 4~\text{KiB})$ & \reg{c12}: the job board, atomic\\
 \end{tabularx}
 \end{center}
 
+This map needs Local Stores of 64~KiB, the largest (Section~\ref{sec:lssize}): the image's data
+reaches \hex{9F00}, so a smaller D-LS cannot load it, and code grows up to the top of a 64~KiB I-LS (the
+kernel and \texttt{core.fs} alone take about 33~KiB of it). On a smaller I-LS core 0 says so at start-up
+and halts.
+
 The dialect is close to Forth 2012 for the core words. A cell is 64 bits and there are no double-cell
 words; \texttt{/} and \texttt{mod} truncate, like the hardware's division; names are case-blind;
 numbers may be written \texttt{\$ff}, \texttt{\#99}, \texttt{\%1010} and \texttt{'c'}. Beyond the

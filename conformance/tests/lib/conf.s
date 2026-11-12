@@ -31,7 +31,9 @@
 ; Register use: sig/chk clobber only t5, t6 (and ra, by the call); chkt
 ; clobbers t5, t6. done clobbers everything. Tests must not keep values in
 ; t5/t6 across these calls. The stack pointer starts at 0xc000 (D-LS above
-; it is free for tests that probe the top of the Local Store).
+; it is free for tests that probe the top of the Local Store), or at the top
+; of a D-LS smaller than that; `rsp` keeps the sp the core had at entry (at
+; reset: the D-LS size).
 ;
 ; Trap handler (supervisor: tvec = trap_rec; user: utvec = utrap_rec):
 ; records cause, epc and tval into tcause/tepc/ttval, counts the trap in
@@ -84,6 +86,7 @@ tcount: .dword 0                        ; traps recorded since start
 tresume: .dword 0                       ; one-shot: resume address (supervisor) for the next trap
 uexit:  .dword 0                        ; where `li a7, UEXIT; svc` continues (supervisor)
 hsave:  .dword 0, 0                     ; the handler's save area for t5, t6
+rsp:    .dword 0                        ; sp at _start (after a reset: the D-LS size)
 line:   .ascii "sig 0123456789abcdef\n" ; output line: 4-character prefix, 16 hex digits, newline
         .align 8                        ; keep what follows 8-byte aligned
 hexdig: .ascii "0123456789abcdef"       ; hex digit table (16 bytes: the prefixes below stay 4-byte aligned)
@@ -102,7 +105,11 @@ sigend:                                 ; one past the signature buffer
 
         .text                           ; I-LS address 0: every core starts here
 _start:
-        li    sp, 0xc000                ; stack below the top 16 KiB of the D-LS
+        sd    sp, rsp(zero)             ; keep the sp reset gave us (the top of the D-LS)
+        li    t0, 0xc000                ; the stack: below the top 16 KiB of a 64 KiB D-LS,
+        bleu  sp, t0, st_sp             ;   at the top of a smaller one
+        mv    sp, t0                    ; ...
+st_sp:
         la    t0, trap_rec              ; t0 = the recording trap handler
         csrw  tvec, t0                  ; install it (supervisor trap vector)
         j     main                      ; the test's own entry point (all cores)

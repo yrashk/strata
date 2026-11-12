@@ -51,7 +51,8 @@ found and how it was decided.
 | `console`, `break`, `brkrel`, `inrel` | output, input, end of input, Ctrl-C (`-b`), one release for every break read (F4) and for waiting input reads |
 | `blk` | the block device: identify, write/read/flush, errors, the completion queue |
 | `blkpair` | the block device and two cores: a command pairs only with a buffer from the core that submitted it, an orphan buffer comes straight back to its lender, a buffer returns to its lender whatever byte 1 says |
-| `plat` | the platform table: layout (the save table's and the overlay map's sizes in the header), checksum, every entry |
+| `plat` | the platform table: layout (the save table's and the overlay map's sizes and the Local Stores' in the header), checksum, every entry |
+| `lssize` | the Local Stores' sizes from the platform table (powers of two, 4..64 KiB), sp = the D-LS size at reset; loads, stores, tget / tput / tgetx ranges, the fetch, xmap's I-LS address and ltag's entry against them (lsfault / ifault at the size and at twice the size, no wrap-around). Run at 64/64 by the suite and at 32/32 and 16/4 KiB by `make test-ls` (EMU_ARGS="-L ..." with an RTL built with DLS_KIB / ILS_KIB); every check is mutation-checked against the 16/4 RTL |
 | `ptr` | the pointer: STATE, EVENT order and packing, release by a write |
 | `mc` | gifts between cores, per-sender queues, `ctake` from, `cpoll`, `tany` on the inbox, windows, revocation across cores, stop, a halted target |
 | `reserved` | reserved CSRs, CCR bits, ignored fields |

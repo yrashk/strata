@@ -604,4 +604,6 @@ s_ban3: .ascii " MiB for arenas; kernel code paged on demand.\n"
 s_ban3_e:
 s_nosrv: .ascii "StrataOS: cannot start proc/dev/fs (are they on the disk?)\n"
 s_nosrv_e:
+s_lsmall: .ascii "StrataOS 0.1 needs Local Stores of 64 KiB (D-LS and I-LS); this machine's are smaller\n"
+s_lsmall_e:
         .org  u_banner + 2048           ; (the unit must fit its slot)

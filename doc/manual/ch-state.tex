@@ -20,8 +20,8 @@ Inbox & 2 per sender & one FIFO queue of capabilities per sending node, filled b
 Mode & 1 bit & Supervisor or user (\csr{status} bit 0); SPP, the mode \insn{eret} returns to (\csr{status} bit 1).\\
 Stop request & 1 bit & \csr{ipend}: set through core control, taken as a \cause{stop} trap in user mode.\\
 Pending device reads & up to 4 & Device reads that have issued and wait for their device (Section~\ref{sec:devxfer}); each keeps its tag busy.\\
-D-LS & 64 KiB & Data Local Store.\\
-I-LS & 64 KiB & Instruction Local Store.\\
+D-LS & \texttt{DLS\_SIZE} bytes (4--64 KiB; 64 KiB by default) & Data Local Store (Section~\ref{sec:lssize}).\\
+I-LS & \texttt{ILS\_SIZE} bytes (4--64 KiB; 64 KiB by default) & Instruction Local Store.\\
 CSRs & see Appendix~\ref{app:csrs} & Control and status registers.\\
 Halted & 1 bit & Set by \insn{halt} in supervisor mode or by a trap the supervisor cannot take.\\
 \bottomrule
@@ -112,8 +112,10 @@ core control.
 At reset every core starts with:
 \begin{itemize}
 \item supervisor mode with \csr{status}.SPP = 1 (\csr{status} reads 3);
-\item \reg{pc} = 0, all integer registers zero, all other CSRs zero, all tags free, the overlay map and
-  inbox empty, and the save table empty; every granule's generation 0 and head bit clear;
+\item \reg{pc} = 0, all integer registers zero except \reg{sp} (\reg{x2}), which holds
+  \texttt{DLS\_SIZE}, the top of the D-LS (a core-control reset sets it again); all other CSRs zero,
+  all tags free, the overlay map and inbox empty, and the save table empty; every granule's generation
+  0 and head bit clear;
 \item its I-LS and D-LS loaded from the boot image (the same image on every core; see the STX2 format,
   Section~\ref{sec:stx});
 \item the reset capabilities of Table~\ref{tab:resetcaps}. All other capability registers are empty.

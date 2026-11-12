@@ -19,9 +19,9 @@ a conformance suite that holds them all to the same behaviour.
 ## The ideas
 
 - **Local Stores, not caches.** Loads and stores reach only registers and a
-  per-core 64 KiB data **Local Store**; instructions come only from a 64 KiB
-  instruction Local Store. L1 is an architectural scratchpad, and software
-  decides what lives there.
+  per-core data **Local Store**; instructions come only from an instruction
+  Local Store (4 to 64 KiB each, 64 by default: a platform parameter). L1 is
+  an architectural scratchpad, and software decides what lives there.
 - **Everything else is a transfer.** The cluster store, system memory and
   devices are reached through a per-core **Transfer Unit** (`tget`, `tput`,
   `tgetx`, with completion tags) or **far atomics** (`tamo`). There are no
@@ -152,6 +152,8 @@ take the same flags, except where noted.
 | `-m N` | stop after N steps (emulator) or cycles (RTL) |
 | `-b N` | press Ctrl-C after N steps / cycles (Ctrl-C at the terminal or in the window does the same) |
 | `-T real\|virtual` | the timer: host microseconds (default), or machine time (deterministic; the tests use it) |
+| `-S N`, `-X N` | the capability save table's entries per core (64..256, default 256) and the overlay map's (4..16, default 16); emulator only: the RTL's are build parameters (`make NXMAP=8`) |
+| `-L D[,I]` | each core's D-LS and I-LS in KiB, powers of two 4..64 (default 64; I = D if omitted); emulator only: the RTL's are build parameters (`make DLS_KIB=32 ILS_KIB=16`) |
 | `-r WxH` | framebuffer size, default 1280x800 (320x200 to 2560x1600, width a multiple of 8) |
 | `-g none` | never open a window |
 | `-F FILE` | at exit, write the last presented frame as a binary PPM |

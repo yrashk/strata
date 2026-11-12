@@ -56,7 +56,6 @@ m_bad_e:                                ; end of the text above
 
         .text                           ; resident code: the I-LS
 _start:
-        li    sp, 65536                 ; stack at the top of the D-LS
         li    t0, 10                    ; slots of 2^10 = 1 KiB:
         csrw  xslot, t0                 ;   an overlay mapping now covers a whole unit
         la    a0, m_head                ; the heading

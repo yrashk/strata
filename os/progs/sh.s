@@ -302,7 +302,6 @@ _start:
 ; Start-up: arguments, then -c, FILE or the input loop
 ; =============================================================================
 main:
-        li    sp, 65536                 ; stack at the top of the D-LS
         call  sys_init                  ; handles and arguments
         call  sys_pid                   ; remember our pid (for sys_setfg)
         la    t0, g_pid                 ; ...

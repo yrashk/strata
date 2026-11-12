@@ -177,7 +177,6 @@ ws_n_term: .ascii "term "               ; the terminal's program name (and a spa
         .text                           ; code
 
 main:
-        li    sp, 65536                 ; stack at the top of the D-LS
         call  hw_init                   ; server name, framebuffer, keyboard buffer
         beqz  a0, ws_up                 ; ...
         li    t0, -2                    ; which failure?

@@ -787,7 +787,11 @@ $("slider").addEventListener("change", () => doCmd("goto", { tick: +$("slider").
 async function refreshLs() {
   const r = await conn.request("tags");
   const box = $("lsmap");
-  let html = '<div class="lsscale"><span></span><div><span>0</span><span>16K</span><span>32K</span><span>48K</span><span>64K</span></div></div>';
+  // each bar is its own store's size (the platform's: hello's dls / ils; older engines: 64 KiB)
+  const dsz = (hello && hello.dls) || 65536, isz = (hello && hello.ils) || 65536;
+  const kib = (n) => (n % 1024 ? (n / 1024).toFixed(1) : n / 1024) + "K";
+  let html = '<div class="lsscale"><span></span><div>' + [0, 1, 2, 3, 4].map((q) => `<span>${q ? kib((dsz * q) / 4) : 0}</span>`).join("") +
+    "</div></div>";
   for (let c = 0; c < ncores; c++) {
     const recent = [];
     for (let i = evs.length - 1; i >= 0 && recent.length < 40; i--) {
@@ -799,19 +803,19 @@ async function refreshLs() {
       let s = "";
       for (const e of recent) {
         if ((e.op === "tgetx") !== ils) continue;
-        s += lsRange(e.ls, e.len, e.op, `tg${e.tag} ${e.op} ${e.port || e.space + " " + e.far} round ${e.round}`, false);
+        s += lsRange(e.ls, e.len, e.op, `tg${e.tag} ${e.op} ${e.port || e.space + " " + e.far} round ${e.round}`, false, ils ? isz : dsz);
       }
-      if (!ils) for (const t of busyTags) s += lsRange(t.ls, t.len, t.op, `tg${t.tag} ${t.op} ${t.port || t.space} IN FLIGHT since round ${t.issued}`, true);
+      if (!ils) for (const t of busyTags) s += lsRange(t.ls, t.len, t.op, `tg${t.tag} ${t.op} ${t.port || t.space} IN FLIGHT since round ${t.issued}`, true, dsz);
       return s;
     };
-    html += `<div class="lsrow"><span>core ${c}</span><div><div class="lsbar" title="D-LS">${bar(false)}</div><div class="lsbar ils" title="I-LS">${bar(true)}</div></div></div>`;
+    html += `<div class="lsrow"><span>core ${c}</span><div><div class="lsbar" title="D-LS, ${kib(dsz)}">${bar(false)}</div><div class="lsbar ils" title="I-LS, ${kib(isz)}">${bar(true)}</div></div></div>`;
   }
   box.innerHTML = html;
 }
-function lsRange(ls, len, op, title, busy) {
+function lsRange(ls, len, op, title, busy, size) {
   const a = Number(hex(ls)), n = Math.max(Number(hex(len)), 1);
   const cls = op === "tput" ? "put" : op === "tgetx" ? "getx" : "get";
-  return `<i class="${cls}${busy ? " busy" : ""}" style="left:${(a / 65536) * 100}%;width:${(n / 65536) * 100}%" title="${esc(title)} · ${h(ls)}+${n}"></i>`;
+  return `<i class="${cls}${busy ? " busy" : ""}" style="left:${(a / size) * 100}%;width:${(n / size) * 100}%" title="${esc(title)} · ${h(ls)}+${n}"></i>`;
 }
 
 // ---------------------------------------------------------------- provenance

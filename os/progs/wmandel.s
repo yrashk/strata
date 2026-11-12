@@ -47,7 +47,6 @@ mw_nows_e:                              ; (its end)
         .text                           ; code
 
 main:
-        li    sp, 65536                 ; stack at the top of the D-LS
         call  sys_init                  ; handles
         la    a0, mw_title              ; our window (events are polled: no flags)
         li    a1, 0                     ; ...

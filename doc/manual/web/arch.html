@@ -31,7 +31,8 @@
 </header>
 
 {{chapter:ch:intro}}
-<p>Each core has two private 64&nbsp;KiB Local Stores, one for data and one for instructions.
+<p>Each core has two private Local Stores, one for data and one for instructions, of 4 to
+  64&nbsp;KiB each (64&nbsp;KiB by default; the platform table says).
   Loads, stores and instruction fetch reach nothing else. Everything beyond them, the shared cluster
   store, system memory and the devices, is reached by explicit, capability-checked block transfers.
   The design principles, as the manual states them:</p>
@@ -62,8 +63,9 @@
 {{section:ch-intro.tex:Storage tiers}}
 {{table:tab:tiers}}
 <p>Two further spaces hold no storage: core-control space (space 5), through which a core stops
-  other cores, and endpoint space (space 6), whose capabilities name nodes. The Local Store sizes are
-  architectural; the far tier sizes belong to the platform and are reported by its platform table.</p>
+  other cores, and endpoint space (space 6), whose capabilities name nodes. Every size belongs to the
+  platform and is reported by its platform table: the Local Stores' too (powers of two, 4 to 64&nbsp;KiB,
+  the D-LS and the I-LS chosen independently).</p>
 
 {{section:ch-intro.tex:A first program}}
 <p>The smallest complete program prints a greeting from every core in turn: code and data are in the
@@ -99,7 +101,8 @@
   gifts, revoking memory whose capabilities it holds, and a stop request through core control.</p>
 
 {{section:sec:reset}}
-<p>Every core starts in supervisor mode at <code>pc</code> = 0, with all registers, tags, the overlay map,
+<p>Every core starts in supervisor mode at <code>pc</code> = 0, with all registers zero but
+  <code class="reg">sp</code>, which holds the D-LS size (the top of the D-LS), the tags, the overlay map,
   the inbox and the save table empty, and its Local Stores loaded from the boot image. The reset
   capabilities:</p>
 {{table:tab:resetcaps}}

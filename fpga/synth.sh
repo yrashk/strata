@@ -2,10 +2,13 @@
 # Synthesizes the Strata system with Yosys for one FPGA family and prints
 # the resource summary.
 #
-#   fpga/synth.sh xc7|ecp5 [NCORES [NXMAP]]
+#   fpga/synth.sh xc7|ecp5 [NCORES [NXMAP [DLS_KIB [ILS_KIB]]]]
 #
 # NXMAP: overlay map entries per core (4..16; default 16, the platform
-# default); a run with it goes to fpga/build/<family>-<n>-x<NXMAP>.
+# default; "-" for the default); a run with it goes to
+# fpga/build/<family>-<n>-x<NXMAP>. DLS_KIB / ILS_KIB: each core's Local
+# Stores in KiB (powers of two, 4..64; default 64; ILS_KIB defaults to
+# DLS_KIB); a run with them goes to .../<family>-<n>[-x<NXMAP>]-l<D>-<I>.
 #
 # System memory (T3) is external DRAM on a real board (LiteDRAM, see
 # fpga/README.md); here it is a small 32 KiB block RAM placeholder so the
@@ -16,8 +19,11 @@ set -eu
 fam=$1
 n=${2:-2}
 nx=${3:-}
+[ "$nx" = - ] && nx=
+dk=${4:-}
+ik=${5:-$dk}
 here=$(cd "$(dirname "$0")/.." && pwd)
-out="$here/fpga/build/$fam-$n${nx:+-x$nx}"
+out="$here/fpga/build/$fam-$n${nx:+-x$nx}${dk:+-l$dk-$ik}"
 mkdir -p "$out"
 cd "$here"
 sv2v rtl/strata_pkg.sv rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv rtl/strata_mul.sv \
@@ -31,7 +37,7 @@ write_json $out/strata.json" ;;
 esac
 cat > "$out/synth.ys" <<YS
 read_verilog $out/strata.v
-chparam -set NCORES $n ${nx:+-set NXMAP $nx }-set T3_W 4096 -set T2_W 8192 -set DISK_WORDS 16384 strata_top
+chparam -set NCORES $n ${nx:+-set NXMAP $nx }${dk:+-set DLS_KIB $dk -set ILS_KIB $ik }-set T3_W 4096 -set T2_W 8192 -set DISK_WORDS 16384 strata_top
 hierarchy -top strata_top
 $synth
 tee -o $out/stat.txt stat

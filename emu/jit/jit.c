@@ -144,7 +144,7 @@ static void *translate(JCore *j, uint64_t pc) {
   const uint8_t *ils = j->core + L.ils;
   uint32_t ir[MAXBLK];
   int n = 0, tail = JT_NEXT_LINK;
-  for (uint64_t p = pc; n < MAXBLK && p < ILS_BYTES; p += 4) {
+  for (uint64_t p = pc; n < MAXBLK && p < L.ils_size; p += 4) {
     uint32_t w;
     memcpy(&w, ils + p, 4);
     if (!jit_plain(w)) { tail = JT_NEXT_INTERP; break; }
@@ -172,7 +172,7 @@ void jit_exec(int id, uint64_t limit) {
   uint64_t site_gen = 0;
   while (*ip < limit) {
     uint64_t pc = *pcp;
-    if ((pc & 3) || pc >= ILS_BYTES) return; /* the interpreter raises the fetch fault */
+    if ((pc & 3) || pc >= L.ils_size) return; /* the interpreter raises the fetch fault */
     void *code = j->table[pc / 4];
     if (!code && !(code = translate(j, pc))) return;
     if (site && site_gen == j->gen) { /* chain the exit we came from to this block */

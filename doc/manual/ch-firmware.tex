@@ -80,17 +80,19 @@ waits for it.
 \section{Boot protocol}\label{sec:boot}
 
 At reset every core runs the boot ROM image at I-LS address 0, in supervisor mode. The ROM's code and
-data occupy the bottom of the Local Stores. The ROM never leaves supervisor mode, and it enters the OS in
-supervisor mode.
+data occupy the bottom of the Local Stores (under 2~KiB of each: it fits the smallest machine), and its
+stack is where reset put \reg{sp}, the top of the D-LS. The ROM never leaves supervisor mode, and it
+enters the OS in supervisor mode.
 
 \begin{enumerate}
-\item Core 0 prints a banner, calls \texttt{fw\_init} and \texttt{fw\_describe}, finds block device 0 in
-  the platform table and opens it.
+\item Core 0 prints a banner, calls \texttt{fw\_init} and \texttt{fw\_describe}, prints the Local Stores'
+  sizes, finds block device 0 in the platform table and opens it.
 \item It cuts its memory root into four pieces (Table~\ref{tab:memmap}): \reg{c0} keeps
   $[0, 15~\text{MiB})$; the load area $[15~\text{MiB}, 16~\text{MiB})$ goes to \reg{c9}; the memory above
   it, $[16~\text{MiB}, 48~\text{MiB})$, to \reg{c13}; and the framebuffer window
   $[48~\text{MiB}, 64~\text{MiB})$ to \reg{c14}. It reads block 0 into the load area and checks the boot
-  header magic.
+  header magic, and that the OS code (at I-LS \hex{4000}) and data (at D-LS \hex{A000}) fit the
+  Local Stores the platform table describes.
 \item It reads the OS code and data images from disk into the load area (at offsets \hex{10000} and
   \hex{20000}) and, if the header names one, the kernel's \term{far image} at offset \hex{30000} (at
   most \hex{D0000} bytes). It then \insn{csplit}s the load area into capabilities of exactly the images'
@@ -103,6 +105,11 @@ supervisor mode.
   D-LS at \hex{A000} with \insn{tget}, sets \reg{a0} = its core number, and jumps to \hex{4000} without
   waiting: fetching or loading bytes still in flight stalls.
 \end{enumerate}
+
+If a step fails (no valid platform table, no disk, a read error, no boot header, an OS that does not
+fit), core 0 prints why, gives every other core a copy of its console capability \reg{c2} and halts.
+A secondary core whose first gift is not executable (a code share is) halts too, so no core is left
+waiting for the system core for good.
 
 \begin{table}[htbp]
 \centering\small

@@ -174,7 +174,12 @@ give the keyboard up cleanly.
 **A smaller FPGA footprint, then timing.** The core went from 47k to 30k
 LUTs (fpga/README.md has the steps), with two small ISA changes: `xmap`
 needs slot-aligned units, and the overlay map's size is a platform
-parameter (NXMAP, 16 by default, 8 for small FPGAs). The next candidates are the
+parameter (NXMAP, 16 by default, 8 for small FPGAs). The Local Stores'
+sizes are a platform parameter as well (4 to 64 KiB each, the D-LS and the
+I-LS chosen independently; `make test-ls`): smaller stores save block RAM
+for bare-metal programs, while StrataOS 0.1 and Strata Forth need 64 KiB of
+each (a smaller StrataOS would need a new program ABI: programs linked
+below I-LS 0x8000, less data, a dispatcher placed by the size). The next candidates are the
 capability registers (LUT-RAM for the fields not needed in parallel), an
 I-LS-side alignment rule for overlay slots (the link and invalidation
 compares become equalities too), and fewer cores' worth of granule-table

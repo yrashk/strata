@@ -83,7 +83,6 @@ m_none_e:                               ; end of the text above
 
         .text                           ; instruction Local Store; execution starts at 0
 _start:
-        li    sp, 65536                 ; stack at the top of D-LS
         csrr  s0, coreid                ; s0 = this core's number
         beqz  s0, main                  ; core 0 runs the clock
         li    t0, 1                     ; t0 = 1

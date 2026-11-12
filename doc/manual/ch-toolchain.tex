@@ -121,7 +121,7 @@ every core, and the T2 and T3 contents to the shared memories.
 \begin{shell}
 strata-emu [-c ncores] [-t trace.txt] [-m max_steps] [-d disk.img] [-i input.txt]
            [-b steps] [-T real|virtual] [-g none] [-F frame.ppm] [-z scale]
-           [-r WxH] [-H] [-P pointer.txt] [-N mode] [-J|-j]
+           [-r WxH] [-S entries] [-X entries] [-L D[,I]] [-H] [-P pointer.txt] [-N mode] [-J|-j]
            [--debug where [--map file] [--os dir] [--www dir] [--history MiB]] image.stx
 \end{shell}
 
@@ -182,6 +182,13 @@ console input or Ctrl-C from an interactive terminal or the window.
 \item[\texttt{-z n}] window scale, 1--8 (default 1).
 \item[\texttt{-r W}x\texttt{H}] framebuffer geometry (default 1280\,x\,800; width a multiple of 8, from
   320\,x\,200 to 2560\,x\,1600). The platform table reports it (Section~\ref{sec:stpd}).
+\item[\texttt{-S n}, \texttt{-X n}] the capability save table's entries per core ($\textit{CTAB}$,
+  64--256, default 256) and the overlay map's ($\textit{NXMAP}$, 4--16, default 16).
+\item[\texttt{-L} \textit{D}[\texttt{,}\textit{I}]] each core's D-LS and I-LS in KiB
+  (Section~\ref{sec:lssize}): powers of two, 4--64 (default 64); \textit{I} defaults to \textit{D}. An
+  image whose Local Store sections do not fit is refused. The platform table reports all three
+  parameters, and an RTL build has them as parameters (\texttt{make NXMAP=}, \texttt{DLS\_KIB=},
+  \texttt{ILS\_KIB=}); runs that compare the two pass the same values.
 \item[\texttt{-H}] when every core has halted, keep the window open, showing the final memory contents,
   until it is closed.
 \item[\texttt{-J}, \texttt{-j}] run with the JIT, or interpret only. The default is the JIT, except
@@ -362,7 +369,8 @@ strata-rtl [-t trace.txt] [-m max_cycles] [-d disk.img] [-i input.txt] [-b cycle
 
 The SystemVerilog implementation (Chapter~\ref{ch:impl}) compiled with Verilator 5 and the harness
 \texttt{sim/main.cpp}. The number of cores is fixed at build time (\texttt{make NCORES=}$n$, default
-8). It accepts the emulator's options with these differences: \texttt{-m} and \texttt{-b} count clock
+8), and so are the overlay map's entries and the Local Stores' sizes (\texttt{make NXMAP=}$n$,
+\texttt{DLS\_KIB=}$d$ \texttt{ILS\_KIB=}$i$: the emulator's \texttt{-X} and \texttt{-L}). It accepts the emulator's options with these differences: \texttt{-m} and \texttt{-b} count clock
 cycles; \texttt{-T virtual} makes the timer count cycles / 100 (\texttt{-T real}, the default, reads
 the host clock through a DPI call); there is no \texttt{-c} and no JIT. A console read with no byte
 available is retried by the RTL without stopping the simulation. Halt lines carry the core's cycle

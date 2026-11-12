@@ -283,7 +283,6 @@ _start:
         j     main                      ; skip the marker
         .word 0x32535953                ; "SYS2": a StrataOS 0.1 program
 main:
-        li    sp, 65536                 ; stack at the top of the D-LS
         call  sys_init                  ; ...
         la    a0, ftbuf                 ; URLs are absolute: work from "/" whatever the
         li    a1, 0                     ;   current tag path of the shell that started us

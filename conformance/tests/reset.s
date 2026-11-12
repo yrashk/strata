@@ -9,7 +9,8 @@
 ;     is refused, capop, until the reset revives it), by a core in user mode
 ;     (core 3), and by a core that writes it to itself (core 4: the request
 ;     takes effect before its next instruction, which never runs).
-;   * What a reset clears (core 1 sets each one first): the integer registers,
+;   * What a reset clears (core 1 sets each one first): the integer registers
+;     (sp comes back as the D-LS size, the harness's rsp),
 ;     the capability registers (only the console capability c2 comes back),
 ;     the save table (crestore / crestorex of its slots: capinv), the CSRs
 ;     (scratch, sscratch, ccr, ttag, tdata, tgeom, xslot, corecount, utvec,
@@ -95,6 +96,10 @@ main:
         or    t1, t1, t4                ; ...
         or    t1, t1, t5                ; ...
         or    t1, t1, t6                ; ...
+        ld    t2, rsp(zero)             ; and sp at entry (the harness kept it): the D-LS size,
+        li    t3, 0x10000               ;   64 KiB here, also after a reset
+        xor   t2, t2, t3                ; (0 if so)
+        or    t1, t1, t2                ; ...
         sd    t1, r_x(zero)             ; keep it
         csrr  t1, instret               ; instructions since the reset (or power-on)
         sd    t1, r_ins(zero)           ; ...

@@ -111,6 +111,14 @@ D-LS & \hex{E000}--\hex{FFFF} & the running program's stack\\
 The system core uses the program ranges for itself: its I-LS \hex{8000}--\hex{FFFF} is the kernel's code
 cache (Section~\ref{sec:os-kpaging}) and its D-LS \hex{0000}--\hex{9FFF} holds the kernel's tables.
 
+The layout needs Local Stores of 64~KiB, the largest (Section~\ref{sec:lssize}), and StrataOS 0.1
+runs on nothing smaller: the kernel's data fills \hex{A000}--\hex{DFFF} (16~KiB) and its resident code
+\hex{4000}--\hex{7FFF} (16~KiB), and programs are linked for I-LS \hex{8000} with data up to \hex{9FFF}
+and the stack above \hex{E000}. The boot ROM refuses an OS image that does not fit the Local Stores,
+and every core checks the platform table at kernel entry: on a smaller machine core 0 says so and every
+core halts. A layout for 32~KiB stores would need programs linked for a lower I-LS address with less
+data and a dispatcher placed by the size: a different program ABI.
+
 The cluster store holds the kernel shared table in its first 32~KiB, where an atomic takes about 7 bus
 cycles instead of 23 in system memory (on a platform whose T2 is smaller, the table takes system
 memory's first 32~KiB). T2 is a single revocation granule and can only be revoked whole, so it holds
@@ -195,7 +203,7 @@ Every process time-shares worker cores; no process owns a core. A process has on
 \reg{c5} & its 4~KiB message buffer\\
 \reg{c6} & empty: capabilities that arrive with a reply land here\\
 \reg{c7} & the clock: a read-only device capability for the timer's NOW and FREQ registers\\
-\reg{pc}, \reg{sp} & the image's entry at I-LS \hex{8000}; the program sets \reg{sp} to \hex{10000}\\
+\reg{pc}, \reg{sp} & the image's entry at I-LS \hex{8000}; \reg{sp} = \hex{10000}, the top of the D-LS (programs do not set it)\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -817,8 +825,8 @@ standard output.
 \begin{asm}
 _start: j     main                      ; skip the marker
         .word 0x32535953                ; "SYS2": a StrataOS program
-main:   li    sp, 65536                 ; the stack is at the top of the D-LS
-        call  sys_init                  ; read the start-up block, set up handles 0..2
+main:   call  sys_init                  ; read the start-up block, set up handles 0..2
+                                        ; (sp: the top of the D-LS, from the kernel)
         la    a0, text                  ; ...
         li    a1, text_end - text       ; ...
         call  out_str                   ; buffered standard output

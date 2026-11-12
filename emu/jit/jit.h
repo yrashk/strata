@@ -21,9 +21,12 @@
  * per-core structure: the registers x[32], pc, instret, the two Local
  * Stores, and the hazard range of the device reads in flight (two
  * uint64_t, base and span: only the WebAssembly backend's loads and
- * stores check it). */
+ * stores check it); then the sizes of the Local Stores in bytes (powers of
+ * two, at most 64 KiB: the platform's, fixed for a run), which translated
+ * code checks addresses against. */
 typedef struct {
   size_t x, pc, instret, dls, ils, hz;
+  uint64_t dls_size, ils_size;
 } JitLayout;
 
 /* The host backend compiled in ("arm64", "x86-64", "wasm"), or NULL when this host

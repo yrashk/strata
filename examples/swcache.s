@@ -62,7 +62,6 @@ m_bad_e:                                ; end of the text above (its length = en
 _start:                                 ; entry point: every core starts executing here, at I-LS address 0
         csrr  t0, coreid                ; which core are we?
         bnez  t0, park                  ; only core 0 runs this example
-        li    sp, 65536                 ; stack at the top of D-LS
 
 ; ---- write value[i] = 7*i + 3 to the far table ---------------------------------
         li    s2, 0                     ; s2 = far offset of the current chunk

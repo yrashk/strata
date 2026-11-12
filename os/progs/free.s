@@ -31,7 +31,6 @@ _start:
         j     main                      ; skip the marker
         .word 0x32535953                ; "SYS2": a StrataOS 0.1 program
 main:
-        li    sp, 65536                 ; stack at the top of the D-LS
         call  sys_init                  ; handles and arguments
         la    a0, info                  ; the summary
         call  sys_info                  ; a0 = 0, or < 0

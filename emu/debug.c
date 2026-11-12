@@ -237,7 +237,7 @@ static int dbg_conpend_n;
 
 static uint32_t rd32_ils(const Core *c, uint64_t a) {
   uint32_t v = 0;
-  if (a + 4 <= ILS_BYTES) memcpy(&v, c->ils + a, 4);
+  if (a + 4 <= ils_size) memcpy(&v, c->ils + a, 4);
   return v;
 }
 
@@ -390,7 +390,7 @@ static void pre_decode(Core *c, Pre *p) {
   p->halted = c->halted;
   p->user = c->user;
   if (any_capwatch()) memcpy(p->caps, c->caps, sizeof p->caps);
-  if ((c->pc & 3) || c->pc >= ILS_BYTES) return;
+  if ((c->pc & 3) || c->pc >= ils_size) return;
   uint32_t ir;
   memcpy(&ir, c->ils + c->pc, 4);
   p->ir = ir;
@@ -519,7 +519,7 @@ static void pre_hits(Core *c, const Pre *p) {
 /* why core c cannot make its step now (the conditions step() waits on) */
 static int stall_reason(const Core *c, uint64_t *detail) {
   *detail = 0;
-  if ((c->pc & 3) || c->pc >= ILS_BYTES) return SR_OTHER;
+  if ((c->pc & 3) || c->pc >= ils_size) return SR_OTHER;
   uint32_t ir;
   memcpy(&ir, c->ils + c->pc, 4);
   unsigned op = ir >> 26, rs1 = (ir >> 16) & 31, rs2 = (ir >> 11) & 31, funct = ir & 0x7ff;
@@ -1151,7 +1151,7 @@ static void jw_core_brief(JW *w, const Core *c) {
     int g = os_guest_of(c->id);
     if (g) jw_int(w, "guest", g); /* a guest OS's core (-1: taken, no guest record) */
   }
-  if (!c->halted && (c->pc & 3) == 0 && c->pc < ILS_BYTES) {
+  if (!c->halted && (c->pc & 3) == 0 && c->pc < ils_size) {
     uint32_t ir;
     memcpy(&ir, c->ils + c->pc, 4);
     char d[160];
@@ -1298,8 +1298,8 @@ static void jw_hexbytes(JW *w, const char *key, const uint8_t *p, size_t n) {
 static uint8_t *mem_range(const char *sp, int core, uint64_t addr, uint64_t len, char *err, size_t ne) {
   uint8_t *base = NULL;
   uint64_t size = 0;
-  if (!strcmp(sp, "dls")) { base = cores[core].dls; size = DLS_BYTES; }
-  else if (!strcmp(sp, "ils")) { base = cores[core].ils; size = ILS_BYTES; }
+  if (!strcmp(sp, "dls")) { base = cores[core].dls; size = dls_size; }
+  else if (!strcmp(sp, "ils")) { base = cores[core].ils; size = ils_size; }
   else if (!strcmp(sp, "t2")) { base = t2; size = T2_BYTES; }
   else if (!strcmp(sp, "t3")) { base = t3; size = T3_BYTES; }
   else if (!strcmp(sp, "disk")) { base = disk; size = disk_blocks * BLK_BLOCK; }
@@ -1466,7 +1466,7 @@ static void backtrace_json(JW *w, Core *c) {
   uint64_t seen[32];
   int ns = 0;
   uint64_t ra = c->x[1];
-  bool ra_call = ra >= 4 && ra < ILS_BYTES && !(ra & 3) && (rd32_ils(c, ra - 4) >> 26) == OP_JAL;
+  bool ra_call = ra >= 4 && ra < ils_size && !(ra & 3) && (rd32_ils(c, ra - 4) >> 26) == OP_JAL;
   if (ra_call) {
     jw_obj(w, NULL);
     jw_hex(w, "pc", ra);
@@ -1476,9 +1476,9 @@ static void backtrace_json(JW *w, Core *c) {
     seen[ns++] = ra;
   }
   uint64_t sp = c->x[2];
-  for (uint64_t a = sp & ~7ull; a + 8 <= DLS_BYTES && a < sp + 512 && ns < 16; a += 8) {
+  for (uint64_t a = sp & ~7ull; a + 8 <= dls_size && a < sp + 512 && ns < 16; a += 8) {
     uint64_t v = rd64(c->dls + a);
-    if (v < 4 || v >= ILS_BYTES || (v & 3)) continue;
+    if (v < 4 || v >= ils_size || (v & 3)) continue;
     uint32_t prev = rd32_ils(c, v - 4);
     if ((prev >> 26) != OP_JAL || ((prev >> 21) & 31) != 1) continue;
     bool dup = false;
@@ -1548,6 +1548,8 @@ static void dbg_request(const char *line, size_t len, JW *w) {
     jw_int(w, "ncores", ncores);
     jw_uint(w, "ctab", ctab_size);
     jw_uint(w, "nxmap", nxmap);
+    jw_uint(w, "dls", dls_size); /* the Local Stores, bytes (-L) */
+    jw_uint(w, "ils", ils_size);
     jw_str(w, "image", dbg_img_path ? dbg_img_path : "");
     jw_bool(w, "jit", use_jit);
     jw_bool(w, "virtual", virtual_time);
@@ -1609,7 +1611,7 @@ static void dbg_request(const char *line, size_t len, JW *w) {
       int c = req_core(rq, err, sizeof err);
       if (c >= 0) {
         Core *k = &cores[c];
-        uint32_t ir = (k->pc & 3) == 0 && k->pc < ILS_BYTES ? rd32_ils(k, k->pc) : 0;
+        uint32_t ir = (k->pc & 3) == 0 && k->pc < ils_size ? rd32_ils(k, k->pc) : 0;
         unsigned op = ir >> 26, rd = (ir >> 21) & 31;
         goal.core = c;
         if (!strcmp(cmd, "finish")) { goal.target = k->x[1]; run_start(G_UNTILPC); }
@@ -2032,7 +2034,7 @@ static void dbg_request(const char *line, size_t len, JW *w) {
       a &= ~3ull;
       a = a >= (uint64_t)before * 4 ? a - (uint64_t)before * 4 : 0;
       jw_arr(w, "lines");
-      for (int i = 0; i < n && a < ILS_BYTES && !err[0]; i++, a += 4) {
+      for (int i = 0; i < n && a < ils_size && !err[0]; i++, a += 4) {
         uint32_t ir = rd32_ils(c, a);
         char d[160], s[160];
         disasm(c, ir, a, d, sizeof d);

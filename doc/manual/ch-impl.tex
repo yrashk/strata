@@ -60,8 +60,15 @@ entry holds its far address in 27 bits and its I-LS address in 16. Because units
 slot size (Section~\ref{sec:xslot}), an entry's match is a 27-bit equality under the slot mask, with no
 carry chain; the target address is computed once, for the matching entry, in 64 bits. The number of
 entries is the parameter \texttt{NXMAP} of \texttt{strata\_core} and \texttt{strata\_top} (4--16, 16 by
-default; \texttt{make test-small} checks a build with 8, the size suggested for small FPGAs). Local Store
-addresses and lengths (in the TU, the hazard checks and the range checks) are 17 bits. pc$+4$ and
+default; \texttt{make test-small} checks a build with 8, the size suggested for small FPGAs). The Local
+Stores' sizes are the parameters \texttt{DLS\_KIB} and \texttt{ILS\_KIB} of the same two modules (powers
+of two, 4--64, 64 by default; \texttt{make DLS\_KIB=}$d$ \texttt{ILS\_KIB=}$i$, and \texttt{make test-ls}
+checks builds with 32/32, 16/4 and 4/32 against the emulator's \texttt{-L}): they give the depths of the
+two block RAMs, the bounds of every range check and the value the reset sequencer writes into \reg{sp},
+and the platform table reports them. Local Store addresses and lengths (in the TU, the hazard checks
+and the range checks) stay 17 bits, the width of the largest store; the memories take the low bits of
+an address the checks have already confined to them, and the reset sequencer writes each store's own
+words only. pc$+4$ and
 branch and \insn{jal} targets are computed on 17 and 24 bits and sign-extended, which is exact (the pc
 is inside the I-LS and offsets are below $2^{23}$), so a target outside the I-LS faults with its full
 address. Loads, stores and \insn{jalr} take their address from the ALU's adder, which also gives the

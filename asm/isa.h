@@ -3,8 +3,14 @@
 #ifndef STRATA_ISA_H
 #define STRATA_ISA_H
 
+/* The Local Stores: each core's D-LS and I-LS are 2^k bytes, LS_MIN_BYTES
+ * to these maxima (also the defaults), a platform parameter published in the
+ * platform table (common/platform.h; strata-emu -L, the RTL's DLS_KIB /
+ * ILS_KIB). An image's Local Store sections are limited to the maxima; a
+ * machine refuses an image that does not fit its own sizes. */
 #define DLS_BYTES 65536u
 #define ILS_BYTES 65536u
+#define LS_MIN_BYTES 4096u /* the smallest Local Store: the boot ROM (BOOTROM_BYTES) must fit */
 #define BOOTROM_BYTES 4096u /* what a core-control reset reloads: the first 4 KiB of each Local Store's boot image (the boot ROM); the rest is cleared */
 #define T2_BYTES  262144u
 #define T3_BYTES  0x4000000u /* 64 MiB; the top 16 MiB is the framebuffer window */

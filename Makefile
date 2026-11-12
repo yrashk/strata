@@ -5,6 +5,8 @@
 #   make test       run every example on the emulator and the RTL and compare
 #   make test-small the same (examples, StrataOS boot) with 8 overlay map entries
 #                   (NXMAP=8, the FPGA configuration; part of make test)
+#   make test-ls    the examples, lssize.s and StrataOS's refusal with smaller Local
+#                   Stores (32/32, 16/4, 4/32 KiB D-LS/I-LS; part of make test)
 #   make run        run every example on the RTL simulator, showing its output
 #   make run-emu    the same on the C emulator
 #   make run-NAME   run one example on the RTL, e.g. make run-mandel
@@ -34,6 +36,8 @@ CC      ?= cc
 CFLAGS  ?= -std=gnu11 -O2 -Wall -Wextra
 NCORES  ?= 8
 NXMAP   ?= 16
+DLS_KIB ?= 64
+ILS_KIB ?= 64
 
 # SDL2 for the framebuffer window, when pkg-config finds it (else -DNO_SDL:
 # no window, PRESENT only records frames for -F)
@@ -52,7 +56,7 @@ IMAGES  := $(patsubst examples/%.s,$(BUILD)/examples/%.stx,$(EXAMPLES))
 PROGS   := $(patsubst examples/%.s,$(BUILD)/prog/%,$(EXAMPLES))
 EMU     := $(BUILD)/strata-emu -c $(NCORES)
 
-.PHONY: all examples test test-small clean lint run run-emu boot boot-net boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
+.PHONY: all examples test test-small test-ls clean lint run run-emu boot boot-net boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
 
 all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl $(BUILD)/netrelay $(BUILD)/strata-dbg
 
@@ -84,14 +88,16 @@ $(BUILD)/strata-rtl: $(RTL) sim/main.cpp common/stx.h common/platform.h common/d
 	@mkdir -p $(BUILD)
 	verilator --cc --exe --build -j 0 -O3 --x-assign fast --x-initial fast \
 	  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
-	  -DSIMULATION -GNCORES=$(NCORES) -GNXMAP=$(NXMAP) --top-module strata_top \
+	  -DSIMULATION -GNCORES=$(NCORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) --top-module strata_top \
 	  -Mdir $(BUILD)/obj_dir -o strata-rtl \
-	  -CFLAGS "-O2 -std=c++17 -DNCORES=$(NCORES) -DNXMAP=$(NXMAP) $(SDL_CFLAGS)" -LDFLAGS "$(SDL_LIBS)" $(RTL) sim/main.cpp
+	  -CFLAGS "-O2 -std=c++17 -DNCORES=$(NCORES) -DNXMAP=$(NXMAP) -DDLS_KIB=$(DLS_KIB) -DILS_KIB=$(ILS_KIB) $(SDL_CFLAGS)" \
+	  -LDFLAGS "$(SDL_LIBS)" $(RTL) sim/main.cpp
 	rm -f $@ && cp $(BUILD)/obj_dir/strata-rtl $@
 
 lint:
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -DSIMULATION --top-module strata_top $(RTL)
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM --top-module strata_top $(RTL)
+	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GDLS_KIB=8 -GILS_KIB=4 --top-module strata_top $(RTL)
 
 $(BUILD)/examples/%.stx: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/examples
@@ -121,6 +127,7 @@ test: all examples os
 	BUILD=$(BUILD) ./tools/test-dbg.sh
 	BUILD=$(BUILD) NCORES=$(NCORES) ./conformance/run.sh
 	$(MAKE) test-small
+	$(MAKE) test-ls
 	@if command -v node >/dev/null 2>&1 && command -v $(EMCC) >/dev/null 2>&1; then $(MAKE) test-wasm; \
 	else echo "test-wasm: skipped (needs node and $(EMCC))"; fi
 
@@ -132,6 +139,31 @@ test-small:
 	$(MAKE) BUILD=$(SMALL) NXMAP=8 all examples os
 	BUILD=$(SMALL) NCORES=$(NCORES) EMU_ARGS="-X 8" ./tools/compare.sh $(patsubst $(BUILD)/%,$(SMALL)/%,$(IMAGES))
 	BUILD=$(SMALL) NCORES=$(NCORES) EMU_ARGS="-X 8" ./tools/compare-boot.sh $(SMALL)/bootrom.stx $(SMALL)/disk.img os/demo.txt
+
+# smaller Local Stores (DLS_KIB / ILS_KIB, the emulator's -L): RTLs built
+# with 32/32, 16/4 and 4/32 KiB (D-LS/I-LS) in their own directories,
+# compared with the emulator on every example that fits (32/32: all of them;
+# 16/4 and 4/32: those whose data and stack, and code, fit), on
+# conformance/tests/lssize.s (which needs a 16 KiB D-LS: the harness's
+# signature buffer), and on StrataOS refusing the machine (it needs 64 KiB of
+# each; 64/32, which the kernel itself refuses, on the emulator only).
+LSA := $(BUILD)/ls32
+LSB := $(BUILD)/ls16-4
+LSC := $(BUILD)/ls4-32
+LSB_EXAMPLES := clock faults hello mandel pipeline race
+LSC_EXAMPLES := clock faults hello mandel overlay race
+test-ls: os
+	$(MAKE) BUILD=$(LSA) DLS_KIB=32 ILS_KIB=32 all examples
+	BUILD=$(LSA) NCORES=$(NCORES) EMU_ARGS="-L 32" ./tools/compare.sh $(patsubst $(BUILD)/%,$(LSA)/%,$(IMAGES))
+	BUILD=$(LSA) NCORES=$(NCORES) EMU_ARGS="-L 32" ./conformance/run.sh lssize
+	BUILD=$(LSA) NCORES=$(NCORES) EMU_ARGS="-L 32" ./tools/test-ls-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	$(MAKE) BUILD=$(LSB) DLS_KIB=16 ILS_KIB=4 all examples
+	BUILD=$(LSB) NCORES=$(NCORES) EMU_ARGS="-L 16,4" ./tools/compare.sh $(patsubst %,$(LSB)/examples/%.stx,$(LSB_EXAMPLES))
+	BUILD=$(LSB) NCORES=$(NCORES) EMU_ARGS="-L 16,4" ./conformance/run.sh lssize
+	$(MAKE) BUILD=$(LSC) DLS_KIB=4 ILS_KIB=32 all examples
+	BUILD=$(LSC) NCORES=$(NCORES) EMU_ARGS="-L 4,32" ./tools/compare.sh $(patsubst %,$(LSC)/examples/%.stx,$(LSC_EXAMPLES))
+	BUILD=$(LSC) NCORES=$(NCORES) EMU_ARGS="-L 4,32" ./tools/test-ls-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) NCORES=$(NCORES) EMU_ARGS="-L 64,32" RTL=none ./tools/test-ls-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 
 run: all examples
 	@for img in $(IMAGES); do \

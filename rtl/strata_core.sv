@@ -36,6 +36,8 @@ module strata_core
   parameter int    COREID   = 0,
   parameter int    NCORES   = 4,
   parameter int    NXMAP    = NXMAP_DEF,  // overlay map entries (4..16; the platform table says)
+  parameter int    DLS_KIB  = LS_DEF_KIB, // the D-LS and I-LS in KiB (powers of two, 4..64; the
+  parameter int    ILS_KIB  = LS_DEF_KIB, //   platform table says)
   parameter string ILS_INIT = "",
   parameter string DLS_INIT = ""
 )(
@@ -104,6 +106,16 @@ module strata_core
 
   output logic        halted
 );
+  // ================================================================ the Local Stores' sizes
+  localparam int DLS_SIZE  = DLS_KIB * 1024;   // bytes (the manual's DLS_SIZE, ILS_SIZE)
+  localparam int ILS_SIZE  = ILS_KIB * 1024;
+  localparam int DLS_LG    = $clog2(DLS_SIZE);
+  localparam int ILS_LG    = $clog2(ILS_SIZE);
+  localparam int DLS_WORDS = DLS_SIZE / 8;
+  localparam int ILS_WORDS = ILS_SIZE / 8;
+  localparam int DAW       = DLS_LG - 3;        // word address widths of the two memories
+  localparam int IAW       = ILS_LG - 3;
+
   // ================================================================ state
   typedef enum logic [3:0] {S_RST, S_F0, S_F1, S_EX, S_CT, S_LD, S_LG, S_LT, S_LW, S_DV, S_AM, S_HALT, S_RQ} state_t;
 
@@ -136,7 +148,7 @@ module strata_core
   logic           rpend;         // a reset request is pending
 
   // the overlay map: a far address (below its space's size: xmap checks the
-  // bounds first) and an I-LS address (below ILS_BYTES) per entry
+  // bounds first) and an I-LS address (below ILS_SIZE) per entry
   localparam int XW = $clog2(NXMAP);    // an entry number
   logic          xm_v   [NXMAP];
   logic [2:0]    xm_sp  [NXMAP];
@@ -239,17 +251,25 @@ module strata_core
     brom_dq <= brom_d[rs_i[BW-1:0]];
   end
 
+  // (every address reaching a memory is below its size: the checks in EX
+  // and the Transfer Unit's checked ranges; the reset sequencer writes each
+  // store's own words only)
+  logic rl_vi, rl_vd;
+  assign rl_vi = rl_v && 32'(rl_a) < ILS_WORDS;
+  assign rl_vd = rl_v && 32'(rl_a) < DLS_WORDS;
   strata_ram #(.WORDS(ILS_WORDS), .INIT(ILS_INIT)) u_ils (
     .clk,
-    .a_en(ia_en), .a_we(8'h00), .a_addr(ia_addr), .a_wdata(64'b0), .a_rdata(ia_rdata),
-    .b_en(tu_ils_en || rl_v), .b_we(tu_ils_en || rl_v ? 8'hff : 8'h00), .b_addr(rl_v ? rl_a : tu_ils_addr),
+    .a_en(ia_en), .a_we(8'h00), .a_addr(ia_addr[IAW-1:0]), .a_wdata(64'b0), .a_rdata(ia_rdata),
+    .b_en(tu_ils_en || rl_vi), .b_we(tu_ils_en || rl_vi ? 8'hff : 8'h00),
+    .b_addr(rl_v ? rl_a[IAW-1:0] : tu_ils_addr[IAW-1:0]),
     .b_wdata(rl_v ? (rl_boot ? brom_iq : 64'b0) : tu_ils_wdata),
     .b_rdata(ils_b_rdata)
   );
   strata_ram #(.WORDS(DLS_WORDS), .INIT(DLS_INIT)) u_dls (
     .clk,
-    .a_en(da_en), .a_we(da_we), .a_addr(da_addr), .a_wdata(da_wdata), .a_rdata(da_rdata),
-    .b_en(tu_dls_en || rl_v), .b_we(rl_v ? 8'hff : tu_dls_we), .b_addr(rl_v ? rl_a : tu_dls_addr),
+    .a_en(da_en), .a_we(da_we), .a_addr(da_addr[DAW-1:0]), .a_wdata(da_wdata), .a_rdata(da_rdata),
+    .b_en(tu_dls_en || rl_vd), .b_we(rl_v ? (rl_vd ? 8'hff : 8'h00) : tu_dls_we),
+    .b_addr(rl_v ? rl_a[DAW-1:0] : tu_dls_addr[DAW-1:0]),
     .b_wdata(rl_v ? (rl_boot ? brom_dq : 64'b0) : tu_dls_wdata),
     .b_rdata(tu_dls_rdata)
   );
@@ -289,7 +309,7 @@ module strata_core
                     .b(d.kind == K_ALU || d.kind == K_BRANCH ? rb : d.imm),
                     .y(alu_y), .lt(alu_lt), .ltu(alu_ltu));
 
-  // next pc: in EX pc < ILS_BYTES (the fetch checked it), and branch / jal
+  // next pc: in EX pc < ILS_SIZE (the fetch checked it), and branch / jal
   // offsets are below 2^23 bytes, so 24 bits sign-extended are exact (a
   // target outside the I-LS faults at its fetch with this full value)
   logic [63:0] pc4, pc_br;
@@ -320,8 +340,8 @@ module strata_core
   logic [7:0]  mmask;
   assign maddr  = alu_y;                                   // ra + offset
   assign msz    = 64'd1 << d.msize;
-  // aligned and below DLS_BYTES (a power of two): the whole access is inside
-  assign mok    = maddr[63:$clog2(DLS_BYTES)] == 0 && (maddr[2:0] & 3'((4'd1 << d.msize) - 4'd1)) == 0;
+  // aligned and below DLS_SIZE (a power of two): the whole access is inside
+  assign mok    = maddr[63:DLS_LG] == 0 && (maddr[2:0] & 3'((4'd1 << d.msize) - 4'd1)) == 0;
   assign mshift = {58'b0, maddr[2:0], 3'b000};
   always_comb begin
     case (d.msize)
@@ -368,7 +388,7 @@ module strata_core
     logic [5:0]     need;
     logic [LSW-1:0] limit;
     need  = d.xf_sub == XF_GET ? 6'(1 << P_R) : d.xf_sub == XF_PUT ? 6'(1 << P_W) : 6'(1 << P_X);
-    limit = d.xf_sub == XF_GETX ? LSW'(ILS_BYTES) : LSW'(DLS_BYTES);
+    limit = d.xf_sub == XF_GETX ? LSW'(ILS_SIZE) : LSW'(DLS_SIZE);
     xf_fault = '0;
     xf_tval  = rb;
     if (!live_a)                                         xf_fault = C_CAPINV;
@@ -418,7 +438,7 @@ module strata_core
   assign lt_sw_c    = (lt_ways[0] ? lt_set      : 64'd0) + (lt_ways[1] ? lt_set << 1 : 64'd0) +
                       (lt_ways[2] ? lt_set << 2 : 64'd0) + (lt_ways[3] ? lt_set << 3 : 64'd0);
   assign lt_ebase_c = csr_ttag + ((lt_sw_c + lt_set) << 3);
-  assign lt_ok      = lt_ways != 0 && lt_ebase[2:0] == 0 && lt_ebase <= 64'(DLS_BYTES) - lt_span;
+  assign lt_ok      = lt_ways != 0 && lt_ebase[2:0] == 0 && lt_ebase <= 64'(DLS_SIZE) - lt_span;
 
   always_comb begin
     hz_addr = '0;
@@ -554,7 +574,7 @@ module strata_core
         xm_i   = XW'(i);
       end
     // the link an xcall leaves: a far address when called from inside a
-    // mapped unit (pc < ILS_BYTES here: the fetch checked it)
+    // mapped unit (pc < ILS_SIZE here: the fetch checked it)
     xm_inslot = 0;
     xm_li     = '0;
     for (int i = 0; i < NXMAP; i++) begin
@@ -648,7 +668,7 @@ module strata_core
 
   // ================================================================ Local Store port A
   logic        lt_rd, pc_in;
-  assign pc_in   = pc[63:$clog2(ILS_BYTES)] == 0;                 // pc < ILS_BYTES
+  assign pc_in   = pc[63:ILS_LG] == 0;                            // pc < ILS_SIZE
   logic [63:0] lt_rd_a, va, ca, nv;
   assign lt_rd_a = lt_ebase + 64'(lt_k) * 8;
   assign va      = lt_ebase + lt_victim * 8;                         // the victim's tag word
@@ -812,13 +832,15 @@ module strata_core
       if (reset_req) rpend <= 1;                         // ... or to restart
       // the reset sequencer's Local Store write of next cycle (the boot ROM word read now)
       rl_v    <= state == S_RST && rs_ld && rs_i < RSW'(LSN);
-      rl_a    <= rs_i[12:0];
+      rl_a    <= 13'(rs_i);
       rl_boot <= rs_i < RSW'(BOOT_WORDS);
 
       case (state)
         // ------------------------------------------------------------ reset sequencer
         S_RST: begin                                     // the save table: ct_we
-          if (rs_i < RSW'(32)) begin xw = 1; xa = rs_i[4:0]; end   // x0..x31 = 0
+          if (rs_i < RSW'(32)) begin                     // x0..x31 = 0, but sp = the D-LS size
+            xw = 1; xa = rs_i[4:0]; xv = rs_i == RSW'(2) ? 64'(DLS_SIZE) : 64'd0;
+          end
           rs_i <= rs_i + 1;                              // (the Local Stores: rl_v, the cycle after)
           if (rs_ld ? rs_i == RSW'(LSN) : rs_i == RSW'(RSN - 1)) state <= S_F0;
         end
@@ -1104,7 +1126,7 @@ module strata_core
               else if (!xcap.perms[P_X]) trap(C_PERM, 64'(d.cs));
               else if (ge_w(rb, xcap.len)) trap(C_BOUNDS, rb);
               else if ((xm_new_far & ~xs_hmask) != 0) trap(C_XALIGN, rb);   // not slot-aligned
-              else if (ra[1:0] != 0 || ra[63:$clog2(ILS_BYTES)] != 0) trap(C_LSFAULT, ra);
+              else if (ra[1:0] != 0 || ra[63:ILS_LG] != 0) trap(C_LSFAULT, ra);
               else begin
                 xm_v[XW'(d.rd)]   <= 1;
                 xm_sp[XW'(d.rd)]  <= xcap.space;

@@ -51,7 +51,6 @@ m_need_e:                               ; end of the text above
 
         .text                           ; instruction Local Store
 _start:                                 ; entry point: every core starts executing here, at I-LS address 0
-        li    sp, 65536                 ; stack at the top of D-LS
         csrr  t0, ncores                ; how many cores are there?
         li    t1, 2                     ; this example needs two
         bge   t0, t1, enough            ; fine

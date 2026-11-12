@@ -340,8 +340,8 @@ static void insn(uint32_t ir, uint64_t pc, unsigned idx) {
     bool store = op >= OP_SD;
     int lg = store ? 3 - (int)(op - OP_SD) : op == OP_LD ? 3 : op <= OP_LWU ? 2 : op <= OP_LHU ? 1 : 0;
     /* An access is in bounds and aligned iff no address bit outside
-     * [lg, 16) is set: one test against a logical immediate. */
-    uint64_t bad = ~0xffffull | ((1ull << lg) - 1);
+     * [lg, log2 D-LS size) is set: one test against a logical immediate. */
+    uint64_t bad = ~(L.dls_size - 1) | ((1ull << lg) - 1);
     uint32_t enc;
     bitmask(bad, &enc); /* always encodable: a rotated run of ones */
     int ar;
@@ -401,7 +401,7 @@ static void insn(uint32_t ir, uint64_t pc, unsigned idx) {
     /* straight to the target's block if it has one (its entry checks the
      * quantum), else back to the dispatcher */
     uint32_t enc;
-    bitmask(~0xffffull, &enc);
+    bitmask(~(L.ils_size - 1), &enc); /* inside the I-LS */
     emit(ANDSi | enc | S0 << 5 | 31);
     uint32_t *miss1 = cur();
     emit(Bcond(0, C_NE));

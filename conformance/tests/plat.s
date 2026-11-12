@@ -6,7 +6,8 @@
 ;   * Header (32 bytes): "STPD", u16 version 1, u16 entry size 32, u16
 ;     entries 9, u16 cores, u32 total length 320, u32 checksum, u16 entries
 ;     of the capability save table (256, the default), u16 entries of the
-;     overlay map (16, the default), 8 bytes reserved (zero).
+;     overlay map (16, the default), u16 KiB of each core's D-LS and u16
+;     KiB of its I-LS (64 and 64, the defaults), 4 bytes reserved (zero).
 ;   * checksum = the sum of all 320 bytes with the checksum field taken as
 ;     zero, mod 2^32.
 ;   * The nine entries (u16 type, u16 index, u16 space, u16 node, u64 info,
@@ -63,7 +64,10 @@ main:
         lwu   a0, 20(s1)                ; the save table's and the overlay map's entries
         li    a1, 256 | 16 << 16        ; the defaults
         call  chk                       ; check
-        ld    a0, 24(s1)                ; reserved
+        lwu   a0, 24(s1)                ; the D-LS and I-LS sizes in KiB
+        li    a1, 64 | 64 << 16         ; the defaults
+        call  chk                       ; check
+        lwu   a0, 28(s1)                ; reserved
         li    a1, 0                     ; zero
         call  chk                       ; check
 

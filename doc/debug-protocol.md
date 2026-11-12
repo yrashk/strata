@@ -71,7 +71,7 @@ idle machine skips it ahead to the next deadline, so it may jump.
 
 | Request | Answer |
 |---|---|
-| `hello` | `version` (1), `ncores`, `ctab` (save-table entries), `nxmap` (overlay map entries), `image`, `jit`, `virtual`, `timetravel`, `os`, `state` (`stopped`, `running`, `done`), `maps` (`path`, `scope`: image / kernel / prog, `prog`, `forth`), the position |
+| `hello` | `version` (1), `ncores`, `ctab` (save-table entries), `nxmap` (overlay map entries), `dls`, `ils` (the Local Stores' sizes in bytes), `image`, `jit`, `virtual`, `timetravel`, `os`, `state` (`stopped`, `running`, `done`), `maps` (`path`, `scope`: image / kernel / prog, `prog`, `forth`), the position |
 | `status` | `state`, `why` (when done), the position, `events` (the next event sequence number), `console` (bytes of console output so far), `history` (below) |
 | `quit` | the engine ends after answering |
 
@@ -176,7 +176,7 @@ or after the line; a basename is enough) or, under StrataOS, `prog:label`.
 | `tags {core?}` | `cores`: `core`, `tags` (16: `tag`, `busy`; for a tag that has had a transfer: `op` tget / tput / tgetx, `space`, `ls`, `len`, `far`, `port` (device), `pc`, `issued` and `completed` rounds, and ticks), `stall` |
 | `pending` | `reads`: every pending device read (`core`, `tag`, `port`, `name`, `ls`, `len`, `seq`, `issued`, `waits`: what it waits for, e.g. "the timer deadline 5002 (now 3, in 4999 ticks)"); `blk`: the block device's queues (`commands`, `partial`, `caps`, `completions`, `returning_to`, `submitters`: the core that submitted each queued command, `lenders`: the core that gave each capability waiting there); `input_queued`, `breaks`, `deadline`, `now` |
 | `granules` | `units`: the revocation units (`space`, `base`, `len`, `gen`) |
-| `mem {space, core, addr or loc, len}` | `space` (dls, ils, t2, t3, disk), `addr`, `hex`, `sym` (D-LS). At most 64 KiB. |
+| `mem {space, core, addr or loc, len}` | `space` (dls, ils, t2, t3, disk), `addr`, `hex`, `sym` (D-LS). At most 64 KiB, inside the space (a Local Store: its size, `hello`'s `dls` / `ils`). |
 | `disasm {core, addr or loc, n, before}` | `lines`: `addr`, `word`, `text`, `label` (at a label), `sym`, `file`, `line`, `pc` (the core's pc), `bp` |
 | `sym {loc}` | `addr`, `section`, `prog` |
 | `source {file, from, n}` | `lines` of a source file (found through the maps' `root`) |

@@ -6,10 +6,10 @@
 \section{Design principles}
 
 \begin{description}[leftmargin=1em,style=nextline]
-\item[Loads and stores reach only the Local Store.] Each core has a private 64~KiB data Local Store
-  (D-LS), the only memory that load and store instructions can address, and a private 64~KiB instruction
-  Local Store (I-LS), the only memory from which instructions are fetched. The Local Stores are
-  architectural scratchpads at the latency of a first-level cache.
+\item[Loads and stores reach only the Local Store.] Each core has a private data Local Store
+  (D-LS), the only memory that load and store instructions can address, and a private instruction
+  Local Store (I-LS), the only memory from which instructions are fetched: 4 to 64~KiB each, 64~KiB by
+  default. The Local Stores are architectural scratchpads at the latency of a first-level cache.
 \item[Everything else is reached by transfers.] The cluster store (T2), system memory (T3) and devices
   (T4) are reached only through the core's \term{Transfer Unit} (TU), by block copies
   (\insn{tget}, \insn{tput}, \insn{tgetx}) or by far atomics (\insn{tamo}). There are no hardware
@@ -90,8 +90,8 @@ device is itself a node that can receive and return capabilities.
 \begin{tabularx}{\linewidth}{@{}l l l X@{}}
 \toprule
 \textbf{Tier} & \textbf{Name} & \textbf{Size} & \textbf{Access}\\\midrule
-T1i & Instruction Local Store (I-LS) & 64 KiB per core & Instruction fetch; written only by \insn{tgetx}\\
-T1d & Data Local Store (D-LS) & 64 KiB per core & Loads and stores; \insn{tget}/\insn{tput} endpoints\\
+T1i & Instruction Local Store (I-LS) & 64 KiB per core (4--64 KiB) & Instruction fetch; written only by \insn{tgetx}\\
+T1d & Data Local Store (D-LS) & 64 KiB per core (4--64 KiB) & Loads and stores; \insn{tget}/\insn{tput} endpoints\\
 T2 & Cluster store & 256 KiB, shared & Transfers and far atomics through a capability (space 2)\\
 T3 & System memory & 64 MiB, shared & Transfers and far atomics through a capability (space 3); the top 16 MiB is the framebuffer window\\
 T4 & Device space & \hex{5000} bytes & Transfers of one byte per beat through a device capability (space 4)\\
@@ -102,9 +102,10 @@ T4 & Device space & \hex{5000} bytes & Transfers of one byte per beat through a 
 Two further spaces hold no storage: core-control space (space 5), through which a core stops other
 cores, and endpoint space (space 6), whose capabilities name nodes.
 
-The sizes are those of the prototype platform. The Local Store sizes are part of the architecture
-(the \texttt{DLS\_SIZE} and \texttt{ILS\_SIZE} of the pseudocode); the far tier sizes are properties of
-the platform and are reported by the platform table (Chapter~\ref{ch:platform}).
+The sizes are those of the prototype platform in its default configuration. Every size is a property
+of the platform, reported by the platform table (Chapter~\ref{ch:platform}). The Local Store sizes,
+the \texttt{DLS\_SIZE} and \texttt{ILS\_SIZE} of the pseudocode, are powers of two from 4~KiB to
+64~KiB, chosen independently (Section~\ref{sec:lssize}); every core of a machine has the same ones.
 
 \section{A first program}
 

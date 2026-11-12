@@ -32,7 +32,6 @@ wk_nows_e:                              ; (its end)
         .text                           ; code
 
 main:
-        li    sp, 65536                 ; stack at the top of the D-LS
         call  sys_init                  ; handles
         la    a0, wk_title              ; our window
         li    a1, 0                     ; ...

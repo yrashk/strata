@@ -22,9 +22,10 @@ architectural requirement.
 \end{table}
 
 \begin{itemize}
-\item Bare-metal programs set \reg{sp} to 65536 (the top of the D-LS) at entry. The stack is kept 8-byte
-  aligned. Under StrataOS the stack occupies D-LS \hex{E000}--\hex{FFFF} and a program's data D-LS
-  \hex{0000}--\hex{9FFF}.
+\item At entry \reg{sp} holds the top of the D-LS: reset puts \texttt{DLS\_SIZE} there
+  (Section~\ref{sec:reset}) and StrataOS starts every thread with it, so programs do not set it. The
+  stack grows down and is kept 8-byte aligned. Under StrataOS (64~KiB Local Stores) the stack occupies
+  D-LS \hex{E000}--\hex{FFFF} and a program's data D-LS \hex{0000}--\hex{9FFF}.
 \item \reg{a0} at \insn{halt} is the program's exit status.
 \item Capability registers have no general convention. The firmware conventions
   (Table~\ref{tab:sficonv}) are: \reg{c0} memory root, \reg{c2} console output, \reg{c3} device root,
@@ -52,7 +53,7 @@ architectural requirement.
 4 & perm & missing permission; transfer through an endpoint; \insn{tgetx} through device or core-control space; \insn{tget} through core-control space; \insn{catomic} outside T2/T3 & far offset (transfers, atomics) or register number\\
 5 & bounds & far range outside the segment; overlay offset $\geq$ length & the far offset\\
 6 & xalign & memory transfer operands or atomic offset not multiples of 8; \insn{xmap} far address not a multiple of $2^{\csr{xslot}}$ & the far offset\\
-7 & ifault & fetch from a misaligned \reg{pc} or one $\geq$ 65536 & \reg{pc}\\
+7 & ifault & fetch from a misaligned \reg{pc} or one $\geq$ \texttt{ILS\_SIZE} & \reg{pc}\\
 8 & xmiss & \insn{xcall} target, or \insn{xret} far link, not mapped & the absolute far address; for \insn{xret}, the link (bit 63 set)\\
 9 & pend & with CCR.PTRAP, a load, store, \insn{ltag} or \insn{linst} that would stall on an in-flight range; a \insn{tget} or \insn{tput} whose D-LS range overlaps a pending device read & the Local Store address\\
 10 & capop & overwrite of a live linear capability; bad \insn{csplit} (beyond the end, an offset that is not a multiple of 8, or a revoker cut off a granule boundary) or \insn{cjoin}; \insn{cgive} outside the window (or in user mode without one), beyond node $N$ or to a halted core; \insn{csend} to such a node; bad \insn{cdom} source (not whole granules, revocable already, \ldots); an empty revoker; \insn{cmkep} beyond node $N$ & register or slot number, split offset, or node number\\

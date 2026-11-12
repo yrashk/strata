@@ -115,7 +115,9 @@ little-endian.
 16 & u32 & checksum: sum of all bytes of the table, with this field taken as zero, mod $2^{32}$\\
 20 & u16 & $\textit{CTAB}$: entries of every core's capability save table (64--256; 256 by default). 0 in an older table means 64\\
 22 & u16 & $\textit{NXMAP}$: entries of every core's overlay map (4--16; 16 by default). 0 in an older table means 16\\
-24 & u8[8] & reserved, zero\\
+24 & u16 & \texttt{DLS\_SIZE} in KiB: every core's D-LS (a power of two, 4--64; 64 by default). 0 in an older table means 64\\
+26 & u16 & \texttt{ILS\_SIZE} in KiB: every core's I-LS (the same range, independent of the D-LS). 0 in an older table means 64\\
+28 & u8[4] & reserved, zero\\
 \bottomrule
 \end{tabular}
 \end{table}

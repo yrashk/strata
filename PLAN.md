@@ -606,14 +606,15 @@ Design (decided before the edits; the user asked for it):
   machine at boot with a message, the boot ROM refuses an OS that does not
   fit. Strata Forth: 64 KiB both (fixed stacks, ~33 KiB of code after
   core.fs). Bare-metal examples: whatever their image and stack need (each
-  says so); `make test-ls` runs them in lockstep at 32/32 KiB and the small
-  ones at 8/4 KiB.
+  says so); `make test-ls` runs them in lockstep at 32/32 KiB and the ones
+  that fit at 16/4 and 4/32 KiB (conformance/tests/lssize.s needs a 16 KiB
+  D-LS: the harness's signature buffer).
 
-- [ ] Emulator, JIT, debugger, platform tools
-- [ ] RTL, sim harness, lockstep (`make test-ls`)
-- [ ] Manual, spec, docs
-- [ ] Boot ROM, StrataOS check, programs' sp, Forth check, examples
-- [ ] conformance (lssize.s at several sizes, mutation-checked), FPGA numbers
+- [x] Emulator, JIT, debugger, platform tools
+- [x] RTL, sim harness, lockstep (`make test-ls`)
+- [x] Manual, spec, docs
+- [x] Boot ROM, StrataOS check, programs' sp, Forth check, examples
+- [x] conformance (lssize.s at several sizes, mutation-checked), FPGA numbers
 
 ## File ownership while agents run in parallel
 

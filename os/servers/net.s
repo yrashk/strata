@@ -243,7 +243,6 @@ _start:
         j     main                      ; skip the marker
         .word 0x32535953                ; "SYS2": a StrataOS 0.1 program
 main:
-        li    sp, 65536                 ; stack at the top of the D-LS
         call  sys_init                  ; ...
         call  sys_cmdline               ; the address: the second word
         add   s2, a0, a1                ; s2 = end

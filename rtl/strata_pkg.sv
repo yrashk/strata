@@ -6,18 +6,22 @@
 package strata_pkg;
 
   // ---------------------------------------------------------------- sizes
-  localparam int DLS_BYTES = 65536;    // data Local Store (T1d)
-  localparam int ILS_BYTES = 65536;    // instruction Local Store (T1i)
+  // The Local Stores (T1d, T1i) are a platform parameter: strata_core /
+  // strata_top take DLS_KIB and ILS_KIB (powers of two, 4..64 KiB; the
+  // platform table says). Addresses and lengths inside the core and the
+  // Transfer Unit keep the width of the largest store (LSW); the memories
+  // and the checks use the configured sizes.
+  localparam int LS_MAX_BYTES = 65536;  // the largest Local Store (asm/isa.h DLS_BYTES / ILS_BYTES)
+  localparam int LS_DEF_KIB = 64;      // the default size of both (common/platform.h LS_DEF_KIB)
   localparam int BOOT_BYTES = 4096;    // the boot ROM: what a core-control reset reloads into each
-                                       // Local Store (asm/isa.h BOOTROM_BYTES); the rest is cleared
+                                       // Local Store (asm/isa.h BOOTROM_BYTES, also the smallest
+                                       // Local Store); the rest is cleared
   localparam int T2_BYTES  = 262144;   // cluster store
   localparam int T3_BYTES  = 67108864; // system memory (64 MiB; the framebuffer window is the top 16 MiB)
 
-  // a Local Store address or length, up to the store's size
-  localparam int LSW       = $clog2(DLS_BYTES > ILS_BYTES ? DLS_BYTES : ILS_BYTES) + 1;
+  // a Local Store address or length, up to the largest store's size
+  localparam int LSW       = $clog2(LS_MAX_BYTES) + 1;
 
-  localparam int DLS_WORDS = DLS_BYTES / 8;
-  localparam int ILS_WORDS = ILS_BYTES / 8;
   localparam int BOOT_WORDS = BOOT_BYTES / 8;
   localparam int T2_WORDS  = T2_BYTES / 8;
   localparam int T3_WORDS  = T3_BYTES / 8;

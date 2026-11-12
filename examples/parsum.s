@@ -58,7 +58,6 @@ m_tp_e:                                 ; end of the text above (its length = en
 
         .text                           ; instruction Local Store
 _start:                                 ; entry point: every core starts executing here, at I-LS address 0
-        li    sp, 65536                 ; stack at the top of D-LS
         csrr  t0, coreid                ; which core?
         bnez  t0, worker                ; every other core is a helper
 

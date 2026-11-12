@@ -139,7 +139,7 @@ typedef struct {
   bool reset_req;               /* a reset request is pending (taken in any mode) */
   Pending pend[NPEND];          /* in-flight device reads */
   uint64_t xslot;               /* log2 bytes of an overlay slot; 0 = exact-match mapping */
-  uint8_t dls[DLS_BYTES], ils[ILS_BYTES];
+  uint8_t dls[DLS_BYTES], ils[ILS_BYTES]; /* the largest stores; dls_size / ils_size of them exist (-L) */
   /* the capability inbox: a small queue per sender, so that one sender can
    * never fill the inbox and block a gift another `ctake cd, rs` waits for */
   Cap inbox[MAXNODES][SQ];
@@ -186,6 +186,7 @@ static const uint8_t *boot_ils, *boot_dls; /* the boot image, to reload a reset 
 static int ncores = 4;
 static uint64_t ctab_size = CTAB_DEF; /* capability save-table entries per core (-S) */
 static unsigned nxmap = NXMAP_DEF;    /* overlay map entries per core (-X) */
+static uint64_t dls_size = DLS_BYTES, ils_size = ILS_BYTES; /* each core's Local Stores, bytes (-L) */
 static uint8_t *t2, *t3;
 static FILE *trace;
 static bool faulted;
@@ -485,6 +486,7 @@ static void core_reset(Core *c) {
   c->id = id;
   memcpy(c->dls, boot_dls, BOOTROM_BYTES); /* (the rest of both stores: zero, from the memset) */
   memcpy(c->ils, boot_ils, BOOTROM_BYTES);
+  c->x[2] = dls_size; /* sp: the top of the D-LS, as at power-on */
   c->caps[2] = (Cap){true, SP_DEV, P_W | P_D, 0, 1, 0, 0}; /* console output: every core */
   if (id == 0) { /* core 0's reset set (a worker reset gets only the console) */
     c->caps[0] = (Cap){true, SP_T3, P_R | P_W | P_X, 0, T3_BYTES, 0, 0};
@@ -492,8 +494,8 @@ static void core_reset(Core *c) {
     c->caps[3] = (Cap){true, SP_DEV, P_R | P_W | P_D, 0, DEV_SPACE_LEN, 0, 0};
     c->caps[4] = (Cap){true, SP_CORE, P_W | P_D, 0, (uint64_t)ncores * 8, 0, 0};
   }
-  jit_invalidate(id, 0, ILS_BYTES); /* its code changed under the JIT */
-  dec_invalidate(c, 0, ILS_BYTES);
+  jit_invalidate(id, 0, ils_size); /* its code changed under the JIT */
+  dec_invalidate(c, 0, ils_size);
   if (dbg_on) dbg_core_reset(c);
 }
 
@@ -585,7 +587,7 @@ static void dec_invalidate(Core *c, uint64_t ls, uint64_t len); /* the fast loop
 /* Executes one instruction. Returns false if the core is blocked (nothing happened). */
 static bool step(Core *c) {
   if (c->user && c->ipend) { c->ipend = false; trap(c, C_STOP, 0); return true; }
-  if (c->pc & 3 || c->pc >= ILS_BYTES) { trap(c, C_IFAULT, c->pc); return true; }
+  if (c->pc & 3 || c->pc >= ils_size) { trap(c, C_IFAULT, c->pc); return true; }
   uint32_t ir;
   memcpy(&ir, c->ils + c->pc, 4);
   if (trace && !c->traced) fprintf(trace, "%d %08llx %08x\n", c->id, (unsigned long long)c->pc, ir);
@@ -621,7 +623,7 @@ static bool step(Core *c) {
     uint64_t sz = 1ull << lg;
     uint64_t base = store ? c->x[rs1] : a;
     uint64_t addr = base + simm;
-    if (addr > DLS_BYTES - sz || (addr & (sz - 1))) { trap(c, C_LSFAULT, addr); return true; }
+    if (addr > dls_size - sz || (addr & (sz - 1))) { trap(c, C_LSFAULT, addr); return true; }
     for (int i = 0; i < NPEND; i++)
       if (c->pend[i].on && addr < c->pend[i].ls + c->pend[i].len && c->pend[i].ls < addr + sz) {
         if (c->ccr & 1) { trap(c, C_PEND, addr); return true; } /* CCR.PTRAP: trap instead of waiting */
@@ -670,7 +672,7 @@ static bool step(Core *c) {
     Cap *k = &c->caps[ci];
     uint64_t ls = c->x[rl], off = c->x[ro], len = c->x[rn];
     uint8_t need = sub == XF_GET ? P_R : sub == XF_PUT ? P_W : P_X;
-    uint64_t limit = sub == XF_GETX ? ILS_BYTES : DLS_BYTES;
+    uint64_t limit = sub == XF_GETX ? ils_size : dls_size;
     int f = 0;
     if (!live(*k)) f = C_CAPINV;
     else if (!(k->perms & need)) f = C_PERM;
@@ -1011,7 +1013,7 @@ static bool step(Core *c) {
     unsigned lsh = c->tgeom & 63, lsets = (c->tgeom >> 6) & 63, ways = (c->tgeom >> 12) & 15;
     uint64_t line = a >> lsh, set = line & ((1ull << lsets) - 1), span = ((uint64_t)ways + 1) * 8;
     uint64_t eb = c->ttag + set * span, key = line << 1 | 1;
-    if (!ways || (eb & 7) || eb > DLS_BYTES - span) { trap(c, C_LSFAULT, eb); return true; }
+    if (!ways || (eb & 7) || eb > dls_size - span) { trap(c, C_LSFAULT, eb); return true; }
     for (int i = 0; i < NPEND; i++) /* the set's entry overlaps an in-flight device read: wait (or pend) */
       if (c->pend[i].on && eb < c->pend[i].ls + c->pend[i].len && c->pend[i].ls < eb + span) {
         if (c->ccr & 1) { trap(c, C_PEND, eb); return true; }
@@ -1043,7 +1045,7 @@ static bool step(Core *c) {
     if (b >= k->len) { trap(c, C_BOUNDS, b); return true; }
     /* with xslot = n the far address must start a 2^n-byte slot */
     if (c->xslot && ((k->base + b) & ((1ull << c->xslot) - 1))) { trap(c, C_XALIGN, b); return true; }
-    if ((a & 3) || a >= ILS_BYTES) { trap(c, C_LSFAULT, a); return true; }
+    if ((a & 3) || a >= ils_size) { trap(c, C_LSFAULT, a); return true; }
     c->xm_v[idx] = true;
     c->xm_sp[idx] = k->space;
     c->xm_far[idx] = k->base + b;
@@ -1229,7 +1231,7 @@ typedef struct {
   int32_t imm; /* the immediate as the handler wants it; a branch's or jal's target pc */
 } Dec;
 #define ILS_WORDS (ILS_BYTES / 4)
-static Dec *dec_tab[MAXCORES]; /* ILS_WORDS records and a D_SLOW sentinel past the end */
+static Dec *dec_tab[MAXCORES]; /* ILS_WORDS + 1 records; a D_SLOW sentinel at the end of the I-LS (ils_size / 4) */
 
 static void dec_one(Dec *d, uint32_t ir, uint64_t pc) {
   unsigned op = ir >> 26, rd = (ir >> 21) & 31, rs1 = (ir >> 16) & 31, rs2 = (ir >> 11) & 31;
@@ -1288,7 +1290,7 @@ static void hazard_set(Core *c) {
 static void dec_invalidate(Core *c, uint64_t ls, uint64_t len) {
   Dec *tab = dec_tab[c->id];
   if (!tab || !len) return;
-  for (uint64_t w = ls / 4; w < (ls + len + 3) / 4 && w < ILS_WORDS; w++) tab[w].h = D_UNDEC;
+  for (uint64_t w = ls / 4; w < (ls + len + 3) / 4 && w < ils_size / 4; w++) tab[w].h = D_UNDEC;
 }
 
 /* Runs up to `max` plain instructions of core c. Returns how many it
@@ -1296,18 +1298,18 @@ static void dec_invalidate(Core *c, uint64_t ls, uint64_t len) {
  * `stop_back` it also returns after a taken backward branch or jump (the
  * JIT counts those to find hot code). */
 static uint64_t run_fast(Core *c, uint64_t max, bool stop_back) {
-  if (!max || (c->pc & 3) || c->pc >= ILS_BYTES) return 0;
+  if (!max || (c->pc & 3) || c->pc >= ils_size) return 0;
   Dec *tab = dec_tab[c->id];
   if (!tab) {
     tab = dec_tab[c->id] = calloc(ILS_WORDS + 1, sizeof(Dec));
     if (!tab) { perror("strata-emu"); exit(2); }
-    tab[ILS_WORDS].h = D_SLOW; /* running off the end: step() raises the fetch fault */
+    tab[ils_size / 4].h = D_SLOW; /* running off the end: step() raises the fetch fault */
   }
   uint64_t *const x = c->x;
   uint8_t *const dls = c->dls;
   Dec *d = tab + c->pc / 4;
   uint64_t left = max, target, addr;
-  const uint64_t hz_base = c->hz_base, hz_span = c->hz_span;
+  const uint64_t hz_base = c->hz_base, hz_span = c->hz_span, dmax = dls_size, imax = ils_size;
 #define RD x[d->rd]
 #define RS1 x[d->rs1]
 #define RS2 x[d->rs2]
@@ -1316,7 +1318,7 @@ static uint64_t run_fast(Core *c, uint64_t max, bool stop_back) {
 /* the D-LS address of a load or store of 2^lg bytes, or leave for step() to fault or wait */
 #define ADDR(lg)                                                                       \
   addr = RS1 + IMM;                                                                    \
-  if (addr > DLS_BYTES - (1u << (lg)) || (addr & ((1u << (lg)) - 1)) || addr - hz_base < hz_span) goto out
+  if (addr > dmax - (1u << (lg)) || (addr & ((1u << (lg)) - 1)) || addr - hz_base < hz_span) goto out
 #define LOAD(type, lg) { type v; ADDR(lg); memcpy(&v, dls + addr, sizeof v); RD = (uint64_t)(int64_t)v; } break
 #define LOADU(type, lg) { type v; ADDR(lg); memcpy(&v, dls + addr, sizeof v); RD = v; } break
 #define STORE(type, lg) { type v = (type)RD; ADDR(lg); memcpy(dls + addr, &v, sizeof v); } break
@@ -1383,7 +1385,7 @@ static uint64_t run_fast(Core *c, uint64_t max, bool stop_back) {
     continue;
   taken:
     left--;
-    if (target >= ILS_BYTES) { /* retired; the next fetch faults in step() */
+    if (target >= imax) { /* retired; the next fetch faults in step() */
       c->pc = target;
       c->instret += max - left;
       return max - left;
@@ -1437,7 +1439,7 @@ static bool jit_lazy;
  * run thousands of steps ahead before the others start (and, say, find a
  * core that halts in its first steps still running). */
 static bool jit_meets_others(const Core *c) {
-  if (c->pc & 3 || c->pc >= ILS_BYTES) return false;
+  if (c->pc & 3 || c->pc >= ils_size) return false;
   uint32_t ir;
   memcpy(&ir, c->ils + c->pc, 4);
   unsigned op = ir >> 26, fn = ir & 15;
@@ -1664,7 +1666,7 @@ static int round_idle(void) {
 #define USAGE                                                                                         \
   "usage: strata-emu [-c ncores] [-t trace.txt] [-m max_steps] [-d disk.img] [-i input.txt]\n"       \
   "                  [-P pointer.txt] [-b steps] [-T real|virtual] [-g none] [-F frame.ppm]\n"             \
-  "                  [-z scale] [-r WxH] [-S entries] [-X entries]\n"                                 \
+  "                  [-z scale] [-r WxH] [-S entries] [-X entries] [-L D[,I]]\n"                                 \
   "                  [-H] [-N mode] [-J|-j] image.stx\n"                                                                     \
   "  -c N        cores (1..15, default 4)\n"                                                          \
   "  -t FILE     write an instruction trace\n"                                                        \
@@ -1675,6 +1677,7 @@ static int round_idle(void) {
   "  -b N        press Ctrl-C after N steps\n"                                                        \
   "  -S N        capability save-table entries per core (64..256, default 256)\n"                     \
   "  -X N        overlay map entries per core (4..16, default 16)\n"                                  \
+  "  -L D[,I]    each core's D-LS and I-LS in KiB (powers of two, 4..64; I = D if omitted; default 64)\n"                                  \
   "  -T MODE     timer: real (host microseconds, default) or virtual (rounds / 100)\n"               \
   "  -g none     never open a window (PRESENT still records the frame)\n"                            \
   "  -F FILE     at exit, write the frame as of the last PRESENT as a binary PPM\n"                          \
@@ -1717,6 +1720,11 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "-S") && more) {
       ctab_size = strtoull(argv[++i], NULL, 0);
       if (ctab_size < CTAB_MIN || ctab_size > CTAB_MAX) { fputs("strata-emu: -S: 64..256\n", stderr); return 2; }
+    }
+    else if (!strcmp(argv[i], "-L") && more) {
+      unsigned dk, ik;
+      if (!ls_parse(argv[++i], &dk, &ik)) { fputs("strata-emu: -L D[,I]: KiB, powers of two, 4..64\n", stderr); return 2; }
+      dls_size = dk * 1024ull, ils_size = ik * 1024ull;
     }
     else if (!strcmp(argv[i], "-X") && more) {
       nxmap = (unsigned)strtoul(argv[++i], NULL, 0);
@@ -1762,11 +1770,18 @@ int main(int argc, char **argv) {
 
   StxImage img;
   stx_load(path, &img);
+  if (img.dls_size > dls_size || img.ils_size > ils_size) { /* the machine has no room for it */
+    fprintf(stderr, "strata-emu: %s needs %u KiB of D-LS and %u KiB of I-LS; this machine has %llu and %llu (-L)\n",
+            path, (img.dls_size + 1023) / 1024, (img.ils_size + 1023) / 1024, (unsigned long long)(dls_size / 1024),
+            (unsigned long long)(ils_size / 1024));
+    return 2;
+  }
   if (!host_input_open(in_path)) { perror("input"); return 2; }
   host_clock_start();
   host_display_init(gfx, scale, ppm, fb_w, fb_h);
   disk = stx_disk_load(disk_path, &disk_blocks);
-  plat_build_fb(plat_rom, ncores, disk_blocks, fb_w, fb_h, ctab_size, nxmap);
+  plat_build_fb(plat_rom, ncores, disk_blocks, fb_w, fb_h, ctab_size, nxmap, (unsigned)(dls_size / 1024),
+                (unsigned)(ils_size / 1024));
   blk_ident(blk_rom, disk_blocks);
   t2 = img.t2;
   t3 = img.t3;
@@ -1775,8 +1790,9 @@ int main(int argc, char **argv) {
   for (int i = 0; i < ncores; i++) {
     Core *c = &cores[i];
     c->id = i;
-    memcpy(c->dls, img.dls, DLS_BYTES);
-    memcpy(c->ils, img.ils, ILS_BYTES);
+    memcpy(c->dls, img.dls, dls_size); /* (the image has nothing above: checked above) */
+    memcpy(c->ils, img.ils, ils_size);
+    c->x[2] = dls_size; /* sp: the top of the D-LS */
     if (i == 0) {
       c->caps[0] = (Cap){true, SP_T3, P_R | P_W | P_X, 0, T3_BYTES, 0, 0};
       c->caps[1] = (Cap){true, SP_T2, P_R | P_W | P_X, 0, T2_BYTES, 0, 0};
@@ -1797,7 +1813,7 @@ int main(int argc, char **argv) {
   use_jit = !trace && (jit_opt >= 0 ? jit_opt == 1 : !virtual_time);
   if (use_jit) {
     JitLayout lay = {offsetof(Core, x), offsetof(Core, pc), offsetof(Core, instret), offsetof(Core, dls),
-                     offsetof(Core, ils), offsetof(Core, hz_base)};
+                     offsetof(Core, ils), offsetof(Core, hz_base), dls_size, ils_size};
     use_jit = jit_init(&lay, cores, sizeof(Core), ncores);
     jit_lazy = use_jit && !strcmp(jit_backend(), "wasm");
     if (!use_jit && jit_opt == 1) fprintf(stderr, "strata-emu: no JIT on this host; interpreting\n");

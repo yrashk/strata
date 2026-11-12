@@ -212,7 +212,7 @@ static int os_guest_of(int i) {
   int64_t gm = map_abs(k, "K0_GMASK", -1), gr = map_abs(k, "K0_GUEST", -1), n = map_abs(k, "NGUEST", 4),
           sz = map_abs(k, "GU_SIZE", 48), gid = map_abs(k, "GU_PID", 0), gco = map_abs(k, "GU_CORE", 8),
           gn = map_abs(k, "GU_N", 16);
-  if (gm < 0 || gr < 0 || gm + 8 > DLS_BYTES || gr + n * sz > DLS_BYTES) return 0;
+  if (gm < 0 || gr < 0 || gm + 8 > (int64_t)dls_size || gr + n * sz > (int64_t)dls_size) return 0;
   if (!(rd64(cores[0].dls + gm) >> i & 1)) return 0;
   for (int64_t r = 0; r < n; r++) {
     const uint8_t *g = cores[0].dls + gr + r * sz;
@@ -250,7 +250,7 @@ static void os_read_procs(void) {
   if (kp >= 0)
     for (int64_t r = 0; r < nk && n < OS_MAXPROC; r++) {
       uint64_t a = (uint64_t)(kp + r * ksz);
-      if (a + (uint64_t)ksz > DLS_BYTES) break;
+      if (a + (uint64_t)ksz > dls_size) break;
       int pid = (int)rd64(cores[0].dls + a + kpid);
       if (!pid) continue;
       OsProc *o = &tab[n++];
@@ -287,7 +287,7 @@ static void os_read_procs(void) {
     if (ps)
       for (int64_t r = 0; r < np; r++) {
         uint64_t a = ps->addr + (uint64_t)(r * esz);
-        if (a + (uint64_t)esz > DLS_BYTES) break;
+        if (a + (uint64_t)esz > dls_size) break;
         int pid = (int)rd64(d + a + epid);
         if (!pid) continue;
         OsProc *o = NULL;
@@ -392,16 +392,16 @@ static Where where_code(const Core *c, uint64_t pc) {
  * (headers: u16 link, u16 hash, u16 xt, u16 size, u8 flags, u8 fold,
  * u8 name length, name; see lang/forth/forth.s). */
 static bool forth_word(const Core *c, const Map *m, uint64_t pc, char *name, size_t n, uint64_t *xt_out) {
-  if (!m || m->forth < 0 || (uint64_t)m->forth + 8 > DLS_BYTES) return false;
+  if (!m || m->forth < 0 || (uint64_t)m->forth + 8 > dls_size) return false;
   uint64_t h = rd64(c->dls + m->forth) & 0xffff, best = 0, bxt = 0;
-  for (int guard = 0; h && h + 11 < DLS_BYTES && guard < 20000; guard++) {
+  for (int guard = 0; h && h + 11 < dls_size && guard < 20000; guard++) {
     uint64_t xt = c->dls[h + 4] | (uint64_t)c->dls[h + 5] << 8;
     if (xt <= pc && xt >= bxt) { best = h; bxt = xt; }
     h = c->dls[h] | (uint64_t)c->dls[h + 1] << 8;
   }
   if (!best) return false;
   unsigned len = c->dls[best + 10];
-  if (best + 11 + len > DLS_BYTES) return false;
+  if (best + 11 + len > dls_size) return false;
   snprintf(name, n, "%.*s", (int)len, (const char *)c->dls + best + 11);
   if (xt_out) *xt_out = bxt;
   return true;

@@ -106,7 +106,6 @@ d_m_ln_e:                               ; ...
         .text                           ; code
 
 main:
-        li    sp, 65536                 ; stack at the top of the D-LS
         csrr  t0, coreid                ; only core 0 runs the server
         bnez  t0, idle                  ; ...
         call  hw_init                   ; the framebuffer

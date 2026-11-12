@@ -1308,6 +1308,9 @@ int main(int argc, char **argv) {
   if (interactive) {
     fprintf(out, "strata-dbg: %s on %d core(s)%s%s%s\n", S(h, "image"), ncores, json_bool(json_get(h, "timetravel"), false) ? ", time travel on" : "",
             os_aware ? ", StrataOS aware" : "", json_bool(json_get(h, "jit"), false) ? ", JIT for fast continues (ff)" : "");
+    long long dls = json_int(json_get(h, "dls"), 65536), ils = json_int(json_get(h, "ils"), 65536);
+    if (dls != 65536 || ils != 65536) /* a machine with smaller Local Stores (strata-emu -L) */
+      fprintf(out, "  Local Stores: D-LS %lld KiB, I-LS %lld KiB\n", dls / 1024, ils / 1024);
     const JVal *maps = json_get(h, "maps");
     for (const JVal *m = maps ? maps->kid : NULL; m; m = m->next)
       fprintf(out, "  map %s (%s%s)\n", S(m, "path"), S(m, "scope"), json_bool(json_get(m, "forth"), false) ? ", Forth words" : "");

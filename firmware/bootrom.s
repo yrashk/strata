@@ -14,7 +14,12 @@
 ;      keeps the far image share in c12;
 ;   6. like every core, copies the images into its own Local Stores (code at
 ;      I-LS 0x4000, data at D-LS 0xA000) and jumps to the OS with a0 = core id.
-; Other cores wait in step 5 for the shares, then do step 6.
+; Other cores wait in step 5 for the shares, then do step 6. Before step 4
+; core 0 checks that the images fit the machine's Local Stores (the platform
+; table's sizes). If any step fails, core 0 prints why, gives every other
+; core a copy of its console capability (not executable: "stop") and halts;
+; a core whose first gift is not executable halts too. The boot ROM's stack
+; is where reset put sp: the top of the D-LS.
 ;
 ; Boot header (block 0, little endian):
 ;    0  "STBOOT01"              24  u32 data blocks
@@ -55,6 +60,14 @@ s_ioerr: .ascii "boot: disk read failed\n"
 s_ioerr_e:                              ; end of the text above
 s_nomag: .ascii "boot: block 0 is not bootable\n"
 s_nomag_e:                              ; end of the text above
+s_nofit: .ascii "boot: the OS does not fit this machine's Local Stores\n"
+s_nofit_e:                              ; end of the text above
+s_ls:   .ascii "  Local Stores: D-LS "  ; the Local Stores' sizes
+s_ls_e:                                 ; end of the text above
+s_lsi:  .ascii " KiB, I-LS "            ; ...
+s_lsi_e:                                ; end of the text above
+s_lsk:  .ascii " KiB per core\n"        ; ...
+s_lsk_e:                                ; end of the text above
 s_load: .ascii "boot: loading OS: "     ; progress message
 s_load_e:                               ; end of the text above
 s_blks: .ascii " code blocks, "         ; middle of the progress message
@@ -67,8 +80,7 @@ s_go:   .ascii "boot: starting cores, jumping to the OS\n\n"
 s_go_e:                                 ; end of the text above
 
         .text                           ; boot ROM code, at I-LS address 0
-_start:
-        li    sp, OS_DATA               ; boot stack grows down from the OS data area
+_start:                                 ; (sp: the top of the D-LS, from reset)
         la    gp, GPBASE                ; gp = our data base (the firmware library needs it)
         csrr  s0, coreid                ; s0 = this core
         bnez  s0, secondary             ; only core 0 runs the boot sequence
@@ -79,6 +91,21 @@ _start:
         call  fw_init                   ; read and check the platform table
         bnez  a0, bad_plat              ; -1: no valid platform table
         call  fw_describe               ; print what the machine contains
+        la    a0, s_ls                  ; "  Local Stores: D-LS "
+        li    a1, s_ls_e - s_ls         ; length
+        call  fw_puts                   ; print
+        call  ls_size                   ; a0 = D-LS bytes
+        srli  a0, a0, 10                ; KiB
+        call  fw_putdec                 ; print
+        la    a0, s_lsi                 ; " KiB, I-LS "
+        li    a1, s_lsi_e - s_lsi       ; length
+        call  fw_puts                   ; print
+        call  ls_size                   ; a1 = I-LS bytes
+        srli  a0, a1, 10                ; KiB
+        call  fw_putdec                 ; print
+        la    a0, s_lsk                 ; " KiB per core\n"
+        li    a1, s_lsk_e - s_lsk       ; length
+        call  fw_puts                   ; print
 
         li    a0, 4                     ; entry type 4 = block device
         li    a1, 0                     ; the first one
@@ -106,6 +133,17 @@ no_high:                                ; (the firmware leaves c15 alone)
         ld    t0, 0(s1)                 ; t0 = magic (waits for the transfer)
         li    t1, BOOT_MAGIC            ; expected value
         bne   t0, t1, no_magic          ; not a boot disk
+        call  ls_size                   ; a0 = D-LS bytes, a1 = I-LS bytes
+        lwu   t0, 12(s1)                ; code blocks
+        slli  t0, t0, 9                 ; code bytes
+        li    t1, OS_TEXT               ; where they go
+        add   t0, t0, t1                ; the end of the code
+        bltu  a1, t0, no_fit            ; past the I-LS
+        lwu   t0, 24(s1)                ; data blocks
+        slli  t0, t0, 9                 ; data bytes
+        li    t1, OS_DATA               ; where they go
+        add   t0, t0, t1                ; the end of the data
+        bltu  a0, t0, no_fit            ; past the D-LS
 
         la    a0, s_load                ; "boot: loading OS: "
         li    a1, s_load_e - s_load     ; length
@@ -213,6 +251,9 @@ start_next:
 ; ---- secondary cores: wait for the images ---------------------------------------
 secondary:
         ctake c10                       ; OS code share
+        cperms t0, c10                  ; or core 0's "stop": not executable
+        andi  t0, t0, 4                 ; X
+        beqz  t0, sec_stop              ; stop
         ctake c11                       ; OS data share
         ctake c3                        ; device root
 
@@ -246,9 +287,39 @@ io_error:
 no_magic:
         la    a0, s_nomag               ; "not bootable"
         li    a1, s_nomag_e - s_nomag   ; length
+        j     fail                      ; report
+no_fit:
+        la    a0, s_nofit               ; "the OS does not fit"
+        li    a1, s_nofit_e - s_nofit   ; length
 fail:
         call  fw_puts                   ; print the message
+        csrr  s2, ncores                ; every other core waits for its first gift:
+        li    s3, 1                     ;   a copy of the console capability says stop
+fail_stop:
+        bge   s3, s2, fail_halt         ; all told
+        cgive c2, s3                    ; (copyable: c2 stays)
+        addi  s3, s3, 1                 ; next core
+        j     fail_stop                 ; ...
+fail_halt:
         li    a0, 1                     ; exit code 1
         halt                            ; stop this core
+sec_stop:
+        li    a0, 1                     ; core 0 could not boot
+        halt                            ; stop this core
+
+; ls_size() -> a0 = D-LS bytes, a1 = I-LS bytes: the platform table header's
+; u16 KiB at 24 and 26 (0 in an older table: 64 KiB)
+ls_size:
+        lhu   a0, fw_plat+24-GPBASE(gp) ; D-LS KiB
+        bnez  a0, lss_d                 ; ...
+        li    a0, 64                    ; ...
+lss_d:
+        slli  a0, a0, 10                ; bytes
+        lhu   a1, fw_plat+26-GPBASE(gp) ; I-LS KiB
+        bnez  a1, lss_i                 ; ...
+        li    a1, 64                    ; ...
+lss_i:
+        slli  a1, a1, 10                ; bytes
+        ret                             ; done
 
         .include "fw.s"                 ; the firmware library

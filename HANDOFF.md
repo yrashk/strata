@@ -89,6 +89,15 @@ Not verified:
   inboxes, multi-cycle multiply and ltag entry address, slot-aligned xmap
   (an ISA change) and NXMAP as a platform parameter (`make test-small`
   boots StrataOS with 8).
+- The Local Stores' sizes are a platform parameter (PLAN.md section P):
+  powers of two 4..64 KiB, D-LS and I-LS independent, in the platform
+  table's header (u16 KiB at 24 and 26); `strata-emu -L D[,I]`, the RTL's
+  DLS_KIB / ILS_KIB, `fpga/synth.sh FAMILY N NXMAP D I`, `mkhex`. Reset
+  puts the D-LS size in sp, so no program sets sp any more (StrataOS
+  starts every thread with it). StrataOS and Forth need 64 KiB and refuse a
+  smaller machine with a message; `make test-ls` (in `make test`) runs the
+  examples, conformance/tests/lssize.s and the refusals in lockstep at
+  32/32, 16/4 and 4/32 KiB.
 - No place-and-route yet, so no timing (synthesis: 1 core ~2 min, 6 cores
   ~11 min).
 

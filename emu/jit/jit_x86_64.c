@@ -311,8 +311,9 @@ static void insn(uint32_t ir, uint64_t pc, unsigned idx) {
     int lg = store ? 3 - (int)(op - OP_SD) : op == OP_LD ? 3 : op <= OP_LWU ? 2 : op <= OP_LHU ? 1 : 0;
     ldg(RAX, rs1);
     if (simm) alui(0, RAX, simm);
-    /* in bounds and aligned iff no address bit outside [lg, 16) is set */
-    testi((int32_t)(0xffff0000u | ((1u << lg) - 1)));
+    /* in bounds and aligned iff no address bit outside [lg, log2 D-LS size) is set
+     * (a 32-bit immediate, sign-extended: the size is at most 64 KiB) */
+    testi((int32_t)(uint32_t)(~(L.dls_size - 1) | ((1u << lg) - 1)));
     to_stub(jcc32(CC_NE), SK_INTERP, pc, idx); /* the interpreter traps */
     int32_t dl = (int32_t)L.dls;
     if (store) {
@@ -361,7 +362,7 @@ static void insn(uint32_t ir, uint64_t pc, unsigned idx) {
     alui(0, BUD, (int32_t)(idx + 1));
     /* straight to the target's block if it has one (its entry checks the
      * quantum), else back to the dispatcher */
-    testi((int32_t)0xffff0000u);
+    testi((int32_t)(uint32_t)~(L.ils_size - 1)); /* inside the I-LS */
     uint8_t *m1 = jcc8(CC_NE);
     opm(false, 1, 0x8B, -1, RCX, RSP, -1, 0, F_TABLE);
     opm(false, 1, 0x8B, -1, RCX, RCX, RAX, 1, 0); /* 8-byte entries, one per 4-byte word */

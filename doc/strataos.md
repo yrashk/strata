@@ -223,6 +223,10 @@ Four new entry types; `PLAT_ENTRIES` grows by four (to 9, 320 bytes).
 All have node = 0xffff (nothing to `cgive` to). The framebuffer
 controller's ports are at the fixed device address 0x4000.
 
+The header's u16 fields at 20..27: CTAB (save-table entries), NXMAP
+(overlay map entries), the D-LS and the I-LS size in KiB (0 in an older
+table: 64, 16, 64, 64); 28..31 reserved.
+
 ### 1.4 Graphics mode and the keyboard (emulator and RTL simulator)
 
 - Both `strata-emu` and `strata-rtl` open a **window** (SDL2) the first time
@@ -326,6 +330,17 @@ greater length.
   units are 2 KiB-aligned in c12, and page_in refuses a program whose c0
   base is not slot-aligned. The kernel publishes NXMAP in the KST
   (G_NXMAP) for the workers' page_in.
+
+- **The Local Stores' sizes.** Each core's D-LS and I-LS are powers of
+  two from 4 to 64 KiB (64 by default, chosen independently), a platform
+  parameter in the platform table's header (u16 KiB at offsets 24 and 26;
+  0 in an older table means 64; `strata-emu -L D[,I]`, the RTL's DLS_KIB /
+  ILS_KIB). Every Local Store check uses them (the same lsfault / ifault as
+  past 64 KiB), and reset puts the D-LS size in sp. StrataOS 0.1's layout
+  (below) needs 64 KiB of each: the boot ROM refuses an OS image that does
+  not fit, and every core checks the table at kernel entry; on a smaller
+  machine core 0 says so and every core halts. The kernel starts every
+  thread with sp = 0x10000, so programs do not set it.
 
 - **A bigger save table.** Each core's capability save table has CTAB
   slots, a platform parameter in the platform table's header (u16 at offset

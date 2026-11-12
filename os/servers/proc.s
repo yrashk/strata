@@ -148,7 +148,6 @@ _start:
         j     main                      ; skip the marker
         .word 0x32535953                ; "SYS2": a StrataOS 0.1 program
 main:
-        li    sp, 65536                 ; stack at the top of the D-LS
         mv    s1, a0                    ; dev core | fs core << 8
         mv    s2, a1                    ; dev pid | fs pid << 8
         call  sys_init                  ; ...

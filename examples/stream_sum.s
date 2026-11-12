@@ -45,7 +45,6 @@ m_td_e:                                 ; end of the text above (its length = en
 _start:                                 ; entry point: every core starts executing here, at I-LS address 0
         csrr  t0, coreid                ; t0 = core number
         bnez  t0, park                  ; this example runs on core 0 only
-        li    sp, 65536                 ; stack starts at the top of D-LS and grows down
 
 ; ---- fill the far array with 0, 1, 2, ... N-1 --------------------------------
         li    s2, 0                     ; s2 = far byte offset of the current chunk
