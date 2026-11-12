@@ -67,7 +67,7 @@ def page(here, title, desc, side, main, head="", tail=""):
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../apple-touch-icon.png">
 <link rel="stylesheet" href="../style.css">
-<link rel="stylesheet" href="../hl.css">
+<link rel="stylesheet" href="../hl.css?v=__BUILD__">
 <link rel="stylesheet" href="../docs.css">
 %(head)s
 </head>
@@ -93,7 +93,7 @@ def page(here, title, desc, side, main, head="", tail=""):
 </div>
 
 <script src="../code/syntax.js"></script>
-<script src="../hl.js"></script>
+<script src="../hl.js?v=__BUILD__"></script>
 <script src="../docs.js"></script>
 %(tail)s
 </body>
