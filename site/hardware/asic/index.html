@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Strata hardware — on GF180MCU</title>
-<meta name="description" content="One Strata core through the open-source LibreLane flow on GlobalFoundries' GF180MCU: the routed die, the area split between SRAM and logic, the clock, the run time of every stage, and the caveats.">
+<meta name="description" content="One Strata core through the open-source LibreLane flow on GlobalFoundries' GF180MCU with its 3.3 V cells, at 24.5 MHz: the routed die, the area split between SRAM and logic, the clock, the run time of every stage, and the caveats.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -39,7 +39,8 @@
   <p class="kicker"><a href="../">Strata in hardware</a> · an ASIC experiment</p>
   <h1>ON SILICON</h1>
   <p class="lede">One Strata core, the same SystemVerilog as the simulator and the FPGA, through an open RTL-to-GDS flow
-    on GlobalFoundries' 180&nbsp;nm GF180MCU: placed, clocked and routed.</p>
+    on GlobalFoundries' 180&nbsp;nm GF180MCU with its 3.3&nbsp;V standard cells: placed, clocked and routed, at
+    24.5&nbsp;MHz.</p>
   <p class="note">A measurement, not a tapeout. Nothing here was signed off (no DRC or LVS run), the timing was not
     repaired, and the Local Stores are a single-port stand-in for the dual-port RAM the RTL describes. The
     <a href="#caveats">caveats</a> say what that means. Two and six cores are planned.</p>
@@ -52,58 +53,69 @@
     shared channel for their pins; the logic is the strip between them, its wiring densest where the register file
     and the capability checks sit.</p>
   <figure class="die">
-    <a class="zoom" href="img/gf180mcu-1-annotated-2800.webp" title="Open a larger picture">
-      <img src="img/gf180mcu-1-annotated.webp" width="1600" height="1400" style="aspect-ratio: 8 / 7"
-           alt="The routed one-core die: the I-LS on the left and the D-LS on the right, each 128 SRAM macros in paired rows; the logic strip in the middle with its wiring in two dense clouds; the save table's 11 macros at the foot of the strip.">
+    <a class="zoom" href="img/gf180mcu-1-mcu7t3v3-annotated-2800.webp" title="Open a larger picture">
+      <img src="img/gf180mcu-1-mcu7t3v3-annotated.webp" width="1600" height="1400" style="aspect-ratio: 8 / 7"
+           alt="The routed one-core die: the I-LS on the left and the D-LS on the right, each 128 SRAM macros in paired rows; the logic strip in the middle with its wiring; the save table's 11 macros at the foot of the strip.">
     </a>
-    <figcaption><b>One core, 10.34&nbsp;&times;&nbsp;9.05&nbsp;mm.</b> Click for 2800 pixels. Full size (4000 pixels):
-      <a href="https://github.com/yrashk/strata/blob/main/asic/results/gf180mcu-1/die-annotated.png">annotated</a>,
-      <a href="https://github.com/yrashk/strata/blob/main/asic/results/gf180mcu-1/die-full.png">plain</a>.</figcaption>
+    <figcaption><b>One core, 10.34&nbsp;&times;&nbsp;9.05&nbsp;mm, the 3.3&nbsp;V cells.</b> Click for 2800 pixels. Full size
+      (4000 pixels): <a href="https://github.com/yrashk/strata/blob/main/asic/results/gf180mcu-1-mcu7t3v3/die-annotated.png">annotated</a>,
+      <a href="https://github.com/yrashk/strata/blob/main/asic/results/gf180mcu-1-mcu7t3v3/die-full.png">plain</a>.</figcaption>
   </figure>
   <figure class="shot">
-    <img src="img/gf180mcu-1-zoom.webp" width="1200" height="900" loading="lazy"
+    <img src="img/gf180mcu-1-mcu7t3v3-zoom.webp" width="1200" height="900" loading="lazy"
          alt="An 800 by 600 micrometre detail: on the left the periphery and part of the array of an I-LS SRAM macro, on the right standard cells and their wiring in the logic strip.">
     <figcaption>800&nbsp;&times;&nbsp;600&nbsp;µm at the edge of the I-LS: an SRAM macro's periphery and array on the left,
       standard cells and their wires on the right
-      (<a href="https://github.com/yrashk/strata/blob/main/asic/results/gf180mcu-1/die-zoom.png">full size</a>).</figcaption>
+      (<a href="https://github.com/yrashk/strata/blob/main/asic/results/gf180mcu-1-mcu7t3v3/die-zoom.png">full size</a>).</figcaption>
   </figure>
   <div class="stats">
-    <div class="stat hot"><b>11.9 MHz</b><span>typical corner, routed</span></div>
+    <div class="stat hot"><b>24.5 MHz</b><span>typical corner, 3.3 V, routed</span></div>
     <div class="stat"><b>93.6 mm²</b><span>die</span></div>
     <div class="stat"><b>59%</b><span>of it SRAM: 55.2 mm²</span></div>
-    <div class="stat"><b>4.3 mm²</b><span>logic</span></div>
+    <div class="stat"><b>4.9 mm²</b><span>logic</span></div>
     <div class="stat"><b>0</b><span>routing DRC violations</span></div>
   </div>
+  <p class="note">The first run used the PDK's 5&nbsp;V cells (<code>gf180mcu_fd_sc_mcu7t5v0</code>), with the same floorplan
+    and settings: 11.9&nbsp;MHz, 4.3&nbsp;mm² of logic. Its die looks the same, the logic a little more compact; its
+    pictures and reports are in
+    <a href="https://github.com/yrashk/strata/tree/main/asic/results/gf180mcu-1"><code>asic/results/gf180mcu-1/</code></a>.
+    The tables below give both.</p>
 </section>
 
 <section class="section" id="area">
   <h2><span class="num">02</span>Where the area goes</h2>
   <p class="intro">The memories dominate. GF180MCU's largest SRAM macro holds 512 bytes in 0.21&nbsp;mm², so each
-    64&nbsp;KiB Local Store is 128 of them, 26.8&nbsp;mm²; the logic of the whole core is a sixth of one store.</p>
+    64&nbsp;KiB Local Store is 128 of them, 26.8&nbsp;mm²; the logic of the whole core is a fifth of one store.</p>
   <div class="tbl">
     <table>
-      <thead><tr><th>What</th><th class="n">Instances</th><th class="n">Area, mm²</th></tr></thead>
+      <thead><tr><th>What</th><th class="n">3.3 V: instances</th><th class="n">mm²</th><th class="n opt">5 V: instances</th><th class="n opt">mm²</th></tr></thead>
       <tbody>
-        <tr><td>I-LS and D-LS: <code>sram512x8</code> macros</td><td class="n">256</td><td class="n">53.61</td></tr>
-        <tr><td>Capability save table: <code>sram256x8</code> macros (256 × 81 bits)</td><td class="n">11</td><td class="n">1.62</td></tr>
-        <tr><td>Flip-flops</td><td class="n">11,363</td><td class="n">0.72</td></tr>
-        <tr><td>Combinational cells</td><td class="n">127,634</td><td class="n">2.00</td></tr>
-        <tr><td>Buffers and inverters (synthesis, design repair)</td><td class="n">68,972</td><td class="n">1.48</td></tr>
-        <tr><td>Clock tree</td><td class="n">2,051</td><td class="n">0.10</td></tr>
-        <tr><td>Well taps, end caps, antenna diodes</td><td class="n">246,936</td><td class="n">1.08</td></tr>
-        <tr class="me"><td>Die (10.34 × 9.05 mm)</td><td class="n"></td><td class="n">93.64</td></tr>
+        <tr><td>I-LS and D-LS: <code>sram512x8</code> macros</td><td class="n">256</td><td class="n">53.61</td><td class="n opt">256</td><td class="n opt">53.61</td></tr>
+        <tr><td>Capability save table: <code>sram256x8</code> macros (256 × 81 bits)</td><td class="n">11</td><td class="n">1.62</td><td class="n opt">11</td><td class="n opt">1.62</td></tr>
+        <tr><td>Flip-flops</td><td class="n">11,390</td><td class="n">0.68</td><td class="n opt">11,363</td><td class="n opt">0.72</td></tr>
+        <tr><td>Combinational cells</td><td class="n">118,075</td><td class="n">2.48</td><td class="n opt">127,634</td><td class="n opt">2.00</td></tr>
+        <tr><td>Buffers and inverters (synthesis, design repair)</td><td class="n">75,490</td><td class="n">1.67</td><td class="n opt">68,972</td><td class="n opt">1.48</td></tr>
+        <tr><td>Clock tree</td><td class="n">1,614</td><td class="n">0.07</td><td class="n opt">2,051</td><td class="n opt">0.10</td></tr>
+        <tr><td>Well taps, end caps, antenna diodes</td><td class="n">248,153</td><td class="n">1.09</td><td class="n opt">246,936</td><td class="n opt">1.08</td></tr>
+        <tr class="me"><td>Die (10.34 × 9.05 mm)</td><td class="n"></td><td class="n">93.64</td><td class="n opt"></td><td class="n opt">93.64</td></tr>
       </tbody>
     </table>
   </div>
-  <p class="note">The rest of the die is filler and the channels around the macros. The flip-flops are the integer
-    registers (three read ports), each core's copy of the revocation-granule table (three asynchronous read ports), the
-    capability registers, the overlay map and the Transfer Unit's queue. As flip-flops, the save table was 20,736 more
-    of them and a 256-way multiplexer; as SRAM it is what block RAM is on the FPGA.</p>
+  <p class="note">The rest of the die is filler and the channels around the macros. The 3.3&nbsp;V library has no
+    smallest (x1) drive strengths and fewer complex gates, so the same logic takes 3.59&nbsp;mm² after synthesis instead of
+    3.03, and 4.9&nbsp;mm² placed instead of 4.3. The flip-flops are the integer registers (three read ports), each core's
+    copy of the revocation-granule table (three asynchronous read ports), the capability registers, the overlay map and
+    the Transfer Unit's queue. As flip-flops, the save table was 20,736 more of them and a 256-way multiplexer; as SRAM it
+    is what block RAM is on the FPGA.</p>
+  <p class="note">No denser memory is available with open tools: OpenRAM's GF180MCU technology has a bitcell and one
+    decoder gate, not the flip-flops, sense amplifiers and write drivers a macro needs, and the 512&nbsp;&times;&nbsp;8 macro is
+    already the PDK's densest (0.41&nbsp;mm² per KiB); RAM built from latches or flip-flops would be larger still. The lever
+    is the Local Stores' size: with 16&nbsp;KiB stores the SRAM, save table included, would be about 15&nbsp;mm².</p>
   <h3 class="sub">Against the FPGA</h3>
   <p>The same core is 30,011 LUTs and 6,869 flip-flops on Xilinx 7-series (Yosys), and 44,253 logic cells routed at
-    20.0&nbsp;MHz on a Lattice ECP5-85F (<a href="../">the Hardware page</a>). On GF180MCU it has 11,363 flip-flops (the
-    granule table and the registers are flip-flops here, LUT-RAM there) and runs at 11.9&nbsp;MHz without timing
-    repair: the FPGA's block RAMs and carry chains are faster than 180&nbsp;nm SRAM macros and unrepaired gates.</p>
+    20.0&nbsp;MHz on a Lattice ECP5-85F (<a href="../">the Hardware page</a>). On GF180MCU it has 11,390 flip-flops (the
+    granule table and the registers are flip-flops here, LUT-RAM there) and runs at 24.5&nbsp;MHz with the 3.3&nbsp;V cells,
+    without timing repair: a little faster than the FPGA.</p>
 </section>
 
 <section class="section" id="clock">
@@ -112,42 +124,48 @@
     each corner allows is the target minus the worst setup slack.</p>
   <div class="tbl">
     <table>
-      <thead><tr><th>Corner</th><th class="n">Worst setup slack</th><th class="n">Period</th><th class="n">Clock</th><th class="n">Worst hold slack</th></tr></thead>
+      <thead><tr><th>Cells, corner</th><th class="n">Worst setup slack</th><th class="n">Period</th><th class="n">Clock</th><th class="n">Worst hold slack</th></tr></thead>
       <tbody>
-        <tr class="me"><td>typical, 25 °C, 5.0 V</td><td class="n">−44.1 ns</td><td class="n">84.1 ns</td><td class="n">11.9 MHz</td><td class="n">−5.9 ns</td></tr>
-        <tr><td>slow, 125 °C, 4.5 V</td><td class="n">−106.8 ns</td><td class="n">146.8 ns</td><td class="n">6.8 MHz</td><td class="n">−11.7 ns</td></tr>
-        <tr><td>fast, −40 °C, 5.5 V</td><td class="n">−16.1 ns</td><td class="n">56.1 ns</td><td class="n">17.8 MHz</td><td class="n">−3.4 ns</td></tr>
+        <tr class="me"><td>3.3 V, typical, 25 °C, 3.3 V</td><td class="n">−0.8 ns</td><td class="n">40.8 ns</td><td class="n">24.5 MHz</td><td class="n">−1.8 ns</td></tr>
+        <tr><td>3.3 V, fast, −40 °C, 3.6 V</td><td class="n">+7.1 ns</td><td class="n">32.9 ns</td><td class="n">30.4 MHz</td><td class="n">−1.2 ns</td></tr>
+        <tr><td>5 V, typical, 25 °C, 5.0 V</td><td class="n">−44.1 ns</td><td class="n">84.1 ns</td><td class="n">11.9 MHz</td><td class="n">−5.9 ns</td></tr>
+        <tr><td>5 V, slow, 125 °C, 4.5 V</td><td class="n">−106.8 ns</td><td class="n">146.8 ns</td><td class="n">6.8 MHz</td><td class="n">−11.7 ns</td></tr>
+        <tr><td>5 V, fast, −40 °C, 5.5 V</td><td class="n">−16.1 ns</td><td class="n">56.1 ns</td><td class="n">17.8 MHz</td><td class="n">−3.4 ns</td></tr>
       </tbody>
     </table>
   </div>
-  <p>The longest path, at the typical corner, runs 95 cells from a flip-flop to <code>am_req</code>, the atomic-operation
-    request to the far bus: decode, the capability checks and the request in one cycle. Almost all of its 82&nbsp;ns
-    is in the cells, which drive long wires with slow edges because nothing resized them for timing; register to register
-    the worst path is as long. Hold violations are at the pins and between flip-flops, unrepaired.</p>
+  <p>The 3.3&nbsp;V library comes characterised at two corners, typical and fast; it has no slow corner, so there is no
+    worst-case figure for it. Its longest path, at the typical corner, runs 134 cells from flip-flop to flip-flop:
+    38.0&nbsp;ns in the cells and 2.1&nbsp;ns in the wires. With the 5&nbsp;V cells the longest path was 95 cells from a
+    flip-flop to <code>am_req</code>, the atomic-operation request to the far bus (decode, the capability checks and the
+    request in one cycle), at 82&nbsp;ns. The SRAM macros run at their own 3.3&nbsp;V characterisation in the 3.3&nbsp;V run.
+    Hold violations are at the pins and between flip-flops, unrepaired.</p>
   <p class="note">The flow could do better: timing-driven placement, post-CTS and post-route timing repair are all off
     here (see the caveats), and the multi-cycle core has no pipeline to shorten its paths.</p>
 </section>
 
 <section class="section" id="stages">
   <h2><span class="num">04</span>Every stage, timed</h2>
-  <p class="intro">The successful run's steps, on an arm64 Mac (18 cores, shared with other jobs), LibreLane's
-    container with 8 threads. Getting there took a day of failed attempts; they are in
+  <p class="intro">The 3.3&nbsp;V run's steps, on an arm64 Mac (18 cores, shared with other jobs), LibreLane's
+    container with 8 threads; the 5&nbsp;V run took 2&nbsp;h&nbsp;47&nbsp;min, most of the difference in timing nine corners
+    instead of two. Getting the first run to work took a day of failed attempts; they are in
     <a href="https://github.com/yrashk/strata/blob/main/asic/README.md"><code>asic/README.md</code></a>.</p>
   <div class="tbl">
     <table>
       <thead><tr><th>Stage</th><th class="opt">Tool</th><th class="n">Time</th></tr></thead>
       <tbody>
-        <tr><td>Synthesis</td><td class="opt">sv2v, Yosys 0.62, ABC (area script)</td><td class="n">5 min 39 s</td></tr>
-        <tr><td>Floorplan, macros, power grid</td><td class="opt">OpenROAD</td><td class="n">58 s</td></tr>
-        <tr><td>Global placement, pins</td><td class="opt">OpenROAD</td><td class="n">2 min 28 s</td></tr>
-        <tr><td>Design repair (slew, capacitance, wire length)</td><td class="opt">OpenROAD resizer</td><td class="n">3 min 7 s</td></tr>
-        <tr><td>Clock tree</td><td class="opt">OpenROAD TritonCTS</td><td class="n">3 min 22 s</td></tr>
-        <tr><td>Global routing, antenna repair</td><td class="opt">OpenROAD FastRoute</td><td class="n">4 min 8 s</td></tr>
-        <tr><td>Detailed routing (17 passes, to 0 violations)</td><td class="opt">OpenROAD TritonRoute</td><td class="n">50 min 1 s</td></tr>
-        <tr><td>Parasitics</td><td class="opt">OpenRCX</td><td class="n">57 s</td></tr>
-        <tr><td>Timing: three estimates on the way, then 9 corners after routing</td><td class="opt">OpenSTA</td><td class="n">1 h 35 min</td></tr>
-        <tr><td>GDS</td><td class="opt">KLayout</td><td class="n">9 s</td></tr>
-        <tr class="me"><td>In all</td><td class="opt"></td><td class="n">2 h 47 min</td></tr>
+        <tr><td>Synthesis</td><td class="opt">sv2v, Yosys 0.62, ABC (area script)</td><td class="n">7 min 22 s</td></tr>
+        <tr><td>Floorplan, macros, power grid</td><td class="opt">OpenROAD</td><td class="n">1 min 24 s</td></tr>
+        <tr><td>Global placement, pins</td><td class="opt">OpenROAD</td><td class="n">1 min 52 s</td></tr>
+        <tr><td>Design repair (slew, capacitance, wire length), detailed placement</td><td class="opt">OpenROAD resizer</td><td class="n">1 min 14 s</td></tr>
+        <tr><td>Clock tree</td><td class="opt">OpenROAD TritonCTS</td><td class="n">1 min 24 s</td></tr>
+        <tr><td>Global routing, antenna repair</td><td class="opt">OpenROAD FastRoute</td><td class="n">3 min 54 s</td></tr>
+        <tr><td>Detailed routing (to 0 violations)</td><td class="opt">OpenROAD TritonRoute</td><td class="n">49 min 21 s</td></tr>
+        <tr><td>Checks, fill</td><td class="opt">OpenROAD</td><td class="n">1 min 16 s</td></tr>
+        <tr><td>Parasitics</td><td class="opt">OpenRCX</td><td class="n">1 min 31 s</td></tr>
+        <tr><td>Timing: three estimates on the way, then 2 corners after routing</td><td class="opt">OpenSTA</td><td class="n">47 min 45 s</td></tr>
+        <tr><td>GDS, picture</td><td class="opt">KLayout</td><td class="n">15 s</td></tr>
+        <tr class="me"><td>In all</td><td class="opt"></td><td class="n">1 h 58 min</td></tr>
       </tbody>
     </table>
   </div>
@@ -161,6 +179,8 @@
     is off-chip. Nothing in <a href="https://github.com/yrashk/strata/tree/main/rtl"><code>rtl/</code></a> changes: a script
     makes the ASIC copies, and the RAM module is swapped.</p>
   <ul class="ticks">
+    <li><b>Standard cells</b>: <code>gf180mcu_as_sc_mcu7t3v3</code>, the PDK's 3.3&nbsp;V seven-track library (its
+      LibreLane configuration needed two fixes in the local copy of the PDK, made by <code>asic/pdk.sh</code>).</li>
     <li><b>Local Stores</b>: 16 rows of 8 byte-wide 512&nbsp;&times;&nbsp;8 macros each
       (<a href="https://github.com/yrashk/strata/blob/main/asic/rtl/gf180mcu/strata_ram.sv"><code>asic/rtl/gf180mcu/strata_ram.sv</code></a>).</li>
     <li><b>Save table</b>: 11 of the 256&nbsp;&times;&nbsp;8 macros for 256 capabilities of 81 bits. It is read in one state
@@ -174,13 +194,15 @@
   <h2><span class="num">06</span>Caveats</h2>
   <ul class="ticks">
     <li><b>The Local Stores are a stand-in.</b> The RTL's Local Store is a true dual-port RAM, as FPGA block RAM is;
-      GF180MCU's macros have one port. The stand-in shares it, the core first, so a Transfer Unit access in the same
-      cycle is lost. A real chip needs dual-port SRAM (roughly 1.5 to 2 times the area per bit), banks with a stall, or
-      a double-pumped port.</li>
+      GF180MCU's macros have one port, and no open dual-port macro exists for it. The stand-in shares the port, the core
+      first, so a Transfer Unit access in the same cycle is lost. A real chip needs dual-port SRAM (roughly 1.5 to 2 times
+      the area per bit), banks with a stall, or a double-pumped port.</li>
     <li><b>No timing repair.</b> OpenROAD's post-CTS <code>repair_timing</code> died without a message in its first
       iteration three times, so it is off; placement is not timing-driven either. Hold violations are not repaired.</li>
+    <li><b>No slow corner.</b> The 3.3&nbsp;V library has typical and fast characterisations only, so 24.5&nbsp;MHz is a
+      typical figure with no worst case beside it.</li>
     <li><b>No signoff.</b> Detailed routing ended with no violations, but there is no Magic or KLayout DRC, no LVS, and
-      one antenna violation remains. There is no pad ring; the input and output delays are 5% of the period.</li>
+      three antenna violations remain. There is no pad ring; the input and output delays are 5% of the period.</li>
     <li><b>One core only.</b> Two and six cores (with T2 and the inbox network on the chip) are scripted and planned,
       not run to the end.</li>
   </ul>
@@ -191,14 +213,16 @@
   <p class="intro">Docker (LibreLane 3.0.17's arm64 or amd64 image), sv2v and Yosys on the host, and Python for ciel
     and the pictures. Everything else runs in the container.</p>
   <div class="cmds">
-    <div><code>asic/pdk.sh gf180mcu</code><span>the PDK (open_pdks, the version LibreLane pins), with ciel</span></div>
-    <div><code>asic/run.sh 1</code><span>one core through LibreLane's Classic flow, about three hours</span></div>
-    <div><code>asic/render.sh 1</code><span>the die pictures, with KLayout</span></div>
-    <div><code>asic/collect.sh 1</code><span>the reports into <code>asic/results/gf180mcu-1/</code></span></div>
+    <div><code>asic/pdk.sh gf180mcu gf180mcu_as_sc_mcu7t3v3</code><span>the PDK (open_pdks, the version LibreLane pins) and the 3.3&nbsp;V cells, with ciel</span></div>
+    <div><code>ASIC_SCL=gf180mcu_as_sc_mcu7t3v3 asic/run.sh 1</code><span>one core through LibreLane's Classic flow, about two hours (without <code>ASIC_SCL</code>: the 5&nbsp;V cells)</span></div>
+    <div><code>asic/render.sh 1-mcu7t3v3</code><span>the die pictures, with KLayout</span></div>
+    <div><code>asic/collect.sh 1-mcu7t3v3</code><span>the reports into <code>asic/results/gf180mcu-1-mcu7t3v3/</code></span></div>
   </div>
   <p class="note">The settings and why each one is there:
     <a href="https://github.com/yrashk/strata/blob/main/asic/README.md"><code>asic/README.md</code></a>; the reports
     (area, cell counts, timing paths per corner, run times):
+    <a href="https://github.com/yrashk/strata/tree/main/asic/results/gf180mcu-1-mcu7t3v3"><code>asic/results/gf180mcu-1-mcu7t3v3/</code></a>
+    and, for the 5&nbsp;V cells,
     <a href="https://github.com/yrashk/strata/tree/main/asic/results/gf180mcu-1"><code>asic/results/gf180mcu-1/</code></a>.</p>
 </section>
 </main>
