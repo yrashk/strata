@@ -31,12 +31,14 @@ GROUPS = [
     ("Self-hosted assembler", ["os/progs/as.s"]),
     ("StrataOS kernel", ["os/kernel.s", "os/kunits/*.s"]),
     ("Servers & programs", ["os/servers/*.s", "os/progs/*.s", "os/ws/*.s"]),
+    ("Guest OSes", ["os/guests/*.s"]),
     ("Libraries", ["os/lib/*.s", "os/lib/*/*.s"]),
     ("Firmware", ["firmware/*.s"]),
     ("Forth", ["lang/forth/forth.s", "lang/forth/bare/*.s", "lang/forth/core.fs",
                "lang/forth/tools.fs", "lang/forth/see.fs", "lang/forth/bare/*.fs",
                "lang/forth/os/*.s", "lang/forth/os/*.fs",
-               "lang/forth/demos/*.fs", "lang/forth/tests/*.fs"]),
+               "lang/forth/demos/*.fs", "lang/forth/tests/*.fs",
+               "lang/forth/*.fs", "lang/forth/progs/*.fs"]),
     ("Conformance tests", ["conformance/tests/*.s", "conformance/tests/lib/*.s"]),
 ]
 
