@@ -4,7 +4,7 @@ Where the project stands on 2026-11-12 (main at the commit that adds this
 file), for whoever continues. Read this first, then `PLAN.md` (decisions,
 per-step history, design notes such as sections R and P) and the READMEs
 listed under "Where things are written down". `ROADMAP.md` is the public
-summary, and is partly stale (see "Docs that lag").
+summary: what exists, the known limitations, what is next.
 
 ## What this is
 
@@ -163,14 +163,11 @@ Not verified:
   pending (they use the fast interpreter loop then).
 - `conformance/FINDINGS.md` F7 and F8 (documentation) are open.
 
-**Docs that lag**
-- `ROADMAP.md` "Known limitations" predates several fixes: console reads
-  can be cancelled (the release port completes them), the emulator's
-  `ltag`/`linst` wait for pending device reads, the shell has `cd`, the file
-  system has tags and subdirectories, and the core is placed and routed.
-- `PLAN.md`'s section headings still say TODO or IN PROGRESS for work that
-  is done (4, 6, 7, 8, 9, F), with unticked boxes; its "Resuming" section is
-  from before the first push.
+**Smaller, from PLAN.md's open boxes**
+- `make test-forth` is not part of `make test`; run it on its own.
+- The emulator does not enforce one break read per core.
+- The manual's op tables (18.x) were never re-checked against the final
+  kernel and servers.
 
 ## Where things are written down
 

@@ -59,7 +59,7 @@ them.
 ## 2. Manual for phases 1–3 — DONE
 
 - [x] `doc/manual/` rewritten (157 pages); no review mentions.
-- [ ] Update it for 0.2 (see step 7).
+- [x] Update it for 0.2 (see step 7).
 
 ## 3. Devices and the machine — DONE
 
@@ -88,7 +88,7 @@ them.
 - [x] `svc` in `sasm` and in `os/progs/as.s` (plus its feature test).
   `as.s` T3 is 64 MiB.
 
-## 4. StrataOS 0.2 microkernel — IN PROGRESS (agent)
+## 4. StrataOS microkernel — DONE (released as StrataOS 0.1)
 
 Owns: os/, firmware/, tools/mkdisk.c, tools/compare-boot.sh,
 tools/test-break.sh, the StrataOS part of tools/test-as.sh, and the OS rules
@@ -199,7 +199,7 @@ of the Makefile.
   expected output in `tools/test-sh.out`; also identical under -J -T real).
 - [x] `make test` runs tools/test-sh.sh (after test-break.sh).
 
-## 6. Window server and clients (spec 2.8) — TODO (after 4)
+## 6. Window server and clients (spec 2.8) — DONE
 
 - [x] **`ws`**
   - [x] Registration and resources:
@@ -247,7 +247,7 @@ of the Makefile.
   `term` and a `wmandel`; check the frame (look at the PNG).
   (tools/test-ws.sh, in `make test`; screenshots site/img/ws-real-*.png)
 
-## F. Modern Forth (`lang/forth/`) — IN PROGRESS (agent)
+## F. Modern Forth (`lang/forth/`) — DONE
 
 - [x] `forth.s`: an asm kernel (every line commented) and `core.fs`, the
   bootstrap of the rest of the language in Forth.
@@ -260,15 +260,15 @@ of the Makefile.
 - [x] Demos: tiers/caps, multicore, framebuffer graphics.
 - [x] Bare-metal backend; `make forth`, `forth-rtl`, `test-forth`
   (emulator and RTL outputs compared).
-- [ ] StrataOS backend:
-  - [ ] needs from step 4: `svc` 7 SET_MIRROR and `.far` placed in the arena (spec 2.2); the I-LS budget means `see`/disasm/`dump`/`words` move to an on-demand `tools.fs` (done: see lang/forth/README.md, "StrataOS")
-  - [ ] key/emit via sys.s;
-  - [ ] `include FILE` via fs;
-  - [ ] multicore with `-n N` (time-shared threads; ctake is emulated);
-  - [ ] `build/prog/forth` + core.fs + demos on the disk. Do this after
+- [x] StrataOS backend (it runs under the OS; new code now goes into kernel-paged code units):
+  - [x] needs from step 4: `svc` 7 SET_MIRROR and `.far` placed in the arena (spec 2.2); the I-LS budget means `see`/disasm/`dump`/`words` move to an on-demand `tools.fs` (done: see lang/forth/README.md, "StrataOS")
+  - [x] key/emit via sys.s;
+  - [x] `include FILE` via fs;
+  - [x] multicore with `-n N` (time-shared threads; ctake is emulated);
+  - [x] `build/prog/forth` + core.fs + demos on the disk. Do this after
     step 4 lands.
 - [x] `lang/forth/README.md` (design, dialect, Strata words, session).
-- [ ] Wire `test-forth` into `make test`.
+- [ ] Wire `test-forth` into `make test` (still run on its own: `make test-forth`).
 
 ## J. Emulator JIT (arm64 + x86-64) — DONE
 
@@ -283,7 +283,7 @@ of the Makefile.
   plus the Forth tests; `emu/jit/fuzz.py` differential fuzzer.
 - [x] `make bench` (`tools/bench-jit.sh`): arm64 gfx 1280x800 24x, Forth gfx
   demo 120x; x86-64 under Rosetta: Forth gfx demo 24x.
-- [ ] OS bug found by the JIT's coarser interleaving: `os/kernel.s`
+- [x] (Fixed: `w_ring` rings through c9, never c8.) OS bug found by the JIT's coarser interleaving: `os/kernel.s`
   `wpl_bounce` calls `w_ring`, which reuses c8 (crs8 T_CCTL / cclear c8),
   then `cgive c8, s1` faults capinv (demo, after `kill %1`). Also
   reproduces with quanta and no translation. For the OS owner.
@@ -303,7 +303,7 @@ rules, the web part of `.github/workflows/pages.yml`. Detailed plan:
   status line (MIPS, cores, virtual time).
 - [x] `site/play/index.html` and a "Try it in your browser" CTA on the site.
 - [x] CI: emsdk, `make web-assets wasm`, copied into the site under play/.
-- [ ] Check the first Pages deploy (CI pins emsdk 3.1.74; built locally with
+- [x] Check the first Pages deploy (CI pins emsdk 3.1.74; built locally with
   emcc 7.0.0) and the live page.
 - [x] Verified in a browser; native build and examples unaffected.
 
@@ -343,7 +343,7 @@ in emu/emu.c, the wasm rules of the Makefile. Detailed plan and numbers:
 - [x] Measured (M-series Mac): native `-j` gfx 0.28 s -> 0.02-0.04 s, Forth
   gfx 4.9 s -> 0.4 s; in the browser the Forth gfx demo ~20 s -> 0.43 s
   (interpreter) / 0.07 s (JIT, ~5000 MIPS); ws demo at a steady 60 fps.
-- [ ] Not verified: the Pages CI run itself (emsdk 3.1.74; built and tested
+- [x] Verified since: the Pages CI run itself (emsdk 3.1.74; built and tested
   locally with emcc 7.0.0, no newer features used on purpose).
 - [ ] Later: hazard-range checks in the native backends (a core with a
   pending device read runs the fast loop there, not translated code).
@@ -367,7 +367,7 @@ source-browser step of `.github/workflows/pages.yml`.
   and filter, as.s / forth.s / alu.s (6075 lines) colour in ~10 ms,
   deep links and ranges, keyboard, mobile drawer, `?run=forth&demo=`
   queues the demo.
-- [ ] Check it on the first Pages deploy.
+- [x] Check it on the first Pages deploy.
 
 ## L. Live framebuffer scanout — DONE
 
@@ -417,22 +417,23 @@ conformance` (called by `make test`).
   "deadlock" (exit 1) after "StrataOS: all cores halted", and the RTL runs
   to its -m limit (compare-boot is slow; the greps still pass).
 
-## 7. Integration — TODO
+## 7. Integration — DONE (the boxes left open are small)
 
-- [ ] `make lint` clean (both configurations); `make test` green at
-  NCORES=8; `tools/test-as.sh` green.
-- [ ] Self-hosted `as` assembles the new kernel and programs (test-as covers
-  os/kernel.s).
-- [ ] Manual (subagent; doc/ only; no review mentions):
-  - [ ] timer, framebuffer and keyboard;
-  - [ ] `svc` and the inbox rule;
-  - [ ] 64 MiB memory map;
-  - [ ] StrataOS 0.2 chapter: microkernel, servers, preemption with
+- [x] `make lint` clean (both configurations); `make test` green at
+  NCORES=8; `tools/test-as.sh` green (all three again on 2026-11-12).
+- [x] Self-hosted `as` assembles the new kernel and programs (test-as covers
+  os/kernel.s on the bare machine; under StrataOS the kernel's source is over
+  `as`'s 256 KiB input, so that case is skipped).
+- [x] Manual (subagent; doc/ only; no review mentions):
+  - [x] timer, framebuffer and keyboard;
+  - [x] `svc` and the inbox rule;
+  - [x] 64 MiB memory map;
+  - [x] StrataOS 0.2 chapter: microkernel, servers, preemption with
     explicit switch cost, messages and demux, the window server and its
     protocol;
-  - [ ] Forth appendix or chapter;
-  - [ ] toolchain flags.
-- [ ] README: 8 cores default / 12 for boot; the flags `-T -g -F -z -H -r`;
+  - [x] Forth appendix or chapter;
+  - [x] toolchain flags.
+- [x] README: 8 cores default / 12 for boot; the flags `-T -g -F -z -H -r`;
   `show-NAME`; StrataOS 0.2 overview; ws; Forth; link to the site and the
   PDF.
 - [x] `fpga/README.md`:
@@ -440,54 +441,54 @@ conformance` (called by `make test`).
   - [x] numbers for both families, 1 and 2 cores (xc7: 47.4k / 94.7k LUTs; ecp5: 73.8k / 142.5k LUT4 sites), per-module breakdown and the top consumers; `fpga/synth.sh` now prints a summary and the latch / FF-memory checks;
   - [x] boards: 1 core fits the Arty A7-100T (and, on paper, an ECP5-85F); 2 cores need the XC7A200T; StrataOS needs 6 cores, which no board named here holds;
   - [x] note that there is no video output on FPGA yet.
-- [ ] Update `doc/strataos.md` wherever the implementation deviated.
+- [x] Update `doc/strataos.md` wherever the implementation deviated.
 - [x] Manual updated for the release (179 pages, builds clean): svc, inbox rule, capability alignment, device-read rules, timer, framebuffer, 64 MiB map, a rewritten StrataOS chapter (op tables 18.x), a Forth chapter.
 - [ ] Reconcile after the OS and ws agents finish (found by the manual pass):
   - [ ] the manual's op tables 18.x vs the final kernel/servers (kernel op 10 FBLEND, dev 30/31, proc 39 WHOIS, fs 32–35, ws 46 TITLE);
-  - [ ] the window-surface model: the spec says ws allocates surfaces in its own revocation domain, but `cdom` is privileged, so clients lend drawing bands instead. Fix spec 2.8 and the manual to what ws really does;
+  - [x] the window-surface model: the spec says ws allocates surfaces in its own revocation domain, but `cdom` is privileged, so clients lend drawing bands instead. Fix spec 2.8 and the manual to what ws really does;
   - [x] the FPGA numbers in `doc/manual/ch-impl.tex` now match `fpga/README.md` (47k LUTs per core; rerun after the pointer device lands if its logic matters);
-  - [ ] `lang/forth/README.md` still says "StrataOS 0.2" and "exclusive process";
-  - [ ] `os/lib/sys.s` header: c0 is 832 KiB for one thread, not 768;
-  - [ ] wire `tools/test-sh.sh` into `make test`;
-  - [ ] emulator: enforce one break read per core, and check `ltag`/`linst` against pending device reads (FINDINGS F2 remainder), or document it.
+  - [x] `lang/forth/README.md` still says "StrataOS 0.2" and "exclusive process";
+  - [x] `os/lib/sys.s` header: c0 is 832 KiB for one thread, not 768;
+  - [x] wire `tools/test-sh.sh` into `make test`;
+  - [ ] emulator: enforce one break read per core, and check `ltag`/`linst` against pending device reads (FINDINGS F2 remainder), or document it. (`ltag`/`linst` now wait for pending reads; one break read per core is still not enforced.)
 - [x] README rewritten for the release; `ROADMAP.md` written; the spec's section 2 and 3 now describe what was built; manual op tables updated (docs pass).
 - [ ] Coordinator TODOs left by the docs pass: README ~line 258 (confirm `make boot` + `ws`, delete the comment), README "License: TBD" (ask the user), spec end of 2.8 (ws keys and limits vs final sources), spec section 3 (the ws test), manual ch-os.tex prose "The client protocol" (surface model: clients lend bands), `lang/forth/README.md` StrataOS section, `os/ws/README.md` (still "renderers"), Makefile help header (ws-demo, forth, web-site, web-code), fpga/README `@ECP5@`.
 - [x] Versioning: the first release is **StrataOS 0.1** (nothing has been released yet). Renamed `doc/strataos-0.2.md` → `doc/strataos.md`, update every reference (PLAN.md, agent plans, Makefile, scripts, manual, site, README), and sweep user-visible "0.2" (banners, help, ws status bar, `uname`/INFO, site) to 0.1.
 
-## 8. Publish — TODO
+## 8. Publish — DONE
 
-- [ ] Every location in "Agent working locations" is cleaned up and its row
+- [x] Every location in "Agent working locations" is cleaned up and its row
   removed; no stray files are left in the repo (`git status --ignored`
   reviewed).
-- [ ] `git status` has no build output (`build/`, `fpga/build/`), no PDF,
+- [x] `git status` has no build output (`build/`, `fpga/build/`), no PDF,
   no LaTeX artifacts, no review files.
-- [ ] Commit with the trailer
+- [x] Commit with the trailer
   `Co-Authored-By: Claude <noreply@anthropic.com>`.
-- [ ] `gh repo create yrashk/strata --public --source . --push`.
-- [ ] Tell the user the local directory is still named IStrata.
+- [x] `gh repo create yrashk/strata --public --source . --push`.
+- [x] Tell the user the local directory is still named IStrata.
 
-## 9. GitHub Pages — TODO
+## 9. GitHub Pages — DONE (https://yrashk.com/strata/)
 
-- [ ] Screenshots taken with `-F` and converted to PNG with `sips`:
-  - [ ] the ws desktop with term + wmandel + wclock;
-  - [ ] the boot splash;
-  - [ ] the command palette;
-  - [ ] the gfx Mandelbrot.
+- [x] Screenshots taken with `-F` and converted to PNG with `sips`:
+  - [x] the ws desktop with term + wmandel + wclock;
+  - [x] the boot splash;
+  - [x] the command palette;
+  - [x] the gfx Mandelbrot.
 - [x] `.github/workflows/pages.yml` written (tectonic → `make manual` → site + PDF → deploy-pages).
 - [x] `site/index.html` + `site/style.css` (ws look: grid, cyan/amber, cut corners, layered bands); `site/img/` has gfx-mandelbrot.png and forth-mandelbrot.png. Preview with `python3 -m http.server --directory site`.
 - [x] Window-server section on the site (ws-desktop / palette / splash shots) and a "Window server demo" preset on the play page (`play/?run=ws`, runs build/ws/wsdemo.stx; built by `web-assets`). Not yet checked in a browser.
 - [x] Site and README now use the real-OS screenshots (`site/img/ws-real-*.png`); the StrataOS preset on the play page mentions `ws`.
 - [x] Site screenshots are taken through the window server: once the real `ws` runs on StrataOS, replace the demo shots with `site/img/ws-real-*.png` and make the play page's StrataOS preset mention `ws`.
-- [ ] Add the UI screenshots (ws desktop, splash, palette) and replace the StrataOS terminal sample with a real session once 0.2 runs.
-- [ ] `site/`: one page introducing Strata (the idea: memory as explicit
+- [x] Add the UI screenshots (ws desktop, splash, palette) and replace the StrataOS terminal sample with a real session once 0.2 runs.
+- [x] `site/`: one page introducing Strata (the idea: memory as explicit
   I/O, capabilities, no interrupts), StrataOS 0.2, the UI, Forth, with
   screenshots and links to the PDF and the repo.
-- [ ] `.github/workflows/pages.yml`:
-  - [ ] install tectonic;
-  - [ ] `make manual`;
-  - [ ] copy the PDF + site into the artifact;
-  - [ ] deploy to Pages.
-- [ ] Enable Pages (source: GitHub Actions); check that
+- [x] `.github/workflows/pages.yml`:
+  - [x] install tectonic;
+  - [x] `make manual`;
+  - [x] copy the PDF + site into the artifact;
+  - [x] deploy to Pages.
+- [x] Enable Pages (source: GitHub Actions); check that
   https://yrashk.github.io/strata/ and the PDF link work.
 
 ---
@@ -643,15 +644,9 @@ up before step 8.
 
 | Agent / step | Location | Purpose | Clean up? |
 |---|---|---|---|
-| main session | `/private/tmp/claude-501/-Users-yrashk--claude-spares-spare-bGJEvr/e68fc47f-3893-447c-8c69-38177da41a1b/scratchpad/` | patch scripts, test frames, traces | delete before publish |
-| main session | `build/`, `build-as/`, `fpga/build/` | build output (gitignored) | `make clean`, `rm -rf build-as fpga/build` before publish |
-| step 4 (OS) | (scratch files removed, `build-fb/` deleted) | — | — |
-| step 4 (OS) | `os/PLAN-os.md` | the OS agent's detailed working plan | fold into docs, then delete |
-| step 4 (OS) | `build/` (kernel.stx, bootrom.stx, disk*.img, prog/, src/), `build-as/` (test-as) | build output (gitignored) | `make clean` |
-| WS design | `build/ws/`, `build/ws-shots/` (demo images, screenshots) | window-server rendering (its plan is folded into os/ws/README.md) | `make clean` |
-| F (Forth) | `build/forth/`, `build/forth.stx`, `build/forth-test/` (later `build/prog/forth`) | generated core.fs embedding, image, test outputs (gitignored build/) | `make clean` |
-| F (Forth, OS backend) | `/private/tmp/claude-501/-Users-yrashk--claude-spares-spare-bGJEvr/e68fc47f-3893-447c-8c69-38177da41a1b/scratchpad/` (forth.s.orig, core.fs.orig, size probes, OS test inputs), `build/forth-os/` (generated embedding), `build/forth-test/` | StrataOS backend work | delete when integrated |
-| Shell (step 5) | `os/progs/PLAN-sh.md` (scratch dir deleted) | the shell agent's working plan | fold into docs, then delete |
+| any agent since 2026-11-10 | `.claude/worktrees/agent-<id>/` (a git worktree on branch `worktree-agent-<id>`) | the agent's checkout and its own `build/` | merge the branch, then `git worktree remove` |
+| main session | `build/`, `build-as/`, `fpga/build/`, `build/asic/` (PDK, LibreLane runs) | build output (gitignored) | `make clean`; `rm -rf build-as fpga/build` |
+| ASIC | OrbStack's Docker image `ghcr.io/librelane/librelane:3.0.17` | the LibreLane container | remove the image when the ASIC work is done |
 
 ## Agent history (for takeovers)
 
@@ -678,21 +673,24 @@ Transcripts are in
 | Fast browser emulator (section X) | (see web/README.md) |
 | Source browser | a0766fbc2be127933 |
 
+Later agents ran from the session `a32f84f2-b289-4b5a-8f91-ffb72f4d04ed`
+(transcripts under `~/.claude/projects/-Users-yrashk-Projects-IStrata/a32f84f2-b289-4b5a-8f91-ffb72f4d04ed/subagents/`):
+
+| Work | Agent id |
+|---|---|
+| ECP5 place and route, the die, the Hardware page | af2c373178c62e5b5 |
+| ASIC on GF180MCU (1 core, 5 V and 3.3 V cells, denser-memory study) | ad21a2308a881b51e |
+| Local Store sizes as a platform parameter | af6da4fff6213c1f1 |
+| Forth as a StrataOS guest; the stop/gift RTL fix | a1a7cc6a169209a6d |
+
 ## Resuming
 
-1. **Check the build:** run `make && make test`. If the OS build fails,
-   step 4 was interrupted: read spec section 2 and os/kernel.s's header,
-   then finish to spec; don't restart from scratch.
-2. **Look at the machine:** `make show-gfx` (1280x800 window); `make boot`
-   (StrataOS on the emulator).
-3. **Steps 5, 6 and the OS part of F** can run in parallel once
-   `make boot-demo` works and sys.s has every op of spec 2.4.
-4. **Order of the rest:** step 7, then 8, then 9. Keep this file's boxes
-   current.
+`HANDOFF.md` says where the project stands, how the work is done (tests
+gate every push, LFS first) and what is open, in order. Start there.
 
 ## Known limitations / notes
 
-- The RTL is ~30k LUTs for one core on Xilinx 7-series (yosys), each
+- The RTL is ~32k LUTs for one core on Xilinx 7-series (yosys), each
   further core ~28k (was ~47k): two fit an XC7A200T (Nexys Video), and the
   six that StrataOS needs (168,694 LUTs) a Kintex-7 325T (fpga/README.md).
 - `strata_ram` carries `(* no_rw_check *)`: FPGA block RAM does not define
@@ -704,4 +702,4 @@ Transcripts are in
   time bases.
 - sv2v/yosys: never put a `for` loop inside an `if` in always_comb. Put the
   condition inside the loop.
-- `make test` at NCORES=8 takes several minutes.
+- `make test` at NCORES=8 takes about an hour.
