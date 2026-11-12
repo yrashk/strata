@@ -257,8 +257,8 @@
     <div class="card"><h3>Six cores</h3>
       <p>StrataOS's six cores need a Kintex-7 or larger, and Vivado. A StrataOS for fewer cores is designed but paused.</p></div>
     <div class="card"><h3>ASIC experiment</h3>
-      <p>One core through an open-silicon flow (LibreLane on GF180MCU), placed and routed:
-        <a href="#asic">below</a>. Two and six cores are planned.</p></div>
+      <p>One core through an open-silicon flow (LibreLane on GF180MCU), placed and routed at 24.5&nbsp;MHz with the
+        3.3&nbsp;V cells: <a href="#asic">below</a>. Two and six cores are planned.</p></div>
   </div>
 </section>
 
@@ -379,33 +379,33 @@
 <section class="section" id="asic">
   <h2><span class="num">10</span>ASIC (open flow, GF180MCU)</h2>
   <p class="intro">The same core through an open RTL-to-GDS flow: <a href="https://github.com/librelane/librelane">LibreLane</a>
-    (Yosys, OpenROAD, OpenSTA, KLayout) on GlobalFoundries' 180&nbsp;nm GF180MCU, the process wafer.space runs shuttles on.
-    One core, placed and routed. It is a measurement, not a tapeout: no signoff, no timing repair, and the Local Stores are
-    a single-port stand-in.</p>
+    (Yosys, OpenROAD, OpenSTA, KLayout) on GlobalFoundries' 180&nbsp;nm GF180MCU, the process wafer.space runs shuttles on,
+    with the PDK's 3.3&nbsp;V standard cells. One core, placed and routed. It is a measurement, not a tapeout: no signoff,
+    no timing repair, and the Local Stores are a single-port stand-in.</p>
 
   <figure class="die">
-    <a class="zoom" href="asic/img/gf180mcu-1-annotated-2800.webp" title="Open a larger picture">
-      <img src="asic/img/gf180mcu-1-annotated.webp" width="1600" height="1400" style="aspect-ratio: 8 / 7" loading="lazy"
+    <a class="zoom" href="asic/img/gf180mcu-1-mcu7t3v3-annotated-2800.webp" title="Open a larger picture">
+      <img src="asic/img/gf180mcu-1-mcu7t3v3-annotated.webp" width="1600" height="1400" style="aspect-ratio: 8 / 7" loading="lazy"
            alt="The routed one-core die on GF180MCU: the I-LS and D-LS, each 128 SRAM macros in paired rows, fill the left and right; the logic and its wiring are a strip down the middle, with the save table's 11 macros at its foot.">
     </a>
-    <figcaption><b>One core on GF180MCU, 10.34&nbsp;&times;&nbsp;9.05&nbsp;mm, routed.</b> The four routing metals drawn
-      (Metal2 blue, Metal3 green, Metal4 amber, Metal5 pink). Click for 2800 pixels; details on the
+    <figcaption><b>One core on GF180MCU, 10.34&nbsp;&times;&nbsp;9.05&nbsp;mm, routed with the 3.3&nbsp;V cells.</b> The four
+      routing metals drawn (Metal2 blue, Metal3 green, Metal4 amber, Metal5 pink). Click for 2800 pixels; details on the
       <a href="asic/">ASIC page</a>.</figcaption>
   </figure>
 
   <div class="stats">
-    <div class="stat hot"><b>11.9 MHz</b><span>typical corner, routed, no timing repair</span></div>
+    <div class="stat hot"><b>24.5 MHz</b><span>typical corner, 3.3 V, routed, no timing repair</span></div>
     <div class="stat"><b>93.6 mm²</b><span>die, 10.34 × 9.05 mm</span></div>
     <div class="stat"><b>55.2 mm²</b><span>SRAM: 267 macros</span></div>
-    <div class="stat"><b>4.3 mm²</b><span>logic: 11,363 flip-flops</span></div>
-    <div class="stat"><b>2 h 47</b><span>flow time, 8 threads</span></div>
+    <div class="stat"><b>4.9 mm²</b><span>logic: 11,390 flip-flops</span></div>
+    <div class="stat"><b>1 h 58</b><span>flow time, 8 threads</span></div>
   </div>
 
   <p class="note">Two Local Stores are 256 of the PDK's 512&nbsp;&times;&nbsp;8 SRAM macros (0.21&nbsp;mm² each); they are 59% of the
-    die, the logic 5%. The clock is 6.8&nbsp;MHz at the slow corner and 17.8&nbsp;MHz at the fast one; the longest path is
-    95 cells from a flip-flop to the atomic-request output. Detailed routing ended with no DRC violations; there is one
-    antenna violation, hold is not repaired, and OpenROAD's post-CTS timing repair crashed on this design, so it was
-    skipped. Two and six cores are planned.</p>
+    die, the logic 5%. The clock is 30.4&nbsp;MHz at the fast corner (the 3.3&nbsp;V library has no slow one); the longest
+    path is 134 cells from flip-flop to flip-flop. With the 5&nbsp;V cells the same core is 11.9&nbsp;MHz in 4.3&nbsp;mm² of
+    logic. Detailed routing ended with no DRC violations; there are three antenna violations, hold is not repaired, and
+    OpenROAD's post-CTS timing repair crashed on this design, so it was skipped. Two and six cores are planned.</p>
 </section>
 <!-- ============================================================ end ASIC -->
 
