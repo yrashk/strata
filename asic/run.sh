@@ -27,7 +27,10 @@ threads=${ASIC_THREADS:-8}
 tag=${ASIC_TAG:-run}
 image=ghcr.io/librelane/librelane:3.0.17
 pdk_root="$here/build/asic/pdk"
-out="$here/build/asic/gf180mcu-$n"
+scl=${ASIC_SCL:-gf180mcu_fd_sc_mcu7t5v0}
+suffix=""
+[ "$scl" = gf180mcu_fd_sc_mcu7t5v0 ] || suffix="-${scl##*_}"
+out="$here/build/asic/gf180mcu-$n$suffix"
 mkdir -p "$out/src"
 cd "$here"
 
@@ -55,7 +58,7 @@ yosys -q -p "read_verilog $out/src/strata.v $out/gf180mcu_fd_ip_sram__sram512x8m
              hierarchy -top $top; flatten; select -write $out/macros.raw t:gf180mcu_fd_ip_sram__*" \
   2>&1 | grep -v '^Warning: Replacing memory' || true
 sed 's|^[^/]*/||' "$out/macros.raw" > "$out/macros.txt"
-ASIC_THREADS=$threads python3 asic/mkconfig.py "$out" "$n" "$period" "$out/macros.txt"
+ASIC_SCL=$scl ASIC_THREADS=$threads python3 asic/mkconfig.py "$out" "$n" "$period" "$out/macros.txt"
 
 # LibreLane in its container: the worktree at the same path, the PDK from
 # build/asic/pdk, OpenROAD with threads (asic/bin/openroad-mt)
@@ -81,7 +84,7 @@ docker run --rm --cpus "$threads" -u "$(id -u):$(id -g)" \
   -e HOME=/tmp -e PDK_ROOT="$pdk_root" -e ASIC_THREADS="$threads" -e ASIC_OR_PRE \
   -e _OPENLANE_MAX_CORES="$threads" -e _LLN_OVERRIDE_OPENROAD="$here/asic/bin/openroad-mt" \
   "$image" \
-  librelane --pdk-root "$pdk_root" --pdk gf180mcuD --run-tag "$tag" \
+  librelane --pdk-root "$pdk_root" --pdk gf180mcuD --scl "$scl" --run-tag "$tag" \
     $resume \
     ${ASIC_TO:+--to "$ASIC_TO"} config.json 2>&1 | tee "$out/flow.log"
 echo "wall time: $(( $(date +%s) - start )) s" | tee -a "$out/flow.log"
