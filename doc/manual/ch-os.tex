@@ -1361,7 +1361,7 @@ StrataOS's scheduling and grants the guest:
 
 Each guest core is started through a boot protocol (a loader code unit the kernel runs on the core
 installs the image and sets \csr{corebase}/\csr{corecount} so the guest sees itself as an $N$-core
-machine) and boots like a bare-metal program. Before that the kernel scrubs the core of everything
+machine) and boots like a bare-metal program. Before that the loader scrubs the core of everything
 StrataOS kept on it --- every capability register, every save-table entry (a StrataOS worker keeps the
 shared table, core control and the device root there) and the dispatcher's data in the D-LS --- since a
 supervisor-mode guest could otherwise take them. \texttt{guest stop} \textbf{resets} each guest core

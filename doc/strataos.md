@@ -1621,14 +1621,15 @@ platform table (at `size − 0x1000`, inside the shared region) holds a magic,
 Each guest core is woken out of StrataOS idle by a gift — a **loader** code
 unit (`u_gload`) that the kernel's dispatcher (`w_guest`) copies into the I-LS
 and jumps to. First the core is **scrubbed** of everything StrataOS kept on
-it, which a supervisor-mode guest could otherwise take: `w_guest` empties
-every capability register and every save-table entry (a StrataOS worker keeps
-the KST, core control over *every* core, the device root and the console
-output in its save table; there is no instruction that empties an entry, so
-each is taken out — a linear capability leaves its entry — and overwritten
-with a copy of the read-only clock, which the guest is granted anyway), and
-the loader zeroes the D-LS (the dispatcher's variables and the saved registers
-of processes that ran on the core) but its own scratch page. The loader then `ctake`s, in order: the image share (`c5`), the
+it, which a supervisor-mode guest could otherwise take: the loader, while the
+dispatcher is still resident, empties every save-table entry (a StrataOS
+worker keeps the KST, core control over *every* core, the device root and the
+console output there; there is no instruction that empties an entry, so each
+is taken out — a linear capability leaves its entry — and overwritten with a
+copy of the read-only clock, which the guest is granted anyway) and every
+capability register, and zeroes the D-LS (the dispatcher's variables and the
+saved registers of processes that ran on the core) but its own scratch page.
+The loader then `ctake`s, in order: the image share (`c5`), the
 console endpoint (`c1`), the clock (`c2`), core control (`c3`), and — on
 relative core 0 only — the writable arena (`c0`). It reads the platform table,
 sets `corebase`/`corecount` (so the guest sees itself as an N-core machine,
