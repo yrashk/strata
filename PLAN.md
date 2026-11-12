@@ -565,6 +565,56 @@ Ideas to evaluate:
   endpoints and device capabilities rebuilt on switch-in, not saved); see S2.
 - [ ] System memory beyond 64 MiB in the emulator - not done.
 
+## P. The Local Store sizes are a platform parameter
+
+Design (decided before the edits; the user asked for it):
+- **What.** Each core's D-LS and I-LS are $2^k$ bytes, 4 KiB to 64 KiB, 64 KiB
+  by default. The architecture already checks every Local Store access
+  against DLS_SIZE / ILS_SIZE with full 64-bit addresses (loads and stores,
+  transfer ranges, ltag / linst entries, the fetch, xmap's I-LS address,
+  xret / xcall targets at their fetch); those names become the platform's
+  sizes. No new fault: an address at or past the size is the same
+  `lsfault` (tval = the address) or `ifault` (tval = pc) as today, at the
+  same point of the same instruction.
+- **D-LS and I-LS may differ.** They are separate memories with separate
+  checks and separate block RAMs; code-heavy and data-heavy programs want
+  different splits, and nothing in the ISA ties them. Each is published.
+- **Minimum 4 KiB.** A core-control reset reloads the first 4 KiB of both
+  stores (the boot ROM, BOOTROM_BYTES), which must fit; 4 KiB of 64-bit
+  words is one xc7 RAMB36 (512 x 72), the smallest block-RAM store. Below
+  32 KiB every D-LS address is reachable from x0 with a 16-bit offset.
+- **Platform table.** Header u16 at offset 24: the D-LS size in KiB; u16 at
+  26: the I-LS size in KiB (powers of two, 4..64). 0 in an older table
+  means 64. 4 bytes stay reserved.
+- **How software learns it.** System software reads the platform table
+  (core 0 at boot, like CTAB and NXMAP). Every core also gets the D-LS size
+  in `sp` at reset (power-on and core-control reset: "all integer
+  registers zero except sp = DLS_SIZE"), so a bare-metal program on any
+  core, which may hold no device capability, has its stack at the top of
+  its D-LS without knowing the number. StrataOS starts every program's
+  threads with sp = the top of the D-LS (it already did), so programs stop
+  setting sp themselves.
+- **Implementations.** strata-emu `-L D[,I]` (KiB); the RTL's DLS_KIB /
+  ILS_KIB parameters of strata_core / strata_top (`make DLS_KIB=32
+  ILS_KIB=16`; memory depths from them; address widths stay 16 bits, the
+  checks use the size); mkhex; fpga/synth.sh FAMILY N NXMAP DLS ILS. The
+  JIT's one-test bounds masks take the run's size (no extra instruction).
+  An image whose Local Store section does not fit is refused at load.
+- **Floors.** StrataOS 0.1: 64 KiB both (fixed ABI: kernel data at D-LS
+  0xA000..0xDFFF, programs' data below 0xA000, stack 0xE000..0x10000,
+  programs' text at I-LS 0x8000..0xFFFF); the kernel refuses a smaller
+  machine at boot with a message, the boot ROM refuses an OS that does not
+  fit. Strata Forth: 64 KiB both (fixed stacks, ~33 KiB of code after
+  core.fs). Bare-metal examples: whatever their image and stack need (each
+  says so); `make test-ls` runs them in lockstep at 32/32 KiB and the small
+  ones at 8/4 KiB.
+
+- [ ] Emulator, JIT, debugger, platform tools
+- [ ] RTL, sim harness, lockstep (`make test-ls`)
+- [ ] Manual, spec, docs
+- [ ] Boot ROM, StrataOS check, programs' sp, Forth check, examples
+- [ ] conformance (lssize.s at several sizes, mutation-checked), FPGA numbers
+
 ## File ownership while agents run in parallel
 
 - **Step 4 (OS):** os/, firmware/, tools/mkdisk.c,
