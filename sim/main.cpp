@@ -58,6 +58,30 @@ static uint8_t plat[PLAT_LEN];
 static bool virtual_time;
 static svScope t3_scope;
 
+// The model and the run's counters are file-scope so that the browser build
+// (web/web_rtl.cpp, which includes this file) can clock the same machine a
+// slice at a time; on the desktop main() below runs it to the end.
+static std::unique_ptr<VerilatedContext> ctx;
+static std::unique_ptr<Vstrata_top> top;
+static unsigned long long cycles;       // clock cycles so far
+static unsigned long long max_cycles;   // -m: 0 = no limit
+static unsigned long long break_at;     // -b: press Ctrl-C after this many cycles (for tests)
+static int halts_seen;                  // cores that have reported their halt
+#ifdef __EMSCRIPTEN__
+static int web_start(void);             // (web/web_rtl.cpp) takes over in front of the run loop
+#endif
+
+// One clock cycle, and what is due after it (-b, -P).
+static inline void sim_cycle() {
+  top->clk = 1;
+  top->eval();
+  top->clk = 0;
+  top->eval();
+  cycles++;
+  if (break_at && cycles == break_at) host_breaks++;
+  host_ptr_script_run(cycles);   // -P (N = clock cycles)
+}
+
 extern "C" long long img_word(int kind, int widx) {
   switch (kind) {
   case SK_ILS: return widx < (int)(ILS_KIB * 128) ? (long long)stx_word(img.ils, (uint32_t)widx) : 0;
@@ -141,9 +165,10 @@ extern "C" void sim_fb_present() {
   host_present(scan_fb);
 }
 
-extern "C" void sim_halt(int core, long long code, long long cycles, long long instret, long long stalls) {
+extern "C" void sim_halt(int core, long long code, long long cyc, long long instret, long long stalls) {
   fprintf(stderr, "core %d: halt a0=%lld instret=%lld cycles=%lld stalls=%lld\n", core, code, instret,
-          cycles, stalls);
+          cyc, stalls);
+  halts_seen++;
 }
 
 extern "C" void sim_fault(int core, int cause, long long pc, long long tval, int dbl) {
@@ -183,8 +208,6 @@ static void usage() {
 
 int main(int argc, char **argv) {
   const char *path = nullptr, *disk_path = nullptr, *in_path = nullptr, *ppm = nullptr;
-  unsigned long long max_cycles = 0; // 0: no limit
-  unsigned long long break_at = 0;   // -b: press Ctrl-C after this many cycles (for tests)
   bool gfx = true, hold = false;
   unsigned fb_w = FB_DEF_WIDTH, fb_h = FB_DEF_HEIGHT;
   int scale = 1;
@@ -251,8 +274,8 @@ int main(int argc, char **argv) {
   host_scan_fetch = scan_fetch;
   host_scan_us = 33333; // repaints read memory through DPI: at most ~30 Hz
 
-  auto ctx = std::make_unique<VerilatedContext>();
-  auto top = std::make_unique<Vstrata_top>(ctx.get());
+  ctx = std::make_unique<VerilatedContext>();
+  top = std::make_unique<Vstrata_top>(ctx.get());
 
   top->uart_rxd = 1;
   top->ext_t3_wready = 0;
@@ -270,15 +293,12 @@ int main(int argc, char **argv) {
   t3_scope = svGetScopeFromName("TOP.strata_top.g_t3_int.u_t3");
   if (!t3_scope) fprintf(stderr, "warning: no system-memory scope; PRESENT will show nothing\n");
 
-  unsigned long long cycles = 0;
+#ifdef __EMSCRIPTEN__
+  (void)hold;
+  return web_start();             // the browser's worker clocks the machine from here on
+#endif
   while (!top->all_halted && (!max_cycles || cycles < max_cycles)) {
-    top->clk = 1;
-    top->eval();
-    top->clk = 0;
-    top->eval();
-    cycles++;
-    if (break_at && cycles == break_at) host_breaks++;
-    host_ptr_script_run(cycles);   // -P (N = clock cycles)
+    sim_cycle();
     if ((cycles & 8191) == 0) {   // now and then: terminal input, window events
       host_poll();
       net_host_poll();
@@ -289,12 +309,15 @@ int main(int argc, char **argv) {
   top->final();
   fflush(stdout);
   if (trace_file) fclose(trace_file);
+  bool all_halted = top->all_halted;
+  top.reset();   // (the model goes before its context, and both before the
+  ctx.reset();   // run time's own statics: not left to the exit-time destructors)
 
   if (host_quit) {
     fprintf(stderr, "window closed after %llu cycles\n", cycles);
     return faulted ? 1 : 0;
   }
-  if (!top->all_halted) {
+  if (!all_halted) {
     fprintf(stderr, "timeout after %llu cycles\n", cycles);
     return 1;
   }

@@ -120,6 +120,26 @@ Not verified:
   crashed), hold is not fixed, and there is no DRC/LVS signoff.
 - LibreLane runs need a lot of memory: one run at a time, and watch swap.
 
+## The RTL in the browser (added 2026-11-13, not yet deployed)
+
+`make wasm-rtl` builds `build/web/strata-rtl.js/.wasm`: Verilator's C++ of
+`rtl/` (8 cores, `WEB_RTL_CORES`) compiled with em++ together with
+`web/web_rtl.cpp`, which includes `sim/main.cpp` and answers the same calls
+as the emulator's module (`web/web.c`). The play page has a "Machine"
+choice (`?machine=rtl`); the worker loads either module. `sim/main.cpp` got
+file-scope model/counters and a `sim_cycle()` for this.
+- Verified: `make test-wasm-rtl` (wasm RTL = native RTL, same output, cycle
+  counts and frame on 7 examples); in a browser: hello, gfx (live scanout),
+  the Forth REPL. The native examples comparison still passes. The full
+  `make test` was not re-run after this change.
+- StrataOS boots on it to the shell prompt under node (4.7M cycles, about
+  15 s). Not verified: StrataOS on it in the browser itself,
+  the pointer, and the CI step: `pages.yml` installs the distribution's
+  Verilator, which may be too old for the RTL; the step then only warns and
+  the page hides the choice (it probes for `strata-rtl.wasm`).
+- Limits: no idle detection (a waiting machine keeps a CPU busy), no
+  network far end, `-T virtual` only (machine time = cycles / 100).
+
 ## Open work
 
 **Waiting on a decision**

@@ -57,6 +57,9 @@ exists today, what is known to be missing or rough, and what is planned.
 **On the web**
 - The emulator compiled to WebAssembly, with a JIT, a terminal, a canvas for
   the framebuffer and networking (the guest's web server shown in the page).
+- The RTL simulator in the browser too: the play page's "Machine: RTL
+  simulator" runs the same programs on the Verilated SystemVerilog, compiled
+  to WebAssembly (8 cores, a few hundred thousand clock cycles a second).
 - A browser for all the sources, the instruction set and architecture
   outline from the manual, the Forth reference with a playground, the
   hardware results, and the web debugger.

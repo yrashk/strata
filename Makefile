@@ -24,6 +24,8 @@
 #   make fuzz       3-way differential fuzzer (SEEDS=N, FIRST=seed)
 #   make wasm       the emulator as WebAssembly for the site's play page (emcc)
 #   make test-wasm  that build under node against the native interpreter (node, emcc)
+#   make wasm-rtl   the RTL simulator for the browser: build/web/strata-rtl.js (verilator, em++)
+#   make test-wasm-rtl  that build under node against the native simulator
 #   make web-docs   the manual's instruction set and architecture outline as web pages
 #   make dbg        strata-dbg, the text debugger (part of `make all`)
 #   make debug-NAME debug an example with strata-dbg, e.g. make debug-pipeline
@@ -130,6 +132,8 @@ test: all examples os
 	$(MAKE) test-ls
 	@if command -v node >/dev/null 2>&1 && command -v $(EMCC) >/dev/null 2>&1; then $(MAKE) test-wasm; \
 	else echo "test-wasm: skipped (needs node and $(EMCC))"; fi
+	@if command -v node >/dev/null 2>&1 && command -v $(EMXX) >/dev/null 2>&1 && [ "$(NCORES)" = "$(WEB_RTL_CORES)" ]; then $(MAKE) test-wasm-rtl; \
+	else echo "test-wasm-rtl: skipped (needs node and $(EMXX), and NCORES = WEB_RTL_CORES)"; fi
 
 # the small (FPGA) configuration: 8 overlay map entries instead of 16. The
 # RTL is built with NXMAP=8 in its own directory and compared with the
@@ -578,6 +582,38 @@ $(WEB)/strata-emu.js: web/web.c emu/emu.c $(DBG_ENGINE) emu/jit/jit_wasm.c emu/j
 	  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=128MB -sALLOW_TABLE_GROWTH=1 \
 	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_jit_wasm_set_budget,_web_dbg,_web_dbg_run,_web_dbg_events,_web_dbg_repaint,_malloc,_free \
 	  -sEXPORTED_RUNTIME_METHODS=callMain,FS,HEAPU8,wasmMemory,wasmTable,UTF8ToString,stringToNewUTF8
+
+# wasm-rtl: the RTL simulator for the browser: build/web/strata-rtl.js + .wasm.
+# Verilator turns the SystemVerilog into C++ (no host compile), em++ builds
+# it with web/web_rtl.cpp, which drives sim/main.cpp's harness through the
+# same calls as the emulator's module, so the play page's worker can run
+# either ("Machine: RTL simulator"). WEB_RTL_CORES cores (the RTL's NCORES is
+# fixed when it is built). Needs verilator and em++; the site works without
+# it (the page hides the choice when strata-rtl.wasm is not there).
+EMXX ?= em++
+WEB_RTL_CORES ?= 8
+VERILATOR_ROOT ?= $(shell verilator --getenv VERILATOR_ROOT 2>/dev/null)
+.PHONY: wasm-rtl test-wasm-rtl
+wasm-rtl: $(WEB)/strata-rtl.js
+# test-wasm-rtl: that build under node against the native simulator
+# (tools/test-wasm-rtl.sh): same output, same cycle counts, same frame
+test-wasm-rtl: $(WEB)/strata-rtl.js $(BUILD)/strata-rtl examples
+	BUILD=$(BUILD) ./tools/test-wasm-rtl.sh
+$(WEB)/strata-rtl.js: $(RTL) sim/main.cpp web/web_rtl.cpp web/web_rtl_stubs.c common/stx.h common/platform.h common/display.h common/net.h common/netnat.h asm/isa.h
+	@mkdir -p $(WEB) $(BUILD)/web-rtl
+	verilator --cc -O3 --x-assign fast --x-initial fast \
+	  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
+	  -DSIMULATION -GNCORES=$(WEB_RTL_CORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) --top-module strata_top \
+	  -Mdir $(BUILD)/web-rtl/obj $(RTL)
+	$(EMCC) -O2 -c -o $(BUILD)/web-rtl/stubs.o web/web_rtl_stubs.c
+	$(EMXX) -std=c++17 -O2 -include cstdint -DNO_SDL -DVL_IGNORE_UNKNOWN_ARCH -DNCORES=$(WEB_RTL_CORES) -DNXMAP=$(NXMAP) -DDLS_KIB=$(DLS_KIB) -DILS_KIB=$(ILS_KIB) \
+	  -I$(BUILD)/web-rtl/obj -I$(VERILATOR_ROOT)/include -I$(VERILATOR_ROOT)/include/vltstd \
+	  -o $@ web/web_rtl.cpp $(BUILD)/web-rtl/stubs.o $(BUILD)/web-rtl/obj/Vstrata_top*.cpp \
+	  $(VERILATOR_ROOT)/include/verilated.cpp $(VERILATOR_ROOT)/include/verilated_dpi.cpp $(VERILATOR_ROOT)/include/verilated_threads.cpp \
+	  -sMODULARIZE=1 -sEXPORT_NAME=createStrataRtl -sENVIRONMENT=worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
+	  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=256MB -sSTACK_SIZE=1MB \
+	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_stop,_web_finish,_web_stat,_malloc,_free \
+	  -sEXPORTED_RUNTIME_METHODS=callMain,FS,HEAPU8
 
 # the web debugger's examples (site/debug/): images, their maps (sasm -g) and
 # the sources the maps name, under build/web/debug/ (the site's play/debug/)

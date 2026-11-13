@@ -122,16 +122,48 @@ const params = new URLSearchParams(location.search);
 const jitBox = $("jit");
 jitBox.checked = params.get("jit") === "1" || (params.get("jit") !== "0" && !IOS);
 
-let wasmModule = null;
-async function compileWasm() {
-  if (wasmModule) return wasmModule;
-  const resp = fetch("strata-emu.wasm" + V);
+// The machine: the emulator (strata-emu.wasm) or the RTL simulator
+// (strata-rtl.wasm: the SystemVerilog itself, turned into C++ by Verilator
+// and compiled to WebAssembly; `make wasm-rtl`). ?machine=rtl picks the RTL.
+// It is some thousand times slower than the emulator's JIT (a few hundred
+// thousand clock cycles a second for 8 cores), has no JIT, no network far end,
+// and its timer counts clock cycles (-T virtual: a 100 MHz machine), so
+// machine time runs far behind the wall clock. The choice is hidden when the
+// site was built without it.
+const machineSel = $("machine");
+const RTL_CORES = 8; // WEB_RTL_CORES in the Makefile: the RTL's core count is fixed when it is built
+if (params.get("machine") === "rtl") machineSel.value = "rtl";
+fetch("strata-rtl.wasm" + V, { method: "HEAD" }).then((r) => {
+  if (!r.ok) throw new Error("no RTL build");
+}).catch(() => {
+  machineSel.value = "emu";
+  $("machine-wrap").hidden = true;
+});
+function machine() { return machineSel.value === "rtl" ? "rtl" : "emu"; }
+
+const wasmModules = {};
+async function compileWasm(which) {
+  if (wasmModules[which]) return wasmModules[which];
+  const file = (which === "rtl" ? "strata-rtl.wasm" : "strata-emu.wasm") + V;
   try {
-    wasmModule = await WebAssembly.compileStreaming(resp);
+    wasmModules[which] = await WebAssembly.compileStreaming(fetch(file));
   } catch (e) { // a server without application/wasm
-    wasmModule = await WebAssembly.compile(await (await fetch("strata-emu.wasm" + V)).arrayBuffer());
+    wasmModules[which] = await WebAssembly.compile(await (await fetch(file)).arrayBuffer());
   }
-  return wasmModule;
+  return wasmModules[which];
+}
+
+// The emulator's flags for a preset, as strata-rtl takes them: no -c (the
+// core count is the build's), and a small screen where the preset would
+// draw a large one (every pixel costs clock cycles here).
+function rtlArgs(p) {
+  const out = [];
+  for (let i = 0; i < p.args.length; i++) {
+    if (p.args[i] === "-c") { i++; continue; }
+    out.push(p.args[i]);
+  }
+  if (!out.includes("-r")) out.unshift("-r", "640x400");
+  return ["-T", "virtual", ...out];
 }
 
 const files = new Map();
@@ -372,7 +404,11 @@ function fmtTime(us) {
 }
 function statusLine() {
   if (!stat) return "";
-  const { steps, cores, live, now, jit } = stat;
+  const { steps, cores, live, now, jit, rtl } = stat;
+  if (rtl) // steps are clock cycles
+    return `${(mips * 1000).toFixed(0)} kHz simulated clock (RTL, Verilator) · ${live}/${cores} cores live · ` +
+           `machine time ${fmtTime(now)} · ` +
+           (steps < 1e6 ? `${steps} cycles` : `${(steps / 1e6).toFixed(1)}M cycles`);
   return `${mips.toFixed(1)} MIPS (${jit ? "JIT" : "interpreter"}) · ${live}/${cores} cores live · ` +
          `machine time ${fmtTime(now)} · ` +
          (steps < 1e6 ? `${steps} instructions` : `${(steps / 1e6).toFixed(1)}M instructions`);
@@ -399,7 +435,7 @@ function onWorker(w, m) {
   }
   case "stopped": {
     const what = m.state === 1 ? (m.faulted ? "halted (a core faulted)" : "every core halted")
-               : m.state === 2 ? "deadlock: every live core is blocked" : "stopped";
+               : m.state === 2 ? "deadlock: every live core is blocked" : m.state === 4 ? "timeout" : "stopped";
     const secs = (performance.now() - runStart) / 1000;
     stat = m;
     mips = m.steps / secs / 1e6; // the average over the run
@@ -426,19 +462,25 @@ async function run(key) {
   $("brk").disabled = false;
   statusEl.classList.remove("stopped");
   statusEl.textContent = "loading…";
-  aboutEl.textContent = p.about;
+  const rtl = machine() === "rtl";
+  jitBox.disabled = rtl;
+  aboutEl.textContent = rtl
+    ? `On the RTL: the SystemVerilog implementation, simulated cycle by cycle (${RTL_CORES} cores, a 640x400 screen unless the program asks otherwise, no network). It is slow: expect seconds where the emulator takes milliseconds` +
+      (key === "os" || key === "osws" ? ", and about half a minute for StrataOS to reach its prompt (every command after that takes its time too)" : "") + ". " + p.about
+    : p.about;
   screenPanel.classList.add("collapsed");
   $("geom").textContent = "no framebuffer output yet";
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   const net = netChoice();
   const netArgs = ["-N", net.mode === "peer" ? "peer" : net.mode === "relay" ? "web,nat" : "web"];
-  const args = [jitBox.checked ? "-J" : "-j", ...(p.fitScreen ? ["-r", screenGeometry()] : []), ...netArgs, ...p.args];
+  const args = rtl ? rtlArgs(p)
+             : [jitBox.checked ? "-J" : "-j", ...(p.fitScreen ? ["-r", screenGeometry()] : []), ...netArgs, ...p.args];
   term.write("\x1bc"); // reset, in order with the writes still queued
-  outText(`\x1b[2m$ strata-emu ${args.join(" ")}\x1b[0m\n`);
+  outText(`\x1b[2m$ ${rtl ? "strata-rtl" : "strata-emu"} ${args.join(" ")}\x1b[0m\n`);
 
   try {
-    const [wasm, ...bufs] = await Promise.all([compileWasm(), ...p.files.map(fetchFile)]);
+    const [wasm, ...bufs] = await Promise.all([compileWasm(rtl ? "rtl" : "emu"), ...p.files.map(fetchFile)]);
     if (current !== key || W) return; // another preset was picked meanwhile
     const w = new Worker("worker.js" + V);
     W = w;
@@ -446,7 +488,7 @@ async function run(key) {
     w.onmessage = (e) => onWorker(w, e.data);
     w.onerror = (e) => { if (w === W) setStopped("error: " + (e.message || "the worker failed")); };
     // the module and the images are copied (structured clone), so Reset can reuse them
-    w.postMessage(Object.assign({ t: "start", wasm, files: p.files.map((name, i) => ({ name, data: bufs[i] })), args, net }, JIT_LIMITS));
+    w.postMessage(Object.assign({ t: "start", machine: rtl ? "rtl" : "emu", wasm, files: p.files.map((name, i) => ({ name, data: bufs[i] })), args, net }, JIT_LIMITS));
     if (p.screenKeys) canvas.focus(); else term.focus();
   } catch (e) {
     setStopped("error: " + (e && e.message ? e.message : e));
@@ -458,6 +500,7 @@ for (const b of document.querySelectorAll(".preset")) b.addEventListener("click"
 $("reset").addEventListener("click", () => current && run(current));
 $("brk").addEventListener("click", () => { sendBreak(); term.focus(); });
 jitBox.addEventListener("change", () => current && run(current));
+machineSel.addEventListener("change", () => { jitBox.disabled = machine() === "rtl"; if (current) run(current); });
 
 // ---------------------------------------------------------------- the network (net.js)
 // peer: the built-in test peer, and DNS answered over HTTPS by Cloudflare or

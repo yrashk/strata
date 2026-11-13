@@ -70,7 +70,7 @@ a conformance suite that holds them all to the same behaviour.
 | `conformance/` | The architectural conformance suite and a three-way differential fuzzer |
 | `tools/` | Test scripts (`compare.sh`, `compare-boot.sh`, `test-*.sh`), `mkdisk` (bootable disks), `mkhex` (FPGA memory images), `bench-jit.sh`, `web-code.py` |
 | `fpga/` | Synthesis script, LiteDRAM adapter, a board top, pin constraints |
-| `web/` | The WebAssembly build of the emulator for the site's play page |
+| `web/` | The WebAssembly builds for the site's play page: the emulator (`web.c`), and the RTL simulator (`web_rtl.cpp`: Verilator's C++ compiled with Emscripten, `make wasm-rtl`) |
 | `site/` | The project site: the landing page, `play/` (the in-browser emulator), `debug/` (the web debugger) and `code/` (the source browser) |
 | `doc/` | The manual's LaTeX sources (`doc/manual/`), the StrataOS design specification (`doc/strataos.md`), schematics |
 | `.github/workflows/` | CI: builds the manual, the WebAssembly emulator and the site, and publishes them |

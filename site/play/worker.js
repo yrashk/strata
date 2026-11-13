@@ -1,11 +1,14 @@
 // The play page's emulator worker: owns one instance of strata-emu
 // (web/web.c, built with `make wasm`) and runs it continuously, off the
-// page's thread. The page (play.js) only paints and handles input; the two
+// page's thread. With machine: "rtl" it owns the RTL simulator instead
+// (strata-rtl: web/web_rtl.cpp, built with `make wasm-rtl`), which answers
+// the same calls: no JIT, no network far end, and web_stat(0) counts clock
+// cycles. The page (play.js) only paints and handles input; the two
 // talk with postMessage (no SharedArrayBuffer: GitHub Pages cannot send
 // the COOP/COEP headers it needs).
 //
 //   page -> worker
-//     {t:"start", wasm: WebAssembly.Module, files: [{name, data}], args: [...],
+//     {t:"start", machine: "emu" | "rtl", wasm: WebAssembly.Module, files: [{name, data}], args: [...],
 //      net: {mode: "peer" | "tab" | "relay", url},   (net.js: the network's far end)
 //      jitBudget?, jitHot?}            (the JIT's limits: see JIT_LIMITS in play.js)
 //     {t:"input", data: Uint8Array}     console bytes (terminal, canvas keys, pasted demos)
@@ -32,7 +35,7 @@
 // not clamped to 4 ms); > 0 = every core waits on a device, sleep that
 // many milliseconds (or until input arrives); < 0 = the machine stopped.
 "use strict";
-importScripts("strata-emu.js" + self.location.search); // (the build id: see play.js)
+// (the machine's module, strata-emu.js or strata-rtl.js, is loaded by start())
 importScripts("net.js" + self.location.search);         // the network's far end (StrataNet)
 
 const SLICE = 12;        // ms of emulation between looks at the message queue
@@ -64,7 +67,7 @@ function text(s) { for (const b of enc.encode(s)) out.push(b); }
 
 function stats() {
   return { steps: M._web_stat(0), cores: M._web_stat(2), live: M._web_stat(3), now: M._web_stat(4),
-           jit: !!M._web_stat(8), ptr: !!M._web_pointer_used() };
+           jit: !!M._web_stat(8), rtl: !!M._web_stat(9), ptr: !!M._web_pointer_used() };
 }
 
 // Moves pending input into the guest's queue as far as it has room.
@@ -186,7 +189,9 @@ async function start(msg) {
     print: (s) => text(s + "\n"),
     printErr: (s) => text("\x1b[33m" + s + "\x1b[0m\n"),
   };
-  instance = await createStrata(cfg);
+  const rtl = msg.machine === "rtl";
+  importScripts((rtl ? "strata-rtl.js" : "strata-emu.js") + self.location.search); // (the build id: see play.js)
+  instance = await (rtl ? createStrataRtl : createStrata)(cfg);
   for (const f of msg.files) instance.FS.writeFile("/" + f.name, new Uint8Array(f.data));
   inBuf = instance._malloc(4096);
   M = instance;
@@ -198,7 +203,8 @@ async function start(msg) {
   if (rc) { postMessage({ t: "exit", code: rc }); return; }
   const net = msg.net || { mode: "peer" };
   const note = (text) => postMessage({ t: "net", text });
-  if (net.mode === "peer") StrataNet.peer(M, hop, self.fetch.bind(self));
+  if (rtl) { /* the RTL's network interface has no cable in the browser */ }
+  else if (net.mode === "peer") StrataNet.peer(M, hop, self.fetch.bind(self));
   else StrataNet.link(M, hop, note, net);
   running = true;
   lastStatus = performance.now();
@@ -219,11 +225,11 @@ onmessage = (e) => {
     M._web_break();
     hop();
   } else if (msg.t === "http") {
-    if (!running) { postMessage({ t: "http", id: msg.id, error: 502 }); return; }
+    if (!running || !M._web_http_open) { postMessage({ t: "http", id: msg.id, error: 502 }); return; }
     httpStart(msg);
     hop();
   } else if (msg.t === "ports") {
-    if (!running) return;
+    if (!running || !M._web_port_listening) return;
     const listening = {};
     for (const p of msg.ports) listening[p] = M._web_port_listening(p);
     postMessage({ t: "ports", listening });

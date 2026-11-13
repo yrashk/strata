@@ -58,6 +58,12 @@
       <button id="reset" class="small" disabled>Reset</button>
       <button id="brk" class="small" disabled title="The break key (Ctrl-C)">Ctrl-C</button>
       <label class="jit" title="Translate hot Strata code to WebAssembly at run time (off: interpret only)"><input type="checkbox" id="jit" checked> JIT</label>
+      <label class="demos" id="machine-wrap" title="Run on the emulator, or on the SystemVerilog implementation itself (Verilator, compiled to WebAssembly): the same programs, clock cycle by clock cycle, much slower">Machine
+        <select id="machine">
+          <option value="emu">emulator</option>
+          <option value="rtl">RTL simulator (the Verilog)</option>
+        </select>
+      </label>
       <label class="demos" title="What is on the other end of the machine's network interface">Network
         <select id="net">
           <option value="peer">test peer + DNS over HTTPS</option>
@@ -125,6 +131,12 @@
         the rate.</li>
       <li>With JIT off you get the reference interpreter with its exact one-instruction-per-core
         interleaving (a predecoded fast loop keeps it at hundreds of MIPS on plain code).</li>
+      <li><b>Machine: RTL simulator</b> (<code>?machine=rtl</code>) runs the same program on the
+        SystemVerilog implementation instead: Verilator turns the RTL into C++, and that is compiled
+        to WebAssembly like the emulator. Every clock cycle of 8 cores is simulated, so it manages a
+        few hundred thousand cycles a second: <code>hello</code> is instant, the Mandelbrot takes
+        some seconds, StrataOS about half a minute to reach its prompt. Its timer counts clock cycles (a 100&nbsp;MHz machine), so
+        machine time runs far behind your clock; there is no JIT and no network here.</li>
       <li>The disk is a copy in memory: whatever StrataOS writes is gone after Reset.</li>
       <li>Network (StrataOS: <code>ping</code>, <code>host</code>, <code>nc</code>): the built-in test
         peer answers pings and <code>*.test</code> names, and other names are looked up over HTTPS

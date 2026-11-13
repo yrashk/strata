@@ -43,6 +43,15 @@ jobs:
         run: |
           node --version
           make test-wasm
+      - name: Build the RTL simulator for the browser
+        # wasm-rtl: build/web/strata-rtl.js/.wasm (Verilator's C++ of rtl/,
+        # compiled with em++): the play page's "Machine: RTL simulator". The
+        # distribution's Verilator may be too old for the RTL; the site is
+        # deployed without it then (the page hides the choice).
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq verilator
+          verilator --version
+          make wasm-rtl || { rm -f build/web/strata-rtl.*; echo "::warning::the RTL simulator was not built for the browser"; }
       - name: Collect the sources for the source browser
         # web-code: build/web-code/ = src/ (every .s and .fs) + manifest.json
         run: make web-code
