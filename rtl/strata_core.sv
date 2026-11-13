@@ -691,9 +691,9 @@ module strata_core
     lt_rd    = state == S_LT && !lt_ph;
     if (state == S_EX && d.kind == K_LOAD && mok && !hz_rd_stall) begin
       da_en = 1;                                         // read; data arrives in LD
-    end else if (state == S_EX && d.kind == K_STORE && mok && !hz_wr_stall) begin
-      da_en = 1;
-      da_we = mmask;
+    end else if (state == S_EX && d.kind == K_STORE && mok && !hz_wr_stall && !held) begin
+      da_en = 1;                                         // (not a store that a stop or a reset
+      da_we = mmask;                                     // preempts: it has not executed)
     end else if (lt_rd) begin
       da_en   = 1;
       da_addr = lt_rd_a[15:3];

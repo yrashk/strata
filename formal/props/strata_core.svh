@@ -1,10 +1,9 @@
 // Properties of strata_core (included in the module when FORMAL is defined).
 //
-// The Local Stores, the multiplier and the divider are cut out
-// (formal/core.sby): what they return is unconstrained, so everything here
-// holds whatever the memories hold and whatever the arithmetic units
-// answer. The Transfer Unit is the real one, and the core's side of its
-// contract (strata_tu.svh's f_core_ok) is asserted.
+// The Local Stores, the multiplier, the divider and the Transfer Unit are
+// cut out (formal/core.sby): what they answer is unconstrained, so
+// everything here holds whatever the memories hold, whatever the arithmetic
+// units compute and whenever the Transfer Unit accepts, stalls or reports.
 //
 // What is proved:
 //   x0         x0 reads zero in every state but the reset sequencer's first
@@ -15,6 +14,14 @@
 //              bounds in memory, never writable and copyable in memory, a
 //              revoker exactly as cdom makes one, revocable only in memory.
 //              Everything written to the save table is well-formed too.
+//   contracts  what the other proofs assume of a core: a command issued to
+//              the Transfer Unit is tget, tput or tgetx, its Local Store
+//              range inside the configured store, its far range inside the
+//              capability, aligned unless it is a device transfer, never a
+//              device tgetx; the unit is flushed only when it says quiet
+//              (strata_tu.svh). The inbox is popped only on a hit, and a
+//              revocation request names a non-empty range inside its table
+//              (strata_top.svh).
 //   liveness   the core's three "live" answers equal the specification's
 //              (valid, and if revocable: the granule of its base exists and
 //              has the capability's generation), so a revoked capability is
@@ -64,7 +71,6 @@
 //   - the save table returns a well-formed capability (every write to it is
 //     asserted to be one, and the reset sequencer empties all slots; the
 //     table itself is not modelled word by word)
-//   - the Transfer Unit's assumptions about the far bus (strata_tu.svh)
 //   Nothing is assumed about the bus data, gifts' timing, the revocation
 //   walker (dom_done, dom_gen, gt_we ...), stop and reset requests, or the
 //   memories' contents.
@@ -175,6 +181,18 @@
     end
     // (what strata_top's inboxes are proved under: strata_top.svh)
     if (f_rstd) assert (take_pop == (take_req && take_hit));
+    // what strata_tu is proved under (strata_tu.svh, f_core_ok), and more:
+    // the register values fit the unit's narrower ports, the Local Store
+    // range is inside the store as configured, the far range inside the
+    // capability
+    if (f_rstd && tu_iss_valid) begin
+      assert (ir[25:23] <= 3'd2);
+      assert (ra + rc <= (ir[25:23] == 3'd2 ? 64'(ILS_SIZE) : 64'(DLS_SIZE)) && ra <= 64'(LS_MAX_BYTES) && rc <= 64'(LS_MAX_BYTES));
+      assert (f_kx.space == SP_DEV || ((ra | rb | rc) & 64'd7) == 0);
+      assert (!(ir[25:23] == 3'd2 && f_kx.space == SP_DEV));
+      assert (f_kx.space == SP_DEV ? rb < 64'(f_kx.len) : (rb <= 64'(f_kx.len) && rc <= 64'(f_kx.len) - rb));
+    end
+    if (f_rstd && reset_flush) assert (tu_quiet);
     if (f_rstd && state != S_EX) assert (!tu_iss_valid && !am_req && !give_valid && !dom_req && !take_req);
   end
 
@@ -326,7 +344,9 @@
     if (F_G2 && f_step && !f_ret && $past(state) != S_RST) begin
       assert (x[f_xi] == $past(x[f_xi]));
       assert (caps[f_ci] == $past(caps[f_ci]));
-      assert (!$past(ct_we));
+      // (the save table: but for an instruction a reset request preempts in
+      // its second cycle; the reset empties the table. formal/FINDINGS.md O7)
+      if (!$past(rpend)) assert (!$past(ct_we));
       assert (xm_v[f_mi] == $past(xm_v[f_mi]) && xm_far[f_mi] == $past(xm_far[f_mi]) &&
               xm_ils[f_mi] == $past(xm_ils[f_mi]) && xm_sp[f_mi] == $past(xm_sp[f_mi]));
       assert (s_tvec == $past(s_tvec) && u_tvec == $past(u_tvec) && sscratch == $past(sscratch));

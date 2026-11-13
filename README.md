@@ -478,7 +478,8 @@ command lost), the core (x0, precise traps, privilege, capability shape and
 liveness, no duplicated write access) and the top level's inboxes and
 revocation walker. Each property file states what it assumes;
 [`formal/README.md`](formal/README.md) has the table of proofs and what is
-not covered, [`formal/FINDINGS.md`](formal/FINDINGS.md) what was found.
+not covered, [`formal/FINDINGS.md`](formal/FINDINGS.md) what was found (two
+RTL bugs, both fixed, each with a program that shows it).
 
 ```bash
 make formal             # every proof, then the table of results

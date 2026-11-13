@@ -153,10 +153,14 @@ has the table of proofs, the assumptions and what is not covered;
   knows about the proofs. A change to one of these modules should be
   followed by `make formal-NAME`; the properties name internal signals, so
   a rename breaks them (the error names the line in `formal/build/strata.v`).
-- One RTL bug was found and fixed (FINDINGS F1): a revocation walk that
-  outlived its core's reset gave its done to the core's next request. Only
-  reachable with both Local Stores at 4 KiB. `formal/repro/run.sh` shows it
-  (it builds `build-f44/`: two cores, 4/4 KiB).
+- Two RTL bugs were found and fixed. FINDINGS F1 (`strata_top`): a
+  revocation walk that outlived its core's reset gave its done to the
+  core's next request; only reachable with both Local Stores at 4 KiB.
+  F2 (`strata_core`): a store that a stop preempted in user mode had
+  already written the D-LS, so the supervisor saw memory changed by an
+  instruction that had not executed (it runs again on resume, which hid
+  it). `formal/repro/run.sh` shows both on the emulator and the RTL (it
+  builds `build-f44/`: two cores, 4/4 KiB). The emulator needed no change.
 - Verified after the fix: `make lint`, `make conformance`,
   `BUILD=build NCORES=8 ./tools/compare.sh build/examples/*.stx`, the
   reproduction, and every proof. The full `make test` was not re-run.
@@ -205,7 +209,9 @@ has the table of proofs, the assumptions and what is not covered;
 **Formal**
 - Proofs of `strata_mem` and `strata_dev` against the target-side protocol
   the Transfer Unit proof assumes; a 4/4 KiB configuration in `make test-ls`
-  so that `formal/repro/walkreset.s` runs with the tests.
+  so that `formal/repro/walkreset.s` runs with the tests, and
+  `formal/repro/stopstore.s` as a conformance test (stops at every cycle of
+  an instruction, for more instructions than a store).
 
 **Smaller**
 - The native JIT backends do not translate code while a device read is

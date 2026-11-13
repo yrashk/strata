@@ -54,7 +54,6 @@
 // Not proved here: liveness (a transfer completes eventually), which
 // depends on the bus and the devices.
 
-  parameter bit F_EMB = 0;        // inside strata_core: the core's side of the contract is asserted
   localparam int F_LS = 65536;    // the largest Local Store
 
   logic f_past = 0;
@@ -76,19 +75,15 @@
   logic [17:0] f_off_n;           // bytes moved after this cycle
   assign f_beat  = es == E_XFER && (h_put ? pop : b_rvalid);
   assign f_off_n = 18'(off) + (f_beat ? 18'(step) : 18'd0);
-  // the core's side of the contract: assumed when the unit is proved alone,
-  // asserted when it is inside strata_core (F_EMB)
+  // the core's side of the contract (strata_core.svh asserts the same of
+  // the real core)
   logic f_core_ok;
   assign f_core_ok = (!flush || quiet) &&
                      (!iss_valid || (iss_kind <= XF_GETX && 18'(iss_ls) + 18'(iss_len) <= 18'(F_LS) &&
                                      (iss_space == SP_DEV || (iss_ls[2:0] == 0 && iss_len[2:0] == 0)) &&
                                      !(iss_kind == XF_GETX && iss_space == SP_DEV)));
   always_comb begin
-    if (F_EMB) begin
-      if (f_rstd) assert (f_core_ok);
-    end else begin
-      assume (f_core_ok);
-    end
+    assume (f_core_ok);
     assume (!b_gnt || b_req);
     if (!f_bus) assume (!b_rvalid && !b_done && !b_retry);
     if (b_rvalid) assume (!h_put && off < h_len);

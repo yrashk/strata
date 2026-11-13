@@ -1,8 +1,7 @@
 # strata_core (formal/props/strata_core.svh), with two cores' worth of
 # parameters, 4 KiB Local Stores and a 4-entry overlay map. The Local Store
-# memories, the multiplier and the divider are cut out (their outputs are
-# free); the Transfer Unit is the real one, with the core's side of its
-# contract asserted (F_EMB).
+# memories, the multiplier, the divider and the Transfer Unit are cut out
+# (their outputs are free).
 #   base    x0, capability shape, liveness, the contracts with the Transfer
 #           Unit and the top level: by induction
 #   traps   the specified traps are delivered as the emulator's trap()
@@ -32,14 +31,13 @@ smtbmc yices
 
 [script]
 read_verilog -formal -sv strata.v
-chparam -set F_EMB 1 strata_tu
 base: hierarchy -top strata_core -chparam F_GRP 9 -chparam NCORES 2 -chparam NXMAP 4 -chparam DLS_KIB 4 -chparam ILS_KIB 4
 traps: hierarchy -top strata_core -chparam F_GRP 1 -chparam NCORES 2 -chparam NXMAP 4 -chparam DLS_KIB 4 -chparam ILS_KIB 4
 prec: hierarchy -top strata_core -chparam F_GRP 2 -chparam NCORES 2 -chparam NXMAP 4 -chparam DLS_KIB 4 -chparam ILS_KIB 4
 priv: hierarchy -top strata_core -chparam F_GRP 3 -chparam NCORES 2 -chparam NXMAP 4 -chparam DLS_KIB 4 -chparam ILS_KIB 4
 lin: hierarchy -top strata_core -chparam F_GRP 4 -chparam NCORES 2 -chparam NXMAP 4 -chparam DLS_KIB 4 -chparam ILS_KIB 4
 cover: hierarchy -top strata_core -chparam F_GRP 0 -chparam NCORES 2 -chparam NXMAP 4 -chparam DLS_KIB 4 -chparam ILS_KIB 4
-cutpoint */t:*strata_ram* */t:*strata_mul* */t:*strata_div*
+cutpoint */t:*strata_ram* */t:*strata_mul* */t:*strata_div* */t:*strata_tu*
 prep -top strata_core
 memory_map */xm_v */xm_sp */xm_far */xm_ils
 

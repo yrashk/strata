@@ -10,7 +10,7 @@ assumptions each one states.
 make formal            # every proof; prints the table of results
 make formal-NAME       # one target: alu decode div mul mul_lemma bus tu core top
 make formal-report     # the table again, from the last runs
-formal/repro/run.sh    # the reproduction of FINDINGS.md F1 on emulator and RTL
+formal/repro/run.sh    # the reproductions of FINDINGS.md F1 and F2 on emulator and RTL
 ```
 
 `make formal` is not part of `make test`: it takes about 25 minutes, nearly
@@ -77,7 +77,7 @@ Times are on an Apple M-series laptop, one run each.
 | `bus` | cover | 30 cycles | |
 | `tu` | prove | induction (k = 4) | queue and tag invariants, status outputs, hazards (both directions), Local Store writes, put data, no command lost, retire order and the rotation rule |
 | `tu` | cover | 40 cycles | every kind of transfer retires, a rotation with a full queue, a retry half way |
-| `core` | base | induction (k = 2) | x0; the shape of every capability register (in its space, aligned, never writable and copyable in memory, ...); the core's "live" equals the specification's; the contracts with the Transfer Unit and the top level |
+| `core` | base | induction (k = 2) | x0; the shape of every capability register (in its space, aligned, never writable and copyable in memory, ...); the core's "live" equals the specification's; what `tu` and `top` assume of a core |
 | `core` | traps | induction (k = 2) | the listed traps are delivered as the emulator's `trap()`: bank, epc, cause, tval, mode, next pc or halt |
 | `core` | prec | induction (k = 2) | a cycle that retires nothing changes no architectural state and takes nothing from the rest of the machine |
 | `core` | priv | induction (k = 2) | in user mode every supervisor-only instruction traps; supervisor state changes only by a trap to the supervisor |
@@ -100,9 +100,8 @@ short:
 - **`bus`:** nothing for safety. For liveness: the master keeps asking,
   targets answer within T cycles.
 - **`tu`:** the core's side (commands inside the Local Store, aligned, no
-  device `tgetx`, flush only when quiet), which `core` then **proves** of
-  the real core (the same expression, asserted instead of assumed when the
-  unit is inside the core); the bus's side (a grant only to a request,
+  device `tgetx`, flush only when quiet), which `core` **proves** of the
+  real core (task `base`); the bus's side (a grant only to a request,
   answers only to a granted transaction), which `bus` proves; the targets'
   side (no beat beyond the burst, done with or after the last beat, retry
   only to a device read with bytes to come), which is **not proved** of
@@ -110,9 +109,9 @@ short:
   read.
 - **`core`:** a capability taken from the inbox is well-formed; the save
   table returns a well-formed capability (every write to it is proved
-  well-formed; the table is not modelled word by word); the Transfer Unit's
-  bus-side assumptions. The Local Stores, the multiplier and the divider
-  are cut out, so nothing depends on what they return.
+  well-formed; the table is not modelled word by word). The Local Stores,
+  the multiplier, the divider and the Transfer Unit are cut out, so nothing
+  depends on what they answer.
 - **`top`:** a core pops its inbox only on a hit, and a revocation request
   names a non-empty range inside its table (both **proved** of the real core
   in `core`); a core keeps a request up, operands unchanged, unless a reset

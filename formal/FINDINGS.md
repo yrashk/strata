@@ -1,9 +1,9 @@
 # What the formal proofs found
 
 Findings from proving the RTL with SymbiYosys (`formal/README.md`), newest
-last. One real bug so far (F1, fixed); the rest are observations that came
-up while writing the properties and are recorded so that nobody has to find
-them again.
+last. Two real bugs so far (F1 and F2, both fixed); the rest are observations
+that came up while writing the properties and are recorded so that nobody
+has to find them again.
 
 ## F1. A revocation walk outlives its core's reset; its `done` is taken by the core's next request (RTL bug, fixed)
 
@@ -71,6 +71,55 @@ passes, the reproduction prints `ok` on both, and `make lint`,
 Stores on both sides (`make test-ls` runs 32/32, 16/4 and 4/32), so the
 reproduction is not part of `make test`.
 
+## F2. A store preempted by a stop had already written the Local Store (RTL bug, fixed)
+
+**Where:** `rtl/strata_core.sv`, the D-LS port A write of a store. Any
+configuration; user mode. The emulator is not affected.
+
+**The proof that failed:** `make formal-core`, task `prec`, the assertion
+"the Local Store is written only by a store that retires" (a cycle that
+retires no instruction changes no architectural state).
+
+**What happens:** a stop request (core control) sets `ipend`. In user mode
+it is taken at the next instruction boundary: in F0, or, if it arrived
+during the instruction's fetch (F0 or F1), in EX, where the instruction is
+dropped and the stop trap taken with epc = its pc. `held` keeps such an
+instruction from reaching the rest of the machine (transfers, gifts,
+atomics, revocation requests), and its register writes are in the branch
+not taken. But the store's write enable was combinational and did not look
+at `held`:
+
+```
+state == S_EX && d.kind == K_STORE && mok && !hz_wr_stall   ->   da_we = mmask
+```
+
+So the D-LS was written in the cycle the stop trap was taken. The
+supervisor's handler then saw memory changed by an instruction that, by epc,
+had not executed. When the program is resumed the store runs again and
+writes the same bytes, which is why nothing noticed: the emulator comparison
+has no stops in user mode at arbitrary cycles, and StrataOS resumes a
+preempted program at epc with its registers. A supervisor that inspects or
+copies the program's Local Store at a stop (a debugger, a checkpoint, a
+signal delivered instead of resuming) saw the wrong contents. The window is
+two cycles of every store's three.
+
+The same write also happened for a store preempted by a reset request,
+where it cannot be seen: the reset reloads and clears the Local Stores.
+
+**Reproduction:** `formal/repro/stopstore.s`, run by `formal/repro/run.sh`:
+a user loop that stores a counter, stopped 36 times at shifting cycles; the
+handler checks the cell whenever epc is the store. Before the fix:
+
+```
+emulator: ok
+RTL:      bad
+```
+
+**Fix** (`rtl/strata_core.sv`): the store's write enable has `&& !held`.
+After the fix the `prec` proof passes, the reproduction prints `ok` on
+both, and `make lint`, `make conformance` and `tools/compare.sh` on the
+examples pass.
+
 ## Observations (no change made)
 
 **O1. "Not copyable" is not "exclusive".** `crestrict` can take the D
@@ -119,3 +168,11 @@ and the outcome is the one the emulator gives when the second request
 arrives just before the trap. (A reset request has the same race and is
 handled explicitly: `rpend <= reset_req` when the reset is taken.) Recorded
 because a supervisor must not count stop traps to count stop requests.
+
+**O7. A save-table instruction preempted by a reset request in its second
+cycle still writes its slot.** `ct_we` (like the store's write enable before
+F2) does not look at `held`; in S_CT only a reset request can preempt
+(S_CT is supervisor-only, a stop is not taken there), and the reset
+sequencer then empties the whole table, so the write cannot be seen. The
+precision property excepts exactly this case. Gating `ct_we` with `!rpend`
+would remove the exception.
