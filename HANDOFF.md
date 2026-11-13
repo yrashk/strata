@@ -34,6 +34,7 @@ Unit, with capabilities for authority. The tree has:
   debugger, both on the engine's JSON-lines protocol (`doc/debug-protocol.md`).
 - `conformance/`: 32 self-checking tests run on the interpreter, the JIT and
   the RTL, plus a differential fuzzer.
+- `formal/`: SymbiYosys proofs of the RTL (added 2026-11-13, see below).
 - `fpga/`: Yosys synthesis for Xilinx 7-series and ECP5, nextpnr place and
   route on ECP5, the die drawing. `asic/`: LibreLane on GF180MCU.
 - `doc/manual/`: the Architecture Reference Manual (LaTeX, built by CI);
@@ -140,6 +141,29 @@ file-scope model/counters and a `sim_cycle()` for this.
 - Limits: no idle detection (a waiting machine keeps a CPU busy), no
   network far end, `-T virtual` only (machine time = cycles / 100).
 
+## Formal verification (added 2026-11-13)
+
+`formal/` holds SymbiYosys proofs of the RTL: `make formal` (all, about 25
+minutes, not part of `make test`), `make formal-NAME`. `formal/README.md`
+has the table of proofs, the assumptions and what is not covered;
+`formal/FINDINGS.md` what was found.
+- The RTL modules `strata_div`, `strata_mul`, `strata_bus`, `strata_tu`,
+  `strata_core` and `strata_top` each end with three lines that include
+  `formal/props/MODULE.svh` under `ifdef FORMAL`. Nothing else in `rtl/`
+  knows about the proofs. A change to one of these modules should be
+  followed by `make formal-NAME`; the properties name internal signals, so
+  a rename breaks them (the error names the line in `formal/build/strata.v`).
+- One RTL bug was found and fixed (FINDINGS F1): a revocation walk that
+  outlived its core's reset gave its done to the core's next request. Only
+  reachable with both Local Stores at 4 KiB. `formal/repro/run.sh` shows it
+  (it builds `build-f44/`: two cores, 4/4 KiB).
+- Verified after the fix: `make lint`, `make conformance`,
+  `BUILD=build NCORES=8 ./tools/compare.sh build/examples/*.stx`, the
+  reproduction, and every proof. The full `make test` was not re-run.
+- Not proved: what instructions compute (the emulator comparison's ground),
+  `strata_mem` / `strata_dev` / `strata_uart`, system-wide capability
+  invariants with real cores. `formal/README.md` lists them with reasons.
+
 ## Open work
 
 **Waiting on a decision**
@@ -178,6 +202,11 @@ file-scope model/counters and a `sim_cycle()` for this.
 - The RTL behind the same protocol; a timing model; per-line stepping; the
   timeline's axis is rounds, which jump when an idle machine skips time.
 
+**Formal**
+- Proofs of `strata_mem` and `strata_dev` against the target-side protocol
+  the Transfer Unit proof assumes; a 4/4 KiB configuration in `make test-ls`
+  so that `formal/repro/walkreset.s` runs with the tests.
+
 **Smaller**
 - The native JIT backends do not translate code while a device read is
   pending (they use the fast interpreter loop then).
@@ -203,6 +232,7 @@ file-scope model/counters and a `sim_cycle()` for this.
 | `emu/jit/README.md` | Native JIT |
 | `web/README.md` | Browser build: worker, fast interpreter, wasm JIT, networking |
 | `conformance/README.md`, `conformance/FINDINGS.md` | Conformance suite and what it found |
+| `formal/README.md`, `formal/FINDINGS.md` | The formal proofs: what each covers and assumes; what they found |
 | `fpga/README.md`, `asic/README.md` | Hardware flows, numbers, what was tried |
 
 ## Useful commands
@@ -211,6 +241,7 @@ file-scope model/counters and a `sim_cycle()` for this.
 make                  # sasm, strata-emu, strata-rtl
 make test             # everything (about an hour)
 make conformance      # the conformance suite on interpreter / JIT / RTL
+make formal           # the SymbiYosys proofs (formal-NAME: one target)
 make boot             # StrataOS on the emulator; boot-ws: with the window server
 make show-gfx         # an example's framebuffer in a window (show-NAME)
 make forth            # Forth on bare metal; test-forth: its tests

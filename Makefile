@@ -536,6 +536,24 @@ conformance: all
 fuzz: all
 	BUILD=$(BUILD) NCORES=$(NCORES) python3 conformance/fuzz/fuzz.py -n $(SEEDS) -s $(FIRST)
 
+# ---- formal verification (formal/): make formal, make formal-NAME --------------
+# SymbiYosys proofs of the RTL, one formal/NAME.sby per target (formal/README.md
+# says what each proves and assumes). Not part of `make test`: some are slow.
+# The RTL is converted with sv2v as for synthesis, with FORMAL defined, which
+# brings in the property files (formal/props/) and the specifications
+# (formal/spec/).
+FORMAL_TARGETS := $(patsubst formal/%.sby,%,$(wildcard formal/*.sby))
+.PHONY: formal formal-report $(addprefix formal-,$(FORMAL_TARGETS))
+formal/build/strata.v: $(RTL) $(wildcard formal/spec/*.sv formal/props/*.svh)
+	@mkdir -p formal/build
+	sv2v -DFORMAL -Iformal/props -E assert $(RTL) $(wildcard formal/spec/*.sv) > $@
+$(addprefix formal-,$(FORMAL_TARGETS)): formal-%: formal/build/strata.v
+	sby -f --prefix formal/build/$* formal/$*.sby
+formal: formal/build/strata.v
+	./formal/run.sh
+formal-report:
+	./formal/run.sh -r
+
 # ---- the JIT (emu/jit/): make test-jit, make bench ----------------------------
 .PHONY: test-jit bench
 test-jit: $(BUILD)/strata-emu examples $(BUILD)/forth.stx

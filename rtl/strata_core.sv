@@ -1319,4 +1319,8 @@ module strata_core
       if (xw)  x[xa] <= xv;
     end
   end
+
+`ifdef FORMAL
+`include "strata_core.svh"
+`endif
 endmodule
