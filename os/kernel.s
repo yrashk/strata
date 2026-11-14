@@ -150,9 +150,10 @@
 ; core's core-control word, so its dispatcher runs at once.
 ;
 ; ---- The system core's endpoint ----------------------------------------------------
-; Only proc (and dev, for HALT) hold it. Ops: 1 CREATE, 2 DESTROY, 3 MEMORY,
-; 4 STATS, 5 TUNE, 6 FREE, 8 HALT, 9 NOTIFY (see os/kunits/ops.s). The kernel sends proc
-; op 7 EXITED (handle = pid, length = status) when a process ends.
+; Only proc (and dev, for HALT and FBLEND) hold it. Its ops (os/kunits/ops.s):
+; CREATE, DESTROY, MEMORY, STATS, TUNE, FREE, HALT, NOTIFY, FBLEND and the
+; guests' GSTART, GSTOP, GINFO. The kernel sends proc op 7 EXITED (handle =
+; pid, length = status) when a process ends.
 ;
 ; ---- Paging the kernel ---------------------------------------------------------------
 ; Kernel units are 2 KiB slots of the far image (c12: from the boot ROM, in

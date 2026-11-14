@@ -176,6 +176,7 @@ or after the line; a basename is enough) or, under StrataOS, `prog:label`.
 | `tags {core?}` | `cores`: `core`, `tags` (16: `tag`, `busy`; for a tag that has had a transfer: `op` tget / tput / tgetx, `space`, `ls`, `len`, `far`, `port` (device), `pc`, `issued` and `completed` rounds, and ticks), `stall` |
 | `pending` | `reads`: every pending device read (`core`, `tag`, `port`, `name`, `ls`, `len`, `seq`, `issued`, `waits`: what it waits for, e.g. "the timer deadline 5002 (now 3, in 4999 ticks)"); `blk`: the block device's queues (`commands`, `partial`, `caps`, `completions`, `returning_to`, `submitters`: the core that submitted each queued command, `lenders`: the core that gave each capability waiting there); `input_queued`, `breaks`, `deadline`, `now` |
 | `granules` | `units`: the revocation units (`space`, `base`, `len`, `gen`) |
+| `changes {since, core?, space?, hex?, max?}` | what is in the Local Stores and T2, and what changed in them (below). Answered while the machine runs. |
 | `mem {space, core, addr or loc, len}` | `space` (dls, ils, t2, t3, disk), `addr`, `hex`, `sym` (D-LS). At most 64 KiB, inside the space (a Local Store: its size, `hello`'s `dls` / `ils`). |
 | `disasm {core, addr or loc, n, before}` | `lines`: `addr`, `word`, `text`, `label` (at a label), `sym`, `file`, `line`, `pc` (the core's pc), `bp` |
 | `sym {loc}` | `addr`, `section`, `prog` |
@@ -184,6 +185,41 @@ or after the line; a basename is enough) or, under StrataOS, `prog:label`.
 | `processes` | StrataOS: `procs`: `pid`, `parent`, `state`, `status`, `core`, `ncores`, `name`, `running` (the cores running it now); `guests`: the guest OSes running on cores of their own (`id`, `cores`) |
 | `console` | `data`: the last 64 KiB of console output |
 | `history` | `history`, as above |
+
+**The stores while the machine runs.** Every read request is answered
+while the machine runs (between the engine's slices of running, every 5
+ms at most), so a front-end can look at the machine without stopping it.
+`changes` is made for that: the engine keeps a copy of every core's D-LS
+and I-LS and of T2, compares them with the machine in 64-byte blocks at
+each `changes` request, and gives each block that differs the request's
+version. A front-end keeps the `version` of its last answer and passes it
+as `since`; it gets the blocks changed since then, so clients do not
+disturb each other, and a block written back to what it was is not
+reported. `since` 0 (the default) gives every block that has held
+anything. Nothing runs between requests: the cost is the comparison, about
+0.1 ms per request for 15 cores (2.2 MiB), paid at the rate the front-end
+asks (0.02% of a run at two requests a second). Fields of the request:
+`core` (one core's stores, and no T2), `space` (`dls`, `ils` or `t2`),
+`hex` (true: the bytes too), `max` (bytes of hex in one answer, 16384).
+The answer:
+
+```json
+{"version":12,"blk":64,"tick":..,"round":..,"stores":[
+  {"core":0,"space":"dls","size":65536,"used":4032,"unit":1024,"units":[2,0,16,...],
+   "ranges":[{"addr":"0x0","len":"0x40","sym":"mark","hex":"1eaba15c..."}]},
+  ...,
+  {"space":"t2","size":262144,"used":16512,"unit":4096,"units":[...],"ranges":[...]}],
+ "truncated":true}
+```
+
+`used` is the bytes of the blocks that hold a byte that is not zero;
+`units` divides the store into 64 pieces of `unit` bytes and gives, for
+each, how many of its blocks do. `ranges` are runs of changed blocks, with
+the name of their first byte where a map has one (D-LS: the program's data,
+under StrataOS the program the core runs or the kernel; I-LS: code, as
+`disasm` names it; T2: the map's `cluster` labels). `truncated`: more bytes
+changed than `max`; the ranges past it come without `hex` (`mem` reads
+them).
 
 A **capability** is `{valid, live, space (none, t2, t3, dev, core, ep),
 base, len, perms (r w x a d v), rv, gen, gnow (the granule's generation
@@ -305,7 +341,7 @@ and code above `KSTART` is Forth's kernel, installed from `.far`.
 
 | Version | Changes |
 |---|---|
-| 1 | the first |
+| 1 | the first; `changes` added later (an engine without it answers "unknown command changes") |
 
 A front-end checks `hello.version`; the engine will keep accepting version
 1 requests, and new fields may be added to answers and events at any time.

@@ -38,6 +38,16 @@
 ;              (attachment): every older capability of its region is revoked
 ;              and that process is its holder until it ends (then the kernel
 ;              revokes it again); -7 a live process holds it; -1 none / bad pid
+;  11 GSTART   (proc only) attachment: an arena from MEMORY with a guest
+;              image at its top; data: u64 cores, pin core (-1 any), the
+;              server cores the guest may send to (bits), flags, the console's
+;              tty core, the image's arena offset -> 0, data[0] = first core,
+;              data[1] = guest id (os/kunits/guest.s); -5 no run of free
+;              cores; -1 a bad arena (it is given back)
+;  12 GSTOP    (proc only) handle = guest id, mode bit0 kill -> 0: its arena
+;              revoked, its cores reset and StrataOS's again; -1 no such guest
+;  13 GINFO    -> guests; data: u64 count, then 32 bytes per guest: u64 id,
+;              first core | cores << 8, arena bytes, state (1 live)
 
 F_KEEP   = 64                           ; CREATE: give the arena to proc at exit (old-protocol output)
 

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StrataOS — the file system</title>
+<meta name="description" content="The StrataOS file system: a copy-on-write store of ordered trees on the disk, files with one name and many tags, directories that are sets of tags, snapshots, attributes, and trees of keys and values for programs.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="os.css">
+</head>
+<body>
+
+<nav class="top">
+  <a class="mark" href="../">STRATA</a>
+  <div class="links">
+    <a href="../#idea">Idea</a>
+    <a href="../arch/">Architecture</a>
+    <a href="../isa/">Instructions</a>
+    <a href="./" aria-current="page">OS</a>
+    <a href="../forth/">Forth</a>
+    <a href="../c/">C</a>
+    <a href="../hardware/">Hardware</a>
+    <a href="../play/">Play</a>
+    <a href="../debug/">Debug</a>
+    <a href="../code/">Source</a>
+    <a class="pill" href="../Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
+    <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
+  </div>
+</nav>
+
+<main class="os">
+
+<header class="os-hero">
+  <p class="kicker">StrataOS 0.1 · the file system</p>
+  <h1>FILES AS A STORE</h1>
+  <p class="lede">The disk holds nothing but ordered trees, written copy-on-write: a power cut
+    leaves the last commit or the next one, never a mixture. A file has one name and any number of
+    tags, and a directory is the set of its files' tags.</p>
+  <ul class="os-pages">
+    <li><a href="./">Overview</a></li>
+    <li><a href="kernel.html">The kernel</a></li>
+    <li><a href="messages.html">Messages</a></li>
+    <li><a href="servers.html">Servers</a></li>
+    <li><a href="fs.html" aria-current="page">The file system</a></li>
+    <li><a href="ws.html">The window server</a></li>
+  </ul>
+</header>
+
+<section id="store" class="section">
+  <h2><span class="num">01</span>The store</h2>
+  <p class="intro"><code>fs</code> is built on a store: B+trees of keys and values in 4&nbsp;KiB
+    pages, grouped in namespaces, every page with a checksum. The file system is one client of it,
+    with five trees in the private namespace <code>fs</code>; programs keep trees of their own
+    beside it.</p>
+  <figure class="diagram">
+    <div class="frame">
+<svg viewBox="0 0 760 520" role="img" aria-labelledby="st-t">
+  <title id="st-t">The store's structure: two meta pages, the newer good one naming the catalog tree; the catalog naming the trees of each namespace; the five trees of the file system and how the file hello.s tagged src and demo appears in each.</title>
+  <defs>
+    <marker id="st-c" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arrc"/></marker>
+    <marker id="st-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arra"/></marker>
+  </defs>
+  <text class="h" x="10" y="18">ON THE DISK</text>
+  <rect class="box dim" x="10" y="28" width="150" height="50"/><text x="20" y="48">meta page 1</text><text class="s" x="20" y="66">the commit before</text>
+  <rect class="box amb" x="170" y="28" width="150" height="50"/><text x="180" y="48">meta page 2</text><text class="s" x="180" y="66">newer, checksum good</text>
+  <rect class="box" x="340" y="28" width="190" height="50"/><text x="350" y="48">boot manifest</text><text class="s" x="350" y="66">proc, dev, fs: page runs</text>
+  <path class="lna" d="M320,62 H336" marker-end="url(#st-a)"/>
+  <rect class="box sys" x="170" y="104" width="360" height="56"/>
+  <text class="t" x="182" y="126">catalog</text>
+  <text class="m" x="250" y="126">(namespace, tree) → root page, height</text>
+  <text class="s" x="182" y="146">a tree of its own; snapshots keep older roots</text>
+  <path class="lna" d="M245,78 V100" marker-end="url(#st-a)"/>
+  <rect class="box dim" x="560" y="104" width="190" height="56"/>
+  <text x="572" y="126">snapshot "monday"</text>
+  <text class="s" x="572" y="146">a commit's catalog root</text>
+  <path class="lnd" d="M560,132 H532"/>
+  <text class="h" x="10" y="190">NAMESPACE fs · PRIVATE</text>
+  <text class="h" x="560" y="190">PROGRAMS' NAMESPACES</text>
+  <g>
+    <polygon class="fillc" points="72,206 20,262 124,262"/><text class="t" x="52" y="250">name</text>
+    <polygon class="fillc" points="186,206 134,262 238,262"/><text class="t" x="172" y="250">obj</text>
+    <polygon class="fillc" points="300,206 248,262 352,262"/><text class="t" x="282" y="250">data</text>
+    <polygon class="fillc" points="414,206 362,262 466,262"/><text class="t" x="398" y="250">attr</text>
+    <polygon class="fillc" points="528,206 476,262 580,262" /><text class="t" x="512" y="250">dict</text>
+    <polygon class="filla" points="660,206 608,262 712,262"/><text class="t" x="634" y="250">kv trees</text>
+  </g>
+  <path class="lnd" d="M250,160 L72,204 M290,160 L186,204 M330,160 L300,204 M380,160 L414,204 M430,160 L528,204 M500,160 L660,204"/>
+  <text class="s" x="560" y="282">DBGET · DBSCAN · DBBATCH</text>
+  <text class="s" x="560" y="298">e.g. a game's high scores</text>
+  <text class="h" x="10" y="300">ONE FILE · /src/demo/hello.s · TAGS src = 3, demo = 7 · OBJECT 42</text>
+  <rect class="box" x="10" y="312" width="740" height="196"/>
+  <text class="mc" x="22" y="336">name</text><text class="m" x="80" y="336">[3, 7] · 0 · "hello.s"</text><text x="300" y="336">→ 42</text>
+  <text class="s" x="380" y="336">the directory's tag ids, a zero word, the name</text>
+  <text class="mc" x="22" y="364">obj</text><text class="m" x="80" y="364">42</text><text x="300" y="364">→ size, commits, tag ids, attributes, name</text>
+  <text class="mc" x="22" y="392">data</text><text class="m" x="80" y="392">42</text><text x="300" y="392">→ the contents: in the tree when short,</text>
+  <text class="s" x="300" y="408">else a stream of extents of free pages</text>
+  <text class="mc" x="22" y="436">attr</text><text class="m" x="80" y="436">(tag, 3, 42) (tag, 7, 42)</text><text x="300" y="436">the index: tags, size, last change and</text>
+  <text class="m" x="80" y="452">(size, 1840, 42) …</text><text class="s" x="300" y="452">the files' own attributes; no value</text>
+  <text class="mc" x="22" y="480">dict</text><text class="m" x="80" y="480">"src" ↔ 3 · "demo" ↔ 7</text><text x="300" y="480">tag names and ids, how many files carry each, counters</text>
+</svg>
+    </div>
+    <figcaption>The trees as <code>fs</code> keeps them (the format is spelled out in
+      <code>tools/stdb/fsl.h</code>). A commit writes every changed page to a free page, flushes,
+      writes the older meta page anew, and flushes again: nothing is repaired at mount. Space freed
+      anywhere is reused; nothing is counted in advance, so files, tags and names up to 255 bytes
+      are bounded only by the disk. <code>fs</code> works on trees larger than its Local Stores
+      through a cache of 124 pages in far memory.</figcaption>
+  </figure>
+</section>
+
+<section id="tags" class="section">
+  <h2><span class="num">02</span>A directory is a set of tags</h2>
+  <p>There are no directories on the disk. A file has one name and carries tags; the set of its
+    tags is its directory. A file tagged <code>src</code> and <code>demo</code> is in
+    <code>/src/demo</code>, which is also <code>/demo/src</code>; a file with no tag is in the root.
+    A name is unique within a directory, so <code>/src/x</code>, <code>/src/demo/x</code> and a root
+    <code>x</code> are three files.</p>
+  <ul class="ticks">
+    <li><b>Paths.</b> Every name <code>fs</code> takes is a path: the last component is the file's
+      name, the ones before it are its directory's tags. Opening for writing makes the file there,
+      making the tags that do not exist yet. <code>-tag</code> excludes in a listing:
+      <code>ls /src/-demo</code>.</li>
+    <li><b>Subdirectories</b> are facets. QUERY lists a directory's files and, as a tag set, the
+      other tags carried by the files of deeper directories: <code>ls /src</code> shows
+      <code>demo/</code>.</li>
+    <li><b>The current tag path</b> is the tag-system analogue of a working directory, one per
+      process, inherited from the parent (<code>proc</code> sends CWD while it spawns).</li>
+    <li><b>Moving</b> is retagging. TAG and UNTAG move a file into the directory with or without
+      the tags; RENAME takes a new path's name and tags.</li>
+    <li><b>Searching</b> is a seek. FIND mode 0 seeks the names' tree at the text in each directory
+      in turn; mode 1 reads records in object order, 384 at most per part, so that a part may come
+      back empty with a cursor and the asker can stop between parts. The file navigator
+      <code>nav</code> searches the whole disk as you type this way.</li>
+  </ul>
+  <h3>Writing, whole or not at all</h3>
+  <p>Opening for writing sends the bytes to a blob of their own; the close puts it in place of the
+    file's contents and commits, so the disk holds the old contents or the new. UNLINK, TAG, UNTAG
+    and RENAME are a commit each: when the reply arrives, the change is on the disk. A boot object
+    (<code>proc</code>, <code>dev</code>, <code>fs</code>) can be rewritten from inside the OS:
+    at its close it is brought into one run of pages and the manifest is written anew in the same
+    commit, so the next boot loads the old server or the new one.</p>
+  <h3>Snapshots, attributes, trees for programs</h3>
+  <ul class="ticks">
+    <li><b>Snapshots</b> (SNAP; <code>snap NAME</code>): the whole disk as of a commit, copying
+      nothing. A page that a snapshot still shows is not freed but goes to that snapshot's dead
+      list. A path beginning <code>@NAME</code> reads the snapshot:
+      <code>cat /@monday/notes</code>. Restoring is one commit.</li>
+    <li><b>Attributes</b> (SETATTR, GETATTR; <code>attr</code>): a name and a number or string
+      per file, in its record and in the index. A path component with <code>=</code>,
+      <code>&lt;</code> or <code>&gt;</code> is a condition: <code>ls /src/lang=asm</code>,
+      <code>ls '/src/size&gt;100000'</code>; <code>PREFIX*</code> matches names.</li>
+    <li><b>Trees for programs</b> (DBGET, DBSCAN, DBBATCH; <code>db</code>): keys and values in a
+      namespace of a program's own. A batch is one commit: all of its items are on the disk, or
+      none.</li>
+  </ul>
+  <p class="refs">Every message <code>fs</code> answers: <a href="servers.html#fs">the catalogue</a> ·
+    source: <a class="srcpath" href="../code/#os/servers/fs.s">os/servers/fs.s</a>,
+    <a class="srcpath" href="../code/#os/servers/store.s">store.s</a>,
+    <a class="srcpath" href="../code/#os/servers/storew.s">storew.s</a>,
+    <a class="srcpath" href="../code/#os/servers/sblob.s">sblob.s</a> ·
+    the design: <a class="srcpath" href="https://github.com/yrashk/strata/blob/main/doc/strata-fs-proposal.md">doc/strata-fs-proposal.md</a> ·
+    <a class="pdf" data-pdf="sec:os-servers" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.18.8">Section 18.8, The servers</a></p>
+  <figure class="shot">
+    <a href="../play/?run=nav"><img src="../img/nav.png" alt="The file navigator nav: on the left the results of searching for vi across the disk, each file with its directory; on the right a quick view of the selected file" loading="lazy"></a>
+    <figcaption><code>nav</code>, the file navigator: a search of the whole disk through FIND.
+      <a href="../play/?run=nav"><b>Try it in your browser&nbsp;&rarr;</b></a></figcaption>
+  </figure>
+</section>
+
+</main>
+
+<footer>
+  <div class="bands small" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+  <p>StrataOS 0.1 — <a href="../code/#os/servers/fs.s">os/servers/fs.s</a> ·
+    <a href="https://github.com/yrashk/strata/blob/main/doc/strataos.md">the specification</a> ·
+    <a href="../Strata-Architecture-Reference-Manual.pdf">Architecture Reference Manual</a> ·
+    <a href="../">Strata</a></p>
+</footer>
+
+</body>
+</html>

@@ -11,6 +11,8 @@ a conformance suite that holds them all to the same behaviour.
   emulator as WebAssembly; boot StrataOS, draw into the framebuffer, type
   Forth
 - **[Architecture Reference Manual](https://yrashk.github.io/strata/Strata-Architecture-Reference-Manual.pdf)** (PDF)
+- **[StrataOS](https://yrashk.github.io/strata/os/)**: the operating system's
+  architecture, its kernel and a catalogue of its servers and their messages
 - **[Source browser](https://yrashk.github.io/strata/code/)**: every
   assembly and Forth source, syntax-coloured
 
@@ -73,7 +75,7 @@ a conformance suite that holds them all to the same behaviour.
 | `tools/` | The tests (`tests.sh`: the list; `run-tests.sh`: runs them; `compare.sh`, `compare-boot.sh`, `test-*.sh`), `build-cache.sh`, `mkdisk` (bootable disks), `mkhex` (FPGA memory images), `bench-jit.sh`, `web-code.py` |
 | `fpga/` | Synthesis script, LiteDRAM adapter, a board top, pin constraints |
 | `web/` | The WebAssembly builds for the site's play page: the emulator (`web.c`), and the RTL simulator (`web_rtl.cpp`: Verilator's C++ compiled with Emscripten, `make wasm-rtl`) |
-| `site/` | The project site: the landing page, `play/` (the in-browser emulator), `debug/` (the web debugger) and `code/` (the source browser) |
+| `site/` | The project site: the landing page, `os/` (StrataOS: its message tables are made from the servers' sources by `tools/web-os.py`), `play/` (the in-browser emulator), `debug/` (the web debugger) and `code/` (the source browser) |
 | `doc/` | The manual's LaTeX sources (`doc/manual/`), the StrataOS design specification (`doc/strataos.md`), schematics |
 | `.github/workflows/` | CI: builds the manual, the WebAssembly emulator and the site, and publishes them |
 
@@ -531,6 +533,9 @@ build/strata-dbg -c 4 -j -T virtual build/examples/pipeline.stx
 (sdb) info tags                          # the current core's tags: op, ranges, issue and completion
 (sdb) info pending                       # device reads in flight and what each one waits for
 (sdb) info cores                         # every core: where, what, and why it is stalled
+(sdb) info stores                        # the Local Stores and T2: how much is in use, and where
+(sdb) changes dls                        # what changed in them since the last look, with labels
+(sdb) live 250                           # while the machine runs: what changes, every 250 ms
 (sdb) reverse-stepi                      # time travel on deterministic runs (-T virtual)
 (sdb) prov c4                            # where a capability came from: split, given, taken...
 (sdb) tui                                # the cores side by side
@@ -554,7 +559,8 @@ build/strata-dbg -c 4 -j -T virtual build/examples/pipeline.stx
   pty for it (`screen /dev/ttys012` in another terminal: what you type
   there is the guest's input), or `--console FILE`.
 - The web debugger adds the transfer timeline (a row per core: transfers,
-  device reads in flight, stalls, gifts), a Local Store map, the
+  device reads in flight, stalls, gifts), a Local Store map (what is in
+  use, what changed, and the bytes, live while the machine runs; T2 too), the
   capability provenance graph and a time slider. In the page it runs the
   WebAssembly emulator; served by `strata-emu --debug PORT` it drives the
   desktop engine over a WebSocket.

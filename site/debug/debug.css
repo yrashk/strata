@@ -148,6 +148,16 @@ main.dbg.docked { max-width: 2200px; }
 .lsbar i.get { background: var(--cyan); color: var(--cyan); }
 .lsbar i.put { background: var(--amber); color: var(--amber); }
 .lsbar i.getx { background: #c792ea; color: #c792ea; }
+.lsbar { cursor: pointer; }
+.lsbar.t2 { height: 10px; }
+.lsbar b { position: absolute; top: 0; bottom: 0; }
+.lsbar b.use { background: #2a4a63; }
+.lsbar b.hot { background: #ffffff; opacity: 0.85; min-width: 2px; }
+.lshex { padding: 0 18px 12px; font: 11.5px var(--mono); color: var(--fg, #cfe8ff); white-space: pre; overflow-x: auto; }
+.lshex u { text-decoration: none; color: var(--dim); }
+.lshex em { font-style: normal; color: #0b1120; background: var(--amber); }
+.lshex .lshead { color: var(--dim); margin-bottom: 4px; }
+.lshex button { font: inherit; background: none; border: 1px solid rgba(31, 111, 139, 0.6); color: inherit; margin-left: 6px; cursor: pointer; }
 .lsscale { display: grid; grid-template-columns: 7.5ch 1fr; gap: 8px; }
 .lsscale div { display: flex; justify-content: space-between; }
 

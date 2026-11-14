@@ -743,7 +743,8 @@ bench: $(BUILD)/strata-emu examples $(BUILD)/forth.stx
 #             from the manual's sources (the same data as make manual); and
 #             forth/ (every Forth word with its source, and a playground that
 #             runs the play page's worker), by doc/manual/gen/genforth.py
-#             from lang/forth/
+#             from lang/forth/; and os/ (site/os/ with the servers' message
+#             tables made from their sources, by tools/web-os.py)
 # web-site    build/web-site/: site/ with build/web/ under play/ and
 #             build/web-code/ under code/; preview it with
 #             python3 -m http.server --directory build/web-site
@@ -844,6 +845,7 @@ web-docs:
 	rm -rf $(BUILD)/web-docs
 	mkdir -p $(BUILD)/web-docs
 	python3 doc/manual/gen/genweb.py $(BUILD)/web-docs
+	python3 tools/web-os.py $(BUILD)/web-docs
 
 web-site: wasm web-code web-docs
 	rm -rf $(BUILD)/web-site

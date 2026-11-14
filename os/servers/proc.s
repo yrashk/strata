@@ -40,6 +40,13 @@
 ;              The kernel keeps it as the caller's (MEMORY mode 1): revoked
 ;              and freed when the caller ends, unless LESS gave it back first
 ;  44 LESS     an extra arena as the attachment -> 0: it is freed
+;  40 GUEST    data: u64 cores, u64 arena MiB, the guest image's name -> 0;
+;              data: u64 guest id, u64 first core; -6 no memory, or the
+;              image did not load, or the kernel refused (GSTART)
+;  41 GUESTSTOP handle = guest id -> 0, -1 no such guest (the kernel's GSTOP;
+;              tty gets CLEANUP for it: the console comes back)
+;  42 GUESTS   -> count; 32-byte records: u64 id, first core | cores << 8,
+;              arena bytes, state (the kernel's GINFO)
 ;
 ; Spawning: MEMORY (an arena from the kernel: 1 MiB, or what SPAWN asked for; the
 ; kernel revokes it by address when the process ends)
