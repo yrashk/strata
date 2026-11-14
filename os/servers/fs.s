@@ -103,7 +103,8 @@
 ;             tags (fsops.s)
 ;  41 TAGS2   TAGS without its limits (fsops.s)
 ;  45 SNAP    snapshots (fsops.s): mode 0 take one (data = its name), 1 delete
-;             it, 2 list them. A snapshot is the whole disk as of a commit;
+;             it, 2 list them, 3 restore it (the file system becomes what it
+;             shows). A snapshot is the whole disk as of a commit;
 ;             a path whose first component is "@NAME" reads it: OPEN for
 ;             reading, DIR, TAGS, STAT, LOADIMG, QUERY, TAGS2
 ;  36 DUPS / 37 CLEANUP / 38 CANCEL from proc (see srv.s)

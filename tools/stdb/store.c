@@ -28,7 +28,8 @@
  * The free tree: u64 (big-endian) end page of a free extent -> u64 pages.
  * By its end, because pages are taken from an extent's front: the key
  * stays. A record of 0 pages means nothing and goes when it is next read.
- * The pending tree: u64 commit, u64 start (big-endian) -> u64 pages, u64
+ * The pending tree: u64 commit, u64 start (big-endian) -> u64 pages (in
+ * its low half; the high half is the namespace the pages were of), u64
  * birth: pages freed by that commit, reusable once it is on the disk. A key
  * whose commit has its top bit set is a snapshot's dead list: pages the store
  * no longer uses but the snapshot of that commit (or an older one) shows;
@@ -281,7 +282,7 @@ static void begin(Store *st) {
     if (gbe(k) >= st->txn) break;
     st->pld = grow(st->pld, st->npld, &st->cpld, sizeof *st->pld);
     memcpy(st->pld[st->npld++], k, 16);
-    avail_add(st, gbe(k + 8), g64(ov));
+    avail_add(st, gbe(k + 8), g64(ov) & 0xffffffff);
   }
 }
 
@@ -988,8 +989,8 @@ int st_check(Store *st, FILE *out) {
     }
     for (kl = 0; st_seek(st, &st->pend, k, kl, ST_GT, k, &kl, v, &vl, NULL);) {
       if (kl != 16 || vl != 16) { bad(c, "bad pending record", gbe(k + 8)); continue; }
-      mark(c, gbe(k + 8), g64(v), 3, "pending extent outside the store");
-      if (!(gbe(k) >> 63)) nfree += g64(v); /* (top bit: a snapshot's dead list: kept, not free) */
+      mark(c, gbe(k + 8), g64(v) & 0xffffffff, 3, "pending extent outside the store");
+      if (!(gbe(k) >> 63)) nfree += g64(v) & 0xffffffff; /* (top bit: a snapshot's dead list: kept, not free) */
     }
     check_streams(c);
     if (st->manifest) { mark(c, st->manifest, 1, 1, "manifest outside the store"); P(st, st->manifest); }

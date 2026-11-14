@@ -897,9 +897,10 @@ pages in far memory and three page buffers in its D-LS. A boot object
 (`proc`, `dev`, `fs`: what the boot manifest lists) cannot be written,
 renamed or deleted from inside the OS yet. `build/stdb check IMAGE` checks
 a disk from outside, `stdb dump`, `ls` and `get` read one. **Snapshots**
-(`snap NAME` takes one, `snap` lists them, `snap -d NAME` deletes one; fs
-call 45 SNAP: mode 0 take, 1 delete, data = a name of 1–32 bytes; 2 list →
-40-byte records {u64 commit, name[32]}): a snapshot is the whole disk as of
+(`snap NAME` takes one, `snap` lists them, `snap -d NAME` deletes one,
+`snap -r NAME` restores one; fs call 45 SNAP: mode 0 take, 1 delete, 3
+restore, data = a name of 1–32 bytes; 2 list → 40-byte records {u64 commit,
+name[32]}): a snapshot is the whole disk as of
 one commit, under a name. Taking one records that commit's catalog root
 and copies nothing; from then on a page born no later than the newest
 snapshot is not freed when the live store stops using it but goes on that
@@ -909,7 +910,12 @@ component is `@NAME` is read in the snapshot (`ls /@monday/src`, `cat
 /@monday/notes`, `cp /@monday/notes notes` to bring an old version back):
 OPEN for reading, DIR, TAGS, STAT, LOADIMG, QUERY and TAGS2 take such
 paths; nothing can be written, renamed or deleted there. `df` counts the
-pages snapshots keep as used. Inside the OS,
+pages snapshots keep as used. Restoring makes the file system what the
+snapshot shows, in one commit: its trees take the snapshot's roots, the
+pages only the state given up used are freed (or kept, where a later
+snapshot shows them), and the snapshot's pages that had gone to dead lists
+are in use again. The snapshots stay, the restored one too; it is refused
+(-1) while a file is open for writing. Inside the OS,
 `db` shows the store's trees (`db`: the trees with their roots and heights;
 `db fs/name`: a tree's records; `db -p PAGE`: one page's cells, so a tree
 can be walked by hand), and `wdb` does the same in a window: it opens on

@@ -283,7 +283,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "programs:\n"           ; (continued)
          .ascii "  ps free uptime devs hexdump cores sched\n" ; (continued)
          .ascii "  db [TREE | -p PAGE]  the trees of the store on the disk (wdb: in a window)\n" ; (continued)
-         .ascii "  snap [NAME | -d NAME]  snapshots of the disk; read one as /@NAME/...\n" ; (continued)
+         .ascii "  snap [NAME | -d NAME | -r NAME]  snapshots: take, delete, restore; read: /@NAME/...\n" ; (continued)
          .ascii "  seq grep wc upper spin as units sh\n" ; (continued)
          .ascii "  vi FILE           the editor (vi keys; :wq writes and leaves)\n" ; (continued)
          .ascii "  examples: hello mandel parsum race ...\n" ; (continued)

@@ -108,12 +108,13 @@ decisions taken.
 - [x] Dead lists in the pending tree (`st_deadlim`, `pfree`, `drain_fr`);
       SNAP (45): take, delete, list; `/@NAME/` paths for the calls that
       read; `snap`; `test-store.sh` part 4; `stdb check` knows dead lists
-- [ ] Pages of the free and pending trees themselves are kept on dead
-      lists too when they are older than a snapshot (no snapshot shows
-      them): they come back when the snapshot is deleted, not before
+- [x] Restore (`snap -r`, SNAP mode 3): the six trees take the snapshot's
+      roots; `drop_tree` frees what only the state given up used; the
+      snapshot's own pages leave the dead lists (a dead-list entry says
+      whose namespace's pages it holds). `test-store.sh` part 5
 - [ ] `stdb`: listing snapshots and reading through one on the host
-- [ ] The server's I-LS is full (40 bytes left): anything more needs the
-      library trimmed to what a server uses
+- [x] The server no longer carries `sys.s` (it used one message and three
+      buffers of it): about 5 KiB of its I-LS are free
 
 ## Later
 - [ ] Browser persistence (IndexedDB, download)

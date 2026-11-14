@@ -22,6 +22,8 @@
 #    files of its time through /@NAME/ paths and cannot be written; the disk
 #    with them passes the check; after a second boot they still read, and
 #    deleting them gives their space back.
+# 5. `snap -r` restores a snapshot: the files, names and tags are again
+#    what they were, and the pages are accounted for.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 b="$here/${BUILD:-build}"
@@ -241,4 +243,43 @@ grep -q '^one$' "$tmp/out.txt" && grep -q '^two$' "$tmp/out.txt" && grep -q '^30
 used2=$(grep '^disk:' "$tmp/out.txt" | tail -1 | awk '{print $4}')
 [ "$used2" -lt "$used1" ] || fail "deleting the snapshots freed nothing ($used1 blocks used before, $used2 after)"
 echo "test-store: snapshots: read as they were, not writable, checked on the disk, kept across a boot; deleting them freed $((used1 - used2)) blocks"
+# ---- 5. restoring a snapshot -------------------------------------------------------------
+# A session stops right after taking a snapshot; another goes on changing
+# files (and takes a second snapshot), then restores the first: its disk
+# must hold exactly what the first session's does, pass the check with the
+# snapshots on it and after they are deleted, and the second snapshot must
+# still read.
+printf 'echo one > /notes/a\nseq 2000 > nums\nsnap s1\nhalt\n' >"$tmp/r0.txt"
+run "$tmp/r0.txt" "$disk" -w "$tmp/r0.img" || fail "the session before the restore did not end well"
+cat >"$tmp/r1.txt" <<'EOF'
+echo one > /notes/a
+seq 2000 > nums
+snap s1
+echo two > a
+seq 50000 > big
+rm motd
+rm nums
+tag a later
+mv about about2
+snap s2
+echo three > a
+snap -r s1
+cat a
+cat /@s2/a
+ls big
+snap -r nosuch
+halt
+EOF
+run "$tmp/r1.txt" "$disk" -w "$tmp/r1.img" || fail "the restore session did not end well"
+grep -q '^one$' "$tmp/out.txt" && grep -q '^two$' "$tmp/out.txt" && grep -q 'no such tag or file: big' "$tmp/out.txt" &&
+  grep -q 'cannot restore' "$tmp/out.txt" || { cat "$tmp/out.txt" >&2; fail "after the restore: the old file, the later snapshot, the file made since"; }
+"$b/stdb" check "$tmp/r1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk after a restore fails its check"; }
+"$b/stdb" dump "$tmp/r0.img" >"$tmp/r0.dump"
+"$b/stdb" dump "$tmp/r1.img" >"$tmp/r1.dump"
+cmp -s "$tmp/r0.dump" "$tmp/r1.dump" || { diff "$tmp/r0.dump" "$tmp/r1.dump" | head -5 >&2; fail "the restored disk is not the disk of the snapshot"; }
+printf 'snap -d s2\nsnap -d s1\ncat a\ndf\nhalt\n' >"$tmp/r2.txt"
+run "$tmp/r2.txt" "$tmp/r1.img" -w "$tmp/r2.img" || fail "the boot after a restore did not end well"
+"$b/stdb" check "$tmp/r2.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk after the restore's snapshots were deleted fails its check"; }
+"$b/stdb" dump "$tmp/r2.img" | cmp -s - "$tmp/r0.dump" || fail "deleting the snapshots after a restore changed the files"
+echo "test-store: a snapshot restored: the disk holds what it held then; the later snapshot still reads; nothing is lost when both are deleted"
 echo "test-store: OK"

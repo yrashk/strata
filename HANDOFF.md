@@ -193,11 +193,12 @@ built from. The kernel boots from a boot manifest (`u_disk` in
   use static scratch and do not nest; reads (`st_get`, `st_seek`) may
   happen inside one.
 - Inside the OS: `db` and `wdb` (a window) show the trees, read from the
-  disk with READBLK (`os/lib/stview.s`); `snap` takes, lists and deletes
-  snapshots, read through `/@NAME/` paths.
-- The server's I-LS is full (40 bytes left of 32 KiB) and its D-LS nearly
-  (600 bytes): the next feature needs room first (the server carries the
-  whole of `sys.s` and uses little of it).
+  disk with READBLK (`os/lib/stview.s`); `snap` takes, lists, deletes and
+  restores snapshots, read through `/@NAME/` paths.
+- The server does not include `os/lib/sys.s` (it has its own three buffers
+  and one start-up message); about 5 KiB of its I-LS and 1 KiB of its D-LS
+  are free. Its small data must stay below 32 KiB (loads use absolute
+  16-bit addresses), so the large buffers are declared last.
 - Not done (the plan has the list): the store's calls for other programs
   (namespaces over the endpoint, transactions), attributes and query terms
   in paths, the shell's completion and `httpd` on the cursor
