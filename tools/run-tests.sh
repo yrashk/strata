@@ -249,7 +249,7 @@ for n in $(cat "$sel"); do
   rm -f "$out/$n.res"
   awk -v n="$n" '$1 == n { t = $2 } END { print (t == "" ? 99999 : t), n }' "$out/times"
 done | sort -rn | cut -d' ' -f2 >"$out/order"
-xargs -P "$jobs" -n 1 "$0" --one <"$out/order"
+xargs -P "$jobs" -n 1 "$here/tools/run-tests.sh" --one <"$out/order"
 T2=$(now)
 # results nobody has used for 30 days leave the cache
 find "$rcache" -type f -mtime +30 -exec rm -f {} + 2>/dev/null
