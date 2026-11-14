@@ -49,6 +49,7 @@ class() {
     dbg)  echo "$1/strata-dbg" ;;
     sasm) echo "$1/sasm" ;;
     stdb) echo "$1/stdb" ;;
+    stdb-test) echo "$1/stdb-test $1/stdb-many" ;;
     os)   echo "$1/bootrom.stx $1/disk.img" ;;
     ex)   echo "$1/examples/*.stx" ;;
     ex:*) echo "$1/examples/${2#ex:}.stx" ;;
@@ -193,7 +194,7 @@ if [ $changed = 1 ]; then
       firmware/*|os/*) w="os" ;;
       lang/forth/tests/*) w="" ;;
       lang/forth/*) w="os forth" ;;
-      tools/stdb/*) w="stdb os" ;;
+      tools/stdb/*) w="stdb stdb-test os" ;;
       conformance/*) w="" ;;
       tools/test-*|tools/compare*|tools/*.out|tools/*.js|tools/net-echo.py|tools/dlsgap.s) w="" ;;
       tools/kira-*|tools/wdoom-assets.py|tools/web-code.py|tools/web-stamp.sh|tools/vi-shots.sh|tools/bench-jit.sh|tools/fs-progs-speed.sh) w="" ;;
@@ -209,7 +210,7 @@ if [ $changed = 1 ]; then
       inp=$(printf '%s' "$line" | cut -f5); cmd=$(printf '%s' "$line" | cut -f6)
       take=0
       # (a disk or an example on its command line counts as the word)
-      case $cmd in *disk.img*) inp="$inp os" ;; esac
+      case "$inp $cmd" in *disk.img*) inp="$inp os" ;; esac
       case $cmd in *examples/*) inp="$inp ex" ;; esac
       for w in $inp; do
         case $w in ex:*) w=ex ;; esac

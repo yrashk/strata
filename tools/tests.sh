@@ -8,7 +8,7 @@
 # NEEDS   the make targets that build what it reads (build-main: the tools,
 #         the simulators, the examples, StrataOS; see the Makefile)
 # INPUTS  what it reads, for the result cache and for the selection by what
-#         changed: emu rtl dbg sasm stdb (the programs in its build
+#         changed: emu rtl dbg sasm stdb stdb-test (the programs in its build
 #         directory), os (boot ROM and disk), ex (every example; ex:NAME:
 #         one), forth (the bare-metal image), wasm, wasmrtl, and files or
 #         directories (the files on its command line and those its script
@@ -30,9 +30,9 @@ for e in examples/*.s; do
 done
 
 # ---- the store on the host -------------------------------------------------------
-t stdb-model   mid  build-stdb-test '$B/stdb-test' '$B/stdb-test'
-t stdb-million mid  build-stdb-test '$B/stdb-many' '$B/stdb-many 1000000'
-t stdb-small   fast build-stdb-test '$B/stdb-many' '$B/stdb-many 20000 1024'
+t stdb-model   mid  build-stdb-test stdb-test '$B/stdb-test'
+t stdb-million mid  build-stdb-test stdb-test '$B/stdb-many 1000000'
+t stdb-small   fast build-stdb-test stdb-test '$B/stdb-many 20000 1024'
 
 # ---- StrataOS sessions in lockstep with the RTL --------------------------------
 # (a short session first: the boot, a file, a two-core program, a pipeline, halt)
