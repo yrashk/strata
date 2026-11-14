@@ -121,6 +121,7 @@ f_ang:    .dword 0                      ; the angle she looks at, 0..2047 (0: ea
 f_turn:   .dword 0                      ; tics left of her turn
 f_dang:   .dword 0                      ; what she turns in each
 f_wturn:  .dword 0                      ; a turn asked for: -1 left, 1 right
+f_tcool:  .dword 0                      ; tics left of the pause after a turn
 f_keep:   .dword 0                      ; the step asked for is a step back: she does not turn
 f_picx:   .dword 0                      ; the picnic blanket's cell
 f_picy:   .dword 0                      ; ...

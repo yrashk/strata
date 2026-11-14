@@ -16,7 +16,8 @@
 #      demo 2  the hand is moved to FRIENDS with the arrows and pressed;
 #              all friends found; a step onto the picnic blanket: the party;
 #              a key: a new game in a new world
-#      demo 3  Friends through Kira's eyes: quarter turns and steps
+#      demo 3  Friends through Kira's eyes: quarter turns (a turning key that
+#              repeats during a turn does nothing) and steps
 #      demo 4  ... and the party seen so
 #      demo 5  Garden: a daisy is sown and watered into bloom (a butterfly
 #              comes); the garden is left (and written to its file) and
@@ -42,7 +43,7 @@ set -e
 BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
-KIRA_CRC="1:10875dd2:6 2:b28d0fb6:4 3:65c4b63a:4 4:e8e347e2:4 5:e654c81a:4 6:8ac2eeac:4 7:453116f1:4 8:bb71d3b4:40"
+KIRA_CRC="1:10875dd2:6 2:b28d0fb6:4 3:a4a6212e:6 4:e8e347e2:6 5:e654c81a:4 6:8ac2eeac:4 7:453116f1:4 8:bb71d3b4:40"
 T=$BUILD/test-kira
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W

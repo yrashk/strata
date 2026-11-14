@@ -76,7 +76,7 @@ FANFARE = [(0, 0), (4, 2), (4, 4), (4, 7), (8, 4), (4, 7), (0, 2), (10, 0), (0, 
 DEMOS = {
     1: "9 1,10 @40:28,200 .,5 R,10 R,10 D,40 .",  # Friends from above: a click on the duck's cell; three steps
     2: "5 L,3 L,3 L,3 L,3 L,3 L,3 L,3 U,3 U,3 U,5  ,10 !,30 R,80 .,5 .,20 .",   # the hand presses FRIENDS; the party; a new world
-    3: "9 1,5  ,20 R,20 R,20 U,20 U,20 L,40 .",   # through her eyes: turns and steps
+    3: "9 1,5  ,20 R,4 R,4 R,35 R,35 U,20 U,20 L,40 .",   # through her eyes: turns and steps
     4: "9 1,5  ,10 !,30 U,60 .",                  # ... and the party seen so
     5: "9 2,5 2,5 @88:100,10 5,5 @88:100,20 @88:100,30 @136:146,250 .,5 m,10 2,60 .",   # Garden: a daisy sown and watered into bloom; left and come back to
     6: "9 3,5 1,5 @100:60,5 4,5 @200:120,5 n,5 7,5 @160:80,30 .",    # Paint: two regions, the next page, one more
