@@ -67,14 +67,15 @@
 ;                sys_sched(0, buf) / sys_sched(1, slice ticks)  (the time slice),
 ;                sys_register(name, len)
 ;   console      sys_conmode(0 cooked / 1 raw), sys_setfg(pid)
-;   files        sys_dir(buf) -> n (32-byte records: name[24], u64 size), sys_unlink,
+;   files        sys_list(buf, path, len, cursor) -> n, cursor (a listing, in parts),
+;                sys_count(path, len) -> n, sys_unlink,
 ;                sys_stat(name, len) -> size, sys_statfs(buf), sys_readblk(n, buf);
 ;                names are paths ("/tag/tag/name": the file must carry the tags;
 ;                one without the leading "/" is under the current tag path),
 ;                sys_cwd(buf) -> len, sys_chdir(path, len, buf) -> len (cd)
-;   tags         sys_query(buf, path, len) -> n (DIR of a tag path), sys_tags(buf,
-;                path or 0, len) -> n (32-byte records: name[16], u64 files, u64
-;                number), sys_tag(name, len, tag, len), sys_untag(name, len, tag, len)
+;   tags         sys_tags2(buf, path or 0, len, cursor) -> n, cursor (every tag, or a
+;                file's), sys_facets() after sys_count or sys_list,
+;                sys_tag(name, len, tag, len), sys_untag(name, len, tag, len)
 ;   devices      sys_devs(buf) -> n, sys_halt, sys_grantfb() (ws only: c6 memory, c7 ports)
 ;   time         sys_now -> ticks (1 us), sys_sleep(ticks) -> -8 / -2,
 ;                sys_notify_wait(timeout) -> bits / -8, sys_yield, sys_clock,
@@ -100,11 +101,11 @@ OP_WAIT    = 6                          ; proc: wait for a child
 OP_KILL    = 7                          ; proc: kill a process
 OP_PIPE    = 8                          ; pipe: make a pipe
 OP_PS      = 9                          ; proc: list processes
-OP_DIR     = 10                         ; fs: list files
+OP_QUERY   = 40                         ; fs: list files, with a cursor
+OP_TAGS2   = 41                         ; fs: list tags, with a cursor
 OP_UNLINK  = 11                         ; fs: delete a file
 OP_TAG     = 12                         ; fs: give a file a tag
 OP_UNTAG   = 13                         ; fs: take a tag from a file
-OP_TAGS    = 14                         ; fs: list tags (all, or a file's)
 OP_INFO    = 16                         ; proc: system summary
 OP_SIGNAL  = 17                         ; proc: interrupt a process
 OP_SETFG   = 18                         ; tty: the foreground process
@@ -995,60 +996,22 @@ sfd_ret:
         addi  sp, sp, 32                ; release the frame
         ret                             ; done
 
-; sys_dir(a0 = buffer, 128 * 32 bytes) -> a0 = files; records: 24 bytes name, u64 size
-sys_dir:
-        mv    a1, a0                    ; destination
-        li    a0, OP_DIR                ; the request
-        li    a2, 32                    ; record size
-        li    a3, 0                     ; ...
-        j     sys_fsdata                ; (tail call)
-
-; sys_query(a0 = buffer, 128 * 32 bytes, a1 = tag path, a2 = its length) ->
-; a0 = files carrying every tag of the path (records as sys_dir), or -4
-sys_query:
-        mv    a3, a2                    ; length
-        mv    a2, a1                    ; the path
-        mv    a1, a0                    ; destination
-        li    a0, OP_DIR                ; the request
-        j     sys_fsq                   ; (tail call)
-
-; sys_tags(a0 = buffer, 64 * 32 bytes, a1 = a file's path, a2 = its length (0:
-; every tag)) -> a0 = tags; records: 16 bytes name, u64 files, u64 tag number
-sys_tags:
-        mv    a3, a2                    ; length
-        mv    a2, a1                    ; the path
-        mv    a1, a0                    ; destination
-        li    a0, OP_TAGS               ; the request
-; sys_fsq(a0 = op, a1 = destination, a2 = path, a3 = length) -> a0 = count;
-; copies count 32-byte records of reply data out
-sys_fsq:
-        addi  sp, sp, -32               ; frame
+; sys_count(a0 = tag path, a1 = its length (0: the current path)) -> a0 = the
+; files carrying every tag of the path, or -4 (no such tag); sys_facets then
+; gives the other tags they carry
+sys_count:
+        addi  sp, sp, -16               ; frame
         sd    ra, 0(sp)                 ; save ra
-        sd    a0, 8(sp)                 ; op
-        sd    a1, 16(sp)                ; destination
-        sd    a3, 24(sp)                ; length
-        mv    a0, a2                    ; the path -> the buffer
-        mv    a1, a3                    ; ...
-        call  sys_put                   ; ...
+        sd    a1, 8(sp)                 ; length
+        call  sys_put                   ; the path -> the buffer
         li    a0, 2                     ; fs
-        ld    a1, 8(sp)                 ; op
+        li    a1, OP_QUERY              ; a listing
         li    a2, 0                     ; ...
-        ld    a3, 24(sp)                ; length
-        li    a4, 0                     ; ...
+        ld    a3, 8(sp)                 ; length
+        li    a4, 1                     ; of no records: the count and the facets
         call  sys_msg                   ; a0 = count
-        blez  a0, sfq_ret               ; nothing
-        sd    a0, 8(sp)                 ; keep it
-        slli  a1, a0, 5                 ; bytes
-        li    t0, SYS_MAX               ; at most one message
-        bleu  a1, t0, sfq_cp            ; ...
-        mv    a1, t0                    ; ...
-sfq_cp:
-        ld    a0, 16(sp)                ; destination
-        call  sys_get                   ; copy
-        ld    a0, 8(sp)                 ; the count
-sfq_ret:
         ld    ra, 0(sp)                 ; restore ra
-        addi  sp, sp, 32                ; release the frame
+        addi  sp, sp, 16                ; release the frame
         ret                             ; done
 
 ; sys_tag(a0 = name, a1 = length, a2 = tag, a3 = its length) -> a0 = 0, -4 no
@@ -2229,9 +2192,9 @@ sys_rename:
         li    a4, OP_RENAME             ; the request
         j     sys_tagop                 ; (the same data as TAG: path, 0, path)
 
-; sys_facets() -> a0 = the facets of the last sys_query: a tag set (bit t =
+; sys_facets() -> a0 = the facets of the last sys_count or sys_list: a tag set (bit t =
 ; tag number t) of every other tag that a listed file carries, the ways to
-; narrow the listing further; sys_tags(buf, 0, 0) gives the numbers' names
+; narrow the listing further; sys_tags2(buf, 0, 0, 0) gives the ids' names
 sys_facets:
         la    t0, sys_hdr               ; the reply's mode word
         ld    a0, 24(t0)                ; ...
@@ -2293,17 +2256,16 @@ scw_ret:
         ret                             ; done
 
 ; ---- files: listings without limits (fs QUERY, TAGS2) --------------------------
-OP_QUERY   = 40                         ; fs: list files, with a cursor
-OP_TAGS2   = 41                         ; fs: list tags, with a cursor
 
 ; sys_list(a0 = buffer (SYS_MAX bytes), a1 = tag path, a2 = its length, a3 =
 ; cursor (0 at first)) -> a0 = files in this part (or -4), a1 = the cursor to
 ; ask with again (0: that was all). The buffer: u64 n and n u32 ids of the
 ; path's own tags (padded to 8 bytes), then per file {u16 record bytes, u16
 ; name length, u32 tags, u64 size, the name, the file's tag ids (u32 each)},
-; name and ids each padded to 8 bytes. sys_facets works as after sys_query.
+; name and ids each padded to 8 bytes. sys_facets: the facets of this part.
 sys_list:
         li    a4, OP_QUERY              ; the request
+        li    a5, SYS_MAX               ; ...
         j     sys_fsl                   ; shared path
 ; sys_tags2(a0 = buffer (SYS_MAX bytes), a1 = a file's path, a2 = its length
 ; (0: every tag), a3 = cursor (0 at first)) -> a0 = tags in this part, a1 =
@@ -2311,9 +2273,15 @@ sys_list:
 ; record bytes, u16 name length, u32 id, u64 files carrying it, the name
 ; padded to 8 bytes}.
 sys_tags2:
+        li    a5, SYS_MAX               ; ...
+; sys_tags2n: the same into a smaller buffer of a5 bytes (a multiple of 8):
+; a1 comes back as the data's bytes instead of the cursor, and the records
+; that do not lie whole in them are not there (the count says all the same)
+sys_tags2n:
         li    a4, OP_TAGS2              ; the request
 sys_fsl:
-        addi  sp, sp, -40               ; frame
+        addi  sp, sp, -48               ; frame
+        sd    a5, 40(sp)                ; room
         sd    ra, 0(sp)                 ; save ra
         sd    a0, 8(sp)                 ; destination
         sd    a2, 16(sp)                ; length
@@ -2333,16 +2301,21 @@ sys_fsl:
         sd    a0, 16(sp)                ; keep it
         la    t0, sys_hdr               ; the reply's length word: the data's bytes
         ld    a1, 16(t0)                ; ...
-        li    t0, SYS_MAX               ; ...
+        ld    t0, 40(sp)                ; (no more than the buffer)
         bleu  a1, t0, sfl_cp            ; ...
         mv    a1, t0                    ; ...
 sfl_cp:
+        sd    a1, 24(sp)                ; ...
         ld    a0, 8(sp)                 ; destination
         call  sys_get                   ; copy
         ld    a0, 16(sp)                ; the count
         la    t0, sys_hdr               ; the reply's handle word: the cursor
         ld    a1, 8(t0)                 ; ...
+        ld    t0, 40(sp)                ; (a smaller buffer: the bytes instead)
+        li    t1, SYS_MAX               ; ...
+        beq   t0, t1, sfl_ret           ; ...
+        ld    a1, 24(sp)                ; ...
 sfl_ret:
         ld    ra, 0(sp)                 ; restore ra
-        addi  sp, sp, 40                ; release the frame
+        addi  sp, sp, 48                ; release the frame
         ret                             ; done

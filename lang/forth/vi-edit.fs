@@ -153,10 +153,14 @@
   fnl @ 3 < 0= if fname fnl @ + 3 - 3 s" .fs" str= if 2 syn ! exit then then
   fnl @ 2 < 0= if fname fnl @ + 2 - 2 s" .s" str= if 1 syn ! exit then then
   fnl @ 0= if exit then
-  fname fnl @ >msg  0 fnl @ 0 14 2 (msg) 31 min  dup 0> 0= if drop exit then \ TAGS
-  tbuf 64 2 pick 32 * 5 tget
-  0 ?do tbuf i 32 * + 16 zlen 2dup s" forth" str= if 2drop 2 syn ! unloop exit then
-    s" src" str= if 1 syn ! unloop exit then loop ;
+  fname fnl @ >msg  0 fnl @ 0 41 2 (msg)  dup 0> 0= if drop exit then \ TAGS2: the first of its tags,
+  tbuf 64 1008 5 tget  tbuf swap                \ those whose records lie in tbuf:  {u16 bytes, u16 name
+  0 ?do dup 16 + tbuf 1008 + u> if leave then   \ length, u32 id, u64 files, the name}
+    dup @ $ffff and over + tbuf 1008 + u> if leave then
+    dup 16 + over @ 16 rshift $ffff and
+    2dup s" forth" str= if 2drop drop 2 syn ! unloop exit then
+    s" src" str= if drop 1 syn ! unloop exit then
+    dup @ $ffff and + loop drop ;
 : do-load ( a u -- )                            \ the buffer is that file (one that does not exist: empty)
   dup fnl ! fname swap move  buf-reset  0 lblen !
   fnl @ if fname fnl @ 0 fs-open dup 0< if drop m-name m+"  [New File]" else

@@ -45,10 +45,11 @@ split_trace() { # $1 = fifo, $2 = output prefix
 }
 split_trace "$tmp/e.fifo" "$tmp/e" & pe=$!
 split_trace "$tmp/r.fifo" "$tmp/r" & pr=$!
-"$b/strata-emu" -j -c "$n" ${EMU_ARGS:-} -T virtual -g none -m 4000000000 -d "$tmp/d1.img" -w "$tmp/w1.img" -i "$3" -t "$tmp/e.fifo" "$1" >"$tmp/e.out" 2>"$tmp/e.err"
-erc=$?
+"$b/strata-emu" -j -c "$n" ${EMU_ARGS:-} -T virtual -g none -m 4000000000 -d "$tmp/d1.img" -w "$tmp/w1.img" -i "$3" -t "$tmp/e.fifo" "$1" >"$tmp/e.out" 2>"$tmp/e.err" &
+pm=$!   # (the two machines run at the same time)
 "$b/strata-rtl" -T virtual -g none -m 4000000000 -d "$tmp/d2.img" -w "$tmp/w2.img" -i "$3" -t "$tmp/r.fifo" "$1" >"$tmp/r.out" 2>"$tmp/r.err"
 rrc=$?
+wait $pm; erc=$?
 wait $pe $pr
 # normalise what depends on timing: ps rows keep pid, parent, core, cores and
 # name; cores lines keep processes and flags (not switches, KiB, cycles, free slots); uptime keeps nothing but itself;

@@ -30,6 +30,7 @@
 # `sh -c "sleep 1" &` takes the last place, the next one is refused ("no
 # free core", CREATE's -5) and the machine goes on.
 # The emulator runs the interpreter with the virtual timer (deterministic).
+# The three machines run at the same time; their outputs are checked in order.
 #
 #   tools/test-procs.sh build/bootrom.stx build/disk.img     (-v: show the output)
 set -u
@@ -56,7 +57,27 @@ script() { # the script w: N (default 6) sleeping shells, killed after S (3) s
   printf 'halt\n'
 } >"$tmp/in.txt"
 cp "$2" "$tmp/d.img"
-"$b/strata-emu" -c 15 -j -T virtual -g none -m 6000000000 -d "$tmp/d.img" -i "$tmp/in.txt" "$1" >"$tmp/out" 2>&1
+"$b/strata-emu" -c 15 -j -T virtual -g none -m 6000000000 -d "$tmp/d.img" -i "$tmp/in.txt" "$1" >"$tmp/out" 2>&1 &
+image=$1 disk=$2
+# ---- parts 2 and 3: 6 cores ----
+# six NAME TABLE SLEEPERS SECONDS EXTRA BREAK: start the rounds
+six() {
+  name=$1 ctab=$2
+  {
+    script "$3" "$4"
+    printf 'cores\n'
+    for r in 1 2; do
+      printf 'sh w &\nsh w &\nsh w &\nsh w &\nsleep 2\nps\ncores\n%bseq 30 | grep 2 | wc\nwait\nps\ncores\n' "$5"
+    done
+    printf 'spin\nseq 3 | wc\nhalt\n'
+  } >"$tmp/in.$name"
+  cp "$disk" "$tmp/d.$name"
+  "$b/strata-emu" -c 6 -S "$ctab" -j -T virtual -g none -m 5000000000 -b "$6" \
+    -d "$tmp/d.$name" -i "$tmp/in.$name" "$image" >"$tmp/out.$name" 2>&1 &
+}
+six procs-6 256 8 3 '' "${PROCS_BREAK:-3000000000}"
+six procs-6s 64 6 5 'sh -c "sleep 1" &\nsh -c "sleep 1"\nsleep 4\n' "${PROCS_BREAK64:-3000000000}"
+wait
 [ "$verbose" = 1 ] && cat "$tmp/out"
 # the rows of each `ps` (a line starting with a pid after a PID header), and each `free`
 psrows() {
@@ -89,21 +110,9 @@ else
   exit 1
 fi
 
-# ---- parts 2 and 3: 6 cores ----
-# six NAME TABLE SLEEPERS SECONDS EXTRA BREAK: run the rounds, check them
-six() {
-  name=$1 ctab=$2
-  {
-    script "$3" "$4"
-    printf 'cores\n'
-    for r in 1 2; do
-      printf 'sh w &\nsh w &\nsh w &\nsh w &\nsleep 2\nps\ncores\n%bseq 30 | grep 2 | wc\nwait\nps\ncores\n' "$5"
-    done
-    printf 'spin\nseq 3 | wc\nhalt\n'
-  } >"$tmp/in.$name"
-  cp "$disk" "$tmp/d.$name"
-  "$b/strata-emu" -c 6 -S "$ctab" -j -T virtual -g none -m 5000000000 -b "$6" \
-    -d "$tmp/d.$name" -i "$tmp/in.$name" "$image" >"$tmp/out.$name" 2>&1
+# read NAME: what a run of six printed
+read6() {
+  name=$1
   [ "$verbose" = 1 ] && cat "$tmp/out.$name"
   psrows "$tmp/out.$name" >"$tmp/ps.$name"
   # each `cores`: the free slots of cores 1..5, on one line
@@ -135,12 +144,11 @@ check6() { # NAME PEAK REFUSED: the verdict on a run of six
     exit 1
   fi
 }
-image=$1 disk=$2
-six procs-6 256 8 3 '' "${PROCS_BREAK:-3000000000}"
+read6 procs-6
 check6 procs-6 43 0
 printf '%-14s OK    6 cores, 256 save-table slots: %s processes at once, twice, a pipeline among them;\n' procs-6 "$q1"
 printf '%-14s       free slots of cores 1-5:%s, at the peak%s; Ctrl-C\n' "" "$s0" "$sp1"
-six procs-6s 64 6 5 'sh -c "sleep 1" &\nsh -c "sleep 1"\nsleep 4\n' "${PROCS_BREAK64:-3000000000}"
+read6 procs-6s
 check6 procs-6s 35 2
 printf '%-14s OK    6 cores, 64 save-table slots: %s processes, twice; one more refused (no free core);\n' procs-6s "$q1"
 printf '%-14s       free slots of cores 1-5:%s, at the peak%s; Ctrl-C\n' "" "$s0" "$sp1"

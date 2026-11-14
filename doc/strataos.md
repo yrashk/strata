@@ -871,15 +871,9 @@ reference counts per process).
 for writing gets its new contents when its last reference closes, in one
 commit: the disk holds the old contents or the new, never a mixture;
 appending extends the contents where they are and commits at the close; a
-file has no size limit but the disk's); 10 DIR (data = a tag path, none =
-every file) → count
-+ 32-byte records (24 bytes name, u64 size; 126 at most), and in the reply's
-mode word the *facets*: a tag set (bit t = tag number t) of the other tags
-the matching files carry; -4 no such tag; 11 UNLINK;
+file has no size limit but the disk's); 11 UNLINK;
 12 TAG / 13 UNTAG (data = path, a zero byte, a tag name) → 0, -4, -6 (64
-tags in use), -1 (bad tag name); 14 TAGS (data = a path, none = every tag)
-→ count + 32-byte records (16 bytes name, u64 files carrying it, u64 tag
-number); 15 RENAME (data = path, a zero byte, a new path) → 0, -4, -6, -1
+tags in use), -1 (bad tag name); 15 RENAME (data = path, a zero byte, a new path) → 0, -4, -6, -1
 (bad new name): the file takes the new path's name and gains its tags
 (created if new), keeping its own tags and its contents;
 another file of the new name is deleted; 20 CWD (mode 0 get → length, data
@@ -894,18 +888,19 @@ files; 33 READBLK (handle = block) → the raw 512-byte block; 34 READALL
 (handle = id, mode = arena offset, length = most bytes, the arena as
 attachment) → size, the whole file copied in; 35 WRITEALL (handle = id,
 mode = arena offset, length, the arena as attachment) → bytes appended to
-the file; 36–38 from `proc`; 40 QUERY (DIR without its limits: data = a tag
-path, handle = a cursor, 0 at first → count; the reply's handle word is the
+the file; 36–38 from `proc`; 40 QUERY (a listing: data = a tag
+path, none = the current one, handle = a cursor, 0 at first → the count of
+files in this part, -4 no such tag; the reply's handle word is the
 cursor to ask with again, 0 when that was all, its length word the data's
-bytes; data: u64 n and n u32 ids of the path's own tags, then per file {u16
+bytes, its mode word the *facets*: a tag set (bit t = tag id t, ids below
+64) of the other tags the files of this part carry; with mode 1 no records
+come, the count is of every file and the facets are of them all; data: u64 n and n u32 ids of the path's own tags, then per file {u16
 record bytes, u16 name length, u32 tags, u64 size, the name, the file's tag
-ids}, each part padded to 8 bytes); 41 TAGS2 (TAGS likewise: handle = a
-cursor; records {u16 record bytes, u16 name length, u32 id, u64 files
-carrying it, the name}). DIR and TAGS remain for the programs that still
-use them (the Forth ports; the shell's completion and `httpd` for the
-facets and the tags' names, their files come from QUERY): they cut a
-name to 24 bytes and a tag's to 16, DIR's facets hold only the tags with
-ids below 64, and one reply holds 126 records. Every call answers -5 when
+ids}, each part padded to 8 bytes); 41 TAGS2 (data = a path, none = every tag;
+handle = a cursor; records {u16 record bytes, u16 name length, u32 id, u64
+files carrying it, the name}: every tag, or the tags of that file). The
+older DIR (10) and TAGS (14), with names cut to 24 and 16 bytes and 126
+records, are gone: no program used them any more. Every call answers -5 when
 the disk cannot be read as a store or a page of it fails its checksum.
 
 **The disk is a store.** `fs` keeps nothing on the disk but trees of the
@@ -922,14 +917,19 @@ nothing is repaired at mount. Every tree page has a checksum. Nothing is
 counted in advance: files, tags, names up to 255 bytes and file sizes are
 bounded by the disk, and space freed anywhere is reused. UNLINK, TAG,
 UNTAG and RENAME are a commit each (the reply means it is on the disk), as
-is the close of a written file; a long write commits every MiB. The
+is the close of a written file; a long write commits every MiB. A commit
+holds the bytes of one writer at most: when another program writes, or
+anything else changes, they are committed first. So when the disk fills
+up, the file that did not fit is given up (it stays as it was, its space
+comes back when it is closed) and nothing else is lost. The
 server works on trees larger than its Local Stores through a cache of 124
 pages in far memory and three page buffers in its D-LS. A boot object
 (`proc`, `dev`, `fs`: what the boot manifest lists) can be written from
 inside the OS (`cp new-fs /sys/fs`): at its close its contents are brought
 into one run of pages and the manifest is written anew, in the same
 commit, so the next boot loads the old server or the new one. It cannot be
-renamed or deleted. `build/stdb check IMAGE` checks
+renamed or deleted. `fsck` checks the store from inside the OS (every tree page and every
+page's use; not the files' records); `build/stdb check IMAGE` checks
 a disk from outside, `stdb dump`, `ls` and `get` read one (`stdb snaps`
 lists its snapshots, `stdb -s SNAP dump|ls|get` reads it as one has it).
 **Snapshots**
@@ -966,7 +966,9 @@ a file without the attribute matches none. In a listing the last component
 may be `PREFIX*`. So `ls /src/lang=asm`, `ls '/src/size>100000'` (quoted
 for the shell), `ls /bin/ca*`, `cat /t/colour=blue/a2`. A path that
 creates cannot hold a term. Terms narrow what the tags give by looking at
-each file's record: the index is not yet walked for them. **The store for
+each file's record; a path without tags that has a `NAME=VALUE` term is
+answered from the index (only the files with that value are read), while
+`<`, `>` and `PREFIX*` alone still read every record. **The store for
 programs.** A program can keep data of its own in the store, beside the
 file system: in a namespace of its own, in named trees of keys and values
 (bytes, in key order; a key up to 480 bytes, a value up to about 1,000,
@@ -980,7 +982,8 @@ delete, u8 0, u16 key length, u16 value length, u16 0, key, value} from
 the next multiple of 8) → all of them in one commit, or none. A namespace
 and a tree are made by the first write. Namespaces made this way are
 public (any program names them); `fs` is private and refused. `os/lib/kv.s` wraps them for assembly programs (`kv_open`,
-`kv_get`, `kv_put`, `kv_del`, `kv_scan`). `db put
+`kv_get`, `kv_put`, `kv_del`, `kv_scan`), `db.fs` for Forth (`kv-open`,
+`kv-get` ...; `forth db.fs get NS/TREE KEY`). `db put
 NS/TREE KEY VALUE`, `db get NS/TREE KEY` and `db del NS/TREE KEY` use
 them from the shell. Inside the OS,
 `db` shows the store's trees (`db`: the trees with their roots and heights;

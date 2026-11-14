@@ -34,9 +34,9 @@ inline-limit @  4 inline-limit !                \ code space is scarce: call eve
 : fs-open ( path u -- id|err ) tuck >msg 0 swap 0 3 fs ; \ OPEN for reading
 : fs-read ( addr u id -- n ) 2 msg-read ;        \ READ: at most 1 KiB, 0 at the end
 : fs-close ( id -- ) 0 0 4 fs drop ;            \ CLOSE
-create dir-buf 126 32 * allot                   \ a DIR answer: {name[24], u64 size} per file
-: fs-dir ( path u -- n|err )                     \ DIR: the files a tag path names -> dir-buf
-  tuck >msg 0 swap 0 10 fs  dup 0> if dir-buf 64 2 pick 32 * 5 tget then ;
+create dir-buf 4032 allot                       \ a QUERY answer: u64 n, n u32 tag ids; per file {u16 bytes,
+: fs-dir ( path u -- n|err )                     \ u16 name length, u32 tags, u64 size, the name ...}: the
+  tuck >msg 0 swap 0 40 fs  dup 0> if dir-buf 64 4032 5 tget then ; \ first part of the files a tag path names
 
 \ ---- the connection: buffered output -------------------------------------------------
 variable conn                                   \ the socket being answered
@@ -141,10 +141,12 @@ variable #files                                 \ the files in dir-buf
 : list-page ( -- )                              \ the listing, in HTML, to OUT
   s" <html><head><title>" out path 2@ out s" </title></head><body><h1>" out
   path 2@ out s" </h1><ul>" out out-nl
-  #files @ 0 ?do  dir-buf i 32 * +  dup 24 zcount  ( record name u )
+  dir-buf dup @ 4 * 15 + -8 and +               ( record )
+  #files @ 0 ?do  dup dup 16 + over @ 16 rshift $ffff and  ( record record name u )
     s" <li><a href='" out out-dir 2dup out s" '>" out out s" </a> " out
-    24 + @ <# #s #> out s" </li>" out out-nl
-  loop  s" </ul></body></html>" out out-nl ;
+    8 + @ <# #s #> out s" </li>" out out-nl
+    dup @ $ffff and +
+  loop drop  s" </ul></body></html>" out out-nl ;
 : serve-listing ( n -- ) #files !  ['] list-page serve-page ; \ the n files in dir-buf
 
 \ ---- the answer to a request --------------------------------------------------------------

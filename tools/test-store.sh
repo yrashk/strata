@@ -28,6 +28,8 @@
 #    in a namespace of their own, beside the file system's.
 # 7. Attributes (`attr`) and the terms of a path that ask about them.
 # 8. Boot objects (the first servers' files) written inside the OS.
+# 9. `fsck`, the check of the store from inside the OS.
+# 10. A full disk: only the writer that did not fit loses its work.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 b="$here/${BUILD:-build}"
@@ -300,14 +302,24 @@ db put app/log 0002 again
 db get app/conf size
 db put fs/name evil x
 db get fs/name motd
+forth db.fs put app/forth k1 from-forth
+forth db.fs put app/forth k2 gone
+forth db.fs del app/forth k2
+forth db.fs get app/conf colour
+db get app/forth k1
+echo --fscan; forth db.fs scan app/conf
+forth db.fs get fs/name motd
 halt
 EOF
 run "$tmp/k1.txt" "$disk" -w "$tmp/k1.img" || fail "the session with a namespace of its own did not end well"
 grep -q '^43$' "$tmp/out.txt" || { cat "$tmp/out.txt" >&2; fail "db get does not answer what db put wrote"; }
-[ "$(grep -c '^db: refused' "$tmp/out.txt")" -eq 2 ] || fail "the file system's namespace was not refused to db put and db get"
+[ "$(grep -c '^db: refused' "$tmp/out.txt")" -eq 3 ] || fail "the file system's namespace was not refused to db put and db get (and to db.fs)"
+grep -q '^amber$' "$tmp/out.txt" && grep -q '^from-forth$' "$tmp/out.txt" || { cat "$tmp/out.txt" >&2; fail "the Forth words for the store (db.fs) do not get what was put"; }
+sed -n '/^--fscan$/,$p' "$tmp/out.txt" | grep '^"' | head -2 >"$tmp/fscan.txt"
+printf '"colour" = "amber"\n"size" = "43"\n' | cmp -s - "$tmp/fscan.txt" || { cat "$tmp/fscan.txt" >&2; fail "forth db.fs scan does not list the tree"; }
 "$b/stdb" check "$tmp/k1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk with a program's namespace fails its check"; }
 "$b/stdb" dump "$tmp/k1.img" | grep '^app/' >"$tmp/k1.dump"
-printf 'app/conf "colour" = "amber"\napp/conf "size" = "43"\napp/log "0002" = "again"\n' | cmp -s - "$tmp/k1.dump" ||
+printf 'app/conf "colour" = "amber"\napp/conf "size" = "43"\napp/forth "k1" = "from-forth"\napp/log "0002" = "again"\n' | cmp -s - "$tmp/k1.dump" ||
   { cat "$tmp/k1.dump" >&2; fail "the namespace on the disk is not what was put"; }
 "$b/stdb" dump "$tmp/k1.img" | grep -v '^app/' | cmp -s - "$tmp/dump0.txt" || fail "a program's namespace changed the file system"
 { printf 'db get app/log 0002\ndb app/conf\n'
@@ -319,7 +331,7 @@ grep -q '^again$' "$tmp/out.txt" && grep -q '^"size" = "43"$' "$tmp/out.txt" || 
 sed -n '/^--scan$/,$p' "$tmp/out.txt" | grep '^"k' >"$tmp/scan.txt"
 i=0; while [ $i -lt 300 ]; do printf '"k%04d" = "v%d"\n' $i $((i * 7)); i=$((i + 1)); done | cmp -s - "$tmp/scan.txt" ||
   { head -3 "$tmp/scan.txt" >&2; fail "db scan does not list the 300 records put, in order"; }
-echo "test-store: a namespace of a program's own: put, get, del, on the disk as put, read after a boot, 300 records scanned in parts; fs refused"
+echo "test-store: a namespace of a program's own: put, get, del, on the disk as put, read after a boot, 300 records scanned in parts; the same from Forth (db.fs); fs refused"
 # ---- 7. attributes and terms -------------------------------------------------------------
 cat >"$tmp/a1.txt" <<'EOF'
 echo x > /t/a1
@@ -335,6 +347,10 @@ attr -d a1 year
 attr a1
 attr a1 size 5
 echo --blue; ls /t/colour=blue
+echo --eq1; ls /colour=blue
+echo --eq2; ls /year=1999
+echo --eq3; ls /colour=mauve
+echo --eq4; ls /size=4/year=1999
 echo --old; ls '/t/year<2000'
 echo --new; ls '/t/year>1999'
 echo --big; ls '/t/size>2'
@@ -358,6 +374,8 @@ def sect(mark):
 assert "colour = green" in t and "year = 1984" not in t.split("strata$ attr a1\n")[-1].split("strata$")[0], "attr lists what was set last"
 assert "attr: cannot set size" in t, "size is not an attribute to set"
 assert sect("blue") == ["a2"], sect("blue")
+assert sect("eq1") == ["a2", "t/"] and sect("eq2") == ["a3", "t/"], "a term alone (the index walked): %r %r" % (sect("eq1"), sect("eq2"))
+assert sect("eq3") == ["(no"] and sect("eq4") == ["a3", "t/"], "a term alone: no such value; two terms: %r %r" % (sect("eq3"), sect("eq4"))
 assert sect("old") == ["a3"], sect("old")
 assert sect("new") == ["a2"], sect("new")
 assert sect("big") == ["a2", "a3"], sect("big")
@@ -400,4 +418,74 @@ printf 'cat /t/gap2 | wc\necho booted-again\nhalt\n' >"$tmp/b2.txt"
 run "$tmp/b2.txt" "$tmp/b1.img" || fail "the boot from servers written inside the OS did not end well"
 grep -q '^booted-again$' "$tmp/out.txt" || { cat "$tmp/out.txt" >&2; fail "the OS does not boot from servers written inside it"; }
 echo "test-store: boot objects written inside the OS: one run of pages each, the manifest anew, the OS boots from them"
+# ---- 9. fsck inside the OS ----------------------------------------------------------------
+# fsck agrees with `stdb check` on a disk with files written, a snapshot and
+# a program's tree (the same count of free pages); then a byte of a tree
+# page nobody reads at boot (the root of app/x) is changed on the disk, and
+# fsck says which page and ends with 1 while the files still read.
+cat >"$tmp/f1.txt" <<'EOF'
+echo one > /t/a
+seq 30000 > /t/b
+snap s1
+rm /t/b
+db put app/x k v
+fsck
+echo fsck-code $?
+db
+halt
+EOF
+run "$tmp/f1.txt" "$disk" -w "$tmp/f1.img" || fail "the session before fsck did not end well"
+grep -q '^fsck-code 0$' "$tmp/out.txt" && grep -q '^fsck: commit .*: no problems$' "$tmp/out.txt" ||
+  { cat "$tmp/out.txt" >&2; fail "fsck finds problems on a good disk"; }
+"$b/stdb" check "$tmp/f1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk fsck passed fails its check on the host"; }
+f1=$(sed -n 's/^fsck: commit .* \([0-9]*\) free, .*/\1/p' "$tmp/out.txt")
+f2=$(sed -n 's/.* \([0-9]*\) free, .*/\1/p' "$tmp/check.txt")
+[ -n "$f1" ] && [ "$f1" = "$f2" ] || fail "fsck counts $f1 free pages, stdb check $f2"
+pg=$(sed -n 's/^app\/x  *root page \([0-9]*\),.*/\1/p' "$tmp/out.txt")
+[ -n "$pg" ] || fail "db does not show the tree app/x"
+python3 - "$tmp/f1.img" "$pg" <<'EOF'
+import sys
+f = open(sys.argv[1], "r+b")
+f.seek(int(sys.argv[2]) * 4096 + 100)
+b = f.read(1)
+f.seek(-1, 1)
+f.write(bytes([b[0] ^ 0x40]))
+EOF
+printf 'fsck\necho fsck-code $?\ncat /t/a\nhalt\n' >"$tmp/f2.txt"
+run "$tmp/f2.txt" "$tmp/f1.img" || fail "the boot from the damaged disk did not end well"
+grep -q "^fsck: bad checksum in page $pg\$" "$tmp/out.txt" && grep -q '^fsck-code 1$' "$tmp/out.txt" && grep -q '^one$' "$tmp/out.txt" ||
+  { cat "$tmp/out.txt" >&2; fail "fsck does not report the damaged page"; }
+echo "test-store: fsck inside the OS: a good disk passes with the host's count of free pages; a damaged tree page is named"
+# ---- 10. a full disk loses one writer's work, not another's ---------------------------------
+# A shell writes a line into a file and sleeps with the file open; meanwhile
+# seq writes more than the disk holds. seq's file is given up (empty, its
+# space back); the first file gets its second line and is whole.
+cat >"$tmp/d1.txt" <<'EOF'
+echo echo one > /t/s1
+echo sleep 20 >> /t/s1
+echo echo two >> /t/s1
+sh < /t/s1 > /t/a &
+sleep 0.3
+seq 2000000 > /t/huge
+echo --after; df; ls /t
+wait
+echo --a; cat /t/a
+echo --end; df
+fsck
+halt
+EOF
+run "$tmp/d1.txt" "$disk" -w "$tmp/d1.img" -m 40000000000 || fail "the session that fills the disk did not end well"
+python3 - "$tmp/out.txt" <<'EOF' || { cat "$tmp/out.txt" >&2; exit 1; }
+import sys, re
+t = open(sys.argv[1], errors="replace").read()
+after, a, end = t.split("\n--after\n")[1], t.split("\n--a\n")[1], t.split("\n--end\n")[1]
+assert re.search(r"^huge +0$", after, re.M), "the file that did not fit is not empty"
+assert a.startswith("one\ntwo\n"), "the other writer's file is not whole"
+free = [int(x) for x in re.findall(r"(\d+) free", after.split("strata$")[0] + end.split("strata$")[0])]
+assert len(free) == 2 and free[1] > 8000 and abs(free[0] - free[1]) < 64, "the space of the file given up did not come back: %r" % free
+assert "no problems" in end, "fsck after a full disk"
+EOF
+"$b/stdb" check "$tmp/d1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk after it was full fails its check"; }
+[ "$("$b/stdb" get "$tmp/d1.img" a)" = "$(printf 'one\ntwo')" ] || fail "the other writer's file on the disk"
+echo "test-store: a full disk: the file that did not fit is given up and its space is back; a file another program was writing is whole"
 echo "test-store: OK"

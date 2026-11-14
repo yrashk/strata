@@ -11,8 +11,8 @@ decisions taken.
       snapshots wanted; query terms in paths; private or public
       namespaces; assembly; a commit per change. Emulator and RTL stay
       block devices only.
-- [ ] The format's specification (field offsets, the checksum, key
-      encodings) written out from `tools/stdb/` once stage 1 settles it
+- [x] The format's specification (field offsets, the checksum, key
+      encodings): `doc/strata-store-format.md`
 
 ## Stage 1: the store on the host
 - [x] `tools/stdb/store.c`: pages, B+tree (search, seek, insert, split,
@@ -64,11 +64,18 @@ decisions taken.
 - [x] Boot objects written from inside the OS: at the close, one run of
       pages and the manifest anew (`boot_fix` in `fsops.s`), in the same
       commit; rename and delete stay refused; `test-store.sh` part 8
-- [ ] After a failed write (disk full, a bad page) the commit under way is
-      given up for every client: files being written by others are lost.
-      Give up only the failing client's work
-- [ ] A commit writes each changed page with a command of its own; pages
-      that lie together could go in one
+- [x] A failed write (disk full) gives up one writer's work only: a
+      commit holds the uncommitted bytes of one open file (`tx_w`; another
+      writer's bytes, or any other change, commit them first), so giving a
+      commit up loses that file's bytes since its last commit and nothing
+      else; a lost write's blob is freed at its close; `test-store.sh`
+      part 10. Two programs writing at once commit at every switch
+      between them (slower than one commit a MiB). A page that fails its
+      checksum while someone reads still loses the one writer in flight
+- [x] A commit writes changed pages that lie together, in frames that lie
+      together, with one command (`c_write`; 4 KiB pages): 171 write
+      commands became 102 in a session of small files and a large one.
+      Pages together on the disk but apart in the cache still go one by one
 - [x] `compare-boot.sh` checks the disks the emulator and the RTL leave
       and compares their `stdb dump`
 - [x] `make test` runs `test-stdb` and `test-store`; `test-sh.out` regenerated
@@ -80,14 +87,20 @@ decisions taken.
 - [x] `ls` (names of any length, listings of any length)
 - [x] `cp`, `cp.fs`: no size limit
 - [x] `sh` completion (asks for `PATH/PREFIX*`) and `httpd`'s listings
-      (part by part): file names whole, any number of files. Both still
-      ask DIR once for the facets, and TAGS for tag names
-- [ ] `tag` / `tags` / `cp -t`, `vi`'s tags, the facets everywhere: still
-      TAGS and DIR's tag set (16-byte tag names, 64 tags of a file, tag
-      ids below 64 in the facets)
+      (part by part): file names whole, any number of files; the facets
+      from QUERY mode 1 (`sys_count`)
+- [x] `tag` / `tags` / `cp -t`, `vi`'s tags, the shell's and `httpd`'s tag
+      names: TAGS2 (`retag`, the shell and `httpd` take one message's
+      worth of tags, `vi` what its buffer holds)
+- [ ] Facets of tags with ids of 64 and up: the reply's tag set has 64
+      bits (`ls` works them out from the files' tag ids; the shell's
+      completion, `httpd` and `ls.fs` do not)
 - [x] `vi`, `vi-edit.fs`: no "128 KiB at most" for `:w`
-- [ ] Forth: `sys.fs`, `ls.fs`, `httpd.fs`, `tag.fs`, `tags.fs`, `vi-edit.fs`
-- [ ] DIR (10) and TAGS (14) removed
+- [x] Forth: `sys.fs` (`tags-of`, `rec-next`, `rec-name`, `rec-id`),
+      `ls.fs`, `httpd.fs` (the first part of a listing), `tag.fs`,
+      `tags.fs`, `cp.fs`, `vi-edit.fs`
+- [x] DIR (10) and TAGS (14) removed from the server; `sys_dir`,
+      `sys_query`, `sys_tags` from `sys.s`
 - [x] `doc/strataos.md`
 - [x] The manual: the disk layout (`ch-firmware`), the file system's
       structure and limits (`ch-os`, `ch-appendices`); its table of fs
@@ -99,7 +112,8 @@ decisions taken.
       commit), pages, a walk over a tree's records, lines of text
 - [x] `db` (the trees; a tree's records; one page) and `wdb` (the same in a
       window: the list of trees, then a tree page by page, into branches)
-- [ ] `wdb` has no test of its own (it was looked at on a captured frame)
+- [x] `tools/test-wdb.sh` (in `make test`): the list, a tree's root page,
+      back, quit, by the frames they leave
 
 ## Stage 7: the store for programs
 - [x] DBGET (64), DBSCAN (65), DBBATCH (66): trees of keys and values in
@@ -115,13 +129,18 @@ decisions taken.
 - [x] Wrappers: `os/lib/kv.s` (`kv_open`, `kv_get`, `kv_put`, `kv_del`,
       `kv_scan`; a library of its own, so that programs that keep nothing
       in the store do not grow); `db` is built on it
-- [ ] Forth words for the store's calls
+- [x] Forth words for the store's calls: `lang/forth/progs/db.fs`
+      (`kv-open`, `kv-get`, `kv-put`, `kv-del`, `kv-scan`; `forth db.fs
+      get|put|del|scan`)
 - [x] Attributes: SETATTR (42), GETATTR (43), `attr` (`fsattr.s`); terms
       in paths: `NAME=VALUE`, `<`, `>` over attributes, `size`,
       `modified`; `PREFIX*` last in a listing; `test-store.sh` part 7
-- [ ] Terms are checked against each record of what the tags give; walking
-      the index for a term (a range of values, a prefix of names) is not
-      done, so a term alone still reads every record
+- [x] A path without tags with a term `NAME=VALUE` (an attribute, `size`,
+      `modified`) is answered from the index: the entries of one value are
+      in object order, which is the order a listing's cursor needs
+- [ ] `<`, `>` and `PREFIX*` alone still read every record: their index
+      entries are in value order (name order), and a listing's cursor is
+      an object id
 
 ## Stage 8: snapshots
 - [x] Births in pages and extents (in the format from stage 1)
@@ -139,7 +158,10 @@ decisions taken.
 
 ## Later
 - [ ] Browser persistence (IndexedDB, download)
-- [ ] `fsck` in the OS
+- [x] `fsck` in the OS (`os/progs/fsck.s`): the meta block, every tree
+      page (checksum, number, level, key order), the boot manifest, every
+      page's one use, the count of free pages; not the file system's
+      records (`stdb check` on the host does those); `test-store.sh` part 9
 - [ ] Checksums of file data
 - [ ] The FPGA disk (128 KiB) is too small for the kernel's images and a
       store: `mkdisk -B ""` writes it with the kernel only (it had no
