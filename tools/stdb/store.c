@@ -26,7 +26,15 @@
  * stays. A record of 0 pages means nothing and goes when it is next read.
  * The pending tree: u64 commit, u64 start (big-endian) -> u64 pages, u64
  * birth: pages freed by that commit, reusable once it is on the disk.
- * The catalog: u32 namespace (big-endian), tree name -> u64 root, u64 height. */
+ * The catalog: u32 namespace (big-endian), tree name -> u64 root, u64 height.
+ * Namespace 0 holds the tree "ns": a namespace's name -> u64 id, u64 flags.
+ *
+ * Blobs. A value is inline bytes, or (flag set) a stream: u64 length, u64
+ * stream id. A stream's pages are in its namespace's tree ".ext": u64
+ * stream id, u64 offset in pages (both big-endian) -> u64 first page, u64
+ * pages, u64 birth. A range with no extent reads as zeros. Stream pages have
+ * no header; they are written to the disk at once, into free pages, and
+ * count from the commit like everything else. */
 #include <stdlib.h>
 #include <string.h>
 
@@ -613,6 +621,7 @@ static void meta_write(Store *st) {
   p64(m + 112, st->ps);
   p64(m + 120, st->spare.start);
   p64(m + 128, st->spare.len);
+  p64(m + 136, st->nextid);
   p64(m, st_sum(m, ST_BLK, slot));
   dev_write(st->dev, slot * (st->ps / ST_BLK), 1, m);
   st->dev->cmds++;
@@ -767,6 +776,7 @@ static int meta_load(Store *st) {
   st->nextns = g64(m + 96);
   st->nfree = g64(m + 104);
   st->spare = (StExt){g64(m + 120), g64(m + 128), 0};
+  st->nextid = g64(m + 136);
   return 0;
 }
 
@@ -807,7 +817,7 @@ void st_format(StDev *d, uint32_t ps, uint64_t first) {
   st->npages = d->nblocks / (ps / ST_BLK);
   st->first = first < 3 ? 3 : first;
   st->txn = 1;
-  st->nextns = 1;
+  st->nextns = st->nextid = 1;
   st->pg = calloc(st->npages, sizeof *st->pg);
   st->dirty = calloc(st->npages, 1);
   memcpy(d->img + 56, "STDB", 4);
@@ -888,6 +898,57 @@ static void walk_tree(Chk *c, StTree t) {
   walk(c, t.root, (int)t.height - 1, NULL, 0, NULL, 0, 1);
 }
 
+typedef struct { uint32_t ns; uint64_t id, len; int seen; } SId;
+
+static int sid_cmp(const void *a, const void *b) {
+  const SId *x = a, *y = b;
+  return x->ns != y->ns ? (x->ns < y->ns ? -1 : 1) : x->id != y->id ? (x->id < y->id ? -1 : 1) : 0;
+}
+
+/* Every stream's extents: inside the store, used once, in order, within
+ * the stream's length, and belonging to a stream some value names. */
+static void check_streams(Chk *c) {
+  Store *st = c->st;
+  SId *ids = NULL;
+  int n = 0, cap = 0;
+  uint8_t ck[80] = {0}, cv[16], k[ST_MAXPS / 8], v[ST_MAXPS / 4];
+  int ckl = 0, cvl, kl, vl, fl;
+  while (st_seek(st, &st->cat, ck, ckl, ST_GT, ck, &ckl, cv, &cvl, NULL)) {
+    StTree t = {g64(cv), g64(cv + 8)};
+    if (ckl == 8 && !memcmp(ck + 4, ".ext", 4)) continue;
+    for (kl = 0; st_seek(st, &t, k, kl, ST_GT, k, &kl, v, &vl, &fl);) {
+      if (!fl) continue;
+      if (vl != 16) { bad(c, "bad stream value", 0); continue; }
+      ids = grow(ids, n, &cap, sizeof *ids);
+      ids[n++] = (SId){(uint32_t)(gbe(ck) >> 32), g64(v + 8), g64(v), 0};
+    }
+  }
+  qsort(ids, (size_t)n, sizeof *ids, sid_cmp);
+  for (int i = 1; i < n; i++) if (!sid_cmp(&ids[i - 1], &ids[i])) bad(c, "two values name one stream", ids[i].id);
+  for (ckl = 0; st_seek(st, &st->cat, ck, ckl, ST_GT, ck, &ckl, cv, &cvl, NULL);) {
+    StTree t = {g64(cv), g64(cv + 8)};
+    if (ckl != 8 || memcmp(ck + 4, ".ext", 4)) continue;
+    uint64_t pid = 0, pend = 0;
+    SId *cur = NULL;
+    for (kl = 0; st_seek(st, &t, k, kl, ST_GT, k, &kl, v, &vl, NULL);) {
+      if (kl != 16 || vl != 24) { bad(c, "bad extent record", 0); continue; }
+      uint64_t id = gbe(k), off = gbe(k + 8), pages = g64(v + 8);
+      if (!cur || id != pid) {
+        SId key = {(uint32_t)(gbe(ck) >> 32), id, 0, 0};
+        cur = bsearch(&key, ids, (size_t)n, sizeof *ids, sid_cmp);
+        if (!cur) { bad(c, "extent of no stream", g64(v)); pid = id; pend = 0; continue; }
+        pid = id; pend = 0;
+      }
+      if (!pages || off < pend) bad(c, "stream extents overlap", g64(v));
+      if (cur && (off + pages) * st->ps >= cur->len + st->ps) bad(c, "extent beyond its stream's length", g64(v));
+      if (g64(v + 16) > st->commit) bad(c, "extent written by a later commit", g64(v));
+      pend = off + pages;
+      mark(c, g64(v), pages, 4, "stream extent outside the store");
+    }
+  }
+  free(ids);
+}
+
 int st_check(Store *st, FILE *out) {
   Chk *c = malloc(sizeof *c);
   *c = (Chk){st, out, 0, calloc(st->npages, 1)};
@@ -916,6 +977,8 @@ int st_check(Store *st, FILE *out) {
       mark(c, gbe(k + 8), g64(v), 3, "pending extent outside the store");
       nfree += g64(v);
     }
+    check_streams(c);
+    if (st->manifest) { mark(c, st->manifest, 1, 1, "manifest outside the store"); P(st, st->manifest); }
     mark(c, st->spare.start, st->spare.len, 2, "spare extent outside the store");
     nfree += st->spare.len;
     for (uint64_t i = st->first; i < st->npages; i++) if (!c->map[i]) { bad(c, "neither used nor free", i); break; }
@@ -935,15 +998,264 @@ uint64_t st_hash(Store *st) {
 #define MIX(p, n) for (int i_ = 0; i_ < (n); i_++) h = (h ^ (p)[i_]) * 0x100000001B3ull
   while (st_seek(st, &st->cat, ck, ckl, ST_GT, ck, &ckl, cv, &cvl, NULL)) {
     StTree t = {g64(cv), g64(cv + 8)};
+    if (ckl == 8 && !memcmp(ck + 4, ".ext", 4)) continue; /* placement */
     MIX(ck, ckl);
     h = (h ^ 0xff) * 0x100000001B3ull;
     for (kl = 0; st_seek(st, &t, k, kl, ST_GT, k, &kl, v, &vl, &fl);) {
       uint8_t l[5] = {(uint8_t)kl, (uint8_t)(kl >> 8), (uint8_t)vl, (uint8_t)(vl >> 8), (uint8_t)fl};
       MIX(l, 5);
       MIX(k, kl);
+      if (fl) { /* a stream: its length and bytes, not where they are */
+        uint8_t b[ST_MAXPS];
+        uint64_t len = g64(v);
+        uint32_t ns = (uint32_t)(gbe(ck) >> 32);
+        MIX(v, 8);
+        for (uint64_t off = 0; off < len; off += st->ps) {
+          int64_t r = st_bread(st, ns, &t, k, kl, off, b, st->ps);
+          MIX(b, (int)r);
+        }
+        continue;
+      }
       MIX(v, vl);
     }
   }
 #undef MIX
   return h;
+}
+
+/* ---- pages for the layers above ---------------------------------------------- */
+
+uint8_t *st_page_new(Store *st, uint64_t *no) { return newpage(st, 3, 0, no); }
+
+void st_page_free(Store *st, uint64_t no) { pfree(st, no, 1, g64(P(st, no) + 16)); }
+
+const uint8_t *st_page(Store *st, uint64_t no) { return P(st, no); }
+
+/* ---- namespaces ------------------------------------------------------------ */
+
+uint32_t st_ns(Store *st, const char *name, int create) {
+  StTree *t = st_tree(st, 0, "ns", create);
+  uint8_t v[16];
+  int vl, nl = (int)strlen(name);
+  if (!t) return 0;
+  if (st_get(st, t, name, nl, v, &vl, NULL)) return (uint32_t)g64(v);
+  if (!create) return 0;
+  p64(v, st->nextns);
+  p64(v + 8, 0);
+  if (st_put(st, t, name, nl, v, 16, 0) < 0) return 0;
+  return (uint32_t)st->nextns++;
+}
+
+/* ---- blobs ----------------------------------------------------------------- */
+
+typedef struct { uint64_t off, start, pages, birth; } Ext;
+
+static void ekey(uint8_t *k, uint64_t id, uint64_t off) { pbe(k, id); pbe(k + 8, off); }
+
+/* The extent that holds page pi of the stream: 1. Else 0, and e->off is
+ * where the next extent begins (all ones: there is none). */
+static int ext_find(Store *st, StTree *et, uint64_t id, uint64_t pi, Ext *e) {
+  uint8_t k[16], ok[16], v[24];
+  int kl, vl;
+  ekey(k, id, pi);
+  if (st_seek(st, et, k, 16, ST_LE, ok, &kl, v, &vl, NULL) && gbe(ok) == id) {
+    *e = (Ext){gbe(ok + 8), g64(v), g64(v + 8), g64(v + 16)};
+    if (pi < e->off + e->pages) return 1;
+  }
+  e->off = ~0ull;
+  if (st_seek(st, et, k, 16, ST_GT, ok, &kl, v, &vl, NULL) && gbe(ok) == id) e->off = gbe(ok + 8);
+  return 0;
+}
+
+static void ext_put(Store *st, StTree *et, uint64_t id, Ext e) {
+  uint8_t k[16], v[24];
+  ekey(k, id, e.off);
+  p64(v, e.start); p64(v + 8, e.pages); p64(v + 16, e.birth);
+  st_put(st, et, k, 16, v, 24, 0);
+}
+
+static void ext_del(Store *st, StTree *et, uint64_t id, uint64_t off) {
+  uint8_t k[16];
+  ekey(k, id, off);
+  st_del(st, et, k, 16);
+}
+
+/* Pages [a, b) of extent e leave it: the parts before and after stay. */
+static void ext_cut(Store *st, StTree *et, uint64_t id, Ext e, uint64_t a, uint64_t b) {
+  uint64_t end = e.off + e.pages;
+  if (a > e.off) ext_put(st, et, id, (Ext){e.off, e.start, a - e.off, e.birth});
+  else ext_del(st, et, id, e.off);
+  if (b < end) ext_put(st, et, id, (Ext){b, e.start + (b - e.off), end - b, e.birth});
+  pfree(st, e.start + (a - e.off), b - a, e.birth);
+}
+
+static void dio(Store *st, int wr, uint64_t page, uint64_t n, uint8_t *b) {
+  uint32_t bpp = st->ps / ST_BLK;
+  if (page < st->first || page + n > st->npages) fail(st, "stream page out of range");
+  if (wr) dev_write(st->dev, page * bpp, (uint32_t)(n * bpp), b);
+  else dev_read(st->dev, page * bpp, (uint32_t)(n * bpp), b);
+}
+
+/* Bytes into a stream. Pages this transaction wrote are written again in
+ * place; older ones are replaced by new pages; a hole gets pages, after the
+ * extent before it when those are free. */
+static void s_write(Store *st, StTree *et, uint64_t id, uint64_t oldlen, uint64_t off,
+                    const uint8_t *data, uint64_t len) {
+  uint32_t ps = st->ps;
+  uint8_t pb[ST_MAXPS];
+  while (len) {
+    uint64_t pi = off / ps, po = off % ps, need = (po + len + ps - 1) / ps, run, dst, src = 0;
+    Ext e, pv;
+    int have = ext_find(st, et, id, pi, &e);
+    if (have && e.birth == st->txn) {
+      run = e.off + e.pages - pi;
+      if (run > need) run = need;
+      dst = src = e.start + (pi - e.off);
+    } else {
+      uint64_t lim = have ? e.off + e.pages - pi : e.off == ~0ull ? need : e.off - pi, hint = 0;
+      int hp = !have && pi > 0 && ext_find(st, et, id, pi - 1, &pv);
+      run = need < lim ? need : lim;
+      if (hp) hint = pv.start + pv.pages;
+      dst = alloc(st, run, hint, &run);
+      if (have) {
+        src = e.start + (pi - e.off);
+        ext_cut(st, et, id, e, pi, pi + run);
+        ext_put(st, et, id, (Ext){pi, dst, run, st->txn});
+      } else if (hp && dst == hint && pv.birth == st->txn) {
+        pv.pages += run;
+        ext_put(st, et, id, pv);
+      } else ext_put(st, et, id, (Ext){pi, dst, run, st->txn});
+    }
+    uint64_t cnt = run * ps - po;
+    if (cnt > len) cnt = len;
+    for (uint64_t j = 0; j < run; j++) {
+      uint64_t ps0 = (pi + j) * ps, a = off > ps0 ? off : ps0, b = off + cnt < ps0 + ps ? off + cnt : ps0 + ps;
+      if (b - a == ps) { dio(st, 1, dst + j, 1, (uint8_t *)(uintptr_t)(data + (a - off))); continue; }
+      if (src) dio(st, 0, src + j, 1, pb); else memset(pb, 0, ps);
+      if (oldlen < ps0 + ps) { /* nothing beyond the old end is kept */
+        uint64_t z = oldlen > ps0 ? oldlen - ps0 : 0;
+        memset(pb + z, 0, ps - z);
+      }
+      memcpy(pb + (a - ps0), data + (a - off), b - a);
+      dio(st, 1, dst + j, 1, pb);
+    }
+    st->dev->cmds++;
+    off += cnt; data += cnt; len -= cnt;
+  }
+}
+
+/* The stream keeps its first `pages` pages. */
+static void s_trim(Store *st, StTree *et, uint64_t id, uint64_t pages) {
+  uint8_t k[16], ok[16], v[24];
+  int kl, vl;
+  Ext e;
+  if (pages && ext_find(st, et, id, pages - 1, &e) && e.off + e.pages > pages) ext_cut(st, et, id, e, pages, e.off + e.pages);
+  ekey(k, id, pages);
+  while (st_seek(st, et, k, 16, ST_GE, ok, &kl, v, &vl, NULL) && gbe(ok) == id) {
+    e = (Ext){gbe(ok + 8), g64(v), g64(v + 8), g64(v + 16)};
+    ext_cut(st, et, id, e, e.off, e.off + e.pages);
+  }
+}
+
+int64_t st_bsize(Store *st, StTree *t, const void *key, int kl) {
+  uint8_t v[ST_MAXPS / 4];
+  int vl, fl;
+  if (!st_get(st, t, key, kl, v, &vl, &fl)) return -1;
+  return fl ? (int64_t)g64(v) : vl;
+}
+
+int64_t st_bread(Store *st, uint32_t ns, StTree *t, const void *key, int kl, uint64_t off, uint8_t *b, uint64_t len) {
+  uint8_t v[ST_MAXPS / 4], pb[ST_MAXPS];
+  int vl, fl;
+  uint32_t ps = st->ps;
+  if (!st_get(st, t, key, kl, v, &vl, &fl)) return -1;
+  uint64_t size = fl ? g64(v) : (uint64_t)vl, done = 0;
+  if (off >= size) return 0;
+  if (len > size - off) len = size - off;
+  if (!fl) { memcpy(b, v + off, len); return (int64_t)len; }
+  StTree *et = st_tree(st, ns, ".ext", 0);
+  uint64_t id = g64(v + 8);
+  while (done < len) {
+    uint64_t o = off + done, pi = o / ps, po = o % ps, n = ps - po;
+    Ext e;
+    if (n > len - done) n = len - done;
+    if (et && ext_find(st, et, id, pi, &e)) {
+      if (po == 0 && n == ps) { /* whole pages: as many as the extent has */
+        uint64_t run = e.off + e.pages - pi;
+        if (run > (len - done) / ps) run = (len - done) / ps;
+        dio(st, 0, e.start + (pi - e.off), run, b + done);
+        done += run * ps;
+        continue;
+      }
+      dio(st, 0, e.start + (pi - e.off), 1, pb);
+      memcpy(b + done, pb + po, n);
+    } else memset(b + done, 0, n);
+    done += n;
+  }
+  return (int64_t)len;
+}
+
+void st_bwrite(Store *st, uint32_t ns, StTree *t, const void *key, int kl, uint64_t off,
+               const uint8_t *data, uint64_t len, int stream) {
+  uint8_t v[ST_MAXPS / 4], d[16];
+  int vl = 0, fl = 0;
+  begin(st);
+  st_get(st, t, key, kl, v, &vl, &fl);
+  uint64_t size = fl ? g64(v) : (uint64_t)vl, end = off + len > size ? off + len : size;
+  if (!fl && !stream && end <= (uint64_t)st_maxval(st, kl)) {
+    memset(v + size, 0, end - size);
+    memcpy(v + off, data, len);
+    st_put(st, t, key, kl, v, (int)end, 0);
+    return;
+  }
+  StTree *et = st_tree(st, ns, ".ext", 1);
+  uint64_t id = fl ? g64(v + 8) : st->nextid++;
+  if (!fl && size) s_write(st, et, id, 0, 0, v, size);
+  s_write(st, et, id, size, off, data, len);
+  p64(d, end);
+  p64(d + 8, id);
+  st_put(st, t, key, kl, d, 16, 1);
+}
+
+void st_btrunc(Store *st, uint32_t ns, StTree *t, const void *key, int kl, uint64_t size) {
+  uint8_t v[ST_MAXPS / 4];
+  int vl, fl;
+  if (!st_get(st, t, key, kl, v, &vl, &fl)) return;
+  uint64_t old = fl ? g64(v) : (uint64_t)vl;
+  if (size > old) { uint8_t z = 0; st_bwrite(st, ns, t, key, kl, size - 1, &z, 1, 0); return; }
+  if (!fl) { st_put(st, t, key, kl, v, (int)size, 0); return; }
+  StTree *et = st_tree(st, ns, ".ext", 1);
+  Ext e;
+  s_trim(st, et, g64(v + 8), (size + st->ps - 1) / st->ps);
+  if (size % st->ps && ext_find(st, et, g64(v + 8), size / st->ps, &e)) { /* zeros after the new end */
+    uint8_t z[ST_MAXPS] = {0};
+    s_write(st, et, g64(v + 8), size, size, z, st->ps - size % st->ps);
+  }
+  p64(v, size);
+  st_put(st, t, key, kl, v, 16, 1);
+}
+
+int st_bdel(Store *st, uint32_t ns, StTree *t, const void *key, int kl) {
+  uint8_t v[ST_MAXPS / 4];
+  int vl, fl;
+  if (!st_get(st, t, key, kl, v, &vl, &fl)) return 0;
+  if (fl) s_trim(st, st_tree(st, ns, ".ext", 1), g64(v + 8), 0);
+  return st_del(st, t, key, kl);
+}
+
+/* A stream's extents, in order -> out (at most max): their number; -1 when
+ * the value is inline or not there. */
+int st_bextents(Store *st, uint32_t ns, StTree *t, const void *key, int kl, StExt *out, int max) {
+  uint8_t v[ST_MAXPS / 4], k[16], ok[16], ev[24];
+  int vl, fl, n = 0, okl;
+  if (!st_get(st, t, key, kl, v, &vl, &fl) || !fl) return -1;
+  StTree *et = st_tree(st, ns, ".ext", 0);
+  uint64_t id = g64(v + 8);
+  ekey(k, id, 0);
+  for (int mode = ST_GE; et && st_seek(st, et, k, 16, mode, ok, &okl, ev, &vl, NULL) && gbe(ok) == id; mode = ST_GT) {
+    if (n < max) out[n] = (StExt){g64(ev), g64(ev + 8), gbe(ok + 8)};
+    n++;
+    memcpy(k, ok, 16);
+  }
+  return n;
 }

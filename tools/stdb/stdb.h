@@ -47,7 +47,7 @@ typedef struct Store {
   uint64_t npages, first; /* pages on the disk; the first one the store manages */
   uint64_t commit, txn;   /* the last commit on the disk; the one being made */
   StTree cat, fre, pend;  /* catalog, free space, pending frees */
-  uint64_t manifest, nextns, nfree;
+  uint64_t manifest, nextns, nextid, nfree;
   StExt spare;            /* free pages in no tree: the allocator's last extent */
   uint8_t **pg;           /* the cache: every page read or made */
   uint8_t *dirty;
@@ -99,4 +99,24 @@ int st_check(Store *st, FILE *out);
 uint64_t st_hash(Store *st);
 
 uint64_t st_sum(const uint8_t *p, size_t n, uint64_t seed);
+
+/* A namespace's id by name (0: not there). */
+uint32_t st_ns(Store *st, const char *name, int create);
+
+/* Blobs: a value of any length under a key; short ones are kept in the
+ * tree, longer ones (or `stream` set) as a stream. */
+int64_t st_bsize(Store *st, StTree *t, const void *key, int kl); /* -1: not there */
+int64_t st_bread(Store *st, uint32_t ns, StTree *t, const void *key, int kl, uint64_t off, uint8_t *b, uint64_t len);
+void st_bwrite(Store *st, uint32_t ns, StTree *t, const void *key, int kl, uint64_t off,
+               const uint8_t *data, uint64_t len, int stream);
+void st_btrunc(Store *st, uint32_t ns, StTree *t, const void *key, int kl, uint64_t size);
+int st_bdel(Store *st, uint32_t ns, StTree *t, const void *key, int kl);
+/* out[i]: start page, pages, and in .birth the offset in pages. */
+int st_bextents(Store *st, uint32_t ns, StTree *t, const void *key, int kl, StExt *out, int max);
+
+/* A page of the caller's own (kind 3: header as a tree page's, the rest free
+ * from byte 32), written with the commit; and giving one back. */
+uint8_t *st_page_new(Store *st, uint64_t *no);
+void st_page_free(Store *st, uint64_t no);
+const uint8_t *st_page(Store *st, uint64_t no);
 #endif

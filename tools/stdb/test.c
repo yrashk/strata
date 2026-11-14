@@ -50,7 +50,67 @@ static void mdel(int i) {
   mod[i] = mod[--nmod];
 }
 
-static void mclear(void) { while (nmod) mdel(0); }
+static void bclear(void);
+static void mclear(void) { while (nmod) mdel(0); bclear(); }
+
+/* Blobs: a few keys in a tree of their own, each a byte array in the model. */
+#define NB 12
+static struct { int there; uint64_t len; uint8_t *d; } blob[NB];
+
+static void bclear(void) {
+  for (int i = 0; i < NB; i++) { free(blob[i].d); blob[i].d = NULL; blob[i].there = 0; blob[i].len = 0; } }
+
+static void die(const char *m);
+
+static void bstep(Store *st) {
+  int i = (int)(rnd() % NB), op = (int)(rnd() % 10);
+  StTree *t = st_tree(st, 1, "blob", 1);
+  uint8_t key[2] = {'b', (uint8_t)('a' + i)};
+  uint32_t ps = st->ps;
+  if (op < 6) { /* write somewhere: mostly near the end, sometimes far beyond, sometimes inside */
+    uint64_t off = blob[i].len, len = rnd() % (3 * ps);
+    if (rnd() % 3 == 0) off = rnd() % (blob[i].len + 1);
+    if (rnd() % 12 == 0) off += rnd() % (20 * ps);
+    if (rnd() % 3 == 0) len = rnd() % 200;
+    if (rnd() % 10 == 0) len = 30 * ps + rnd() % ps;
+    uint8_t *d = malloc(len + 1);
+    for (uint64_t j = 0; j < len; j++) d[j] = (uint8_t)rnd();
+    st_bwrite(st, 1, t, key, 2, off, d, len, 0);
+    if (!blob[i].there && len == 0 && off == 0) { blob[i].there = 1; }
+    uint64_t end = off + len > blob[i].len ? off + len : blob[i].len;
+    blob[i].d = realloc(blob[i].d, end + 1);
+    if (end > blob[i].len) memset(blob[i].d + blob[i].len, 0, end - blob[i].len);
+    memcpy(blob[i].d + off, d, len);
+    blob[i].len = end;
+    blob[i].there = 1;
+    free(d);
+  } else if (op < 8 && blob[i].there) {
+    uint64_t size = rnd() % (blob[i].len + 1 + (rnd() % 4 == 0 ? 3 * ps : 0));
+    st_btrunc(st, 1, t, key, 2, size);
+    blob[i].d = realloc(blob[i].d, size + 1);
+    if (size > blob[i].len) memset(blob[i].d + blob[i].len, 0, size - blob[i].len);
+    blob[i].len = size;
+  } else if (op == 8 && blob[i].there) {
+    if (!st_bdel(st, 1, t, key, 2)) die("blob delete: not there");
+    free(blob[i].d); blob[i].d = NULL; blob[i].there = 0; blob[i].len = 0;
+  }
+}
+
+static void bcompare(Store *st, const char *when) {
+  StTree *t = st_tree(st, 1, "blob", 0);
+  for (int i = 0; i < NB; i++) {
+    uint8_t key[2] = {'b', (uint8_t)('a' + i)};
+    int64_t size = t ? st_bsize(st, t, key, 2) : -1;
+    if (size != (blob[i].there ? (int64_t)blob[i].len : -1)) { fprintf(stderr, "%s: blob %d is %lld bytes, the model %lld\n", when, i, (long long)size, blob[i].there ? (long long)blob[i].len : -1); exit(1); }
+    if (size <= 0) continue;
+    uint8_t *b = malloc((size_t)size);
+    /* in two reads at an odd place, to cross pages unaligned */
+    uint64_t cut = rnd() % ((uint64_t)size + 1);
+    if (st_bread(st, 1, t, key, 2, 0, b, cut) != (int64_t)cut || st_bread(st, 1, t, key, 2, cut, b + cut, (uint64_t)size - cut + 5) != size - (int64_t)cut) die("blob read: wrong count");
+    if (memcmp(b, blob[i].d, (size_t)size)) { fprintf(stderr, "%s: blob %d\n", when, i); die("blob bytes differ from the model"); }
+    free(b);
+  }
+}
 
 static void die(const char *m) { fprintf(stderr, "stdb-test: %s\n", m); exit(1); }
 
@@ -80,9 +140,11 @@ static void compare(Store *st, const char *when) {
     }
     if (n != want) { fprintf(stderr, "%s: tree %d has %d records, the model %d\n", when, t, n, want); exit(1); }
   }
+  bcompare(st, when);
 }
 
 static void step(Store *st) {
+  if (rnd() % 8 == 0) { bstep(st); return; }
   int t = (int)(rnd() % NT), op = (int)(rnd() % 20);
   StTree *tr = st_tree(st, 1, tname[t], 1);
   uint8_t k[ST_MAXPS / 8], v[ST_MAXPS / 4], g[ST_MAXPS / 4];
@@ -167,6 +229,16 @@ static void test_model(uint32_t ps, uint64_t blocks, int commits, int per) {
         StTree *tr = st_tree(&st, 1, tname[t], 0);
         int kl = 0, vl;
         while (tr && st_seek(&st, tr, k, kl, ST_GT, k, &kl, v, &vl, NULL)) mput(t, k, kl, v, vl);
+      }
+      for (int i = 0; i < NB; i++) {
+        StTree *bt = st_tree(&st, 1, "blob", 0);
+        uint8_t key[2] = {'b', (uint8_t)('a' + i)};
+        int64_t size = bt ? st_bsize(&st, bt, key, 2) : -1;
+        if (size < 0) continue;
+        blob[i].there = 1;
+        blob[i].len = (uint64_t)size;
+        blob[i].d = malloc((size_t)size + 1);
+        st_bread(&st, 1, bt, key, 2, 0, blob[i].d, (uint64_t)size);
       }
       checked(&st, "after abort");
       continue;
@@ -300,8 +372,8 @@ int main(int argc, char **argv) {
   rs = seed * 0x9E3779B97F4A7C15ull + 1;
   test_model(4096, 16384, 400, 60);
   test_model(1024, 8192, 400, 40);
-  test_model(2048, 2048, 300, 40);
-  test_cut(4096, 4096, 40, seed + 77);
+  test_model(2048, 16384, 300, 40);
+  test_cut(4096, 8192, 40, seed + 77);
   test_cut(1024, 2048, 40, seed + 99);
   test_damage();
   printf("stdb-test: OK\n");
