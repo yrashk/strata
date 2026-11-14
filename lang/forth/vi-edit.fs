@@ -169,7 +169,6 @@
     tuck tbuf k + swap move  k + dup tbuf + 10 swap c!  1+ to k loop
   k if id k fs-write else true then ;
 : do-write ( a u -- f )                         \ the text into that file
-  buf-bytes $20000 > if 2drop m" too big to write: the file server takes 128 KiB at most" false exit then
   2dup 1 fs-open dup 0< if drop m" cannot write: " m-add false exit then
   dup dw-lines swap fs-close 0= if m" cannot write: " m-add false exit then
   0 msgl ! '"' m-chr m-add '"' m-chr m-size m+"  written" true ;

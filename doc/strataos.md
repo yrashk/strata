@@ -1623,9 +1623,7 @@ messages and the `:` and `/` lines take its place.
   short, and vi says so); lines of 1000 bytes at most (a longer one is
   split when the file is read); 96 KiB in the register; a change bigger
   than the 224 KiB history cannot be undone (the history before it goes).
-  `fs` holds a file being written in 128 KiB, so `:w` refuses a bigger
-  buffer before the file is touched; `/src/sh.s` (333 KiB) opens, but
-  cannot be written back. Every line is written with a newline after it.
+  Every line is written with a newline after it.
   No counts on inserts, no `f t`, no marks or named registers, no regular
   expressions.
 - **In Forth.** `forth vi.fs FILE` (or `include vi.fs` at the Forth prompt,

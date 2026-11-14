@@ -80,7 +80,7 @@ decisions taken.
 - [ ] `sh` completion, `httpd`, `tag` / `tags` / `cp -t`, `vi`'s tags: still
       DIR and TAGS (24-byte names, 16-byte tag names, 126 records, tag ids
       below 64 in the facets)
-- [ ] `vi`: its "128 KiB at most" for `:w`
+- [x] `vi`, `vi-edit.fs`: no "128 KiB at most" for `:w`
 - [ ] Forth: `sys.fs`, `ls.fs`, `httpd.fs`, `tag.fs`, `tags.fs`, `vi-edit.fs`
 - [ ] DIR (10) and TAGS (14) removed
 - [x] `doc/strataos.md`
@@ -98,7 +98,7 @@ decisions taken.
       namespaces made by the first write; a batch is one commit;
       namespaces made so are public, `fs` is private and refused
 - [x] `db put / get / del`; `test-store.sh` part 6
-- [ ] DBSCAN has no user and no test yet (`db TREE` reads the disk)
+- [x] `db scan NS/TREE` (DBSCAN, part by part), tested with 300 records
 - [ ] Values longer than a quarter page (streams) through these calls
 - [ ] Private namespaces for programs: handles, grants (NSGRANT), through
       SPAWN and CLEANUP

@@ -306,10 +306,16 @@ grep -q '^43$' "$tmp/out.txt" || { cat "$tmp/out.txt" >&2; fail "db get does not
 printf 'app/conf "colour" = "amber"\napp/conf "size" = "43"\napp/log "0002" = "again"\n' | cmp -s - "$tmp/k1.dump" ||
   { cat "$tmp/k1.dump" >&2; fail "the namespace on the disk is not what was put"; }
 "$b/stdb" dump "$tmp/k1.img" | grep -v '^app/' | cmp -s - "$tmp/dump0.txt" || fail "a program's namespace changed the file system"
-printf 'db get app/log 0002\ndb app/conf\nhalt\n' >"$tmp/k2.txt"
+{ printf 'db get app/log 0002\ndb app/conf\n'
+  i=0; while [ $i -lt 300 ]; do printf 'db put app/many k%04d v%d\n' $i $((i * 7)); i=$((i + 1)); done
+  printf 'echo --scan; db scan app/many\nhalt\n'; } >"$tmp/k2.txt"
 run "$tmp/k2.txt" "$tmp/k1.img" || fail "the boot from a disk with a program's namespace did not end well"
 grep -q '^again$' "$tmp/out.txt" && grep -q '^"size" = "43"$' "$tmp/out.txt" || fail "a program's namespace after a second boot"
-echo "test-store: a namespace of a program's own: put, get, del, on the disk as put, read after a boot; fs refused"
+# db scan asks the server (DBSCAN), part by part: 300 records in key order
+sed -n '/^--scan$/,$p' "$tmp/out.txt" | grep '^"k' >"$tmp/scan.txt"
+i=0; while [ $i -lt 300 ]; do printf '"k%04d" = "v%d"\n' $i $((i * 7)); i=$((i + 1)); done | cmp -s - "$tmp/scan.txt" ||
+  { head -3 "$tmp/scan.txt" >&2; fail "db scan does not list the 300 records put, in order"; }
+echo "test-store: a namespace of a program's own: put, get, del, on the disk as put, read after a boot, 300 records scanned in parts; fs refused"
 # ---- 7. attributes and terms -------------------------------------------------------------
 cat >"$tmp/a1.txt" <<'EOF'
 echo x > /t/a1
