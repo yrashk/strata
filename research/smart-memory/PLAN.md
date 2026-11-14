@@ -44,8 +44,8 @@ Store memories raise the RTL's speed or cut its area? The answer is
 - [x] `make test` with the default: passes
 - [x] Measured as first built: StrataOS session 1.75 -> 1.84 busy cycles per instruction (+5%); streaming examples +6%, the others 1% or less
 - [x] Where the 5% went (stream fetch misses, not waiting for the memory); a late read-ahead now costs one cycle (retire to F1); a ready for read beats on the far bus so the core and a burst take turns
-- [x] Measured now: 1.80 (+2.9%); streaming examples +3.4%
-- [ ] Read two words ahead (a third word register): the rest of the cost
+- [x] Then: 1.80 (+2.9%); streaming examples +3.4%
+- [x] Two words ahead with one memory (`fb_nx2`), and the next word's read alternating with a `tput`'s reads: 1.78 (+1.3%); streaming examples +2.8%; the other examples at the two-store figure; the default machine's cycle counts unchanged
 - [ ] `fpga/arty/strata_arty.sv`: honour `ext_t3_rready` (needed only with `LS_1P`)
 - [ ] `asic/`: a single-port `strata_ram1` replacement, one store array in the floorplan, the 1024 x 8 3.3 V macros
 - [ ] Area and clock of the change

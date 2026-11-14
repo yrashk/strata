@@ -35,7 +35,7 @@ Since this was written the first recommendation has been built
 (`STREAM` in `rtl/strata_core.sv`, since made the default) and measured:
 section 9. The StrataOS session runs at 1.75 cycles per instruction, 1.84x.
 The second has been built too (`LS_1P`, off by default): section 10. It
-costs 3% of that (5% as first built).
+costs 1.3% of that (5% as first built).
 
 Which numbers are measured, estimated or from the literature is stated per
 table and collected in the last section.
@@ -698,19 +698,20 @@ so it goes first.
 
 **Cycles per instruction** (profiler, busy cycles, `STREAM = 1`
 everywhere). "First" is the arbitration above as first built; "now" has
-the two changes described below:
+the changes described below. The last column is from the busy cycle
+counts, not from the rounded figures:
 
 | | two dual-port stores | one memory, first | one memory, now | |
 |---|---|---|---|---|
-| StrataOS session | 1.75 | 1.84 | 1.80 | +2.9% |
-| `parsum` | 1.49 | 1.59 | 1.54 | +3.4% |
-| `stream_sum` | 1.50 | 1.59 | 1.55 | +3.3% |
-| `gfx` | 1.74 | 1.76 | 1.75 | +0.6% |
-| `mandel` | 2.17 | 2.19 | 2.18 | +0.5% |
-| `pipeline` | 1.69 | 1.70 | 1.70 | under 1% |
+| StrataOS session | 1.75 | 1.84 | 1.78 | +1.3% |
+| `parsum` | 1.49 | 1.59 | 1.54 | +2.8% |
+| `stream_sum` | 1.50 | 1.59 | 1.55 | +2.7% |
+| `gfx` | 1.74 | 1.76 | 1.74 | +0.02% |
+| `mandel` | 2.17 | 2.19 | 2.17 | none |
+| `pipeline` | 1.69 | 1.70 | 1.69 | +0.02% |
 | `swcache` | 1.56 | 1.56 | 1.56 | none |
 
-The whole StrataOS session takes 88.6 M clock cycles (86.8 M with two
+The whole StrataOS session takes 88.5 M clock cycles (86.8 M with two
 stores, 148.2 M before the stream fetch).
 
 **Where the cost was.** Sections 3.1 and 9 predicted 0.7% to 1.3% by
@@ -725,7 +726,8 @@ found no successor and went back through `F0` and `F1`: two cycles lost
 for one cycle of delay. 1.6 M more instructions went through `F1` in the
 session.
 
-**Two changes, measured.**
+**Four changes, measured** (the session's cycles per instruction after
+each, in the order they were made):
 
 - *A late read-ahead costs one cycle.* An instruction that retires into
   the next word while that word is only just being read goes to `F1`,
@@ -745,10 +747,22 @@ session.
   itself this won little (1.84 -> 1.82): the bursts were not the main
   cost.
 
-What is left, 2.9% in the session, is mostly the one-cycle penalty of a
-late read-ahead (1.7 M of them). Reading two words ahead instead of one
-(a third 64-bit register) would give the read-ahead a cycle of slack and
-should remove most of it; not built.
+- *Two words ahead.* With one memory the core also reads the word after
+  the next (a third 64-bit register, `fb_nx2`; with two stores it is not
+  there), so a read-ahead that is a cycle late is still in time. 1.80 ->
+  1.78 (+1.5% against two stores).
+- *The next word's read alternates with a `tput`.* The read-ahead used to
+  give way to every waiting `tput` read, so for the length of a `tput` the
+  stream got no words and every word came through `F0`. The read of the
+  next word now goes first unless the `tput` read was refused in the cycle
+  before; the read of the second word ahead still gives way. +1.5% ->
+  +1.3%, and `gfx`, `mandel`, `pipeline` and `swcache` to the two-store
+  figure within 0.02%.
+
+What is left: 1.3% in the session, and 2.8% in the two examples that
+compute while their data streams in, where a beat and the core's own
+access to the memory fall into the same cycles by construction (the load
+that waits for a word wants the memory just as the next beat arrives).
 
 **A deadlock found on the way.** `F0` presents the fetch address in every
 cycle, also while it waits for a core-control write to complete; with one
@@ -766,7 +780,7 @@ overlay map, the smaller store sizes and the fetch without the stream as
 single-port builds; all pass. `make test` with the default passes.
 
 **What it is worth.** A dual-port macro costs 1.6x to 1.9x a single-port
-one where it exists (section 5.1), and GF180MCU has none: 3% of the cycles
+one where it exists (section 5.1), and GF180MCU has none: 1.3% of the cycles
 for 40% to 47% of the memory area, or for a design that can be built at
 all. `u_ils` and `u_dls` remain as two unused words each when `LS_1P = 1`
 so that the names the FPGA and ASIC scripts rely on do not depend on the

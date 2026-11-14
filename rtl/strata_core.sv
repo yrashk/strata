@@ -50,8 +50,10 @@
 // skipped); the unit holds a beat from far memory back for a cycle when
 // the core's registers say it is about to use the memory, never two cycles
 // running, so the two take turns; otherwise the fetch and the data access have the memory when
-// they want it, a tput's read of the D-LS takes the cycles they leave, and
-// the read-ahead those that are left after it. The reset sequencer writes
+// they want it; a tput's read of the D-LS and the read-ahead of the next
+// word take the cycles they leave, in turns, and the read-ahead goes two
+// words ahead (fb_nx2) in what is left after that, because with one memory
+// it is often a cycle late. The reset sequencer writes
 // the two stores' words in alternate cycles.
 
 module strata_core
@@ -253,9 +255,14 @@ module strata_core
   logic [63:0] tu_ils_wdata, ils_b_rdata;
   // STREAM: the word of the instruction in ir (fb_cur; pc[15:3] is its
   // number), the word after it once read (fb_nxt, fb_nxt_v), and whether
-  // that read was issued last cycle (ra_infl: the word is on ia_rdata now)
-  logic [63:0] fb_cur, fb_nxt, nxt_word;
-  logic        fb_nxt_v, ra_infl, ra_ok, ra_any, st_exec, ex_seq, fast_ok, seq_ok;
+  // that read was issued last cycle (ra_infl: the word is on ia_rdata now).
+  // With one memory (LS_1P) the read-ahead is often a cycle late, so there
+  // it goes two words ahead: fb_nx2 is the word after fb_nxt, and ra_two
+  // says the read under way is that one
+  localparam bit RA2 = LS_1P;
+  logic [63:0] fb_cur, fb_nxt, fb_nx2, nxt_word, nx2_word;
+  logic        fb_nxt_v, fb_nx2_v, ra_infl, ra_two, ra_ok, ra_any, st_exec, ex_seq, fast_ok, seq_ok;
+  logic        have1, have2, need1, need2;
   logic [13:0] ra_addr;
 
   logic        da_en;
@@ -308,6 +315,7 @@ module strata_core
   // and u_ls1 holds the stores.
   logic [63:0] ia_q2, da_q2, tu_q2, ls1_q;
   logic        ls_wait, ls_gnt, ls_denied, ls_want, tu_get_beat, tu_put_want, ra_go, ia_f0;
+  logic        put_ref_q;          // a tput's read was refused last cycle
   strata_ram #(.WORDS(LS_1P ? 2 : ILS_WORDS), .INIT(LS_1P ? "" : ILS_INIT)) u_ils (
     .clk,
     .a_en(ia_en && !LS_1P), .a_we(8'h00), .a_addr(ia_addr[(LS_1P ? 1 : IAW)-1:0]), .a_wdata(64'b0), .a_rdata(ia_q2),
@@ -334,8 +342,8 @@ module strata_core
   // unit holds a beat from far memory back for it: strata_tu)
   assign ls_want = LS_1P && (state == S_F0 || (state == S_EX && (d.kind == K_LOAD || d.kind == K_STORE)) ||
                              (state == S_LT && !lt_ph) || state == S_LW ||
-                             (STREAM && (state == S_F1 || (st_exec && !fb_nxt_v && !ra_infl))));
-  assign ls_gnt  = !LS_1P || !(ia_f0 || da_en);
+                             (STREAM && (state == S_F1 || (st_exec && need1))));
+  assign ls_gnt  = !LS_1P || !(ia_en || da_en);
 
   if (LS_1P) begin : g_1p
     localparam int MW = ILS_WORDS + DLS_WORDS;
@@ -819,7 +827,9 @@ module strata_core
     end
     // one memory (LS_1P): everything waits for a beat from the bus, and the
     // read-ahead also for the core's own data access
-    ra_go = ra_any && !(LS_1P && (da_en || tu_put_want)) && !ls_wait;
+    // (a waiting tput read goes before the read of the second word ahead,
+    // and before that of the next word when it was refused last cycle)
+    ra_go = ra_any && !(LS_1P && (da_en || (tu_put_want && (!(need1 || state == S_F1) || put_ref_q)))) && !ls_wait;
     ls_denied = ls_wait && (ia_en || da_en || ra_any);
     if (ls_wait) begin
       ia_en = 0;
@@ -839,16 +849,24 @@ module strata_core
   // instruction; never while a tgetx is queued (the word may be about to
   // change: such a fetch waits in F0 for the transfer)
   assign st_exec  = state inside {S_EX, S_CT, S_LD, S_LG, S_LT, S_LW, S_DV, S_AM};
-  assign ra_addr  = {1'b0, pc[15:3]} + 14'd1;
+  // the next word and the one after: held, or arriving now; neither held
+  // nor on its way (the words are read in order, so need2 matters only
+  // when the next word is taken care of)
+  assign have1    = fb_nxt_v || (ra_infl && !ra_two);
+  assign have2    = fb_nx2_v || (ra_infl && ra_two);
+  assign need1    = !have1;
+  assign need2    = RA2 && !have2;
+  assign ra_addr  = {1'b0, pc[15:3]} + (state != S_F1 && !need1 ? 14'd2 : 14'd1);
   assign ra_ok    = !tu_getx_busy && 32'(ra_addr) < ILS_WORDS;
-  assign ra_any   = STREAM && ra_ok && (state == S_F1 || (st_exec && !fb_nxt_v && !ra_infl));
+  assign ra_any   = STREAM && ra_ok && (state == S_F1 || (st_exec && (need1 || need2)));
   assign nxt_word = fb_nxt_v ? fb_nxt : ia_rdata;
+  assign nx2_word = fb_nx2_v ? fb_nx2 : ia_rdata;
   // this instruction, when it retires, goes on to pc + 4 without a reason
   // to pass through F0 (a transfer instruction has one: see the header)
   assign ex_seq   = !(d.kind inside {K_JAL, K_JALR, K_XFER, K_XCALL, K_SYS}) && !(d.kind == K_BRANCH && br_taken);
   // ... and its successor is here, with no stop or reset to take first
   assign seq_ok   = !rpend && !reset_req && !(user && (ipend || stop_req));
-  assign fast_ok  = (!pc[2] || fb_nxt_v || ra_infl) && seq_ok;
+  assign fast_ok  = (!pc[2] || have1) && seq_ok;
   // capability-table write: csave stores the source capability
   // save-table write: csave stores the source capability, crestore of a
   // linear entry empties the slot; S_RST empties every slot
@@ -868,14 +886,17 @@ module strata_core
       nir = pc[2] ? nxt_word[31:0] : fb_cur[63:32];
       ir    <= nir;
       state <= S_EX;
-      if (pc[2]) begin                                   // into the next word
+      if (pc[2]) begin                                   // into the next word: the words move up
         fb_cur   <= nxt_word;
-        fb_nxt_v <= 0;
+        fb_nxt   <= nx2_word;
+        fb_nxt_v <= have2;
+        fb_nx2_v <= 0;
+        ra_two   <= 0;                                   // (a read issued now is of the word after the new next)
       end
 `ifdef SIMULATION
       if (trace_on) sim_trace(COREID, next_pc, nir);
 `endif
-    end else if (STREAM && ex_seq && seq_ok && pc[2] && ra_go) begin
+    end else if (STREAM && ex_seq && seq_ok && pc[2] && ra_go) begin   // (need1: it is the next word's read)
       // the next word is only being read now (the read-ahead was late: a
       // data access or the Transfer Unit had the memory): F1 takes it
       // from the memory next cycle, as it does after F0
@@ -967,7 +988,10 @@ module strata_core
     lt_ph         <= 0;
     rs_i          <= '0;
     fb_nxt_v      <= 0;
+    fb_nx2_v      <= 0;
+    put_ref_q     <= 0;
     ra_infl       <= 0;
+    ra_two        <= 0;
     state         <= S_RST;
   endtask
 
@@ -1004,7 +1028,12 @@ module strata_core
       // STREAM: the word read ahead last cycle arrives (F1 and a retire
       // into it, below, override this)
       ra_infl <= ra_go;
-      if (ra_infl) begin
+      ra_two  <= state != S_F1 && !need1;
+      put_ref_q <= LS_1P && tu_put_want && !ls_gnt;
+      if (ra_infl && ra_two) begin
+        fb_nx2   <= ia_rdata;
+        fb_nx2_v <= 1;
+      end else if (ra_infl) begin
         fb_nxt   <= ia_rdata;
         fb_nxt_v <= 1;
       end
@@ -1040,6 +1069,7 @@ module strata_core
           state <= S_EX;
           fb_cur   <= ia_rdata;
           fb_nxt_v <= 0;
+          fb_nx2_v <= 0;
 `ifdef SIMULATION
           if (trace_on) sim_trace(COREID, pc, pc[2] ? ia_rdata[63:32] : ia_rdata[31:0]);
 `endif

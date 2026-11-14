@@ -61,8 +61,9 @@ cycle: a fetch, a load, a store or a tag-table access waits and the read-ahead i
 holds a beat from far memory back for one cycle, never two running, when the core's state says it is
 about to use the memory (the far bus has a ready for read beats that only this lowers), so a core and
 a burst take turns. Otherwise the
-fetch and the data access have the memory when they want it, a \insn{tput}'s read of the D-LS takes
-the cycles they leave, and the read-ahead the rest. A core-control reset then writes the two stores'
+fetch and the data access have the memory when they want it; a \insn{tput}'s read of the D-LS and the
+read-ahead of the next word take the cycles they leave, in turns; and the core then reads a second
+word ahead in what is left, because with one memory the read-ahead is often a cycle late. A core-control reset then writes the two stores'
 words in alternate cycles. Again no instruction's result depends on it. The integer registers are LUT-RAM with one write port and three asynchronous read ports (every
 result is written through the one port at the end of its cycle); the capability registers, the
 overlay map, the mode bits and the banked trap CSRs are flip-flops. A pending stop

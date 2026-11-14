@@ -115,8 +115,8 @@ Not verified:
   3.22. The kept FPGA and ASIC results are of the RTL before it.
 - `LS_1P = 1` (same place, off by default; `make LS_1P=1`) keeps both
   Local Stores of a core in one single-port memory (`rtl/strata_ram1.sv`),
-  which is what an ASIC's dense macros are. The StrataOS session costs 3%
-  more cycles per instruction with it (1.80 against 1.75). The far bus has
+  which is what an ASIC's dense macros are. The StrataOS session costs 1.3%
+  more cycles per instruction with it (1.78 against 1.75). The far bus has
   a ready for read beats (`rready`) that only such a core's Transfer Unit
   ever lowers; the board's DRAM adapter does not honour `ext_t3_rready`
   yet, which matters only with `LS_1P`. `make
