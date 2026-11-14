@@ -64,9 +64,14 @@ decisions taken.
 - [x] Boot objects written from inside the OS: at the close, one run of
       pages and the manifest anew (`boot_fix` in `fsops.s`), in the same
       commit; rename and delete stay refused; `test-store.sh` part 8
-- [ ] After a failed write (disk full, a bad page) the commit under way is
-      given up for every client: files being written by others are lost.
-      Give up only the failing client's work
+- [x] A failed write (disk full) gives up one writer's work only: a
+      commit holds the uncommitted bytes of one open file (`tx_w`; another
+      writer's bytes, or any other change, commit them first), so giving a
+      commit up loses that file's bytes since its last commit and nothing
+      else; a lost write's blob is freed at its close; `test-store.sh`
+      part 10. Two programs writing at once commit at every switch
+      between them (slower than one commit a MiB). A page that fails its
+      checksum while someone reads still loses the one writer in flight
 - [x] A commit writes changed pages that lie together, in frames that lie
       together, with one command (`c_write`; 4 KiB pages): 171 write
       commands became 102 in a session of small files and a large one.

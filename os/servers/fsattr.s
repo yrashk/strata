@@ -364,6 +364,7 @@ tm_ret:
 
 ; SETATTR: data = path, a zero byte, the attribute's name, a zero byte, the value
 op_setattr:
+        call  tx_sync                   ; ...
         call  get_two                   ; the path, and "name", 0, "value"
         bltz  a0, reply                 ; ...
         mv    s2, a0                    ; s2 = the name

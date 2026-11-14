@@ -917,7 +917,11 @@ nothing is repaired at mount. Every tree page has a checksum. Nothing is
 counted in advance: files, tags, names up to 255 bytes and file sizes are
 bounded by the disk, and space freed anywhere is reused. UNLINK, TAG,
 UNTAG and RENAME are a commit each (the reply means it is on the disk), as
-is the close of a written file; a long write commits every MiB. The
+is the close of a written file; a long write commits every MiB. A commit
+holds the bytes of one writer at most: when another program writes, or
+anything else changes, they are committed first. So when the disk fills
+up, the file that did not fit is given up (it stays as it was, its space
+comes back when it is closed) and nothing else is lost. The
 server works on trees larger than its Local Stores through a cache of 124
 pages in far memory and three page buffers in its D-LS. A boot object
 (`proc`, `dev`, `fs`: what the boot manifest lists) can be written from

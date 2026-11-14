@@ -29,6 +29,7 @@
 # 7. Attributes (`attr`) and the terms of a path that ask about them.
 # 8. Boot objects (the first servers' files) written inside the OS.
 # 9. `fsck`, the check of the store from inside the OS.
+# 10. A full disk: only the writer that did not fit loses its work.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 b="$here/${BUILD:-build}"
@@ -449,4 +450,36 @@ run "$tmp/f2.txt" "$tmp/f1.img" || fail "the boot from the damaged disk did not 
 grep -q "^fsck: bad checksum in page $pg\$" "$tmp/out.txt" && grep -q '^fsck-code 1$' "$tmp/out.txt" && grep -q '^one$' "$tmp/out.txt" ||
   { cat "$tmp/out.txt" >&2; fail "fsck does not report the damaged page"; }
 echo "test-store: fsck inside the OS: a good disk passes with the host's count of free pages; a damaged tree page is named"
+# ---- 10. a full disk loses one writer's work, not another's ---------------------------------
+# A shell writes a line into a file and sleeps with the file open; meanwhile
+# seq writes more than the disk holds. seq's file is given up (empty, its
+# space back); the first file gets its second line and is whole.
+cat >"$tmp/d1.txt" <<'EOF'
+echo echo one > /t/s1
+echo sleep 20 >> /t/s1
+echo echo two >> /t/s1
+sh < /t/s1 > /t/a &
+sleep 0.3
+seq 2000000 > /t/huge
+echo --after; df; ls /t
+wait
+echo --a; cat /t/a
+echo --end; df
+fsck
+halt
+EOF
+run "$tmp/d1.txt" "$disk" -w "$tmp/d1.img" -m 40000000000 || fail "the session that fills the disk did not end well"
+python3 - "$tmp/out.txt" <<'EOF' || { cat "$tmp/out.txt" >&2; exit 1; }
+import sys, re
+t = open(sys.argv[1], errors="replace").read()
+after, a, end = t.split("\n--after\n")[1], t.split("\n--a\n")[1], t.split("\n--end\n")[1]
+assert re.search(r"^huge +0$", after, re.M), "the file that did not fit is not empty"
+assert a.startswith("one\ntwo\n"), "the other writer's file is not whole"
+free = [int(x) for x in re.findall(r"(\d+) free", after.split("strata$")[0] + end.split("strata$")[0])]
+assert len(free) == 2 and free[1] > 8000 and abs(free[0] - free[1]) < 64, "the space of the file given up did not come back: %r" % free
+assert "no problems" in end, "fsck after a full disk"
+EOF
+"$b/stdb" check "$tmp/d1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk after it was full fails its check"; }
+[ "$("$b/stdb" get "$tmp/d1.img" a)" = "$(printf 'one\ntwo')" ] || fail "the other writer's file on the disk"
+echo "test-store: a full disk: the file that did not fit is given up and its space is back; a file another program was writing is whole"
 echo "test-store: OK"
