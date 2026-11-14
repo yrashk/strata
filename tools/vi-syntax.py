@@ -10,24 +10,30 @@ table's order) between `kw-begin` and `N kw-end` (N: 1 assembly, 2 Forth),
 which vi.fs interprets once to build its tables in far memory. The class
 numbers are vi.s's H_* constants, read from os/progs/vi.s.
 
-Writes a Strata assembly include with two tables that os/progs/vi.s looks
+Writes a Strata assembly include with three tables that os/progs/vi.s looks
 words up in: Strata assembly (mnemonics by category, CSR names, x registers,
-c registers and transfer tags) and Strata Forth (the defining words, the
-control words and the Strata words). The lists come from the same places as
-the site's highlighter, so the editor and the site never disagree and
-neither drifts from the real tools:
+c registers and transfer tags), Strata Forth (the defining words, the
+control words and the Strata words) and C (keywords and type names). The
+lists come from the same places as the site's highlighter and the compiler,
+so the editor and the site never disagree and neither drifts from the real
+tools:
   - asm/sasm.c, through tools/web-code.py's asm_keywords() (mnemonics by
     opcode, pseudo-instructions, CSR and register names);
   - lang/forth/README.md, through tools/web-code.py's forth_keywords() (the
     Strata words);
   - site/hl.js (F_DEF, F_DW, F_NAMED, F_CTL: the standard Forth words the
-    site colours, and which of them take a name or a character after them).
+    site colours, and which of them take a name or a character after them);
+  - lang/cc/cc.c's kw_names (the keywords cc knows; C99's _Complex and
+    _Imaginary, which it does not, are added) and the typedef names of the
+    headers in lang/cc/lib/include (size_t, uint8_t, FILE ...; bool).
+The C table is only in the .s output (the Forth port colours no C).
 
 Table format (both tables): an index of 96 halfwords, one per first byte
 0x21..0x80 (the offset of the first entry starting with that byte, from the
 end of the index, 192 bytes; the last one is the end of the table), then the entries sorted
-by first byte: {u8 length, u8 class, bytes}. Words are lower case: vi folds
-case when it looks a word up. The class names (H_*) are constants that
+by first byte: {u8 length, u8 class, bytes}. Words are lower case in the
+assembly and Forth tables (vi folds case when it looks a word up there) and
+as they are in the C one (looked up as they are). The class names (H_*) are constants that
 vi.s defines before it includes this file; a Forth class may carry
 H_NAME (the next word is a name being defined), H_CHAR (the next word is a
 character) or both (H_LOCALS: "{" opens a list of locals).
@@ -91,8 +97,32 @@ def forth_table():
     return words
 
 
-def emit(out, label, words, what):
-    ents = sorted((w.lower(), c) for w, c in words.items()
+# C's statements (the rest of cc.c's keywords are declaration words or types)
+C_CTL = "if else for while do switch case default break continue goto return".split()
+C_TYPES = "void char short int long float double signed unsigned _Bool _Complex _Imaginary".split()
+
+
+def c_table():
+    cc = open(os.path.join(ROOT, "lang", "cc", "cc.c"), encoding="utf-8").read()
+    m = re.search(r"char \*kw_names\[\] = \{(.*?)\};", cc, re.S)
+    if not m:
+        sys.exit("vi-syntax.py: cannot find kw_names in lang/cc/cc.c")
+    kws = re.findall(r'"([^"]*)"', m.group(1)) + ["_Complex", "_Imaginary"]
+    words = {}
+    for w in kws:
+        words[w] = "H_CCTL" if w in C_CTL else "H_CTYPE" if w in C_TYPES else "H_CKW"
+    inc = os.path.join(ROOT, "lang", "cc", "lib", "include")
+    for name in sorted(os.listdir(inc)):
+        h = open(os.path.join(inc, name), encoding="utf-8").read()
+        for t in re.findall(r"^typedef\b[^;]*?\b(\w+)\s*;", h, re.M):
+            words.setdefault(t, "H_CTYPE")
+        for t in re.findall(r"^#define\s+(\w+)\s+_Bool\s*$", h, re.M):
+            words.setdefault(t, "H_CTYPE")
+    return words
+
+
+def emit(out, label, words, what, fold=True):
+    ents = sorted((w.lower() if fold else w, c) for w, c in words.items()
                   if w and 0x21 <= ord(w[0]) < 0x7f and len(w) < 256)
     out.append("        .align 2                        ; (the index is halfwords)")
     out.append(f"{label}:".ljust(40) + f"; {what}: {len(ents)} words")
@@ -158,6 +188,7 @@ def main():
            "        .data                           ; D-LS: looked up by kw_find"]
     emit(out, "kw_asm", asm_table(), "Strata assembly")
     emit(out, "kw_fth", forth_table(), "Strata Forth")
+    emit(out, "kw_c", c_table(), "C", fold=False)
     out.append("        .text                           ; back to code")
     with open(sys.argv[1], "w") as f:
         f.write("\n".join(out) + "\n")

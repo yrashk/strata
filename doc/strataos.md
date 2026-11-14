@@ -1683,8 +1683,8 @@ host opens `http://localhost:8080/`.
 
 `vi [FILE]` (`os/progs/vi.s`) edits a file in the manner of vi, on the
 console (an ANSI terminal: `make boot`, the browser's terminal) and in a
-`term` window (`make boot-ws`, Alt+Enter), with Strata assembly and Strata
-Forth in colour. FILE is a path (`/src/hello.s`, or a name under the current
+`term` window (`make boot-ws`, Alt+Enter), with Strata assembly, Strata
+Forth and C in colour. FILE is a path (`/src/hello.s`, or a name under the current
 tag path); one that does not exist is created by `:w`. The screen is the
 text, a line a row (a long line scrolls the view sideways), and a status
 line: `-- INSERT --`, the file name, `[+]` when modified, line,column;
@@ -1710,8 +1710,9 @@ messages and the `:` and `/` lines take its place.
   `:N` (line N), `:set nu` / `:set nonu` (line numbers), `:syntax on` /
   `:syntax off`. Ctrl-L asks the terminal its size and draws everything
   again; Ctrl-G shows the file and its size.
-- **Highlighting.** `.s` is Strata assembly, `.fs` Strata Forth; another
-  name is plain unless the file carries the tag `src` (assembly) or `forth`.
+- **Highlighting.** `.s` is Strata assembly, `.fs` Strata Forth, `.c` and
+  `.h` C; another name is plain unless the file carries the tag `src`
+  (assembly) or `forth`.
   The rules are the site's (`site/hl.js`): for assembly, comment lines and
   `;` `#` `//` comments, labels, `NAME =` and CAPITALS, mnemonics by
   category (ALU, memory, branch, transfer, capability, system, paging,
@@ -1731,6 +1732,28 @@ messages and the `:` and `/` lines take its place.
   registers 37, c registers 93, CSRs 91, numbers 32, strings 35; Forth
   definitions 31, names 97, control 95, defining words 34, Strata words 33,
   locals 93.
+- **C.** Comments, `/* */` (it may run over lines) and `//`, 90; a
+  preprocessor line's `#` and directive name 34 (and an `#include`'s
+  `<name>` as a string); statements (`if else for while do switch case
+  default break continue goto return`) 91; the other keywords (`static
+  const struct typedef sizeof` ...) 93; types 96: C99's (`void char short
+  int long float double signed unsigned _Bool _Complex _Imaginary`) and the
+  typedef names of `cc`'s headers (`size_t`, `uint8_t`, `FILE`, `va_list`,
+  `bool` ...); strings and characters 35, their escapes (`\n`, `\101`,
+  `\x41`) 33; numbers (pp-numbers: `0x1Fu`, `1.5e+3`, `.5`) 32. Case
+  matters, as in C. The keywords are `cc`'s (`lang/cc/cc.c`'s `kw_names`)
+  and the type names its headers', both read by `tools/vi-syntax.py`.
+  `:syntax off` and `:syntax on` work as for the others.
+- **Comments over lines.** Whether a row starts inside a comment (Forth's
+  `(`, C's `/*`) depends on every line above it. vi keeps that state for the
+  rows on the screen, for the last top line it worked out, and for every
+  16th line of the first 32768 (a bit each); a change to a line forgets the
+  states below it, and the states of the lines it passes are kept again as
+  it scrolls. A top line far from the last one is worked out from the
+  nearest kept state above it (15 lines at most), not from the start of
+  the file; only the first visit of a part of the file scans it (about
+  2 M instructions for the first 3000 lines of `cc.c`). A change that
+  alters a row's ending state draws the rows below it.
 - **Screen size.** vi moves the cursor to row 999, column 999 and asks
   ESC [ 6 n; an ANSI terminal (and `term`, 2.6) answers ESC [ row ; column R
   with where the cursor stopped. Without an answer within 0.2 s, or when a
@@ -1743,7 +1766,10 @@ messages and the `:` and `/` lines take its place.
   sequence (the arrows, Home, End, Delete, PgUp, PgDn).
 - **Drawing.** Only what changed is sent: the rows of lines that changed
   (and the rows below when lines come or go), the status line, the
-  cursor; the cursor is off while a frame is drawn. A scroll draws the
+  cursor; the cursor is off while a frame is drawn. A colour is sent only
+  where a non-blank byte needs another one than the one in effect (blanks
+  keep it, and two classes with one colour are one), and a row that ends
+  in a colour resets it. A scroll draws the
   text rows again: the console's and the window's terminals share no
   cheaper way to scroll (`term` redraws every row of its grid on a scroll
   anyway). On exit the screen is cleared.
@@ -1767,8 +1793,9 @@ messages and the `:` and `/` lines take its place.
 - **In Forth.** `forth vi.fs FILE` (or `include vi.fs` at the Forth prompt,
   then `vi FILE`) is the same editor written in Strata Forth
   (`lang/forth/vi.fs`, with `vi-text.fs` and `vi-edit.fs`; the README there
-  has the details): the same keys, modes, highlighting and screen; given the
-  same keys it writes the same files. Its code (about 60 KiB) is several
+  has the details): the same keys, modes, highlighting (C aside: only the
+  assembly vi colours it) and screen; given the same keys it writes the
+  same files. Its code (about 60 KiB) is several
   times a program's I-LS: like everything Forth compiles, it is in code
   units the dispatcher pages into Forth's code cache (the units above, and
   the README's "Code paging"). Its text is in Forth's far heap:
@@ -2069,6 +2096,16 @@ A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
   takes pictures of vi in the window server's terminal:
   `build/vi-shots/asm.png`, `forth.png` (`-f`: of `forth vi.fs`,
   `fs-asm.png`, `fs-forth.png`).
+- `tools/test-vic.sh`: the editor's C colours. A scripted session types a
+  C file with every kind of token, ends a comment by an edit, enters
+  `cc.c` in the middle of its first comment, opens a file whose comment
+  runs over 100 lines (from inside, after an edit far above ends it, and
+  scrolling back up into it), types a comment in insert mode while the
+  screen scrolls, and tries `:syntax off` and a `.h` file. Each session's
+  output is played into an 80 × 24 grid, and its last frame, with the
+  colour of each run of cells, is compared with `tools/test-vic.out`; an
+  SGR that changes nothing (the colour in effect, or another SGR before
+  any non-blank byte) fails it.
 - `tools/test-vifs.sh`: the Forth editor (`forth vi.fs`) with the keys of
   `tools/test-vi.sh`; the files it writes are compared with
   `tools/test-vifs.out` and with `tools/test-vi.out` (the assembly vi's:

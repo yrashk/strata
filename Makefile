@@ -350,9 +350,11 @@ kira-dat:
 	python3 tools/kira-art.py
 	python3 tools/kira-assets.py
 
-# vi, the editor: its keyword tables come from the assembler, the Forth README
-# and the site's highlighter (tools/vi-syntax.py writes them as an include)
-$(BUILD)/vi-syntax.s: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth/README.md site/hl.js
+# vi, the editor: its keyword tables come from the assembler, the Forth README,
+# the site's highlighter and cc's keywords and headers (tools/vi-syntax.py
+# writes them as an include)
+$(BUILD)/vi-syntax.s: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth/README.md site/hl.js \
+                      lang/cc/cc.c $(wildcard lang/cc/lib/include/*.h)
 	@mkdir -p $(BUILD)
 	python3 tools/vi-syntax.py $@
 
