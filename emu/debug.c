@@ -1337,6 +1337,133 @@ static void tags_json(JW *w, int i) {
   jw_aend(w);
 }
 
+/* ------------------------------------------------------------ what changed in the stores */
+
+/* `changes`: every core's Local Stores and T2, compared in CH_BLK-byte
+ * blocks with a copy taken at the request before. A block that differs is
+ * copied again and gets the version of this request; a front-end passes
+ * the version it has seen (`since`) and gets the blocks changed after it,
+ * so that each client keeps its own place. Nothing runs between requests:
+ * a running machine pays only for the comparison, at the rate a front-end
+ * asks. */
+#define CH_BLK 64
+#define CH_UNITS 64 /* the usage map: a store in 64 pieces */
+#define CH_T2 (MAXCORES * 2)
+typedef struct {
+  uint8_t *copy;
+  uint32_t *ver;  /* per block: the version that last saw it change */
+  uint8_t *nz;    /* per block: holds a byte that is not zero */
+  uint64_t size;
+} ChStore;
+static ChStore ch_st[MAXCORES * 2 + 1];
+static uint32_t ch_version;
+
+/* store k: core k/2's D-LS (even) or I-LS (odd), or T2 (CH_T2) */
+static uint8_t *ch_mem(int k, uint64_t *size) {
+  if (k == CH_T2) { *size = T2_BYTES; return t2; }
+  Core *c = &cores[k / 2];
+  *size = k & 1 ? ils_size : dls_size;
+  return k & 1 ? c->ils : c->dls;
+}
+static const char *ch_name(int k) { return k == CH_T2 ? "t2" : k & 1 ? "ils" : "dls"; }
+
+static void ch_scan(void) {
+  uint32_t v = ch_version + 1;
+  bool any = false;
+  for (int k = 0; k <= CH_T2; k++) {
+    if (k < CH_T2 && k / 2 >= ncores) continue;
+    uint64_t size;
+    const uint8_t *m = ch_mem(k, &size);
+    ChStore *s = &ch_st[k];
+    if (!s->copy) {
+      s->copy = calloc(size, 1);
+      s->ver = calloc(size / CH_BLK, sizeof *s->ver);
+      s->nz = calloc(size / CH_BLK, 1);
+      s->size = size;
+    }
+    for (uint64_t b = 0; b < size / CH_BLK; b++) {
+      const uint8_t *p = m + b * CH_BLK;
+      uint8_t *q = s->copy + b * CH_BLK;
+      if (!memcmp(p, q, CH_BLK)) continue;
+      memcpy(q, p, CH_BLK);
+      s->ver[b] = v;
+      bool nz = false;
+      for (int i = 0; i < CH_BLK && !nz; i++) nz = p[i] != 0;
+      s->nz[b] = nz;
+      any = true;
+    }
+  }
+  if (any) ch_version = v;
+}
+
+/* the name of a range's first byte: the program's data (D-LS), code (I-LS), cluster labels (T2) */
+static void ch_sym(int k, uint64_t a, char *s, size_t n) {
+  s[0] = 0;
+  if (k == CH_T2) {
+    const MSym *m = map_sym_at(map_scope(os_aware ? SC_KERNEL : SC_IMAGE), MS_CLUSTER, a);
+    if (m && a - m->addr <= 4096) snprintf(s, n, a == m->addr ? "%s" : "%s+%llu", m->name, (unsigned long long)(a - m->addr));
+  } else if (k & 1) sym_code(&cores[k / 2], a, s, n);
+  else sym_data(&cores[k / 2], a, s, n);
+}
+
+static void changes_json(JW *w, const JVal *rq, char *err, size_t ne) {
+  uint32_t since = (uint32_t)json_u64(json_get(rq, "since"), 0);
+  const JVal *cj = json_get(rq, "core");
+  int only = cj ? (int)json_int(cj, -1) : -1;
+  if (cj && (only < 0 || only >= ncores)) { snprintf(err, ne, "no core %d", only); return; }
+  const char *sp = json_str(json_get(rq, "space"), NULL);
+  if (sp && strcmp(sp, "dls") && strcmp(sp, "ils") && strcmp(sp, "t2")) { snprintf(err, ne, "unknown space %s (dls, ils, t2)", sp); return; }
+  bool hex = json_bool(json_get(rq, "hex"), false);
+  uint64_t budget = json_u64(json_get(rq, "max"), 16384);
+  ch_scan();
+  jw_uint(w, "version", ch_version);
+  jw_int(w, "blk", CH_BLK);
+  jw_position(w);
+  bool truncated = false;
+  jw_arr(w, "stores");
+  for (int k = 0; k <= CH_T2; k++) {
+    if (k < CH_T2 && (k / 2 >= ncores || (only >= 0 && k / 2 != only))) continue;
+    if (sp && strcmp(sp, ch_name(k))) continue;
+    ChStore *s = &ch_st[k];
+    uint64_t nb = s->size / CH_BLK, per = nb >= CH_UNITS ? nb / CH_UNITS : 1, used = 0;
+    jw_obj(w, NULL);
+    if (k != CH_T2) jw_int(w, "core", k / 2);
+    jw_str(w, "space", ch_name(k));
+    jw_uint(w, "size", s->size);
+    for (uint64_t b = 0; b < nb; b++) used += s->nz[b];
+    jw_uint(w, "used", used * CH_BLK);
+    jw_uint(w, "unit", per * CH_BLK);
+    jw_arr(w, "units"); /* per unit: its blocks in use */
+    for (uint64_t u = 0; u * per < nb; u++) {
+      int n = 0;
+      for (uint64_t b = u * per; b < (u + 1) * per && b < nb; b++) n += s->nz[b];
+      jw_int(w, NULL, n);
+    }
+    jw_aend(w);
+    jw_arr(w, "ranges"); /* the runs of blocks changed after `since` */
+    for (uint64_t b = 0; b < nb;) {
+      if (s->ver[b] <= since) { b++; continue; }
+      uint64_t e = b;
+      while (e < nb && s->ver[e] > since) e++;
+      uint64_t a = b * CH_BLK, n = (e - b) * CH_BLK;
+      jw_obj(w, NULL);
+      jw_hex(w, "addr", a);
+      jw_hex(w, "len", n);
+      char sym[96];
+      ch_sym(k, a, sym, sizeof sym);
+      if (sym[0]) jw_str(w, "sym", sym);
+      if (hex && n <= budget) { jw_hexbytes(w, "hex", s->copy + a, n); budget -= n; }
+      else if (hex) truncated = true;
+      jw_oend(w);
+      b = e;
+    }
+    jw_aend(w);
+    jw_oend(w);
+  }
+  jw_aend(w);
+  if (truncated) jw_bool(w, "truncated", true);
+}
+
 static const char *pend_waits(const Pending *p, char *buf, size_t n) {
   uint64_t now = now_ticks();
   switch (p->port) {
@@ -1919,6 +2046,8 @@ static void dbg_request(const char *line, size_t len, JW *w) {
       jw_oend(w);
     }
     jw_aend(w);
+  } else if (!strcmp(cmd, "changes")) {
+    changes_json(w, rq, err, sizeof err);
   } else if (!strcmp(cmd, "pending")) {
     jw_arr(w, "reads");
     for (int i = 0; i < ncores; i++)

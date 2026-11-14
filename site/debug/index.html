@@ -90,7 +90,7 @@
 
   <section id="screen-panel" class="panel screen collapsed" aria-label="Framebuffer">
     <div class="tag"><span>▸ SCREEN</span><em id="geom">opens when the program draws</em>
-      <div class="view"><button class="seg" id="screen-float" title="A floating window: it stays put while the page scrolls; drag its bar, resize its corner">⧉ Float</button></div>
+      <div class="view"><button class="seg" id="screen-float" title="A floating window: it stays put while the page scrolls, beside the page where there is room; drag its bar, resize its corner, double-click its bar to put it back in the arrangement">⧉ Float</button></div>
     </div>
     <div id="screen-box" class="screen-box">
       <canvas id="screen" width="1280" height="800" tabindex="0" aria-label="The framebuffer; focus it to type, point at it to move the guest's pointer"></canvas>
@@ -99,7 +99,7 @@
 
   <section class="panel con" id="con-panel" aria-label="Console">
     <div class="tag"><span>▸ CONSOLE</span><em>click and type (Ctrl-C is the break key); keys and the mouse go through the engine, so going back replays them</em>
-      <div class="view"><button class="seg" id="con-float" title="A floating window: it stays put while the page scrolls; drag its bar, resize its corner">⧉ Float</button></div>
+      <div class="view"><button class="seg" id="con-float" title="A floating window: it stays put while the page scrolls, beside the page where there is room; drag its bar, resize its corner, double-click its bar to put it back in the arrangement">⧉ Float</button></div>
     </div>
     <div class="term-box"><div id="term"></div></div>
   </section>
@@ -128,8 +128,9 @@
 
   <div class="grid3">
     <section class="panel" aria-label="Local Store map">
-      <div class="tag"><span>▸ LOCAL STORES</span><em>recent transfers' ranges; tags in flight bright</em></div>
+      <div class="tag"><span>▸ LOCAL STORES</span><em>in use (dim), changed since the last look (white), recent transfers; live while running; a click shows the bytes</em></div>
       <div id="lsmap" class="lsmap"></div>
+      <div id="lshex" class="lshex"></div>
     </section>
     <section class="panel" aria-label="Capability provenance">
       <div class="tag"><span>▸ PROVENANCE</span><em id="provinfo">where the capabilities held now came from</em>

@@ -6,7 +6,8 @@
 // /dbg-info; or ?ws=host:port).
 //
 // What the page shows comes from requests: per core `disasm`, `regs`,
-// `caps`; `tags` (the Local Store map), `log` (the transfer timeline),
+// `caps`; `tags` and `changes` (the Local Store map, live while running),
+// `mem` (its bytes), `log` (the transfer timeline),
 // `provgraph` / `prov` (provenance), `breakpoints`, `status` (the recorded
 // run, for the time slider). Events: `console`, `stopped`, `done`.
 //
@@ -147,7 +148,7 @@ term.onData((d) => { term.scrollToBottom(); sendKeys(d); });
 // to the guest's console and pointer device, through the engine.
 const screen = $("screen"), sctx = screen.getContext("2d");
 function paint(m) {
-  if (screen.width !== m.w || screen.height !== m.h) { screen.width = m.w; screen.height = m.h; }
+  if (screen.width !== m.w || screen.height !== m.h) { screen.width = m.w; screen.height = m.h; arrange(); }
   const panel = $("screen-panel");
   if (panel.classList.contains("collapsed")) {
     panel.classList.remove("collapsed");
@@ -168,54 +169,117 @@ function fitScreen() {
 addEventListener("resize", fitScreen);
 
 // Floating windows: a panel taken out of the page's flow, fixed on the
-// screen; its bar moves it, the corner resizes it; where it was is
-// remembered per browser. The button puts it back.
-function floatable(panel, btn, key, onResize, low) {
+// screen; its bar moves it, the corner resizes it. A window that has not
+// been moved goes where arrange() puts it: into the room beside the page's
+// column when the browser window is wide enough for that (the screen on the
+// right, the console on the left if both sides have room; else stacked on
+// the wider side), otherwise over the right edge; it follows the browser
+// window's size. A window moved or resized stays where it was put, as its
+// distance from the nearest edges, so it keeps to that corner at any size;
+// a double click on its bar gives it back to the arrangement. Remembered
+// per browser. The button puts it back into the page.
+const floats = [];
+const FLOAT_MIN = 420, FLOAT_GAP = 12, FLOAT_MAXW = 1280;
+function floatTop() { return (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--navh")) || 64) + FLOAT_GAP; }
+function arrange() {
+  const auto = floats.filter((f) => f.on() && f.auto);
+  if (!auto.length) return;
+  const scr = auto.find((f) => f.kind === "screen"), con = auto.find((f) => f.kind === "console");
+  const m = document.querySelector("main.dbg").getBoundingClientRect();
+  const G = FLOAT_GAP, top = floatTop(), H = innerHeight - top - G;
+  const lw = Math.min(FLOAT_MAXW, m.left - 2 * G), rw = Math.min(FLOAT_MAXW, innerWidth - m.right - 2 * G);
+  const lx = Math.max(G, m.left - G - lw), rx = m.right + G;
+  // the screen's height for a width: its frame's shape and the bar
+  const shot = (w) => Math.round((w * screen.height) / Math.max(1, screen.width)) + 34;
+  const column = (x, w, list) => {
+    if (list.length === 1) {
+      const f = list[0];
+      f.put({ x, y: top, w, h: f.kind === "screen" ? Math.min(H, shot(w)) : H });
+    } else { // the screen above, the console below it
+      const sh = Math.min(Math.round(H * 0.62), shot(w));
+      scr.put({ x, y: top, w, h: sh });
+      con.put({ x, y: top + sh + G, w, h: H - sh - G });
+    }
+  };
+  if (scr && con && lw >= FLOAT_MIN && rw >= FLOAT_MIN) { column(rx, rw, [scr]); column(lx, lw, [con]); }
+  else if (Math.max(lw, rw) >= FLOAT_MIN) column(rw >= lw ? rx : lx, Math.max(lw, rw), auto);
+  else { // no room beside the page: over its right edge, the console below the screen
+    const w = Math.min(720, innerWidth * 0.5), x = innerWidth - w - 24;
+    if (scr) scr.put({ x, y: Math.max(90, top), w, h: Math.min(460, innerHeight * 0.55) });
+    if (con) { const h = Math.min(300, innerHeight * 0.35); con.put({ x, y: innerHeight - h - 24, w, h }); }
+  }
+}
+addEventListener("resize", () => requestAnimationFrame(arrange));
+function floatable(panel, btn, key, onResize, kind) {
+  const f = { kind, auto: true, on: () => panel.classList.contains("floating"), last: null };
+  floats.push(f);
   const load = () => { try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (e) { return null; } };
+  // where it is, as the distance from the nearer edge each way
   const save = () => {
     const r = panel.getBoundingClientRect();
-    try { localStorage.setItem(key, JSON.stringify({ on: panel.classList.contains("floating"), x: r.left, y: r.top, w: r.width, h: r.height })); } catch (e) { /* not remembered */ }
+    const st = { on: f.on(), auto: f.auto, w: r.width, h: r.height,
+      ax: r.left + r.width / 2 > innerWidth / 2 ? "r" : "l", ay: r.top + r.height / 2 > innerHeight / 2 ? "b" : "t" };
+    st.dx = st.ax === "r" ? innerWidth - r.right : r.left;
+    st.dy = st.ay === "b" ? innerHeight - r.bottom : r.top;
+    try { localStorage.setItem(key, JSON.stringify(st)); } catch (e) { /* not remembered */ }
   };
-  const clamp = () => {
-    const r = panel.getBoundingClientRect();
-    panel.style.left = Math.max(0, Math.min(r.left, innerWidth - 120)) + "px";
-    panel.style.top = Math.max(0, Math.min(r.top, innerHeight - 40)) + "px";
+  const fromSaved = (st) => {
+    const w = Math.min(st.w, innerWidth), h = Math.min(st.h, innerHeight);
+    const x = st.ax === "r" ? innerWidth - st.dx - w : st.ax === "l" ? st.dx : st.x; // (st.x, st.y: as kept before)
+    const y = st.ay === "b" ? innerHeight - st.dy - h : st.ay === "t" ? st.dy : st.y;
+    return { x, y, w, h };
   };
-  function set(on, at) {
+  f.put = (r) => {
+    const x = Math.max(0, Math.min(r.x, innerWidth - 120)), y = Math.max(0, Math.min(r.y, innerHeight - 40));
+    Object.assign(panel.style, { left: x + "px", top: y + "px", width: r.w + "px", height: r.h + "px" });
+    f.last = { w: panel.offsetWidth, h: panel.offsetHeight };
+    onResize();
+  };
+  function set(on, st) {
     panel.classList.toggle("floating", on);
     btn.classList.toggle("on", on);
     btn.textContent = on ? "⧉ Put back" : "⧉ Float";
     if (on) {
-      const w = Math.min(720, innerWidth * 0.5), h = Math.min(low ? 300 : 460, innerHeight * (low ? 0.35 : 0.55));
-      const r = at || { x: innerWidth - w - 24, y: low ? innerHeight - h - 24 : 90, w, h }; // (the console below the screen)
-      Object.assign(panel.style, { left: r.x + "px", top: r.y + "px", width: r.w + "px", height: r.h + "px" });
-      clamp();
-    } else for (const p of ["left", "top", "width", "height"]) panel.style[p] = "";
-    onResize();
+      f.auto = !st || st.auto !== false;
+      if (f.auto) arrange();
+      else f.put(fromSaved(st));
+    } else { for (const p of ["left", "top", "width", "height"]) panel.style[p] = ""; onResize(); arrange(); }
     save();
   }
-  btn.addEventListener("click", (e) => { e.stopPropagation(); set(!panel.classList.contains("floating"), load()); });
+  btn.addEventListener("click", (e) => { e.stopPropagation(); set(!f.on(), load()); });
   const bar = panel.querySelector(".tag");
+  bar.title = "drag to move; a double click puts it back where the page has room";
   let drag = null;
   bar.addEventListener("pointerdown", (e) => {
-    if (!panel.classList.contains("floating") || e.target.closest("button")) return;
+    if (!f.on() || e.target.closest("button")) return;
     const r = panel.getBoundingClientRect();
-    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
     bar.setPointerCapture(e.pointerId);
   });
   bar.addEventListener("pointermove", (e) => {
     if (!drag) return;
+    drag.moved = true;
     panel.style.left = Math.max(0, Math.min(e.clientX - drag.dx, innerWidth - 120)) + "px";
     panel.style.top = Math.max(0, Math.min(e.clientY - drag.dy, innerHeight - 40)) + "px";
   });
-  bar.addEventListener("pointerup", () => { if (drag) { drag = null; save(); } });
-  new ResizeObserver(() => { if (panel.classList.contains("floating")) { onResize(); save(); } }).observe(panel);
-  addEventListener("resize", () => { if (panel.classList.contains("floating")) clamp(); });
+  bar.addEventListener("pointerup", () => { if (drag) { if (drag.moved) f.auto = false; drag = null; save(); } });
+  bar.addEventListener("dblclick", (e) => { if (!f.on() || e.target.closest("button")) return; f.auto = true; arrange(); save(); });
+  // a size other than the one put: the corner was dragged
+  new ResizeObserver(() => {
+    if (!f.on()) return;
+    onResize();
+    if (f.last && (Math.abs(panel.offsetWidth - f.last.w) > 2 || Math.abs(panel.offsetHeight - f.last.h) > 2)) {
+      f.auto = false;
+      f.last = { w: panel.offsetWidth, h: panel.offsetHeight };
+      save(); // (only what the user did: a size the page made for a smaller window is not remembered)
+    }
+  }).observe(panel);
+  addEventListener("resize", () => { if (f.on() && !f.auto) f.put(fromSaved(load() || {})); });
   const st = load();
   if (st && st.on) set(true, st);
 }
-floatable($("screen-panel"), $("screen-float"), "strata-dbg-float-screen", fitScreen);
-floatable($("con-panel"), $("con-float"), "strata-dbg-float-console", refitTerm, true);
+floatable($("screen-panel"), $("screen-float"), "strata-dbg-float-screen", fitScreen, "screen");
+floatable($("con-panel"), $("con-float"), "strata-dbg-float-console", refitTerm, "console");
 // Alt+key as the desktop window sends it (spec 1.4): the xterm modified-key
 // forms, which cannot be typed by hand, so the window server tells Alt+P from
 // Esc and then p by the bytes, not by time. A character is ESC [ 27 ; 3 ;
@@ -340,6 +404,7 @@ async function poll() {
   const s = await conn.request("status");
   if (s.ok) { pos = { tick: s.tick, round: s.round }; hist = s.history || hist; updateTime(); }
   drawTimeline();
+  if (running) await refreshLs();
   if (running) setStatus(`running… tick ${pos.tick} · round ${pos.round} · ${s.steps || 0} steps`);
 }
 
@@ -689,6 +754,7 @@ function setDock(on) {
   if (nav) document.documentElement.style.setProperty("--navh", nav.offsetHeight + 8 + "px");
   xlistKey = "";
   drawTimeline();
+  arrange();
 }
 function niceStep(x) {
   const p = Math.pow(10, Math.floor(Math.log10(Math.max(x, 1e-9))));
@@ -784,12 +850,33 @@ $("slider").addEventListener("input", () => { $("slidepos").textContent = `tick 
 $("slider").addEventListener("change", () => doCmd("goto", { tick: +$("slider").value }));
 
 // ---------------------------------------------------------------- the Local Store map
+// Per core a D-LS and an I-LS bar, and one for T2: how full each piece is
+// (the engine's `changes`: usage per 1/64 of a store), the blocks changed
+// since the last look (bright), and recent transfers' ranges. While the
+// machine runs, poll() redraws it with the rest. A click on a bar shows that
+// store's bytes there (`mem`), changed bytes marked.
+let lsSince = 0, lsView = null, lsPrev = null;
 async function refreshLs() {
-  const r = await conn.request("tags");
+  const [r, ch] = await Promise.all([conn.request("tags"), conn.request("changes", { since: lsSince })]);
+  if (ch.ok) lsSince = ch.version;
   const box = $("lsmap");
   // each bar is its own store's size (the platform's: hello's dls / ils; older engines: 64 KiB)
   const dsz = (hello && hello.dls) || 65536, isz = (hello && hello.ils) || 65536;
   const kib = (n) => (n % 1024 ? (n / 1024).toFixed(1) : n / 1024) + "K";
+  const store = (c, sp) => (ch.ok ? ch.stores.find((t) => t.space === sp && (sp === "t2" || t.core === c)) : null);
+  // usage and changes under the transfers
+  const under = (st) => {
+    if (!st) return "";
+    let s = "";
+    const per = st.unit / ch.blk;
+    st.units.forEach((n, u) => {
+      if (n) s += `<b class="use" style="left:${(u / st.units.length) * 100}%;width:${100 / st.units.length}%;opacity:${(0.25 + 0.75 * n / per).toFixed(2)}"></b>`;
+    });
+    for (const g of st.ranges)
+      s += `<b class="hot" style="left:${(Number(hex(g.addr)) / st.size) * 100}%;width:${(Number(hex(g.len)) / st.size) * 100}%" title="changed: ${h(g.addr)}+${Number(hex(g.len))}${g.sym ? " " + esc(g.sym) : ""}"></b>`;
+    return s;
+  };
+  const used = (st) => (st ? `${kib(st.used)} of ${kib(st.size)} in use` : "");
   let html = '<div class="lsscale"><span></span><div>' + [0, 1, 2, 3, 4].map((q) => `<span>${q ? kib((dsz * q) / 4) : 0}</span>`).join("") +
     "</div></div>";
   for (let c = 0; c < ncores; c++) {
@@ -800,7 +887,7 @@ async function refreshLs() {
     }
     const busyTags = r.ok ? (r.cores.find((k) => k.core === c) || { tags: [] }).tags.filter((t) => t.busy && t.op) : [];
     const bar = (ils) => {
-      let s = "";
+      let s = under(store(c, ils ? "ils" : "dls"));
       for (const e of recent) {
         if ((e.op === "tgetx") !== ils) continue;
         s += lsRange(e.ls, e.len, e.op, `tg${e.tag} ${e.op} ${e.port || e.space + " " + e.far} round ${e.round}`, false, ils ? isz : dsz);
@@ -808,10 +895,54 @@ async function refreshLs() {
       if (!ils) for (const t of busyTags) s += lsRange(t.ls, t.len, t.op, `tg${t.tag} ${t.op} ${t.port || t.space} IN FLIGHT since round ${t.issued}`, true, dsz);
       return s;
     };
-    html += `<div class="lsrow"><span>core ${c}</span><div><div class="lsbar" title="D-LS, ${kib(dsz)}">${bar(false)}</div><div class="lsbar ils" title="I-LS, ${kib(isz)}">${bar(true)}</div></div></div>`;
+    html += `<div class="lsrow"><span>core ${c}</span><div><div class="lsbar" data-core="${c}" data-space="dls" title="D-LS, ${kib(dsz)}: ${used(store(c, "dls"))}">${bar(false)}</div>` +
+      `<div class="lsbar ils" data-core="${c}" data-space="ils" title="I-LS, ${kib(isz)}: ${used(store(c, "ils"))}">${bar(true)}</div></div></div>`;
+  }
+  const t2 = store(0, "t2");
+  if (t2) html += `<div class="lsrow"><span>T2</span><div><div class="lsbar t2" data-core="0" data-space="t2" title="T2, ${kib(t2.size)} (its own scale): ${used(t2)}">${under(t2)}</div></div></div>`;
+  box.innerHTML = html;
+  await refreshLsHex();
+}
+$("lsmap").addEventListener("click", (e) => {
+  const b = e.target.closest(".lsbar[data-space]");
+  if (!b) return;
+  const sz = b.dataset.space === "t2" ? 262144 : b.dataset.space === "ils" ? (hello && hello.ils) || 65536 : (hello && hello.dls) || 65536;
+  const r = b.getBoundingClientRect();
+  const a = Math.floor(Math.max(0, Math.min(0.999, (e.clientX - r.left) / r.width)) * sz) & ~255;
+  lsView = { core: +b.dataset.core, space: b.dataset.space, addr: a };
+  lsPrev = null;
+  refreshLsHex();
+});
+// the bytes of the store last clicked, 256 of them; those that changed since the last look marked
+async function refreshLsHex() {
+  const box = $("lshex");
+  if (!lsView) { box.textContent = "click a bar for its bytes"; return; }
+  const v = lsView, m = await conn.request("mem", { space: v.space, core: v.core, addr: v.addr, len: 256 });
+  if (!m.ok) { box.textContent = m.error; return; }
+  const name = v.space === "t2" ? "T2" : `core ${v.core} ${v.space === "dls" ? "D-LS" : "I-LS"}`;
+  const old = lsPrev && lsPrev.key === `${v.core} ${v.space} ${v.addr}` ? lsPrev.hex : null;
+  let html = `<div class="lshead">${name} ${h(v.addr)}${m.sym ? " &lt;" + esc(m.sym) + "&gt;" : ""} <button data-d="-256">◂</button><button data-d="256">▸</button></div>`;
+  for (let row = 0; row < 16; row++) {
+    html += `<div>${(v.addr + row * 16).toString(16).padStart(5, "0")} `;
+    let txt = "";
+    for (let i = row * 16; i < row * 16 + 16; i++) {
+      const b = m.hex.substr(2 * i, 2), chg = old && old.substr(2 * i, 2) !== b;
+      html += chg ? ` <em>${b}</em>` : b === "00" ? ` <u>${b}</u>` : ` ${b}`;
+      const k = parseInt(b, 16);
+      txt += k >= 32 && k < 127 ? String.fromCharCode(k) : ".";
+    }
+    html += `  ${esc(txt)}</div>`;
   }
   box.innerHTML = html;
+  lsPrev = { key: `${v.core} ${v.space} ${v.addr}`, hex: m.hex };
 }
+$("lshex").addEventListener("click", (e) => {
+  const d = e.target.closest("button[data-d]");
+  if (!d || !lsView) return;
+  const sz = lsView.space === "t2" ? 262144 : 65536;
+  lsView.addr = Math.max(0, Math.min(sz - 256, lsView.addr + +d.dataset.d));
+  refreshLsHex();
+});
 function lsRange(ls, len, op, title, busy, size) {
   const a = Number(hex(ls)), n = Math.max(Number(hex(len)), 1);
   const cls = op === "tput" ? "put" : op === "tgetx" ? "getx" : "get";

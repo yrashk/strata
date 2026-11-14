@@ -531,6 +531,9 @@ build/strata-dbg -c 4 -j -T virtual build/examples/pipeline.stx
 (sdb) info tags                          # the current core's tags: op, ranges, issue and completion
 (sdb) info pending                       # device reads in flight and what each one waits for
 (sdb) info cores                         # every core: where, what, and why it is stalled
+(sdb) info stores                        # the Local Stores and T2: how much is in use, and where
+(sdb) changes dls                        # what changed in them since the last look, with labels
+(sdb) live 250                           # while the machine runs: what changes, every 250 ms
 (sdb) reverse-stepi                      # time travel on deterministic runs (-T virtual)
 (sdb) prov c4                            # where a capability came from: split, given, taken...
 (sdb) tui                                # the cores side by side
@@ -554,7 +557,8 @@ build/strata-dbg -c 4 -j -T virtual build/examples/pipeline.stx
   pty for it (`screen /dev/ttys012` in another terminal: what you type
   there is the guest's input), or `--console FILE`.
 - The web debugger adds the transfer timeline (a row per core: transfers,
-  device reads in flight, stalls, gifts), a Local Store map, the
+  device reads in flight, stalls, gifts), a Local Store map (what is in
+  use, what changed, and the bytes, live while the machine runs; T2 too), the
   capability provenance graph and a time slider. In the page it runs the
   WebAssembly emulator; served by `strata-emu --debug PORT` it drives the
   desktop engine over a WebSocket.
