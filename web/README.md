@@ -38,7 +38,10 @@ see "The debugger" below.
   the canvas keyboard (the desktop window's key mapping) and mouse, the
   presets, Reset (a fresh worker), the JIT toggle. The framebuffer is
   scaled by whole device pixels where it can (Auto/Fill/1x/2x, full
-  screen); StrataOS presets get a framebuffer size that fits the panel.
+  screen); StrataOS presets get a framebuffer size that fits the panel. A preset may
+  have a `type`: text the page sends as console input when the shell first
+  prompts (the Princess Kira preset boots the ordinary disk and types
+  `ws kira`).
   Asset URLs carry the build's commit (`tools/web-stamp.sh`) so a browser
   never mixes two deploys.
 - **`common/display.h`**, under `__EMSCRIPTEN__`: no stdin (the page pushes

@@ -116,7 +116,7 @@ programs get 32 KiB from 0x8000).
 | `os/lib/wsclient.s` | the protocol for clients: wc_open, wc_band, wc_damage, wc_event, wc_text, wc_fill, wc_title, wc_close |
 | `os/progs/{ws,term,wmandel,wclock}.s` | the programs on the disk |
 | `os/progs/wdoom.s`, `os/progs/wdoom/` | a first-person shooter as a client: it does not use gfx.s (no D-LS to spare) but draws slabs of its picture into the band itself and lends them as DAMAGE rectangles with a stride of their own (`os/progs/PLAN-wdoom.md`) |
-| `os/progs/kira.s`, `os/progs/kira/` | Princess Kira, games for a small child, as a client: wdoom's slabs, drawn only when something changed; pictures run-length coded; the pointer and the keyboard both do everything |
+| `os/progs/kira.s`, `os/progs/kira/` | Princess Kira, four games for a small child, as a client: wdoom's slabs, drawn only when something changed; pictures run-length coded; a world made anew for every game, seen from above or through a raycaster; the pointer and the keyboard both do everything; a file written from a window's client |
 
 Keys (`keys.s`; Alt+key = ESC [ 27 ; 3 ; code ~, so Esc and then a key is
 just that, and an Alt+key ws does not bind reaches the client as ESC and the

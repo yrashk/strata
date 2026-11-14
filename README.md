@@ -340,18 +340,23 @@ optional PCM output: `strata-emu -a`, on in `make boot` and in the browser)
 it has sound. [`os/progs/PLAN-wdoom.md`](os/progs/PLAN-wdoom.md) has the
 design and what a frame costs.
 
-![kira: Princess Kira and her seven friends at the picnic, in a StrataOS window](site/img/kira.png)
+![kira: four of its pictures: the castle from above, the party seen through Kira's eyes, the garden, a colouring page](site/img/kira.png)
 
-`kira` is Princess Kira: gentle games for a five-year-old, written in
+`kira` is Princess Kira: four gentle games for a five-year-old, written in
 Strata assembly as one more client of the window server. There are no
-enemies, no timer and no way to lose. In the first of them Kira walks
-through her castle and its garden, by the arrow keys or by clicking where
-she should go, and finds her seven animal friends, who follow her in a
-parade to a picnic. The art is original and is drawn by a script
-(`tools/kira-art.py`); the sounds are synthesised. Run `ws kira` from the
-shell, or `kira` from the palette.
-[`os/progs/PLAN-kira.md`](os/progs/PLAN-kira.md) has the design and what
-comes next.
+enemies, no timer and no way to lose, and the mouse and the keyboard both
+do everything. In Friends, Kira walks through her castle and its garden
+and finds her seven animal friends, who follow her in a parade to a
+picnic; every game has a newly made castle and garden, seen from above
+or, at the press of a button, through Kira's eyes (wdoom's raycaster with
+a floor for every cell and a sky). In Garden she sows seeds and waters
+them into flowers that butterflies visit, and the garden is kept in a
+file. Paint has three colouring pages, and Music a xylophone, the
+friends' voices and four songs. The art is original and is drawn by a
+script (`tools/kira-art.py`); the sounds are synthesised. Run `ws kira`
+from the shell, or `kira` from the palette; it is a preset on the play
+page.
+[`os/progs/PLAN-kira.md`](os/progs/PLAN-kira.md) has the design and the sizes.
 
 
 `make ws-demo` runs the same renderers on the bare machine against a

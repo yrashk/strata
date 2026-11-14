@@ -141,22 +141,29 @@ file-scope model/counters and a `sim_cycle()` for this.
 - Limits: no idle detection (a waiting machine keeps a CPU busy), no
   network far end, `-T virtual` only (machine time = cycles / 100).
 
-## kira (added 2026-11-13, in stages)
+## kira (added 2026-11-13)
 
-`kira` (`os/progs/kira.s`, `os/progs/kira/`, plan in `os/progs/PLAN-kira.md`)
-is Princess Kira: games for a five-year-old as a window-server client, on
-the ordinary disk (`ws kira`, or `kira` from the palette). Stage 1 is the
-menu and Friends seen from above; the menu's other three buttons only pop.
+`kira` (`os/progs/kira.s`, `os/progs/kira/`, plan, decisions and sizes in
+`os/progs/PLAN-kira.md`) is Princess Kira: four games for a five-year-old
+as a window-server client, on the ordinary disk (`ws kira`, or `kira` from
+the palette) and a preset on the play page (the page types `ws kira` at
+the first prompt: a preset's `type`). Friends (a new world for every game,
+`kira/world.s`; seen from above, or through Kira's eyes, `kira/eyes.s`),
+Garden (kept in `/ws/kira.sav`), Paint, Music.
 - The art is drawn by `tools/kira-art.py` into `os/progs/kira/art/` (the
   specification is `SPEC.md` there, with exact sizes and rectangles the
   program relies on); `tools/kira-assets.py` converts it and synthesises
-  the sounds; `make kira-dat` runs both. The art for all four games is
-  already there and converted.
+  the sounds; `make kira-dat` runs both.
 - `tools/test-kira.sh` (in `make test`) compares the last frame of each
-  `kira demo N`; a change of art, world or drawing needs new checksums.
-- Not done: Friends through Kira's eyes, Garden, Paint, Music; the play
-  page; frame rates. The colouring pages `paint_2` and `paint_3` want
-  redrawing before Paint.
+  `kira demo N`. A change of art, of drawing, or of the order in which
+  random numbers are drawn needs new checksums, and may need the demos'
+  clicks moved (their worlds come from a fixed seed).
+- Limits it is near: 36.9 of the 40 KiB of D-LS, 23.7 of the 32 KiB of
+  code. Adding a file to the disk moves what `tools/test-files.sh` and
+  `tools/test-http.out` check.
+- Seen and heard: every game seen on the emulator and in a browser (the
+  play page built here); the sounds are checked only as samples in a WAV
+  file, not by ear.
 
 ## wdoom and the sound device (added 2026-11-13, not yet deployed)
 

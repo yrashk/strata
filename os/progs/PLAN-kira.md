@@ -88,18 +88,52 @@ palette): there is no boot image of its own.
       the disk, `ws kira`, the shell's help, `tools/test-kira.sh` in `make test`
 - [x] Stage 2: **Friends through Kira's eyes** (the raycaster, per-cell
       floors, the sky); a new world for every game
-- [ ] Stage 3: **Garden**, kept in a file
-- [ ] Stage 4: **Paint**
-- [ ] Stage 5: **Music**
-- [ ] A screenshot, README and site entries, the play page preset
-- [ ] Measurements
+- [x] Stage 3: **Garden**, kept in a file
+- [x] Stage 4: **Paint**
+- [x] Stage 5: **Music**
+- [x] A screenshot, README and site entries, the play page preset
+- [x] Sizes
 
-## Sizes (stage 1)
+## What chance decides
 
-The program is 48.7 KiB on the disk: 15 KiB of code (of the 32 KiB a
-program may have; 7 KiB of it `sys.s` and `wsclient.s`) and 33.7 KiB of
-D-LS data (of 40 KiB): the library 13 KiB, the resident block of
-`kira.dat` 10 KiB, the slab 5.4 KiB, a 2 KiB buffer for a coded picture
-slab. `kira.dat` is 352 KiB: sprites 161 KiB, sounds 88 KiB, the six
-pictures 51 KiB coded (they would be 315 KiB plain), tiles, textures, flats
-and the bar 43 KiB. The art has 55 colours; the palette 68.
+A run's random numbers start from the clock, a demo's from a fixed seed.
+- Friends: the whole world, where Kira starts, where each friend hides,
+  where the blanket lies.
+- Garden: the first garden (three patches planted already), where each
+  butterfly flies next and how long it sits, which friend walks by and
+  when.
+- Paint: which page is open first.
+- Music: which of the four songs the button plays, and which friend hops
+  at each of its notes.
+
+## Sizes
+
+The program is 60.6 KiB on the disk: 23.7 KiB of code (of the 32 KiB a
+program may have; 7 KiB of it `sys.s` and `wsclient.s`; about 4,700 lines
+of assembly of its own) and 36.9 KiB of D-LS data (of 40 KiB): the library
+13 KiB (its two 4 KiB buffers hold the floors' flats), the resident block
+of `kira.dat` 9.5 KiB, the slab 5.4 KiB, a 2 KiB buffer for a coded
+picture slab, the raycaster's depths and visible things 2.8 KiB.
+`kira.dat` is 353 KiB: sprites 161 KiB, sounds 88 KiB, the six pictures
+52 KiB coded (they would be 315 KiB plain), tiles, textures, flats and the
+bar 43 KiB. The art has 55 colours; the palette 198, most of them the
+darker shades of the world's colours for the view through Kira's eyes.
+
+On the emulator with the JIT (an Apple M-series host, 2026-11-13) the
+sixty games of demo 8, 5,249 tics with a frame drawn for nearly every
+one, take 15 seconds: about 350 frames a second in a full-size tile. It
+was played in a browser (the play page, JIT on); its rate there was not
+measured.
+
+## What is simple
+
+- Through her eyes Kira moves by whole cells and quarter turns; walls
+  are one height; things are flat pictures that face her.
+- From above the screen flips at its edges and does not scroll.
+- The friends walk straight to their places in the parade, through
+  whatever is in the way.
+- The garden is written when it is left or the program is quit with Q or
+  by closing its tile; not when the machine is halted under it.
+- The colouring pages keep their colours only while the program runs.
+- There is no sound in a demo, and none on a machine without the sound
+  device.

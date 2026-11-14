@@ -36,6 +36,15 @@ const PRESETS = {
     sound: true,
     about: "StrataOS on 12 cores with the window server started at boot (its rc runs ws): the real ws, its terminals running the real shell. A key help comes up after the splash; any key or click dismisses it. Alt+Enter opens a terminal, Alt+P the launch palette (try wdoom), a click focuses a tile, the wheel scrolls a terminal back, Alt+? shows the help again.",
   },
+  kira: {
+    files: ["bootrom.stx", "disk.img"],
+    args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
+    fitScreen: true,
+    screenKeys: true,
+    sound: true,
+    type: "ws kira\n",
+    about: "Princess Kira: gentle games for a small child, written in Strata assembly as a client of the StrataOS window server (the page types ws kira at the shell's first prompt). No enemies, no timer, no way to lose. Click the screen and press a key to dismiss the key help. The mouse does everything; so do the keys: the arrows walk Kira or move a hand that Space presses, 1 to 4 choose a game, M goes back to the menu. Friends: find Kira's seven animal friends in a castle and garden that are new every game, and walk them to the picnic; Space looks through Kira's eyes. Garden: sow seeds and water them into flowers. Paint: three colouring pages. Music: a xylophone, the friends' voices and four songs. The page plays the sound once you have clicked or pressed a key.",
+  },
   wdoom: {
     files: ["bootrom.stx", "disk-wdoom.img"],
     args: ["-c", "12", "-d", "disk-wdoom.img", "bootrom.stx"],
@@ -452,10 +461,22 @@ function playAudio(m) {
   audioNext += m.data.length / m.rate;
 }
 
+let typeAtPrompt = null; // what the preset types once the shell prompts (and has not typed yet)
+let promptTail = "";     // the end of the console's output so far
+
 function onWorker(w, m) {
   if (w !== W) return; // a worker already replaced
   switch (m.t) {
-  case "out": term.write(m.data, () => term.scrollToBottom()); break;
+  case "out":
+    term.write(m.data, () => term.scrollToBottom());
+    if (typeAtPrompt) { // a preset's command, typed at the shell's first prompt
+      promptTail = (promptTail + new TextDecoder().decode(m.data)).slice(-16);
+      if (promptTail.includes("strata$ ")) {
+        w.postMessage({ t: "input", data: new TextEncoder().encode(typeAtPrompt) });
+        typeAtPrompt = null;
+      }
+    }
+    break;
   case "paint": paint(m); break;
   case "audio": playAudio(m); break;
   case "started":
@@ -525,6 +546,8 @@ async function run(key) {
     const w = new Worker("worker.js" + V);
     W = w;
     stopped = false;
+    typeAtPrompt = !rtl && p.type || null;
+    promptTail = "";
     w.onmessage = (e) => onWorker(w, e.data);
     w.onerror = (e) => { if (w === W) setStopped("error: " + (e.message || "the worker failed")); };
     // the module and the images are copied (structured clone), so Reset can reuse them

@@ -1261,18 +1261,28 @@ window whose process ends is removed.
   the machine has one. `wdoom demo` plays a recorded run one tic a frame
   and reports the frame rate. `os/progs/wdoom.s`, `os/progs/wdoom/`,
   `os/progs/PLAN-wdoom.md`.
-- **`kira`**: Princess Kira, gentle games for a small child, with no
+- **`kira`**: Princess Kira, four gentle games for a small child, with no
   enemies, no timer and no way to lose: a menu and its activities, one at
-  a time. In Friends, Kira walks through her castle and garden a cell at a
-  time (an arrow key is a step; a click on a cell walks her there, by a
-  breadth-first search over the screen's cells) and finds her seven animal
-  friends, who follow her to a picnic. It draws as `wdoom` does (320 x 200
-  in slabs, scaled by a whole factor), but only when something changed;
-  whole pictures are run-length coded a slab at a time. Its art is drawn
-  by a script (`tools/kira-art.py`), its sounds are synthesised
-  (`tools/kira-assets.py`), and both are in a data file, `/ws/kira.dat`.
-  `kira demo N` plays recorded keys and clicks one tic a frame.
-  `os/progs/kira.s`, `os/progs/kira/`, `os/progs/PLAN-kira.md`.
+  a time; the pointer and the keyboard both do everything (the arrows
+  move a hand that Space presses). In Friends, Kira walks through her
+  castle and garden a cell at a time (an arrow key is a step; a click on
+  a cell walks her there, by a breadth-first search over the screen's
+  cells) and finds her seven animal friends, who follow her to a picnic;
+  every game has a new world, made by the program so that every free cell
+  can be reached, and it is seen from above or through Kira's eyes (a
+  raycaster as wdoom's, with a floor per cell and a sky). In Garden seeds
+  are sown and watered into flowers; the garden is kept in the file
+  `/ws/kira.sav` (a window's client has the window server's endpoint
+  where the file server's was, so to write it the program looks `fs` up
+  into that register and `ws` again afterwards). Paint has colouring
+  pages whose regions are numbered in the data, so that filling one is a
+  store into a table; Music a xylophone and songs. It draws as `wdoom`
+  does (320 x 200 in slabs, scaled by a whole factor), but only when
+  something changed; whole pictures are run-length coded a slab at a
+  time. Its art is drawn by a script (`tools/kira-art.py`), its sounds
+  are synthesised (`tools/kira-assets.py`), and both are in a data file,
+  `/ws/kira.dat`. `kira demo N` plays recorded keys and clicks one tic a
+  frame. `os/progs/kira.s`, `os/progs/kira/`, `os/progs/PLAN-kira.md`.
 - Any program can do the same through `os/lib/wsclient.s` and
   `os/lib/gfx.s` (surfaces, display lists, spans, text).
 - `make ws-demo` runs the same renderers on the bare machine against a

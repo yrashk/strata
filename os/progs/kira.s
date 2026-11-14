@@ -4,18 +4,27 @@
 ;
 ;   kira            (from a shell in a terminal, or the palette: Alt+Space)
 ;
-; A client of the window server (os/lib/wsclient.s). A menu and its
+; A client of the window server (os/lib/wsclient.s): a menu and four
 ; activities, one at a time (os/progs/PLAN-kira.md):
 ;   Friends   Kira walks through her castle and garden and finds her seven
 ;             animal friends, who follow her to a picnic (kira/friends.s).
+;             Every game has a new world (kira/world.s), seen from above
+;             or through her eyes (kira/eyes.s).
+;   Garden    seeds, a watering can, flowers, butterflies (kira/garden.s);
+;             the garden is kept in a file.
+;   Paint     three colouring pages and ten paints (kira/paint.s).
+;   Music     a xylophone, the friends' voices, four songs (kira/music.s).
 ; There are no enemies, no timer and no way to lose. The art is drawn by
 ; tools/kira-art.py and converted, with the sounds, by tools/kira-assets.py
 ; into the file /ws/kira.dat, which is read at start.
 ;
 ; The mouse does everything: a click presses a button of the menu or of the
-; bar under the picture, or sends Kira to a place. So does the keyboard:
-; the arrows walk Kira, or move a hand that Space presses; 1..4 choose from
-; the menu, M or Backspace goes back to it, Q quits.
+; bar under the picture, sends Kira to a place, plants, paints, strikes a
+; bar. So does the keyboard: the arrows walk Kira, or move a hand that
+; Space presses; 1..4 choose from the menu, and in an activity its tools,
+; paints or notes; M or Backspace goes back to the menu, Q quits. In
+; Friends Space (or V, or Tab) changes between the view from above and the
+; one through her eyes.
 ;
 ; The screen is wdoom's (320 x 200 palette indices drawn in ten slabs of 32
 ; columns, scaled by a whole factor into the band: kira/draw.s), but a frame
