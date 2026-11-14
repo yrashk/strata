@@ -37,7 +37,7 @@ Content-Type: text/html; charset=utf-8
 <p class="foot"><a href="/">home</a> &middot; <a href="/~/">every file</a> &middot; <a href="/~ps">what the machine is doing</a> &middot; StrataOS 0.1 httpd</p>
 </body></html>
 strata$ echo GET /src/ HTTP/1.0 | nc 127.0.0.1 80 > r3
-GET /src/ 200 3721
+GET /src/ 200 4149
 strata$ grep facets < r3
 <p class="facets">narrower: <a href="/src/demo/">demo/</a> </p>
 strata$ echo GET /www/style.css HTTP/1.0 | nc 127.0.0.1 80 > r4
@@ -60,7 +60,7 @@ HTTP/1.0 200 OK
 Server: StrataOS/0.1 httpd
 Connection: close
 Content-Type: text/plain; charset=utf-8
-Content-Length: 339849
+Content-Length: 341729
 
 strata$ echo GET /www/nosuch.html HTTP/1.0 | nc 127.0.0.1 80 > r7
 GET /www/nosuch.html 404 106
@@ -116,15 +116,15 @@ strata$ wait %2
 strata$ grep HTTP/ < r13
 HTTP/1.0 200 OK
 strata$ echo GET /~ps HTTP/1.0 | nc 127.0.0.1 80 > r11
-GET /~ps 200 3115
+GET /~ps 200 3116
 strata$ grep "<h2>" < r11
 <h2>Cores</h2>
 <h2>Processes</h2>
 strata$ echo GET /src/sh.s HTTP/1.0 | nc 127.0.0.1 80 | wc
-GET /src/sh.s 200 339849
-7098 42387 339980
+GET /src/sh.s 200 341729
+7133 42646 341860
 strata$ cat /src/sh.s | wc
-7092 42373 339849
+7127 42632 341729
 strata$ rm /www/index.html
 strata$ echo GET / HTTP/1.0 | nc 127.0.0.1 80 > r12
 GET / 200 1774
