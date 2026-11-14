@@ -55,19 +55,23 @@ int fs_open(Store *st, Fs *fs) {
 
 /* ---- records --------------------------------------------------------------- */
 
+#define R8(x) (((x) + 7) & ~7)
+
 static int rec_enc(const FsRec *r, uint8_t *b) {
   int n = 32;
+  memset(b, 0, FS_RECBUF);
   b[0] = (uint8_t)r->kind; b[1] = (uint8_t)r->flags;
   p16(b + 2, (unsigned)r->ntags); p16(b + 4, (unsigned)r->nattr); p16(b + 6, (unsigned)r->nl);
   p64(b + 8, r->size); p64(b + 16, r->created); p64(b + 24, r->modified);
-  memcpy(b + n, r->name, (size_t)r->nl); n += r->nl;
   for (int i = 0; i < r->ntags; i++, n += 4) p32(b + n, r->tags[i]);
+  n = R8(n);
   for (int i = 0; i < r->nattr; i++) {
     p32(b + n, r->attr[i].id); b[n + 4] = (uint8_t)r->attr[i].type; b[n + 5] = (uint8_t)r->attr[i].len;
-    memcpy(b + n + 6, r->attr[i].val, (size_t)r->attr[i].len);
-    n += 6 + r->attr[i].len;
+    memcpy(b + n + 8, r->attr[i].val, (size_t)r->attr[i].len);
+    n += 8 + R8(r->attr[i].len);
   }
-  return n;
+  memcpy(b + n, r->name, (size_t)r->nl);
+  return n + r->nl;
 }
 
 static int rec_dec(FsRec *r, const uint8_t *b, int len) {
@@ -77,34 +81,34 @@ static int rec_dec(FsRec *r, const uint8_t *b, int len) {
   r->size = g64(b + 8); r->created = g64(b + 16); r->modified = g64(b + 24);
   int n = 32;
   if (r->nl > FS_NAMEMAX || r->ntags > 256 || r->nattr > 32 || n + r->nl + 4 * r->ntags > len) return -1;
-  memcpy(r->name, b + n, (size_t)r->nl); r->name[r->nl] = 0; n += r->nl;
   for (int i = 0; i < r->ntags; i++, n += 4) r->tags[i] = g32(b + n);
+  n = R8(n);
   for (int i = 0; i < r->nattr; i++) {
-    if (n + 6 > len || n + 6 + b[n + 5] > len) return -1;
+    if (n + 8 > len || n + 8 + R8(b[n + 5]) > len) return -1;
     r->attr[i].id = g32(b + n); r->attr[i].type = b[n + 4]; r->attr[i].len = b[n + 5];
-    memcpy(r->attr[i].val, b + n + 6, b[n + 5]);
-    n += 6 + b[n + 5];
+    memcpy(r->attr[i].val, b + n + 8, b[n + 5]);
+    n += 8 + R8(b[n + 5]);
   }
-  return n == len ? 0 : -1;
+  if (n + r->nl != len) return -1;
+  memcpy(r->name, b + n, (size_t)r->nl); r->name[r->nl] = 0;
+  return 0;
 }
 
 int fs_rec(Fs *fs, uint64_t oid, FsRec *r) {
-  uint8_t k[8], b[FS_RECMAX];
+  uint8_t k[8], b[ST_MAXPS / 4];
+  int n, fl;
   pbe64(k, oid);
-  int64_t n = st_bread(fs->st, fs->ns, fs->obj, k, 8, 0, b, sizeof b);
-  if (n < 0 || rec_dec(r, b, (int)n)) return -1;
+  if (!st_get(fs->st, fs->obj, k, 8, b, &n, &fl) || fl || rec_dec(r, b, n)) return -1;
   r->oid = oid;
   return 0;
 }
 
+/* A record is kept in its leaf: it is at most a quarter of a page. */
 static int rec_save(Fs *fs, const FsRec *r) {
-  uint8_t k[8], b[FS_RECMAX + 600];
+  uint8_t k[8], b[FS_RECBUF];
   int n = rec_enc(r, b);
-  if (n > FS_RECMAX) return -1;
   pbe64(k, r->oid);
-  st_bdel(fs->st, fs->ns, fs->obj, k, 8);
-  st_bwrite(fs->st, fs->ns, fs->obj, k, 8, 0, b, (uint64_t)n, 0);
-  return 0;
+  return st_put(fs->st, fs->obj, k, 8, b, n, 0) < 0 ? -1 : 0;
 }
 
 /* ---- the attribute index ----------------------------------------------------- */

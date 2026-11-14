@@ -3,12 +3,13 @@
  * checking and listing. The file system itself is os/servers/fs.s.
  *
  * Namespace "fs" holds five trees.
- *   obj   object id (u64 big-endian) -> the record (a blob):
+ *   obj   object id (u64 big-endian) -> the record, at most a quarter page:
  *           0 u8 kind (1 file), 1 u8 flags (1 boot), 2 u16 tags, 4 u16
  *           attributes, 6 u16 name length, 8 u64 size, 16 u64 created, 24
- *           u64 modified (commit numbers), 32 the name, then a u32 tag id
- *           per tag, then per attribute: u32 id, u8 type (0 integer, 1
- *           string), u8 length, the value (an integer: 8 bytes)
+ *           u64 modified (commit numbers); from 32 a u32 tag id per tag,
+ *           padded to a multiple of 8; then per attribute u32 id, u8 type (0
+ *           integer, 1 string), u8 length, u16 0 and the value padded to a
+ *           multiple of 8 (an integer: 8 bytes); then the name
  *   data  object id -> the contents (a blob; none when the file is empty)
  *   name  name -> u64 object id
  *   attr  u32 attribute id (big-endian), value, object id (big-endian) -> nothing
@@ -30,7 +31,7 @@
 enum { FS_A_TAG = 1, FS_A_SIZE = 2, FS_A_MOD = 3, FS_A_BOOT = 4, FS_A_USER = 16 };
 enum { FS_BOOT = 1 };
 #define FS_NAMEMAX 255
-#define FS_RECMAX 4000
+#define FS_RECBUF 12000 /* room to build any record this header's limits allow */
 
 typedef struct {
   Store *st;

@@ -16,9 +16,13 @@
  * 24 kind (1 branch, 2 leaf), 25 level (0 = leaf), 26 u16 cells, 28 u16
  * where the cells start; from 32 a u16 offset per cell, in key order; the
  * cells fill the page from its end downwards.
- *   leaf cell:   u16 key length, u16 value length (bit 15: a flag), key, value
- *   branch cell: u16 key length, u64 child, key. Child i holds the keys from
- *                key i up to key i+1; the key of cell 0 is not looked at.
+ *   leaf cell:   0 u16 key length, 2 u16 value length (bit 15: a flag), 8 the
+ *                key, then the value at the next multiple of 8
+ *   branch cell: 0 u16 key length, 8 u64 child, 16 the key. Child i holds the
+ *                keys from key i up to key i+1; the key of cell 0 is not
+ *                looked at.
+ * Cells start at multiples of 8 and are padded with zeros to a multiple of
+ * 8, so that every word in a page is aligned (the machine's loads must be).
  * A cell is at most a quarter of the page, a key at most an eighth.
  *
  * The free tree: u64 (big-endian) end page of a free extent -> u64 pages.
@@ -44,6 +48,7 @@ enum { BRANCH = 1, LEAF = 2, HDR = 32 };
 
 typedef struct { uint64_t no; int idx; } PathE;
 
+#define R8(x) (((x) + 7) & ~7)
 static uint16_t g16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
 static void p16(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 static uint64_t g64(const uint8_t *p) { uint64_t v = 0; for (int i = 7; i >= 0; i--) v = v << 8 | p[i]; return v; }
@@ -114,14 +119,14 @@ static uint8_t *P(Store *st, uint64_t no) {
 
 static uint8_t *cell(uint8_t *p, int i) { return p + g16(p + HDR + 2 * i); }
 static int csize(const uint8_t *p, const uint8_t *c) {
-  return KIND(p) == LEAF ? 4 + g16(c) + (g16(c + 2) & 0x7fff) : 10 + g16(c);
+  return KIND(p) == LEAF ? 8 + R8(g16(c)) + R8(g16(c + 2) & 0x7fff) : 16 + R8(g16(c));
 }
-static const uint8_t *ckey(const uint8_t *p, const uint8_t *c) { return c + (KIND(p) == LEAF ? 4 : 10); }
+static const uint8_t *ckey(const uint8_t *p, const uint8_t *c) { return c + (KIND(p) == LEAF ? 8 : 16); }
 static int room(const uint8_t *p) { return LO(p) - (HDR + 2 * NC(p)); }
 static int used(const Store *st, const uint8_t *p) { return (int)st->ps - LO(p) + 2 * NC(p); }
-static int maxcell(const Store *st) { return ((int)st->ps - HDR) / 4 - 2; }
+static int maxcell(const Store *st) { return (((int)st->ps - HDR) / 4 - 2) & ~7; }
 int st_maxkey(const Store *st) { return (int)st->ps / 8 - 32; }
-int st_maxval(const Store *st, int kl) { return maxcell(st) - 4 - kl; }
+int st_maxval(const Store *st, int kl) { return maxcell(st) - 8 - R8(kl); }
 
 static int kcmp(const uint8_t *a, int al, const uint8_t *b, int bl) {
   int r = memcmp(a, b, (size_t)(al < bl ? al : bl));
@@ -157,10 +162,10 @@ static int lsearch(uint8_t *p, const uint8_t *k, int kl, int *exact) {
   while (lo < hi) {
     int mid = (lo + hi) / 2;
     uint8_t *c = cell(p, mid);
-    if (kcmp(c + 4, g16(c), k, kl) < 0) lo = mid + 1; else hi = mid;
+    if (kcmp(c + 8, g16(c), k, kl) < 0) lo = mid + 1; else hi = mid;
   }
   *exact = 0;
-  if (lo < NC(p)) { uint8_t *c = cell(p, lo); *exact = !kcmp(c + 4, g16(c), k, kl); }
+  if (lo < NC(p)) { uint8_t *c = cell(p, lo); *exact = !kcmp(c + 8, g16(c), k, kl); }
   return lo;
 }
 
@@ -170,7 +175,7 @@ static int bsearchb(uint8_t *p, const uint8_t *k, int kl) {
   while (lo < hi) {
     int mid = (lo + hi) / 2;
     uint8_t *c = cell(p, mid);
-    if (kcmp(c + 10, g16(c), k, kl) <= 0) lo = mid + 1; else hi = mid;
+    if (kcmp(c + 16, g16(c), k, kl) <= 0) lo = mid + 1; else hi = mid;
   }
   return lo - 1;
 }
@@ -362,14 +367,14 @@ int st_get(Store *st, StTree *t, const void *key, int kl, uint8_t *val, int *vl,
   uint64_t no = t->root;
   for (;;) {
     uint8_t *p = P(st, no);
-    if (KIND(p) == BRANCH) { no = g64(cell(p, bsearchb(p, key, kl)) + 2); continue; }
+    if (KIND(p) == BRANCH) { no = g64(cell(p, bsearchb(p, key, kl)) + 8); continue; }
     int ex, i = lsearch(p, key, kl, &ex);
     if (!ex) return 0;
     uint8_t *c = cell(p, i);
     int v = g16(c + 2);
     if (vl) *vl = v & 0x7fff;
     if (flag) *flag = v >> 15;
-    if (val) memcpy(val, c + 4 + g16(c), (size_t)(v & 0x7fff));
+    if (val) memcpy(val, c + 8 + R8(g16(c)), (size_t)(v & 0x7fff));
     return 1;
   }
 }
@@ -386,7 +391,7 @@ int st_seek(Store *st, StTree *t, const void *key, int kl, int mode,
     path[l].no = no;
     if (KIND(p) == LEAF) break;
     path[l].idx = bsearchb(p, key, kl);
-    no = g64(cell(p, path[l].idx) + 2);
+    no = g64(cell(p, path[l].idx) + 8);
   }
   i = lsearch(p, key, kl, &ex);
   if (mode == ST_GT && ex) i++;
@@ -395,24 +400,24 @@ int st_seek(Store *st, StTree *t, const void *key, int kl, int mode,
   if (i >= NC(p)) { /* the first record of the next leaf */
     for (l--; l >= 0; l--) if (path[l].idx + 1 < NC(P(st, path[l].no))) break;
     if (l < 0) return 0;
-    no = g64(cell(P(st, path[l].no), path[l].idx + 1) + 2);
-    while (KIND(p = P(st, no)) == BRANCH) no = g64(cell(p, 0) + 2);
+    no = g64(cell(P(st, path[l].no), path[l].idx + 1) + 8);
+    while (KIND(p = P(st, no)) == BRANCH) no = g64(cell(p, 0) + 8);
     i = 0;
   } else if (i < 0) { /* the last record of the leaf before */
     for (l--; l >= 0; l--) if (path[l].idx > 0) break;
     if (l < 0) return 0;
-    no = g64(cell(P(st, path[l].no), path[l].idx - 1) + 2);
-    while (KIND(p = P(st, no)) == BRANCH) no = g64(cell(p, NC(p) - 1) + 2);
+    no = g64(cell(P(st, path[l].no), path[l].idx - 1) + 8);
+    while (KIND(p = P(st, no)) == BRANCH) no = g64(cell(p, NC(p) - 1) + 8);
     i = NC(p) - 1;
   }
   if (i < 0 || i >= NC(p)) return 0;
   uint8_t *c = cell(p, i);
   int k = g16(c), v = g16(c + 2);
   /* the value first: okey may be the caller's key buffer */
-  if (oval) memcpy(oval, c + 4 + k, (size_t)(v & 0x7fff));
+  if (oval) memcpy(oval, c + 8 + R8(k), (size_t)(v & 0x7fff));
   if (ovl) *ovl = v & 0x7fff;
   if (flag) *flag = v >> 15;
-  if (okey) memmove(okey, c + 4, (size_t)k);
+  if (okey) memmove(okey, c + 8, (size_t)k);
   if (okl) *okl = k;
   return 1;
 }
@@ -425,11 +430,11 @@ static int descend_w(Store *st, StTree *t, const uint8_t *key, int kl, PathE *pa
     if (l >= ST_MAXH) fail(st, "tree too high");
     uint8_t *p = touch(st, &no);
     if (l == 0) t->root = no;
-    else p64(cell(P(st, path[l - 1].no), path[l - 1].idx) + 2, no);
+    else p64(cell(P(st, path[l - 1].no), path[l - 1].idx) + 8, no);
     path[l].no = no;
     if (KIND(p) == LEAF) return path[l].idx = lsearch(p, key, kl, exact);
     path[l].idx = bsearchb(p, key, kl);
-    no = g64(cell(p, path[l].idx) + 2);
+    no = g64(cell(p, path[l].idx) + 8);
   }
 }
 
@@ -460,7 +465,7 @@ static void ins_at(Store *st, StTree *t, PathE *path, int level, int idx, const 
   p16(p + 28, st->ps);
   for (int i = 0; i < k; i++) node_ins(p, i, cp[i], cl[i]);
   /* the separator: for leaves the shortest key above the left page's last */
-  uint8_t bc[10 + ST_MAXPS / 8];
+  uint8_t bc[16 + ST_MAXPS / 8] = {0};
   const uint8_t *b = ckey(tmp, cp[k]);
   int bl = g16(cp[k]), sl = bl;
   if (kind == LEAF) {
@@ -470,27 +475,25 @@ static void ins_at(Store *st, StTree *t, PathE *path, int level, int idx, const 
     sl++;
   }
   p16(bc, (unsigned)sl);
-  p64(bc + 2, rno);
-  memcpy(bc + 10, b, (size_t)sl);
+  p64(bc + 8, rno);
+  memcpy(bc + 16, b, (size_t)sl);
   for (int i = k; i < m; i++) {
     if (i == k && kind == BRANCH) { /* its key went up: none is kept here */
-      uint8_t first[10];
-      p16(first, 0);
-      memcpy(first + 2, cp[i] + 2, 8);
-      node_ins(r, 0, first, 10);
+      uint8_t first[16] = {0};
+      memcpy(first + 8, cp[i] + 8, 8);
+      node_ins(r, 0, first, 16);
     } else node_ins(r, i - k, cp[i], cl[i]);
   }
   if (level == 0) {
     uint64_t top;
     uint8_t *root = newpage(st, BRANCH, tmp[25] + 1, &top);
-    uint8_t first[10];
-    p16(first, 0);
-    p64(first + 2, path[0].no);
-    node_ins(root, 0, first, 10);
-    node_ins(root, 1, bc, 10 + sl);
+    uint8_t first[16] = {0};
+    p64(first + 8, path[0].no);
+    node_ins(root, 0, first, 16);
+    node_ins(root, 1, bc, 16 + R8(sl));
     t->root = top;
     t->height++;
-  } else ins_at(st, t, path, level - 1, path[level - 1].idx + 1, bc, 10 + sl);
+  } else ins_at(st, t, path, level - 1, path[level - 1].idx + 1, bc, 16 + R8(sl));
 }
 
 int st_put(Store *st, StTree *t, const void *key, int kl, const void *val, int vl, int flag) {
@@ -499,13 +502,13 @@ int st_put(Store *st, StTree *t, const void *key, int kl, const void *val, int v
   if (!t->root) { newpage(st, LEAF, 0, &t->root); t->height = 1; }
   PathE path[ST_MAXH];
   int ex, i = descend_w(st, t, key, kl, path, &ex), h = (int)t->height;
-  uint8_t c[ST_MAXPS / 4];
+  uint8_t c[ST_MAXPS / 4] = {0};
   p16(c, (unsigned)kl);
   p16(c + 2, (unsigned)(vl | (flag ? 0x8000 : 0)));
-  memcpy(c + 4, key, (size_t)kl);
-  memcpy(c + 4 + kl, val, (size_t)vl);
+  memcpy(c + 8, key, (size_t)kl);
+  memcpy(c + 8 + R8(kl), val, (size_t)vl);
   if (ex) node_rm(P(st, path[h - 1].no), i);
-  ins_at(st, t, path, h - 1, i, c, 4 + kl + vl);
+  ins_at(st, t, path, h - 1, i, c, 8 + R8(kl) + R8(vl));
   return !ex;
 }
 
@@ -516,7 +519,7 @@ static void rebalance(Store *st, StTree *t, PathE *path, int level) {
   if (level == 0) {
     if (NC(p) == 0) { pfree(st, path[0].no, 1, g64(p + 16)); t->root = 0; t->height = 0; }
     else for (uint64_t no = path[0].no; KIND(p) == BRANCH && NC(p) == 1; p = P(st, no)) {
-      t->root = g64(cell(p, 0) + 2); /* a root with one child: the child is the root */
+      t->root = g64(cell(p, 0) + 8); /* a root with one child: the child is the root */
       t->height--;
       pfree(st, no, 1, g64(p + 16));
       no = t->root;
@@ -536,22 +539,22 @@ static void rebalance(Store *st, StTree *t, PathE *path, int level) {
   if (pi + 1 < NC(par)) { li = pi; ri = pi + 1; }
   else if (pi > 0) { li = pi - 1; ri = pi; }
   else return;
-  uint64_t lno = g64(cell(par, li) + 2), rno = g64(cell(par, ri) + 2);
+  uint64_t lno = g64(cell(par, li) + 8), rno = g64(cell(par, ri) + 8);
   uint8_t *pl = P(st, lno), *pr = P(st, rno);
   uint8_t *sep = cell(par, ri);
-  int extra = KIND(pl) == BRANCH ? g16(sep) - g16(cell(pr, 0)) : 0;
+  int extra = KIND(pl) == BRANCH ? R8(g16(sep)) - R8(g16(cell(pr, 0))) : 0;
   if (used(st, pl) + used(st, pr) + extra > (int)st->ps - HDR) return;
   pl = touch(st, &lno);
-  p64(cell(par, li) + 2, lno);
+  p64(cell(par, li) + 8, lno);
   for (int i = 0, n = NC(pr); i < n; i++) {
     uint8_t *c = cell(pr, i);
     if (i == 0 && KIND(pr) == BRANCH) { /* its first cell gets the separator as its key */
-      uint8_t bc[10 + ST_MAXPS / 8];
+      uint8_t bc[16 + ST_MAXPS / 8] = {0};
       int sl = g16(sep);
       p16(bc, (unsigned)sl);
-      memcpy(bc + 2, c + 2, 8);
-      memcpy(bc + 10, sep + 10, (size_t)sl);
-      node_ins(pl, NC(pl), bc, 10 + sl);
+      memcpy(bc + 8, c + 8, 8);
+      memcpy(bc + 16, sep + 16, (size_t)sl);
+      node_ins(pl, NC(pl), bc, 16 + R8(sl));
     } else node_ins(pl, NC(pl), c, csize(pr, c));
   }
   pfree(st, rno, 1, g64(pr + 16));
@@ -869,7 +872,7 @@ static void walk(Chk *c, uint64_t no, int level, const uint8_t *lo, int lol, con
   int sum = 0;
   for (int i = 0; i < n; i++) {
     int off = g16(p + HDR + 2 * i);
-    if (off < LO(p) || off + (kind == LEAF ? 4 : 10) > (int)st->ps) { bad(c, "cell outside the page", no); return; }
+    if (off < LO(p) || (off & 7) || off + (kind == LEAF ? 8 : 16) > (int)st->ps) { bad(c, "cell outside the page", no); return; }
     uint8_t *ce = p + off;
     int sz = csize(p, ce);
     if (off + sz > (int)st->ps || sz > maxcell(st) || g16(ce) > st_maxkey(st)) { bad(c, "bad cell", no); return; }
@@ -888,8 +891,8 @@ static void walk(Chk *c, uint64_t no, int level, const uint8_t *lo, int lol, con
   if (kind == LEAF) return;
   for (int i = 0; i < n; i++) {
     uint8_t *ce = cell(p, i), *ne = i + 1 < n ? cell(p, i + 1) : NULL;
-    walk(c, g64(ce + 2), level - 1, i ? ce + 10 : lo, i ? g16(ce) : lol,
-         ne ? ne + 10 : hi, ne ? g16(ne) : hil, 0);
+    walk(c, g64(ce + 8), level - 1, i ? ce + 16 : lo, i ? g16(ce) : lol,
+         ne ? ne + 16 : hi, ne ? g16(ne) : hil, 0);
   }
 }
 
