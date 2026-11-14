@@ -11,9 +11,7 @@
 #   cover   the properties are not vacuous: traps taken, instructions
 #           retired, gifts given and taken. From any state (F_FREE), because
 #           from reset the 256-cycle reset sequencer makes each cover take
-#           the solver half an hour
-#   reset   from reset, through the reset sequencer, to the first
-#           instruction's execute cycle
+#           the solver half an hour (formal/README.md)
 # The groups are separate tasks only to keep each induction small; every
 # task also proves the base invariants.
 [tasks]
@@ -23,15 +21,12 @@ prec p
 priv p
 lin p
 cover
-reset
 
 [options]
 p: mode prove
 p: depth 2
 cover: mode cover
 cover: depth 6
-reset: mode cover
-reset: depth 264
 
 [engines]
 smtbmc bitwuzla
@@ -44,7 +39,6 @@ prec: hierarchy -top strata_core -chparam F_GRP 2 -chparam NCORES 2 -chparam NXM
 priv: hierarchy -top strata_core -chparam F_GRP 3 -chparam NCORES 2 -chparam NXMAP 4 -chparam DLS_KIB 4 -chparam ILS_KIB 4
 lin: hierarchy -top strata_core -chparam F_GRP 4 -chparam NCORES 2 -chparam NXMAP 4 -chparam DLS_KIB 4 -chparam ILS_KIB 4
 cover: hierarchy -top strata_core -chparam F_GRP 0 -chparam F_FREE 1 -chparam NCORES 2 -chparam NXMAP 4 -chparam DLS_KIB 4 -chparam ILS_KIB 4
-reset: hierarchy -top strata_core -chparam F_GRP 9 -chparam NCORES 2 -chparam NXMAP 4 -chparam DLS_KIB 4 -chparam ILS_KIB 4
 cutpoint */t:*strata_ram* */t:*strata_mul* */t:*strata_div* */t:*strata_tu*
 prep -top strata_core
 memory_map */xm_v */xm_sp */xm_far */xm_ils

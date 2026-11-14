@@ -13,9 +13,9 @@ make formal-report     # the table again, from the last runs
 formal/repro/run.sh    # the reproductions of FINDINGS.md F1 and F2 on emulator and RTL
 ```
 
-`make formal` is not part of `make test`: it takes about 40 minutes on an
+`make formal` is not part of `make test`: it takes about 15 minutes on an
 18-core laptop, nearly all of it for the core (five inductions of 5 to 8
-minutes each, run side by side, and half an hour for the cover from reset).
+minutes each, run side by side).
 What was found is in `FINDINGS.md`.
 
 ## Tools
@@ -86,7 +86,6 @@ Bitwuzla takes 5 to 8.)
 | `core` | priv | induction (k = 2) | in user mode every supervisor-only instruction traps; supervisor state changes only by a trap to the supervisor |
 | `core` | lin | induction (k = 2) | write access to a byte of far memory is never in more registers after an instruction than before (but for the instructions that bring a capability in); a gift given empties a linear source, a gift taken lands in cd; csave / crestore move, not copy |
 | `core` | cover | 6 cycles, from any state | traps of several causes to both handlers and to the double-fault halt, instructions retiring, a gift given and one taken; from any state, see below |
-| `core` | reset | 264 cycles | from reset, through the reset sequencer, to the first instruction's execute cycle |
 | `top` | prove | induction (k = 3) | inboxes: arbitration, no overflow, a gift comes out once, unchanged, in order; the walker: one walk, at most 774 cycles, the range rewritten with a new highest generation, heads at unit boundaries, done only for the request that started it |
 | `top` | cover | 40 cycles | |
 
@@ -97,10 +96,12 @@ trace spends 256 cycles in the reset sequencer first, and the solver then
 needs half an hour per cover. So `core`'s `cover` task drops the
 reset-in-the-first-cycle assumption (`F_FREE`): its traces show that each
 property's condition can occur together with every assumption (the proofs
-are not vacuous), not that the states are reachable. `reset` shows the way
-from reset to the first instruction. The proofs themselves do not depend on
-this: an induction holds from any state anyway. The other targets' covers
-all start at reset.
+are not vacuous), not that the states are reachable. From reset, the first
+instruction's execute cycle was reached once by hand (step 260, 28 minutes
+of Bitwuzla; writing the trace had not finished 35 minutes later and was
+stopped), so that check is not a task. The proofs themselves do not depend
+on this: an induction holds from any state anyway. The other targets'
+covers all start at reset.
 
 ### What is assumed
 

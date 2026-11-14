@@ -94,8 +94,7 @@
   // reset every trace first spends 256 cycles in the reset sequencer, which
   // makes the solver very slow (one cover in half an hour). Its traces show
   // that the properties' conditions can occur together with every
-  // assumption, not that the states are reachable. The task `reset` covers
-  // the way from reset to the first instruction's execute cycle.
+  // assumption, not that the states are reachable.
   parameter bit F_FREE = 0;
 
   logic f_past = 0;
@@ -501,6 +500,4 @@
     cover (!F_FREE || (f_step && $past(take_pop) && $past(user)));
     cover (!F_FREE || (f_step && $past(state) == S_CT && f_ret && !$past(ct_save)));
     cover (!F_FREE || (f_step && $past(user) && !user && state == S_F0));
-    // (from reset: the first instruction is executed)
-    cover (F_FREE || (f_rstd && state == S_EX));
   end

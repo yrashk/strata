@@ -143,7 +143,7 @@ file-scope model/counters and a `sim_cycle()` for this.
 
 ## Formal verification (added 2026-11-13)
 
-`formal/` holds SymbiYosys proofs of the RTL: `make formal` (all, about 40
+`formal/` holds SymbiYosys proofs of the RTL: `make formal` (all, about 15
 minutes, not part of `make test`), `make formal-NAME`. `formal/README.md`
 has the table of proofs, the assumptions and what is not covered;
 `formal/FINDINGS.md` what was found.
