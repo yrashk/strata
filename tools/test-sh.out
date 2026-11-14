@@ -163,7 +163,7 @@ strata$ cat mo
 cat: no such file: mo
 [exit 1]
 [1] strata$ cat /doc/motd  | wc
-25 255 1648
+25 255 1653
 strata$ cat 
 bin/    doc/    f1      f3      guest/  src/    tfile   www/
 demo/   etc/    f2      forth/  s1      sys/    ws/

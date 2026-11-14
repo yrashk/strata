@@ -31,6 +31,7 @@
 # 9. `fsck`, the check of the store from inside the OS.
 # 10. A full disk: only the writer that did not fit loses its work.
 # 11. Names per directory: one name in several, the root, subdirectories.
+# 12. Two programs writing at once: each file holds its own bytes.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 b="$here/${BUILD:-build}"
@@ -531,4 +532,20 @@ printf 'deep size=5 tags=na,sub\nmoved size=7 tags=nc\nsame size=5 tags=na,sub\n
   { cat "$tmp/n1.dump" >&2; fail "the files on the disk are not the two of one name, the moved one and the one in a subdirectory"; }
 [ "$("$b/stdb" get "$tmp/n1.img" /na/sub/same)" = in-a ] && [ "$("$b/stdb" get "$tmp/n1.img" /same)" = in-root ] || fail "stdb get by path"
 echo "test-store: names per directory: one name in a directory, its subdirectory and the root; a refused tag, a move; the disk checked"
+# ---- 12. two programs writing at once -------------------------------------------------------
+# Each byte is a request, and the two take turns: every turn commits the
+# other's bytes first. Each file must hold its own bytes and nothing else.
+cat >"$tmp/w1.txt" <<'EOF'
+sched 1ms
+-c 6 spin 12 a > /t/sa &
+-c 6 spin 12 b > /t/sb &
+wait
+echo --both; cat /t/sa /t/sb
+halt
+EOF
+run "$tmp/w1.txt" "$disk" -w "$tmp/w1.img" || fail "the session with two writers did not end well"
+[ "$("$b/stdb" get "$tmp/w1.img" /t/sa)" = aaaaaaaaaaaa ] && [ "$("$b/stdb" get "$tmp/w1.img" /t/sb)" = bbbbbbbbbbbb ] ||
+  { "$b/stdb" get "$tmp/w1.img" /t/sa | od -c | head -3 >&2; fail "two programs writing at once: a file does not hold its own bytes"; }
+"$b/stdb" check "$tmp/w1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk two programs wrote at once fails its check"; }
+echo "test-store: two programs writing a byte at a time, in turns: each file holds its own bytes"
 echo "test-store: OK"
