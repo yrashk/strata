@@ -140,6 +140,22 @@ file-scope model/counters and a `sim_cycle()` for this.
 - Limits: no idle detection (a waiting machine keeps a CPU busy), no
   network far end, `-T virtual` only (machine time = cycles / 100).
 
+## wdoom and the sound device (added 2026-11-13, not yet deployed)
+
+`wdoom` (`os/progs/wdoom.s`, `os/progs/wdoom/`, plan and measurements in
+`os/progs/PLAN-wdoom.md`) is a first-person shooter as a window-server
+client, with a converted subset of Freedoom's art and sounds
+(`tools/wdoom-assets.py`, `os/progs/wdoom/wdoom.dat`). `make boot-wdoom`
+boots into it (`ws PROGRAM` is new); `tools/test-wdoom.sh` is in `make test`.
+- The sound device (`common/sound.h`, spec 1.2) exists only in the emulator
+  and only when asked for (`-a`, `-A FILE`; `make boot*` and the play page
+  ask), because the RTL has none and the sessions compared with it must
+  see the same platform table. Putting it into `rtl/strata_dev.sv` (a DPI
+  sink, as for the pointer) and then making it unconditional is open.
+- Not verified: how it sounds (the tests check that the pistol's samples
+  reach a WAV file and, in a browser, that they are scheduled; nobody has
+  listened), and the SDL path beyond compiling.
+
 ## Open work
 
 **Waiting on a decision**

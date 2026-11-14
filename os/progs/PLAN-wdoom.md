@@ -58,11 +58,60 @@ made by `tools/wdoom-assets.py`.
       monsters, fireballs, pickups, messages, death, the exit switch
 - [x] `ws`: `ws PROGRAM` starts with that program; the palette knows wdoom
 - [x] `wdoom demo`
-- [ ] A sound device in the machine; sound effects in the game
-- [ ] `make boot-wdoom`, the shell's help, `tools/test-wdoom.sh` in `make test`
-- [ ] A screenshot, README and site entries, the play page preset
-- [ ] Frame rates: emulator with and without the JIT, the wasm build
+- [x] A sound device in the machine (`common/sound.h`: `strata-emu -a`, `-A
+      FILE`, SDL, the wasm build and the play page; `dev`'s GETSND); a
+      four-channel mixer and sixteen sounds in the game
+- [x] `make boot-wdoom`, the shell's help, `tools/test-wdoom.sh` in `make test`
+- [x] A screenshot, README and site entries, the play page preset
+- [x] Frame rates: emulator with and without the JIT, the wasm build
 
 ## Measurements
 
-(filled in below as they are made)
+Sizes: the program is 54.6 KiB on the disk: 17.7 KiB of code (10.6 KiB of
+it the game: about 2,650 instructions; the rest `sys.s` and `wsclient.s`)
+and 36.7 KiB of D-LS data (of the 40 KiB a program may have). `wdoom.dat`
+is 431 KiB: 10 KiB resident (tables, directories, the level), 421 KiB far
+(textures 192 KiB, sprites 129 KiB, sounds 66 KiB, the bar, flats and
+palettes 23 KiB).
+
+Frame rates, `wdoom demo` (one tic a frame, as fast as it goes) in a
+full-size tile of a 1280 x 800 screen (the picture three times: 960 x 600),
+12 cores, on an Apple M-series host, 2026-11-13:
+
+| Machine | Frames a second |
+|---|---|
+| `strata-emu`, JIT | 220 to 300 |
+| `strata-emu -j` (interpreter) | 3.4 |
+| the wasm build under node, JIT | 142 |
+| the wasm build under node, interpreter | 3.8 |
+
+In a browser (the play page, JIT on) the game keeps its 35 tics a second
+with a frame for each; the machine then runs about 290 million
+instructions a second.
+
+What a 3x frame costs in instructions (the difference between two demo
+lengths, per frame): about **1.8 million in wdoom** (casting, texturing,
+sprites, turning 54,000 indices into 484,000 pixels) and about **6.2
+million in `ws`**, which copies the five DAMAGE rectangles into the
+window's surface and from there to the screen. On the RTL at an FPGA's 20
+MHz that would be 11 frames a second for the game alone and under 3 with
+the server's copies: the style fits the machine's memory, but at this
+resolution not its speed without the emulator.
+
+## What did not fit, and what is simple
+
+- No varying floor and ceiling heights, no stairs, no sky: a grid
+  raycaster (see Decisions). One floor flat and one ceiling flat for the
+  whole level: each further pair is 8 KiB of D-LS.
+- Monsters have one view (the front): the other rotations of their
+  walking and attacking frames would have taken some 350 KiB more of
+  sprites, and the arena has none to spare beside the band.
+- One weapon, one level. Monsters walk straight at the player and do not
+  find their way around walls; they do not block one another.
+- Scaling is by whole factors, so the picture is small (320 x 200) in a
+  half-width tile of a 1280 x 800 screen.
+- The game draws a frame every tic even when nothing moves.
+- With no key-up events, a first key press moves for nine tics and then
+  waits for the host's key repeat; turning by the pointer needs a button
+  held (the server sends moves only then).
+- No sound on the RTL (it has no sound device); none during the demo.
