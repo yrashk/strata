@@ -912,9 +912,10 @@ paths; nothing can be written, renamed or deleted there. `df` counts the
 pages snapshots keep as used. Inside the OS,
 `db` shows the store's trees (`db`: the trees with their roots and heights;
 `db fs/name`: a tree's records; `db -p PAGE`: one page's cells, so a tree
-can be walked by hand), and `wdb` does the same in a window, page by page
-(j/k, Enter to open a branch's child or a tree from the catalog, Backspace
-back). Both read the disk as it was last committed, with READBLK
+can be walked by hand), and `wdb` does the same in a window: it opens on
+the same list of trees, Enter opens the tree at hand at its root page and
+then a branch's child, Backspace goes back (to the list from a root), j/k
+move, t returns to the list. Both read the disk as it was last committed, with READBLK
 (`os/lib/stview.s`).
 
 **Tags instead of directories.** A file has one name, unique on the disk,

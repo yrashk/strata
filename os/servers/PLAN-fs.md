@@ -90,7 +90,7 @@ decisions taken.
 - [x] `os/lib/stview.s`: the disk's trees read with READBLK (the last
       commit), pages, a walk over a tree's records, lines of text
 - [x] `db` (the trees; a tree's records; one page) and `wdb` (the same in a
-      window: page by page, into branches and from the catalog into trees)
+      window: the list of trees, then a tree page by page, into branches)
 - [ ] `wdb` has no test of its own (it was looked at on a captured frame)
 
 ## Stage 7: the store for programs
