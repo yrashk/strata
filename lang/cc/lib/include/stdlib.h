@@ -22,6 +22,8 @@ long double strtold(const char *s, char **end);
 #ifdef __STRATA_CC__
 float strtof(const char *s, char **end);
 #endif
+void qsort(void *base, size_t n, size_t size, int (*cmp)(const void *, const void *));
+void *bsearch(const void *key, const void *base, size_t n, size_t size, int (*cmp)(const void *, const void *));
 int rand(void);
 void srand(unsigned seed);
 #endif

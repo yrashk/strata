@@ -431,7 +431,14 @@ strata$ cc -o calc calc.c           # -o names the output; -h KIB sizes the heap
   not yet had to compute on a stack of value descriptors, so constants fold,
   variables become operands and narrow results are extended only where it
   matters. With `-p` a program's code is paged in 4 KiB units, as the
-  compiler's own 90 KiB are.
+  compiler's own 106 KiB are.
+- **A library in two parts.** What every program needs (`printf`, files,
+  the heap, strings, the software floating point) is assembly, 9 KiB copied
+  into each image. `qsort`, `bsearch` and `<math.h>` are C source inside
+  `cc.lib`: the compiler compiles the functions a program calls after the
+  program itself, so nothing else pays for them.
+  [`sort.c`](lang/cc/examples/sort.c) and
+  [`math.c`](lang/cc/examples/math.c) use them.
 - **Tested against existing C tests.** `lang/cc/tests/` holds 521 programs
   from the test suites of scc (ISC) and lacc (MIT), sorted into a ladder by
   the features they need; `make test-cc` compiles and runs each one inside

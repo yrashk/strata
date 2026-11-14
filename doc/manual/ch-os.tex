@@ -1448,3 +1448,20 @@ expanded, since \texttt{as} has no file system), so programs can be rebuilt on t
 kernel, the boot ROM and \texttt{as} itself (at origins 0 and \hex{8000}), a feature test covering every
 instruction and directive, a set of inputs both assemblers must reject, and a StrataOS boot that
 assembles and runs a program.
+
+The C compiler (Section~\ref{sec:cc}) is on the disk too, and is self-hosting in the same sense.
+\texttt{cc prog.c} compiles a program at the shell: \texttt{cc} is an ordinary StrataOS program whose
+106~KiB of code are paged in 4~KiB units from a second file, \texttt{/bin/cc.u}, whose large tables and
+its window on the source are in its arena, and which reads the library from \texttt{/bin/cc.lib}. The
+disk also carries the compiler's source, \texttt{/src/cc.c}, and \texttt{cc0}, the compiler in assembly
+it is bootstrapped from, so the bootstrap can be done on the machine:
+
+\begin{shell}
+cc0 -p -h 0 -o cc1 /src/cc.c
+cc1 -p -h 0 -o c2 /src/cc.c
+c2 -p -h 0 -o c3 /src/cc.c
+\end{shell}
+
+\texttt{c2} and \texttt{c3} are the same files (\texttt{c2.u} and \texttt{c3.u} too), and the same as
+\texttt{/bin/cc}, which was built on another machine; \texttt{tools/test-cc-boot.sh} checks that with a
+file comparison compiled on the spot (\texttt{/src/cmp.c}).

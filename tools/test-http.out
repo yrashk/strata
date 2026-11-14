@@ -37,7 +37,7 @@ Content-Type: text/html; charset=utf-8
 <p class="foot"><a href="/">home</a> &middot; <a href="/~/">every file</a> &middot; <a href="/~ps">what the machine is doing</a> &middot; StrataOS 0.1 httpd</p>
 </body></html>
 strata$ echo GET /src/ HTTP/1.0 | nc 127.0.0.1 80 > r3
-GET /src/ 200 4973
+GET /src/ 200 5292
 strata$ grep facets < r3
 <p class="facets">narrower: <a href="/src/demo/">demo/</a> </p>
 strata$ echo GET /www/style.css HTTP/1.0 | nc 127.0.0.1 80 > r4

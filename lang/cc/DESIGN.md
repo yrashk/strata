@@ -80,8 +80,12 @@ cc [-o OUT] [-p] [-h KIB] FILE.c ...
   assembly programs of this system do.
 - Floating point is soft: IEEE 754 double in the library (`lib/fp.s`:
   `__fadd`, `__fmul`, ...), round to nearest even; the compiler includes the
-  same routines to fold constants. `float` is kept as a 4-byte object and
-  computed in double.
+  same routines to fold constants. `float` is a 4-byte object and its
+  arithmetic is rounded to float. A decimal constant is its digits (18 at
+  most) multiplied or divided by a power of ten in double, which is exact
+  for the constants people write by hand and can be a unit or two in the
+  last place off for longer ones or far from 1; a hexadecimal constant is
+  exact. The functions of `<math.h>` are C source (section 5).
 
 ### Registers and calling convention
 
@@ -239,8 +243,32 @@ table, into one disk file, `cc.lib`.
   `-`, `0`, `+`; `%f %e %g` with soft-float), `putchar`, `puts`.
 - `malloc`/`free`/`calloc`/`realloc` (first fit with coalescing over the heap
   inside the data extent), `memcpy memmove memset memcmp strlen strcpy strcmp
-  strncmp strcat strchr strrchr strstr`, `atoi strtol abs qsort`, `<ctype.h>`.
+  strncmp strcat strchr strrchr strstr`, `atoi strtol strtod abs`, `<ctype.h>`.
 - Soft-float and the helpers compiled code calls.
+
+### The library in C
+
+Every program carries `libc.s`, so what goes into it is paid for by all of
+them, in an instruction store of 32 KiB. Functions that most programs never
+call are kept as C source instead: `lib/src/NAME.c` defines the function
+`NAME`, and the files are members of `cc.lib`. A program is one translation
+unit and there is no linker, so this is all a library of sources takes:
+when `cc` has read the program, it goes through the references that are
+still open; one that neither the program nor `libc.s` defines, and for
+which there is a member `NAME.c`, makes it read that member from the file
+and compile it as if it followed the program. A source may need others
+(`pow` needs `exp` and `log`), so this repeats until nothing is missing.
+The members are read from the file when they are needed; only the part of
+`cc.lib` before them is kept in the arena.
+
+Such a source is compiled with the program's macros and file-scope names
+still defined, so it uses, besides the function's own name, only
+identifiers that begin with two underscores, and includes nothing.
+
+`qsort`, `bsearch` and `<math.h>` are there. The mathematical functions are
+`double` only; `lib/src/README.md` says how they are computed and how
+accurate they are. The bootstrap compiler does not have this mechanism: a
+program compiled with `cc0` is limited to `libc.s`.
 
 ## 6. Bootstrap: `cc.s`, then `cc.c`
 
@@ -295,7 +323,7 @@ path is the test above.
 
 It is the same one-pass design as `cc.s` (section 4), with these changes:
 
-- **A program of its own size.** Its code is 108 KiB in 4 KiB units, more
+- **A program of its own size.** Its code is 106 KiB in 4 KiB units, more
   than an image may hold beside its data, so the units are a second file,
   `cc.u`, which the start-up code of every paged program loads when the
   image says so (`__uload`). Its tables take 38 of the 40 KiB of data:
@@ -332,9 +360,20 @@ computed where the declarator stands; `sizeof` and pointer arithmetic read
 that word. This covers arrays of arrays and pointers to them. The storage
 of a variable-length array comes from `malloc`, its address is a frame word
 (the object is reached as a structure parameter is), and it is given back
-at the end of its block and before `return`, `break` and `continue` leave
-it; a `goto` out of the block does not give it back. Local Store has no
-second stack to take it from: `sp`-relative frames stay fixed.
+at the end of its block and wherever control leaves the block early. Local
+Store has no second stack to take it from: `sp`-relative frames stay fixed.
+
+`return`, `break` and `continue` know what they leave: they free the
+arrays declared since the function, or the loop or switch, began. A `goto`
+back to a label does too: each label keeps the number of symbols that have
+stayed in scope since it was defined (lowered at every scope's end), and
+the goto frees the arrays above that. A `goto` forward does not know its
+label yet. If arrays are alive where it stands, its jump is kept apart
+from the label's chain, and every scope that ends before the label comes
+gets a few instructions off its own path: the jump lands there, the
+scope's arrays that were alive at the goto are freed, and another jump goes
+on, to the next scope's end or to the label. A jump into the scope of a
+variable-length array is not valid C, and is not looked for.
 
 In a parameter list the names a dimension uses are not declared yet and no
 code can be emitted, so the text of the dimension is kept in the arena and
