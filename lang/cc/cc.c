@@ -312,6 +312,7 @@ int bol;
 long src_top, xh_top, id_top, mac_top, fix_top;
 int xh_hold;                    /* expansions are not freed: the scanner may be rewound */
 int sf_fd, sf_eof, sf_st, sf_owed;      /* the source file, read as the scanner goes */
+long sf_left;                   /* bytes of it still in the file (a member of cc.lib), or -1: to its end */
 long sf_top, sf_pin, sf_shift;
 char fnames[256];               /* file names by include depth, 32 bytes each */
 char *fname;
@@ -354,6 +355,9 @@ long cs_default;
 int lb_id[32];
 long lb_adr[32], lb_chain[32];
 int nlabels;
+int lb_lw[32];                  /* a label defined: the symbols below this one have been in scope ever since */
+int pg_lab[8], pg_lw[8], npg;   /* jumps forward to a label not yet seen, taken where variable-length arrays */
+long pg_loc[8];                 /* are alive: the label, the symbols still in scope, the jump to patch */
 int ds_class, d_name, in_params;
 int ini_static, ini_dry, ini_pend, ini_comma, ini_desig;
 long ini_cnt;
@@ -364,6 +368,9 @@ char *out_name, *src_name;
 char outbuf[40];
 long lib_sym;
 int lib_nsym;
+int lib_ids[96], lib_nid;       /* the library sources compiled with the program so far */
+long fix_seen;                  /* the fixups already looked at for them */
+int lib_no;                     /* the name last looked up */
 
 /* ================= messages ================= */
 
@@ -591,7 +598,9 @@ void src_fill(void)
     if (sf_top + 2100 > A_SRCEND) err("initialiser too long", 0);
     wb_open(sf_top);
     while (wb_pos + 2100 <= A_SRCEND) {
-        r = read(sf_fd, b, 1024);
+        r = sf_left >= 0 && sf_left < 1024 ? sf_left : 1024;
+        if (r) r = read(sf_fd, b, r);
+        if (r > 0 && sf_left >= 0) sf_left = sf_left - r;
         if (r <= 0) {
             sf_eof = 1;
             for (; sf_q; sf_q--) sf_char('?');
@@ -763,8 +772,8 @@ long splice(long start, long size)
 }
 
 long lib_sz, lib_len, lib_base;
-/* a member of cc.lib: -> its arena offset (0: none), lib_sz = its size */
-long lib_find(char *name)
+/* a member of cc.lib: -> its offset in the file (0: none), lib_sz = its size */
+long lib_dir(char *name)
 {
     long d = lib_base + 8;
     for (;;) {
@@ -772,11 +781,20 @@ long lib_find(char *name)
         if (!*(char *)iob) return 0;
         if (streq((char *)iob, name)) {
             lib_sz = ((int *)iob)[7];
-            if (((int *)iob)[6] + lib_sz > lib_len) err("/bin/cc.lib is too large", 0);
-            return lib_base + ((int *)iob)[6];
+            return ((int *)iob)[6];
         }
         d = d + 32;
     }
+}
+
+/* a member of cc.lib that is in the arena (the library's code and data, the
+   headers): -> its arena offset (0: none), lib_sz = its size */
+long lib_find(char *name)
+{
+    long a = lib_dir(name);
+    if (!a) return 0;
+    if (a + lib_sz > lib_len) err("/bin/cc.lib is too large", 0);
+    return lib_base + a;
 }
 
 /* the library's address for an identifier, or -1 */
@@ -3090,15 +3108,52 @@ void vla_new(int s)
 }
 
 /* the variable-length arrays declared since symbol `from` are given back */
-void vla_free(int from)
+void vla_range(int from, int to)
 {
     int i;
-    for (i = nsy - 1; i >= from; i--)
+    for (i = to - 1; i >= from; i--)
         if (sy[i].flags & SF_VLA && sy[i].cls == SC_AUTO) {
             vpush(VK_LOC, Y_VOIDP, sy[i].val);
             g_libfn("free", 1, Y_VOID);
             vpop();
         }
+}
+
+void vla_free(int from) { vla_range(from, nsy); }
+
+int vla_any(int from, int to)
+{
+    int i;
+    for (i = from; i < to; i++)
+        if (sy[i].flags & SF_VLA && sy[i].cls == SC_AUTO) return 1;
+    return 0;
+}
+
+long g_jmp(long chain);
+
+/* A scope ends: the symbols from m on leave. A goto must give back the
+   variable-length arrays whose scope it leaves. Back to a label that is
+   easy: the label knows which symbols have stayed in scope since it was
+   defined (lb_lw), and the goto frees the arrays above. Forward, the label
+   is not known yet, so the jump is led out of each scope it turns out to
+   leave, through code placed at the scope's end that frees the scope's
+   arrays (the ones alive at the goto: below pg_lw) and jumps on. */
+void vla_leave(int m)
+{
+    int i;
+    long over;
+    for (i = 0; i < nlabels; i++) if (lb_adr[i] && lb_lw[i] > m) lb_lw[i] = m;
+    for (i = 0; i < npg; i++) {
+        if (pg_lw[i] <= m) continue;
+        if (vla_any(m, pg_lw[i])) {
+            over = g_jmp(0);
+            g_resolve(pg_loc[i], code_pc);
+            vla_range(m, pg_lw[i]);
+            pg_loc[i] = g_jmp(0);
+            g_resolve(over, code_pc);
+        }
+        pg_lw[i] = m;
+    }
 }
 
 /* ================= intrinsics ================= */
@@ -4731,6 +4786,7 @@ void block(void)
     next();
     scope--;
     if (fn_vla) vla_free(m);
+    vla_leave(m);
     scope_exit(m);
     fr_cur = f;
     fr_keep = k;
@@ -4788,6 +4844,7 @@ void loop_stmt(void)
         g_jmp_to(cnt_target);
         scope--;
         if (fn_vla) vla_free(m);
+        vla_leave(m);
         scope_exit(m);
     }
     g_resolve(brk_chain, code_pc);
@@ -4948,8 +5005,14 @@ void stmt(void)
         i = lab_find(tk_val);
         next();
         skip(';');
-        if (lb_adr[i]) g_jmp_to(lb_adr[i]);
-        else lb_chain[i] = g_jmp(lb_chain[i]);
+        if (lb_adr[i]) {
+            if (fn_vla) vla_free(lb_lw[i]);
+            g_jmp_to(lb_adr[i]);
+        } else if (fn_vla && vla_any(fn_nsy0, nsy)) {
+            if (npg >= 8) err("too many jumps out of the scope of a variable-length array", 0);
+            pg_lab[npg] = i; pg_lw[npg] = nsy;
+            pg_loc[npg++] = g_jmp(0);
+        } else lb_chain[i] = g_jmp(lb_chain[i]);
         break;
     case T_ID:
         if ((tk_val == id_asm || tk_val == id_asm2) && !tk_sym && peek_ch() == '(') {
@@ -4961,8 +5024,16 @@ void stmt(void)
             next();
             next();
             lb_adr[i] = here();
+            lb_lw[i] = nsy;
             g_resolve(lb_chain[i], code_pc);
             lb_chain[i] = 0;
+            for (a = 0; a < npg; a++)
+                if (pg_lab[a] == i) {
+                    g_resolve(pg_loc[a], code_pc);
+                    npg--;
+                    pg_lab[a] = pg_lab[npg]; pg_lw[a] = pg_lw[npg]; pg_loc[a] = pg_loc[npg];
+                    a--;
+                }
             if (tok != '}' && !is_type()) stmt();
             return;
         }
@@ -5062,6 +5133,7 @@ void func_def(int s, int t)
     fn_s0 = (ty[t].flags & TF_VARIADIC) || np + k > 8;
     fn_va = 8 * (np + k);
     nlabels = 0;
+    npg = 0;
     scope = 1;
     fn_vla = 0;
     fn_nsy0 = nsy;
@@ -5365,6 +5437,53 @@ void lib_load(void)
     }
 }
 
+/* The program has been read. A function it uses and does not define, and
+   which the library's code does not have either, may be a member NAME.c of
+   cc.lib: C source, compiled now as if it followed the program (which is
+   one translation unit, so this is all a library of sources takes). Such a
+   source may need others in turn. -> 1: the scanner is at the start of one. */
+int lib_more(void)
+{
+    int id, s, i;
+    long a, n;
+    char *nm;
+    for (; fix_seen < fix_top; fix_seen = fix_seen + 16) {
+        far_read(fix_seen, lfx, 16);
+        id = ((int *)lfx)[1];
+        s = id_sym(id);
+        if (s && (sy[s].cls == SC_FUNC || sy[s].cls == SC_STATIC) && (sy[s].flags & SF_DEF)) continue;
+        if (id == lib_no) continue;
+        for (i = 0; i < lib_nid && lib_ids[i] != id; i++) ;
+        if (i < lib_nid) continue;
+        lib_no = id;                    /* (if it is not one: the next fixups are often for the same name) */
+        nm = id_name(id);
+        for (i = 0; nm[i] && i < 20; i++) tb[i] = nm[i];
+        if (nm[i]) continue;
+        tb[i] = '.'; tb[i + 1] = 'c'; tb[i + 2] = 0;
+        a = lib_dir(tb);
+        if (!a) continue;
+        n = lib_sz;
+        if (lib_nid >= 96) err("too many library sources", 0);
+        lib_ids[lib_nid++] = id;
+        sf_fd = open("/bin/cc.lib", 0);
+        if (sf_fd < 0) err("cannot read /bin/cc.lib", 0);
+        while (a > 0) {                 /* to the member */
+            i = read(sf_fd, (char *)iob, a < 1024 ? a : 1024);
+            if (i <= 0) err("cannot read /bin/cc.lib", 0);
+            a = a - i;
+        }
+        sf_left = n; sf_eof = 0; sf_st = 0; sf_owed = 0;
+        in_pos = A_SRC; in_end = A_SRC; sf_top = A_SRC;
+        sw_base = -1;
+        line = 1; bol = 1;
+        fname = fnames;
+        for (i = 0; tb[i]; i++) fname[i] = tb[i];
+        fname[i] = 0;
+        return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     int i;
@@ -5388,12 +5507,16 @@ int main(int argc, char **argv)
     if (sf_fd < 0) err("cannot open ", src_name);
     in_pos = A_SRC; in_end = A_SRC; sf_top = A_SRC;
     in_kind = 1; line = 1; bol = 1;
+    sf_left = -1;
+    fix_seen = A_FIX;
     fname = fnames;
     for (i = 0; src_name[i] && i < 31; i++) fname[i] = src_name[i];
     fname[i] = 0;
-    next();
-    while (tok) ext_decl();
-    close(sf_fd);
+    do {
+        next();
+        while (tok) ext_decl();
+        close(sf_fd);
+    } while (lib_more());
     fname = 0;
     link();
     m_write();

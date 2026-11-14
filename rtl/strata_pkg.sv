@@ -223,11 +223,13 @@ package strata_pkg;
   localparam logic [63:0] DEV_CON_REL = 64'h0018;  // write: completes a pending break read with 0
   localparam logic [63:0] DEV_PLAT    = 64'h1000;  // platform table ROM
   localparam logic [63:0] DEV_BLK0    = 64'h2000;  // block device 0 window
-  localparam logic [63:0] DEV_TIMER   = 64'h3000;  // timer: NOW, FREQ, DEADLINE, WAIT
+  localparam logic [63:0] DEV_TIMER   = 64'h3000;  // timer: NOW, FREQ, DEADLINE, WAIT, EPOCH, ZONE
   localparam logic [63:0] DEV_TMR_NOW = 64'h3000;
   localparam logic [63:0] DEV_TMR_FREQ= 64'h3008;
   localparam logic [63:0] DEV_TMR_DL  = 64'h3010;
   localparam logic [63:0] DEV_TMR_WAIT= 64'h3018;
+  localparam logic [63:0] DEV_TMR_EPOCH = 64'h3020; // read-only: wall clock at NOW = 0 (0: not known)
+  localparam logic [63:0] DEV_TMR_ZONE  = 64'h3028; // read-only: local time minus UTC, seconds
   localparam logic [63:0] DEV_FB_PRESENT = 64'h4000;  // framebuffer controller: PRESENT, VSYNC
   localparam logic [63:0] DEV_FB_VSYNC   = 64'h4008;
   localparam logic [63:0] DEV_PTR_EVENT  = 64'h4100;  // pointer: EVENT (waiting read; a write releases), STATE
@@ -260,6 +262,8 @@ package strata_pkg;
                                          input longint tval, input int dbl);
   import "DPI-C" function int sim_trace_on();
   import "DPI-C" function longint sim_time_us();    // host microseconds, or -1: count cycles
+  import "DPI-C" function longint sim_epoch_us();   // the timer's EPOCH: host wall clock at NOW = 0
+  import "DPI-C" function longint sim_zone_s();     // the timer's ZONE: host local time minus UTC
   import "DPI-C" function void sim_fb_present();    // PRESENT: the harness reads the framebuffer
   import "DPI-C" function void sim_fb_write(input int widx); // a system-memory word in the framebuffer window was written (live scanout)
   import "DPI-C" function void sim_trace(input int core, input longint pc, input int ir);

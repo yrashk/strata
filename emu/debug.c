@@ -1055,6 +1055,8 @@ static const char *port_name(uint64_t port) {
   case DEV_CONSOLE + CON_RELEASE: return "console release";
   case DEV_TIMER + TMR_NOW: return "timer NOW";
   case DEV_TIMER + TMR_FREQ: return "timer FREQ";
+  case DEV_TIMER + TMR_EPOCH: return "timer EPOCH";
+  case DEV_TIMER + TMR_ZONE: return "timer ZONE";
   case DEV_TIMER + TMR_DEADLINE: return "timer DEADLINE";
   case DEV_TIMER + TMR_WAIT: return "timer WAIT";
   case DEV_FBCTL + FBC_PRESENT: return "fb PRESENT";

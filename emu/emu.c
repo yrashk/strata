@@ -494,6 +494,8 @@ static uint8_t dev_read(uint64_t port, uint64_t i) {
     case TMR_NOW: if (j == 0) tmr_lnow = now_ticks(); return (uint8_t)(tmr_lnow >> (8 * j));
     case TMR_FREQ: return (uint8_t)((uint64_t)TMR_HZ >> (8 * j));
     case TMR_DEADLINE: if (j == 0) tmr_ldl = tmr_deadline; return (uint8_t)(tmr_ldl >> (8 * j));
+    case TMR_EPOCH: return (uint8_t)(host_epoch_us >> (8 * j));
+    case TMR_ZONE: return (uint8_t)((uint64_t)host_zone_s >> (8 * j));
     default: return 0; /* WAIT other than at the start of a transfer */
     }
   }
@@ -1843,6 +1845,7 @@ int main(int argc, char **argv) {
   }
   if (!host_input_open(in_path)) { perror("input"); return 2; }
   host_clock_start();
+  host_wall_start(!virtual_time);
   host_display_init(gfx, scale, ppm, fb_w, fb_h);
   disk = stx_disk_load(disk_path, &disk_blocks);
   plat_build_fb(plat_rom, ncores, disk_blocks, fb_w, fb_h, ctab_size, nxmap, (unsigned)(dls_size / 1024),

@@ -284,7 +284,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "  a tag is a directory: a file is in each one it has (none: in /); a name is one per directory\n" ; (continued)
          .ascii "  cat cp [-t] mv rm touch df   tag untag retag FILE TAG...   tags [FILE]\n" ; (continued)
          .ascii "programs:\n"           ; (continued)
-         .ascii "  ps free uptime devs hexdump cores sched\n" ; (continued)
+         .ascii "  ps free uptime date devs hexdump cores sched\n" ; (continued)
          .ascii "  db [TREE | -p PAGE]  the trees of the store on the disk (wdb: in a window)\n" ; (continued)
          .ascii "  fsck                 check the store on the disk\n" ; (continued)
          .ascii "  snap [NAME | -d NAME | -r NAME]  snapshots: take, delete, restore; read: /@NAME/...\n" ; (continued)

@@ -35,7 +35,7 @@ expect: .dword 1 | 0 << 16 | 3 << 32 | 0xffff << 48, 0, 0, 0x4000000            
         .dword 3 | 0 << 16 | 4 << 32 | 0xffff << 48, 1, 0x1000, 320             ; platform table
         .dword 4 | 0 << 16 | 4 << 32, 32768, 0x2000, 0x300                        ; block device (node patched in: ncores)
         .dword 5 | 0 << 16 | 3 << 32 | 0xffff << 48, 1280 | 800 << 16 | 5120 << 32 | 1 << 48, 0x3000000, 0x1000000 ; framebuffer
-        .dword 6 | 0 << 16 | 4 << 32 | 0xffff << 48, 1000000, 0x3000, 0x20      ; timer
+        .dword 6 | 0 << 16 | 4 << 32 | 0xffff << 48, 1000000, 0x3000, 0x30      ; timer
         .dword 7 | 0 << 16 | 4 << 32 | 0xffff << 48, 0x0307, 0x4100, 0x10       ; pointer
         .dword 8 | 0 << 16 | 4 << 32 | 0xffff << 48, 1500, 0x4200, 0x20         ; network interface
 

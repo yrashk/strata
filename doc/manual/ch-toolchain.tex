@@ -1,6 +1,7 @@
 \chapter{Toolchain}\label{ch:toolchain}
 
-The toolchain is built with \texttt{make} and consists of the assembler \texttt{sasm}, the reference
+The toolchain is built with \texttt{make} and consists of the assembler \texttt{sasm}, the C compiler
+\texttt{cc} (as a cross compiler, \texttt{strata-cc}), the reference
 emulator \texttt{strata-emu} with its dynamic binary translator, the Verilator-based RTL simulator
 \texttt{strata-rtl}, the disk builder \texttt{mkdisk}, the conformance suite in \texttt{conformance/},
 the test scripts in \texttt{tools/}, a WebAssembly build of the emulator that runs in a web browser,
@@ -115,6 +116,70 @@ software (the boot ROM, the OS loader) can move it with transfers.
 
 Empty sections are omitted. When an image is loaded by a simulator, the I-LS and D-LS contents go to
 every core, and the T2 and T3 contents to the shared memories.
+
+\section{The C compiler, \texttt{cc}}\label{sec:cc}
+
+\texttt{cc} (\texttt{lang/cc/}) compiles C99 to StrataOS program images. It is one pass over one source
+file: code is emitted while the source is parsed, the image is written directly, and there is neither
+an assembler nor a linker behind it. Its source, \texttt{lang/cc/cc.c}, is written in the C it compiles
+and is used twice: the host's C compiler builds it, with a small layer standing in for StrataOS
+(\texttt{lang/cc/host/}), into the cross compiler \texttt{build/strata-cc}; and compiled by itself it is
+the \texttt{cc} on the StrataOS disk (Section~\ref{sec:os-as}). Both write the same images, byte for
+byte.
+
+\begin{shell}
+strata-cc [-o out] [-p] [-h kib] file.c
+\end{shell}
+
+\begin{description}[leftmargin=1em,style=nextline]
+\item[\texttt{-o}] the image (default: the source's name without \texttt{.c}).
+\item[\texttt{-p}] the paged code model: every function is placed in a 4~KiB code unit of the image's
+  T3 section, calls between functions are \texttt{xcall} and returns \texttt{xret}, and StrataOS pages
+  the units into the instruction Local Store (Section~\ref{sec:os-paging}). Without it the program and
+  the library share the 32~KiB of I-LS above \hex{8000}. An image holds at most 128~KiB; the units of a
+  larger program go to a second file, \textit{out}\texttt{.u}, which the start-up code loads.
+\item[\texttt{-h}] the size of the heap in KiB (default: what the data Local Store has left).
+\end{description}
+
+\paragraph{The machine as a C target.} \texttt{int} is 32 bits, \texttt{long}, \texttt{long long} and
+pointers are 64. A pointer is an address in the core's data Local Store: globals, string literals, the
+heap and the stack (8~KiB) share its 40~KiB of program data. System memory is not addressed: it is
+reached by transfers, through the library (\texttt{far\_read}, \texttt{far\_write}) or the intrinsics.
+Loads and stores must be aligned, so the compiler never emits a wide access to a narrowly aligned
+object. Arguments are passed in \texttt{a0}--\texttt{a7} and then on the stack, results returned in
+\texttt{a0}; \texttt{gp} holds \hex{10000}, which puts every static object and every library routine
+one instruction away. There is no floating-point hardware: \texttt{float} and \texttt{double} are
+IEEE~754 in software, in the library.
+
+\paragraph{The library.} \texttt{lang/cc/lib/libc.s}, in assembly, is assembled once at fixed addresses
+and copied into every image: the start-up code, files and the console over StrataOS messages,
+\texttt{printf}, the heap, strings, the software floating point. \texttt{cc.lib} holds it with the
+headers. Functions a program may never call are kept out of it: \texttt{qsort}, \texttt{bsearch} and
+the functions of \texttt{<math.h>} are C sources in \texttt{cc.lib} (\texttt{lang/cc/lib/src/}), and
+when a program has been read and still calls one that nothing defines, the compiler compiles that
+source as if it followed the program.
+
+\paragraph{The machine from C.} The instructions only \IS has are intrinsics, one instruction each
+(\texttt{<strata.h>}): the transfers \texttt{\_\_tget}, \texttt{\_\_tput}, \texttt{\_\_twait}, the far
+atomics, the capability instructions, CSR access, \texttt{\_\_svc}. Anything else is
+\texttt{asm("...")}: assembly in the \texttt{sasm} syntax, encoded in place, in which
+\texttt{\{name\}} stands for a C object, constant or function; at file scope its labels are functions.
+The table of instructions is not written into the compiler: the build derives it from \texttt{sasm},
+by assembling each instruction and seeing which bits each operand changes.
+
+\paragraph{Two compilers.} A machine with no C compiler cannot compile \texttt{cc.c}, so there is a
+second compiler of the same language, in \IS assembly (\texttt{lang/cc/cc.s}, the program \texttt{cc0}
+of the disk). It compiles \texttt{cc.c}; the result compiles \texttt{cc.c} again; and what that
+produces, compiling \texttt{cc.c} once more, reproduces itself and equals the cross-built \texttt{cc}.
+\texttt{tools/test-cc-boot.sh} runs this inside StrataOS and compares the files there.
+
+\paragraph{Tests.} \texttt{lang/cc/tests/} holds 521 C programs from the test suites of two other
+compilers (scc and lacc), ordered from integer expressions to floating point. Each is compiled and run
+inside StrataOS, and its exit status and output must be those of the reference; both compilers pass
+all of them in both code models (\texttt{make test-cc}, \texttt{test-cc0}; \texttt{test-cc-host}
+compiles with \texttt{strata-cc} and only runs the programs in the emulator). \texttt{make test} runs a
+subset, the bootstrap, and \texttt{tools/test-cc.sh}, which compiles and runs the examples of
+\texttt{lang/cc/examples/} at the StrataOS shell.
 
 \section{The reference emulator, \texttt{strata-emu}}\label{sec:emu}
 
