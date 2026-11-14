@@ -1,8 +1,8 @@
 #!/bin/sh
 # vi-shots.sh: pictures of vi in the window server's terminal, headless.
 #
-#   tools/vi-shots.sh [bootrom.stx disk.img]      -> build/vi-shots/asm.png, forth.png
-#   tools/vi-shots.sh -f [bootrom.stx disk.img]   -> build/vi-shots/fs-asm.png, fs-forth.png
+#   tools/vi-shots.sh [bootrom.stx disk.img]      -> build/vi-shots/asm.png, forth.png, c.png
+#   tools/vi-shots.sh -f [bootrom.stx disk.img]   -> build/vi-shots/fs-asm.png, fs-forth.png, fs-c.png
 #                                                    (the same, with the Forth port: forth vi.fs)
 #
 # Boots StrataOS on the emulator (12 cores, no window) with scripted keys, as
@@ -42,6 +42,8 @@ PY
   echo "vi-shots: $T/$1.png"
 }
 # assembly: line numbers, then a new line being typed (insert mode)
-shot ${P}asm "$VI /src/hello.s\n$W$WAIT:set nu\n30Go        addi  t1, t1, 8           ; a new line, typed"
+shot ${P}asm "$VI /src/demo/hello.s\n$W$WAIT:set nu\n30Go        addi  t1, t1, 8           ; a new line, typed"
 # Forth: the Mandelbrot demo, its inner loop (locals, control words, a ( comment)
 shot ${P}forth "$VI gfx.fs\n${W}${WAIT}40G"
+# C: the compiler's source, its scanner
+shot ${P}c "$VI /src/cc.c\n${W}${WAIT}1440G"

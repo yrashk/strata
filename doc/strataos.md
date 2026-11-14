@@ -911,12 +911,11 @@ come, the count is of every file and the facets are of them all; data: u64 n and
 record bytes, u16 name length, u32 tags, u64 size, the name, the file's tag
 ids}, each part padded to 8 bytes); 46 FIND (names across the whole file
 system: data = a text, handle = a cursor; mode 0: the files whose names
-begin with the text, by one seek per directory in the names' tree (tag
-id, name); mode 1: those whose names hold it, in any case, by reading the
-records in object order, 384 at most per part, so that a part may come back
-empty with a cursor and the asker can stop between parts; records as
-QUERY's, each file once though it is in several directories; `nav`'s
-search); 41 TAGS2 (data = a path, none = every tag;
+begin with the text, by a seek or two per directory in the names' tree
+(a directory's tag ids, a zero word, the name); mode 1: those whose names
+hold it, in any case, by reading the records in object order, 384 at most
+per part, so that a part may come back empty with a cursor and the asker
+can stop between parts; records as QUERY's; `nav`'s search); 41 TAGS2 (data = a path, none = every tag;
 handle = a cursor; records {u16 record bytes, u16 name length, u32 id, u64
 files carrying it, the name}: every tag, or the tags of that file). The
 older DIR (10) and TAGS (14), with names cut to 24 and 16 bytes and 126
@@ -1014,43 +1013,36 @@ then a branch's child, Backspace goes back (to the list from a root), j/k
 move, t returns to the list. Both read the disk as it was last committed, with READBLK
 (`os/lib/stview.s`).
 
-**Tags are directories.** A file has a name and carries any number of tags
-(names of 1–255 bytes, no `/`; a file's record, a quarter page at most,
-holds some 200 of them). Every tag is a directory, and a file is *in* each
-directory it is tagged with, and nowhere else: one file shows up in several
-directories at once, without copies or links. A file with no tag is in the
-root. **A name is unique within a directory**, not on the disk: `/doc/notes`
-and `/src/notes` are two files, and a third `notes` may be in the root. A
-file in two directories needs its name free in both, so `/src/x` and
-`/src/demo/x` are always the same file (it is in `src` either way).
+**A directory is a set of tags.** A file has a name and carries any number
+of tags (names of 1–255 bytes, no `/`). The set of a file's tags is its
+directory: a file tagged `src` and `demo` is in `/src/demo`, which is also
+`/demo/src` (the order of a path's tags does not matter), and nowhere
+else; a file with no tag is in the root. **A name is unique within a
+directory**: `/src/x`, `/src/demo/x` and a root `x` are three files.
 Every name `fs` takes is a *path*: components separated by `/` (empty ones
-are skipped). The last component is the file's name; the ones before it are
-directories the file must be in. `/doc/motd` opens the motd of `doc`,
-`/doc/etc/motd` only if it is in `etc` too, and `motd` alone means the
-current directory: at the root, a file in no directory (-4 if there is
-none; it does not find `/doc/motd`). Opening for writing (or appending)
-puts the file into the path's directories, creating tags that do not exist
-yet: `echo hi > /notes/todo` makes `todo` in `notes`; when a file of that
-name is in one of the path's directories already, it is that file that is
-written, and it joins the others (-1 if one of them has another file of the
-name); a file replaced by a write keeps its tags. QUERY takes a path of
-tags and lists the files that are in all of them; with no tag it lists the
-root's files; when its last component is not a tag but names a file in the
-others, it lists that file. UNLINK through a path deletes the file (to take
-it out of a directory, untag it). TAG puts a file into one more directory
-and is refused (-1) when that directory has the name; UNTAG takes it out of
-one, and out of its last one into the root (refused when the root has the
-name). RENAME is a move: the file gets the new path's name and is then in
-exactly the new path's directories (none: the root); a new path without
-any `/` changes only the name and leaves the file where it is. A file of
-that name in a directory the file goes to is replaced if it is in no other
-directory; if it is, the move is refused and nothing changes. A tag that no
-file carries any more disappears. A component `-tag` (before the name; in
-QUERY also last) *excludes*: the file must not carry that tag, so `ls
-/src/-demo` lists the sources that are not demos (excluding a tag that does
-not exist excludes nothing). A path that creates (opening for writing,
-RENAME's new path) cannot exclude (-1), and a tag name cannot start with
-`-`.
+are skipped). The last component is the file's name; the ones before it
+are the tags of its directory, all of them. `/doc/motd` opens the motd
+whose only tag is `doc`, and `motd` alone means the current directory: at
+the root, a file with no tag (-4 if there is none). Opening for writing
+(or appending) makes the file in that directory if it is not there,
+creating tags that do not exist yet: `echo hi > /notes/todo`; a file
+replaced by a write keeps its place. QUERY takes a path and lists the
+files of that directory; when its last component is not a tag but names a
+file of the directory the others make, it lists that file. UNLINK through
+a path deletes the file. TAG and UNTAG move a file: TAG into the directory
+of its tags and the ones given, UNTAG into the one without them, all the
+tags of a request at once (data: the path, a zero byte, the tags' names
+with a zero byte between them; a first name `/` empties the set first,
+which is `retag`); refused (-1) when that directory has a file of the
+name. RENAME moves a file to the new path's directory under the new
+path's name; a new path without any `/` changes only the name. A file
+that is there is replaced. A tag that no file carries any more
+disappears. A component `-tag` *excludes* in a listing: `ls /src/-demo`
+leaves `demo/` out of the subdirectories shown. A path that creates
+(opening for writing, RENAME's new path) cannot exclude (-1), and a tag
+name cannot start with `-`. A directory can be as deep as a key allows
+(the name index's key is the tag ids, four bytes each, and the name, 480
+bytes with 4 KiB pages), and a path names at most 16 tags.
 
 **Programs** are files like any other. `proc` passes the pid of the
 process that starts a program to `fs` (LOADIMG, in the mode word's upper
@@ -1067,8 +1059,8 @@ directory. `fs` keeps one per process (a table of 64 entries of at most 120
 bytes, one per live process that is not at `/`) and reads every path that
 does not start with `/` under it: the requester's path (from the sender pid
 the kernel stamps), a `/`, then the path. So in `/src/demo`, `cat hello.s`
-opens `/src/demo/hello.s` (hello.s must be in src and demo), `ls` (QUERY with
-no path) lists the files in both and their facets, `ls x/` narrows to
+opens `/src/demo/hello.s`, `ls` (QUERY with
+no path) lists the files of that directory and their facets, `ls x/` narrows to
 `/src/demo/x`, and `echo hi > notes` creates notes tagged src and demo.
 Every path is then normalized: `.` components go and `..` takes the one
 before it away (never above `/`), so `cat ../f` works too. When creating,
@@ -1089,14 +1081,17 @@ directly), servers such as `httpd`. A name a program got from a listing is
 unique in that directory only, so such a program asks with the listing's
 path in front of it (the shell's completion of programs: `/bin/NAME`).
 
-**Subdirectories are facets.** QUERY also answers the other tags that at least
-one listed file carries, without the path's own tags. These are the
-subdirectories: `ls /src` shows the files in src, then `demo/`; `ls
-/src/demo` narrows to the files in both, `cd /src/demo` works there, and a
-file made there is in both (it shows in `/src` and in `/demo` too: a
-subdirectory is a narrower view of its directory, not a separate place).
-`ls /` shows the root's files, then every directory (the reply's tag set
-has every bit set). A path naming one file has
+**Subdirectories.** QUERY also answers the other tags of the files in deeper
+directories: these are the subdirectories. `ls /src` shows the files of
+`/src`, then `demo/`; `ls /src/demo` shows the files of that subdirectory,
+`cd /src/demo` works there, and a file made there is in it and not in
+`/src`. A reply carries the files of deeper directories as records without
+a name (bit 31 of the count of tags set): they are not listed, their tags
+are the subdirectories (the reply's mode word has them as a tag set too,
+for the ids below 64). Since a directory is a set of tags, `/demo` shows
+`src/` as `/src` shows `demo/`: both lead to the same place. `ls /` shows
+the root's files, then every directory (the tag set has every bit set).
+A path naming one file has
 no facets. The shell's Tab completes facets in a path like folders (`cat
 /sr` Tab gives `/src/`, with no space after it).
 
@@ -1117,12 +1112,15 @@ compiler on the machine.
 
 Utilities: `ls [-t] [PATH]` (files, then facets as `tag/`; `-t` adds each
 file's tags; no PATH: the current tag path), `cat`, `cp [-t] SRC DST` (a copy; DST's path says where it is,
-`-t` also puts it where SRC is; DST must be another path),
+`-t` then moves it into the directory of its tags and SRC's; DST must be
+another path),
 `mv SRC DST` (RENAME, a move: `mv /notes/a /todo/a` or `mv /notes/a /todo/`
-takes it from notes to todo, `mv /notes/a b` renames it where it is),
-`rm FILE...`, `touch FILE...` (creates empty files;
-a file of the name in one of the path's directories joins the others), `tag FILE
-TAG...`, `untag FILE TAG...`, `retag FILE [TAG...]` (exactly these tags),
+takes it from notes to todo, `mv /notes/a b` renames it where it is; a file
+that is there is replaced),
+`rm FILE...`, `touch FILE...` (creates empty files), `tag FILE
+TAG...`, `untag FILE TAG...`, `retag FILE [TAG...]` (each moves the file
+once: into the directory with these tags too, without them, of exactly
+these),
 `tags [FILE...]`, `df`; the shell completes file names and facets behind a
 tag path (`cat /doc/mo` Tab).
 
@@ -1706,8 +1704,8 @@ host opens `http://localhost:8080/`.
 
 `vi [FILE]` (`os/progs/vi.s`) edits a file in the manner of vi, on the
 console (an ANSI terminal: `make boot`, the browser's terminal) and in a
-`term` window (`make boot-ws`, Alt+Enter), with Strata assembly and Strata
-Forth in colour. FILE is a path (`/src/hello.s`, or a name under the current
+`term` window (`make boot-ws`, Alt+Enter), with Strata assembly, Strata
+Forth and C in colour. FILE is a path (`/src/hello.s`, or a name under the current
 tag path); one that does not exist is created by `:w`. The screen is the
 text, a line a row (a long line scrolls the view sideways), and a status
 line: `-- INSERT --`, the file name, `[+]` when modified, line,column;
@@ -1733,8 +1731,9 @@ messages and the `:` and `/` lines take its place.
   `:N` (line N), `:set nu` / `:set nonu` (line numbers), `:syntax on` /
   `:syntax off`. Ctrl-L asks the terminal its size and draws everything
   again; Ctrl-G shows the file and its size.
-- **Highlighting.** `.s` is Strata assembly, `.fs` Strata Forth; another
-  name is plain unless the file carries the tag `src` (assembly) or `forth`.
+- **Highlighting.** `.s` is Strata assembly, `.fs` Strata Forth, `.c` and
+  `.h` C; another name is plain unless the file carries the tag `src`
+  (assembly) or `forth`.
   The rules are the site's (`site/hl.js`): for assembly, comment lines and
   `;` `#` `//` comments, labels, `NAME =` and CAPITALS, mnemonics by
   category (ALU, memory, branch, transfer, capability, system, paging,
@@ -1754,6 +1753,28 @@ messages and the `:` and `/` lines take its place.
   registers 37, c registers 93, CSRs 91, numbers 32, strings 35; Forth
   definitions 31, names 97, control 95, defining words 34, Strata words 33,
   locals 93.
+- **C.** Comments, `/* */` (it may run over lines) and `//`, 90; a
+  preprocessor line's `#` and directive name 34 (and an `#include`'s
+  `<name>` as a string); statements (`if else for while do switch case
+  default break continue goto return`) 91; the other keywords (`static
+  const struct typedef sizeof` ...) 93; types 96: C99's (`void char short
+  int long float double signed unsigned _Bool _Complex _Imaginary`) and the
+  typedef names of `cc`'s headers (`size_t`, `uint8_t`, `FILE`, `va_list`,
+  `bool` ...); strings and characters 35, their escapes (`\n`, `\101`,
+  `\x41`) 33; numbers (pp-numbers: `0x1Fu`, `1.5e+3`, `.5`) 32. Case
+  matters, as in C. The keywords are `cc`'s (`lang/cc/cc.c`'s `kw_names`)
+  and the type names its headers', both read by `tools/vi-syntax.py`.
+  `:syntax off` and `:syntax on` work as for the others.
+- **Comments over lines.** Whether a row starts inside a comment (Forth's
+  `(`, C's `/*`) depends on every line above it. vi keeps that state for the
+  rows on the screen, for the last top line it worked out, and for every
+  16th line of the first 32768 (a bit each); a change to a line forgets the
+  states below it, and the states of the lines it passes are kept again as
+  it scrolls. A top line far from the last one is worked out from the
+  nearest kept state above it (15 lines at most), not from the start of
+  the file; only the first visit of a part of the file scans it (about
+  2 M instructions for the first 3000 lines of `cc.c`). A change that
+  alters a row's ending state draws the rows below it.
 - **Screen size.** vi moves the cursor to row 999, column 999 and asks
   ESC [ 6 n; an ANSI terminal (and `term`, 2.6) answers ESC [ row ; column R
   with where the cursor stopped. Without an answer within 0.2 s, or when a
@@ -1766,7 +1787,10 @@ messages and the `:` and `/` lines take its place.
   sequence (the arrows, Home, End, Delete, PgUp, PgDn).
 - **Drawing.** Only what changed is sent: the rows of lines that changed
   (and the rows below when lines come or go), the status line, the
-  cursor; the cursor is off while a frame is drawn. A scroll draws the
+  cursor; the cursor is off while a frame is drawn. A colour is sent only
+  where a non-blank byte needs another one than the one in effect (blanks
+  keep it, and two classes with one colour are one), and a row that ends
+  in a colour resets it. A scroll draws the
   text rows again: the console's and the window's terminals share no
   cheaper way to scroll (`term` redraws every row of its grid on a scroll
   anyway). On exit the screen is cleared.
@@ -1790,8 +1814,9 @@ messages and the `:` and `/` lines take its place.
 - **In Forth.** `forth vi.fs FILE` (or `include vi.fs` at the Forth prompt,
   then `vi FILE`) is the same editor written in Strata Forth
   (`lang/forth/vi.fs`, with `vi-text.fs` and `vi-edit.fs`; the README there
-  has the details): the same keys, modes, highlighting and screen; given the
-  same keys it writes the same files. Its code (about 60 KiB) is several
+  has the details): the same keys, modes, highlighting (C too) and
+  screen; given the same keys it writes the same files, and it draws the
+  same C frames (`tools/test-vic.sh -f`). Its code (about 68 KiB) is several
   times a program's I-LS: like everything Forth compiles, it is in code
   units the dispatcher pages into Forth's code cache (the units above, and
   the README's "Code paging"). Its text is in Forth's far heap:
@@ -1811,25 +1836,25 @@ full-screen text program: it runs on the console, in a `term` window and in
 the browser's terminal, and asks the terminal its size the same way.
 
 - **Panels.** Each shows a directory, a tag path (LEFT defaults to the
-  current one, RIGHT to `/`): `..`, the subdirectories (the other tags its
-  files carry; at a root every tag), the files with their sizes and, in a
-  third column, the other directories each file is in (a file is in every
-  directory it is tagged with), and at `/` the snapshots as `@NAME`
-  directories, read-only. The bottom line of a panel names the path of the
-  entry at the cursor.
+  current one, RIGHT to `/`): `..`, the subdirectories (the other tags of
+  its deeper directories' files; at a root every tag), the files with their
+  sizes, and at `/` the snapshots as `@NAME` directories, read-only. A
+  search's panel has a third column, each file's directory. The bottom
+  line of a panel names the path of the entry at the cursor.
 - **Keys.** The arrows, PgUp, PgDn, Home, End; Tab the other panel; Enter
   into a directory (a file: the viewer); Backspace up; Insert or Ctrl-T
-  marks a file. F1 help; F2 files the marked files (or the cursor's) in
-  the other panel's directory as well (TAG: the same file, in both); F3 the
+  marks a file. F1 help; F2 gives the marked files (or the cursor's) the
+  other panel's tags too: each moves to the directory of both (RENAME);
+  F3 the
   viewer (text or hex: `h`); F4 runs `vi` on the file (`-e` names another
   editor) and lists both panels again when it ends; F5 copies into the
-  other panel's directory (a new file; the question offers `a`, filing it
-  there instead, so that the choice is in view); F6 moves or renames
+  other panel's directory (a new file; the question offers `a`, F2's
+  tagging instead, so that the choice is in view); F6 moves or renames
   (RENAME to a path typed, the other panel's directory at first); F7 makes
   a directory: a tag given to the files (a directory exists while a file
   is in it); F8 deletes after a question, and for a panel that is a
-  directory offers `t`, taking the files out of that directory only
-  (UNTAG); F9 or Ctrl-Q shows the cursor's file in the other panel (its
+  directory offers `t`, taking the directory's last tag away instead (UNTAG:
+  the files go up a level); F9 or Ctrl-Q shows the cursor's file in the other panel (its
   path, size, directories and first lines, or hex); F10 quits. Esc and then
   a digit is that F-key. The mouse: a click puts the cursor on an entry (a
   second click opens it), the wheel moves it, a click on the bar is that
@@ -1868,9 +1893,9 @@ the browser's terminal, and asks the terminal its size the same way.
   own arena and reads the part that is shown when it is not there (READ has
   no seek: what comes before it is read and dropped), so a file of any size
   can be viewed; the quick view reads the first 64 KiB.
-- **Measured** on a disk of 10,140 files in 41 directories (machine time,
-  `-T virtual`): a name that begins with the text, 4 to 14 ms to the first
-  results; the full scan for names that hold the text, 215 to 270 ms (it
+- **Measured** on a disk of 10,140 files in about 80 directories (machine
+  time, `-T virtual`): a name that begins with the text, 13 to 23 ms to the
+  first results; the full scan for names that hold the text, 220 to 350 ms (it
   reads every record: there is no index of parts of names), in parts of
   about 8 ms between which keys are read. Under the JIT on the host's time
   the same search for `kernel` (693 found) takes 0.9 ms and 47 ms.
@@ -2170,10 +2195,22 @@ A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
   takes pictures of vi in the window server's terminal:
   `build/vi-shots/asm.png`, `forth.png` (`-f`: of `forth vi.fs`,
   `fs-asm.png`, `fs-forth.png`).
+- `tools/test-vic.sh`: the editor's C colours. A scripted session types a
+  C file with every kind of token, ends a comment by an edit, enters
+  `cc.c` in the middle of its first comment, opens a file whose comment
+  runs over 100 lines (from inside, after an edit far above ends it, and
+  scrolling back up into it), types a comment in insert mode while the
+  screen scrolls, and tries `:syntax off` and a `.h` file. Each session's
+  output is played into an 80 × 24 grid, and its last frame, with the
+  colour of each run of cells, is compared with `tools/test-vic.out`; an
+  SGR that changes nothing (the colour in effect, or another SGR before
+  any non-blank byte) fails it. `tools/test-vic.sh -f` runs the same
+  sessions with the Forth editor (`forth vi.fs`) and compares its frames
+  with the same file.
 - `tools/test-nav.sh`: the file navigator. A scripted console session
   (`-j -T virtual`) copies a file into the other panel, answers F8's
-  question n and then y, files a file in a second directory (F2) and
-  enters the facet that makes, edits a file in `vi` through F4 (a line
+  question n and then y, tags a file with the other panel's tag (F2) and
+  enters the subdirectory that makes, edits a file in `vi` through F4 (a line
   written with `:wq`), opens the help, searches for a file made deep in the tree,
   views it as text and in hex, and finds a snapshot read-only; the screens
   and the shell's listings afterwards are checked. `-w`: nav in a `term`

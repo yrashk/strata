@@ -10,15 +10,11 @@
 create tagb 4032 allot                          \ SRC's tags (-t)
 : cp-fail ( a u a2 u2 -- ) +e +e e! 1 stop ;    \ "message" "name", exit code 1
 : cp-use ( -- ) s" usage: cp [-t] SRC DST" usage ;
-create tpath 800 allot  variable #tpath          \ DST's path once it has a tag: "/TAG/NAME"
-: >tpath ( a u -- ) tpath #tpath @ + swap dup #tpath +! move ;
-: cp-tags ( -- )                                \ SRC's tags, given to DST. After the first one DST is in
-  0 #tpath !  dst 2@                            \ that directory (and, named without one, no more where it
-  src 2@ tagb tags-of 0 max tagb swap 0 ?do     \ was): from there on it is "/TAG/NAME"   ( path u record )
-    >r 2dup r@ rec-name 12 fs-2path 0=  #tpath @ 0= and if
-      2drop  s" /" >tpath  r@ rec-name >tpath  s" /" >tpath  dst 2@ last/ >tpath  tpath #tpath @
-    then r> rec-next
-  loop drop 2drop ;
+create tbuf 1024 allot  variable #tbuf          \ SRC's tags' names, a zero byte between them (the first KiB)
+: cp-tags ( -- )                                \ DST goes into the directory of its tags and SRC's, in one
+  0 #tbuf !  src 2@ tagb tags-of 0 max tagb swap 0 ?do  \ request
+    dup rec-name dup #tbuf @ + 1000 < if tbuf #tbuf @ + swap dup 1+ #tbuf +! move  0 tbuf #tbuf @ + 1- c! else 2drop then  rec-next
+  loop drop  #tbuf @ if dst 2@ tbuf #tbuf @ 12 fs-2path drop then ;
 : cp-main ( a u -- )
   0 cp-t !  arg dup 0= if cp-use then
   2dup s" -t" str= if 2drop -1 cp-t ! arg dup 0= if cp-use then then  src 2!

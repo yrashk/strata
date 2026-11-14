@@ -1,0 +1,225 @@
+---- session 1
+{34}#include {35}<stdio.h>
+{34}#define {}N {32}0x1Fu {90}/* a
+   {90}comment */ {96}int {}x;
+{90}// a line comment: "not a string"
+{93}static const {96}char {}*s = {35}"a{33}\t{35}b{33}\x41\101\"{35}q" "/* no */"{};
+{96}int {}main({96}void{}) {
+        {96}unsigned long {}n = {32}1.5e+3 {}+ {32}.5 {}+ {35}'c' {}+ {35}'{33}\n{35}' {}+ {32}0x1p-2{};
+        {91}if {}(n) {91}return {93}sizeof{}({96}size_t{}); {91}else goto {}out;
+        {90}/* open
+        {90}still */ {91}for {}(;;) {91}break{}; {90}/**/ /*/ x */ {}L{35}"w"{};
+  {34}#  pragma {}once
+        {96}char {}c = {35}'"'{}; {96}_Bool {}b; {96}FILE {}*f; {96}uint8_t {}u = {32}017{};
+out:    {91}return {32}0{};
+}
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq
+---- session 2
+{34}#include {35}<stdio.h>
+{34}#define {}N {32}0x1Fu {90}/* a
+   {90}comment */ {96}int {}x;
+{90}// a line comment: "not a string"
+{93}static const {96}char {}*s = {35}"a{33}\t{35}b{33}\x41\101\"{35}q" "/* no */"{};
+{96}int {}main({96}void{}) {
+        {96}unsigned long {}n = {32}1.5e+3 {}+ {32}.5 {}+ {35}'c' {}+ {35}'{33}\n{35}' {}+ {32}0x1p-2{};
+        {91}if {}(n) {91}return {93}sizeof{}({96}size_t{}); {91}else goto {}out;
+         open
+        still */ {91}for {}(;;) {91}break{}; {90}/**/ /*/ x */ {}L{35}"w"{};
+  {34}#  pragma {}once
+        {96}char {}c = {35}'"'{}; {96}_Bool {}b; {96}FILE {}*f; {96}uint8_t {}u = {32}017{};
+out:    {91}return {32}0{};
+}
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:q!
+---- session 3
+ {90}*
+ {90}* This is the compiler; cc.s, in assembly, is the bootstrap compiler that
+ {90}* can compile it (lang/cc/DESIGN.md, section 6). It is written in the C it
+ {90}* compiles, and within what a StrataOS program has: 40 KiB of data Local
+ {90}* Store for its tables (symbols, types, the value stack), the arena behind
+ {90}* far_read / far_write for everything large (the source text, identifiers,
+ {90}* macros, fixups and the image being built). With lang/cc/host/ in place of
+ {90}* StrataOS the same file is the cross compiler, build/strata-cc.
+ {90}*
+ {90}* One pass, no tree. Expressions leave descriptors of values on a value
+ {90}* stack (a constant, a register, an lvalue not loaded yet, a comparison not
+ {90}* made yet, pending jumps); code is emitted when an operation needs a value
+ {90}* in a register.
+ {90}*
+ {90}* For the bootstrap compiler's sake: functions are defined before they are
+ {90}* used where that is possible, and each compiles to less than 4 KiB.
+ {90}*/
+{34}#include {35}<strata.h>
+
+{90}/* ---- the arena (offsets); 0x10000..0x4FFFF hold this program's own code units
+{34}#define {}A_PT     {32}0x00000        {90}/* the parameter types of function types, 4 byte
+{34}#define {}A_CS     {32}0x01000        {90}/* the cases of the switch statements open, 16 b
+{34}#define {}A_IDH    {32}0x02000        {90}/* identifier hash heads, 4 bytes each */
+:q
+---- session 4
+{90}38
+{90}39
+{90}40
+{90}41
+{90}42
+{90}43
+{90}44
+{90}45
+{90}46
+{90}47
+{90}48
+{90}49
+{90}50
+{90}51
+{90}52
+{90}53
+{90}54
+{90}55
+{90}56
+{90}57
+{90}58
+{90}59
+{90}60
+:q
+---- session 5
+{32}39
+{32}40
+{32}41
+{32}42
+{32}43
+{32}44
+{32}45
+{32}46
+{32}47
+{32}48
+{32}49
+{32}50
+{32}51
+{32}52
+{32}53
+{32}54
+{32}55
+{32}56
+{32}57
+{32}58
+{32}59
+{32}60
+{32}61
+:q!
+---- session 6
+{90}84
+{90}85
+{90}86
+{90}87
+{90}88
+{90}89
+{90}90
+{90}91
+{90}92
+{90}93
+{90}94
+{90}95
+{90}96
+{90}97
+{90}98
+{90}99
+{90}100
+{90}*/ {96}int
+{32}1
+{32}2
+{32}3
+{32}4
+{32}5
+:q
+---- session 7
+{90}line 8
+{90}line 9
+{90}line 10
+{90}line 11
+{90}line 12
+{90}line 13
+{90}line 14
+{90}line 15
+{90}line 16
+{90}line 17
+{90}line 18
+{90}line 19
+{90}line 20
+{90}line 21
+{90}line 22
+{90}line 23
+{90}line 24
+{90}line 25
+{90}line 26
+{90}line 27
+{90}line 28
+{90}line 29
+{90}int
+:wq
+---- session 8
+#include <stdio.h>
+#define N 0x1Fu /* a
+   comment */ int x;
+// a line comment: "not a string"
+static const char *s = "a\tb\x41\101\"q" "/* no */";
+int main(void) {
+        unsigned long n = 1.5e+3 + .5 + 'c' + '\n' + 0x1p-2;
+        if (n) return sizeof(size_t); else goto out;
+        /* open
+        still */ for (;;) break; /**/ /*/ x */ L"w";
+  #  pragma once
+        char c = '"'; _Bool b; FILE *f; uint8_t u = 017;
+out:    return 0;
+}
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:q
+---- session 9
+{34}#ifndef {}T_H
+{93}typedef {96}unsigned long size_t{}; {90}/* x */
+{34}#endif
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq

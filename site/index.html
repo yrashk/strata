@@ -207,9 +207,9 @@
   <figure class="shot wide">
     <a href="play/?run=nav"><img src="img/nav.png" alt="A two-panel file navigator in blue and cyan: on the left the results of searching for vi across the whole disk, each file with the directory it is in; on the right a quick view of the selected file, the source of the vi editor" loading="lazy"></a>
     <figcaption><code>nav</code>: a file navigator in the Norton / Midnight Commander manner for a
-      file system where a directory is a tag and a file can be in several at once. Typing anywhere
+      file system where a directory is the set of its files' tags. Typing anywhere
       searches the whole disk as you type, through a call the file server answers from its index
-      of names: about ten milliseconds to the first results on a disk of ten thousand files.
+      of names: about fifteen milliseconds to the first results on a disk of ten thousand files.
       <a href="play/?run=nav"><b>Try it in your browser&nbsp;&rarr;</b></a></figcaption>
   </figure>
 </section>
@@ -300,7 +300,7 @@ c2 /bin/cc: same</pre>
 <section id="build" class="section">
   <h2><span class="num">07</span>Run it</h2>
   <p class="intro">Needs a C compiler and Verilator&nbsp;5; SDL2 is optional (for the window). Or read it first:
-    the <a href="code/">source browser</a> has every assembly and Forth program, syntax-coloured.</p>
+    the <a href="code/">source browser</a> has every assembly, Forth and C program, syntax-coloured.</p>
   <div class="cmds">
     <div><code>make</code><span>assembler, emulator and the Verilated RTL</span></div>
     <div><code>make test</code><span>every example and an OS boot on both machines, compared instruction by instruction</span></div>

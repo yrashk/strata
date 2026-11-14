@@ -280,10 +280,12 @@ strata$ ws                          # the window server takes the screen
 - **The file navigator** (`nav`): two panels in the Norton / Midnight
   Commander manner (F3 view, F4 edit in `vi`, F5 copy, F6 move, F7 a new
   directory, F8 delete, Ctrl-Q quick view, the mouse in a window), made for
-  the tag file system: each file shows the other directories it is in, and
-  copying is set apart from filing the same file in a second directory.
+  the tag file system, where a directory is the set of its files' tags:
+  F2 gives a file the other panel's tags too (it moves to the directory of
+  both), set apart from F5's copy; a search's results show each file's
+  directory.
   Typing anywhere searches the whole disk as you type: names that begin
-  with the text come from the file server's index at once (about 10 ms on
+  with the text come from the file server's index at once (about 15 ms on
   10,000 files), names that hold it follow, and `lang=asm` or `size>9000`
   query attributes. Snapshots are read-only directories (`@NAME`). Ctrl-X
   turns typing into a command line run in the panel's directory. Its

@@ -64,6 +64,11 @@ decisions taken.
 - [x] Boot objects written from inside the OS: at the close, one run of
       pages and the manifest anew (`boot_fix` in `fsops.s`), in the same
       commit; rename and delete stay refused; `test-store.sh` part 8
+- [x] Two programs writing at once wrote garbage (the commit of the other
+      writer's bytes built its meta block over the bytes waiting in the
+      request buffer): `tx_take` commits before the bytes are fetched;
+      `test-store.sh` part 12. (The RTL comparison did not see it: both
+      sides printed the same garbage)
 - [x] A failed write (disk full) gives up one writer's work only: a
       commit holds the uncommitted bytes of one open file (`tx_w`; another
       writer's bytes, or any other change, commit them first), so giving a
@@ -167,65 +172,57 @@ decisions taken.
 - [x] A boot on the RTL with the paged server compared with the emulator's
 
 ## Stage 10: names per directory
-A name need only be unique within a directory. A directory is a tag, and
-every tag is a directory. A file is listed in each directory it is
-assigned to and nowhere else; a file with no tag is in the root. `ls /`
-shows the unassigned files and every directory. Tags stay intersections:
-`/src/demo` is what is in both.
-- [x] Subdirectories stay (required): `ls /src` ends with `demo/`, `cd
-      /src/demo` and `/src/demo/NAME` work, a file made in `/src/demo` is
-      in both; the root lists every directory. Tested by name
-- [x] The rules written into `doc/strata-fs-proposal.md` (a section of its
-      own) and `doc/strata-store-format.md` (the name index's new key)
-- [x] The name index: tree `dnam`, key (tag id big-endian, name) -> file,
-      an entry per directory the file is in, tag id 0 for an unassigned
-      file. A disk with the old `name` tree is refused
-- [x] Host: `tools/stdb/fsl.c` (add, lookup by path, check, dump in an
-      order that does not depend on ids), `mkdisk` (refuses two files of
-      one name in one directory, two boot objects of one name), `stdb ls
-      / get` by path, `many.c`, `test.c`
-- [x] `fs`: a path resolves as the name in its first directory, checked
-      against the others; a bare name means the current directory (at the
-      root: the unassigned files); create, delete, the index entry per
-      directory
-- [x] `fs`: TAG refuses a directory that has the name; UNTAG of the last
-      tag leaves the file in the root (refused if the root has the name)
-- [x] `fs`: RENAME is a move: with directories in the new path the file's
-      directories become exactly those; a bare new name changes only the
-      name. It replaces a file of that name only if that file is in no
-      other directory; otherwise it is refused
-- [x] `fs`: the root's listing: unassigned files (index entries under tag
-      0), and every directory as a facet (the reply's tag set with every
-      bit set); QUERY mode bit 1 lists every file
-- [x] `ls -A`: every file with its directories
-- [x] Snapshots, attributes, terms, boot objects (the manifest names them
-      without a directory: no two boot objects of one name) still right
-- [x] `proc`: `/sys/tty`, `/sys/pipe`, `/bin/sh`; fs LOADIMG reads a
-      program's path from its starter's directory (the starter's pid in
-      the mode word), then looks in `/bin` for a name without `/`
-- [x] The shell: commands without a `/` in the current directory, then
-      along a search path (default `/bin`); `rc` and `motd` by directory;
-      completion of commands from the search path
-- [x] `mkdisk` arguments in the Makefile: the demo programs in `bin` too;
-      nothing the standard disk needs is left unassigned by accident
-- [x] `net` (`/etc/resolv`), `httpd` and `httpd.fs` (`/~/`: every file),
-      `ws` (the programs it starts), `guest`, `as`, `vi`
-- [x] Forth: `include` paths (`/forth/sys.fs` ...), the ports
-- [x] `wdoom`, `kira`: nothing to do (they open `/ws/...`); checked
-- [x] The C compiler (`lang/cc`, another session's) needed no change: a
-      program found in `/bin` or `/sys` is started with that path as its
-      command's first word, and a paged C program finds its units
-      (`NAME.u`) by it. The session is told the rules
-- [ ] `untag FILE A B` when the path names A: the second tag is not found
-      (the path is stale after the first); `httpd.fs` lists a first part
-      and no directories at the root
-- [x] Tests: `test-store.sh`, `test-files.sh`, `test-sh.sh` and its
-      expected output, `test-fs-progs.sh`, `test-http`, `test-ws`,
-      `test-vi`, `test-vifs`, `test-forth`, `os/demo.txt` and the RTL
-      comparison; new cases: one name in two directories, a refused TAG,
-      a move, a bare name in the root and in a directory
-- [x] `doc/strataos.md`, the manual (`ch-os`), `HANDOFF.md`, the shell's
-      help
+A file's directory is the set of its tags (`/src/demo` is `/demo/src`; no
+tag: the root), and a name is unique within a directory: `/src/x`,
+`/src/demo/x` and a root `x` are three files. `ls /src` shows the files
+of `/src` and its subdirectories (`demo/`); `ls /` the root's files and
+every directory. (A first version, where a file was in each directory it
+was tagged with, could not tell `/src/x` from `/src/demo/x`.)
+- [x] Subdirectories (required): `ls /src` ends with `demo/`, `cd
+      /src/demo` and `/src/demo/NAME` work, a directory and its
+      subdirectory can each have a file of one name; tested by name
+      (`test-sh.sh`, `test-store.sh` part 11)
+- [x] The name index: tree `dnam`, key = the tag ids in ascending order
+      (u32 big-endian each), a zero word, the name -> file; one entry a
+      file. A disk with the old `name` tree is refused. A file with no tag
+      also has an index entry under tag 0 (the root's listing)
+- [x] Host: `tools/stdb/fsl.c`, `mkdisk`, `stdb ls / get` by path,
+      `many.c`
+- [x] `fs`: exact lookup (`find`, `nk_p`, `nk_r`), `fs_place` /
+      `fs_unplace`; create, delete
+- [x] `fs`: TAG and UNTAG take several tags in one request and move the
+      file once (a first name `/` empties the set: `retag`); refused where
+      the name is taken. RENAME moves and replaces. All three are one
+      routine in the unit `ut` (`reloc`)
+- [x] `fs`: a listing answers the directory's files; the files of deeper
+      directories go as records without a name (bit 31 of the count of
+      tags), for the subdirectories; the root: every directory (the tag
+      set with every bit set); QUERY mode bit 1: every file (`ls -A`);
+      `PREFIX*` at the root is the root's files
+- [x] Programs: fs LOADIMG reads the path from the starter's directory
+      (`proc` passes its pid), then `/bin`, then `/sys`, and answers the
+      path it found the program by; `proc` makes that the command's first
+      word (a paged C program finds `NAME.u` by it)
+- [x] The disk: every program in `/bin`, sources in `/src` and
+      `/src/demo`, Forth files in `/forth`
+- [x] The shell (completion from the current directory and `/bin`, the
+      directories at the root, `/etc/rc`), `net` (`/etc/resolv`), `httpd`
+      (`/www/index.html`, rows without deeper files), `ls` (`-A`, `-t`
+      from the ids), `cp -t`, `tag` / `untag` / `retag` (one request),
+      `mv`; the Forth system (`/forth`), `ls.fs`, `tag.fs`, `cp.fs`,
+      `httpd.fs` (subdirectories listed)
+- [x] `wdoom`, `kira`, the C compiler: no change needed (the C ladder's
+      session works in `/test`: the C session's commit)
+- [x] Tests converted: `test-sh`, `test-store` (parts 11, 12),
+      `test-files`, `test-fs-progs`, `test-http`, `test-vi`, `test-vifs`,
+      `test-net`, `test-guest`, the demo scripts
+- [x] `doc/strataos.md`, the proposal's decision, the format, the manual
+      (`ch-os`), `HANDOFF.md`, the shell's help, `motd`
+- [ ] A path names at most 16 tags (`NQT`), and a directory's key must fit
+      a tree key (about 110 tags with a short name)
+- [ ] Subdirectories of tags with ids of 64 and up show in `ls` only (the
+      shell's completion, `httpd`, `ls.fs`, `httpd.fs` use the reply's
+      64-bit tag set)
 
 ## Later
 - [ ] Browser persistence (IndexedDB, download)

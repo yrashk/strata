@@ -8,10 +8,11 @@
 # the virtual timer: deterministic) and drives nav: a file made deep in the
 # tree (in /deep/er) and a snapshot first; then in nav (/doc and /etc): the
 # panels as drawn, Down to motd and F5 (a copy into /etc), Tab and F8 on the
-# copy answered n (nothing happens) and then y (deleted), Tab, Up and F2 (about
-# filed in /etc too: the same file); Enter on etc/ (a subdirectory now: the
-# facet) and Backspace back; F4 on about: vi, where a line is added and
-# written (:wq); Esc 1 (F1: the help) and Esc; a search typed ("needl") that finds the file in
+# copy answered n (nothing happens) and then y (deleted), Tab, Up and F2
+# (about given /etc's tag too: it moves to /doc/etc, the directory of both);
+# Enter on etc/ (a subdirectory now); F4 on about there: vi, where a line is
+# added and written (:wq); Esc 1 (F1: the help) and Esc; Backspace back; a
+# search typed ("needl") that finds the file in
 # /deep/er, Enter on it (the viewer: its text), h (hex), q, Esc; Home, Enter
 # on the snapshot @before and F8 there (refused: read-only); Ctrl-X and a
 # command typed (its output, a key) and Ctrl-X back; F10. Then `ls
@@ -76,12 +77,12 @@ fi
   printf '%s' "$DN$DN$F5"; printf '\n'          # motd copied into /etc
   printf '%s' "	$DN${F8}n"                     # Tab; motd in /etc; F8, n: kept
   printf '%s' "${F8}y"                           # F8, y: deleted
-  printf '%s' "	$UP${F2}y"                     # Tab; about; F2: also filed in /etc
-  printf '\n'                                    # etc/ (a facet now, at the cursor): Enter
-  printf '\177'                                  # Backspace: back to /doc
-  printf '%s' "$DN$F4"                            # about (the cursor came back on etc/): F4, vi
+  printf '%s' "	$UP${F2}y"                     # Tab; about; F2: to the directory of both
+  printf '\n'                                    # etc/ (a subdirectory now, at the cursor): Enter
+  printf '%s' "$DN$F4"                            # about, there: F4, vi
   printf 'Oedited in vi\033:wq\n'                # a line above the first; written
   printf '\0331'; printf '\033'                  # Esc 1: F1, the help; Esc leaves it
+  printf '\177'                                  # Backspace: back to /doc
   printf 'needl'; printf '\n'                    # the search; Enter: the viewer
   printf 'hq'; printf '\033'                     # hex, back, Esc: the search ends
   printf '%s' "${HOME}"; printf '\n'             # Home: "..", Enter: up to /
@@ -91,11 +92,12 @@ fi
   printf '\030echo ran in nav\n '                # Ctrl-X: the command line; a key after it
   printf '\030'                                  # Ctrl-X: the search again
   printf '%s' "$F10"
-  printf 'ls -t /doc\nls -t /etc\ncat /@before/doc/motd | wc\ncat /doc/about | grep vi\nhalt\n'
+  printf 'ls -t /doc\nls -t /doc/etc\nls -t /etc\ncat /@before/doc/motd | wc\ncat /doc/etc/about | grep vi\nhalt\n'
 } > "$tmp/in.txt"
 "$b/strata-emu" -c "$n" -j -T virtual -g none -m 8000000000 -d "$tmp/d.img" -i "$tmp/in.txt" "$1" \
   > "$tmp/raw.out" 2>/dev/null || fail "the emulator exited with an error"
-python3 - "$tmp/raw.out" <<'PY' || fail "what nav showed or did is not what the keys should give"
+motd=$(wc -c < "$here/os/files/motd" | tr -d ' ')
+python3 - "$tmp/raw.out" "$motd" <<'PY' || fail "what nav showed or did is not what the keys should give"
 import re, sys
 raw = open(sys.argv[1], 'rb').read().decode('latin1')
 text = re.sub(r'\x1b\[[0-9;?<]*[A-Za-z~]', ' ', raw)
@@ -103,8 +105,8 @@ text = re.sub(r' +', ' ', text)
 want = [
     ('the panels', '/doc', ' about 120 '),
     ('the copy', 'Copy motd to /etc?', 'done: 1'),
-    ('the delete question', 'Delete motd? y: everywhere n: no t: only take it out of etc', None),
-    ('also file', 'Also file in /etc? y/n', None),
+    ('the delete question', 'Delete motd? y: yes n: no t: take away its tag etc', None),
+    ('tag', 'Tag about with /etc too? y/n', None),
     ('the facet', ' etc/ SUB-DIR ', ' /doc/etc '),
     ('the search', 'Find: needl 1 found', ' needle.txt '),
     ('the viewer (text)', ' needle.txt 0/6 text', 'found'),
@@ -122,14 +124,16 @@ for name, a, b in want:
         if s and s not in text:
             print("test-nav: missing (%s): %r" % (name, s)); bad = 1
 # what the shell says afterwards: about in doc and etc; motd only in doc
-sh = text[text.rfind('ls -t /doc'):]
-for s in ('about 133 doc etc', 'motd 1648 doc', 'rc 14 etc', '1648', 'edited in vi'):
+sh = text[text.rfind('ls -t /doc\n'):]
+m = sys.argv[2]
+for s in ('about 133 doc etc', 'motd %s doc' % m, 'etc/', 'rc 14 etc', ' %s\n' % m, 'edited in vi'):
     if s not in sh:
         print("test-nav: the shell's listing lacks %r" % s); bad = 1
-if 'motd 1648 etc' in sh or 'motd 1648 doc etc' in sh:
+if ('motd %s etc' % m) in sh:
     print("test-nav: motd was not deleted from /etc"); bad = 1
+if bad: print(sh[:900])
 if 'fault' in raw or 'panic' in raw:
     print("test-nav: a fault"); bad = 1
 sys.exit(bad)
 PY
-echo "test-nav: ok    panels, copy, delete (n, y), also file, facets, vi (F4), help, search, viewer, hex, snapshot, command line"
+echo "test-nav: ok    panels, copy, delete (n, y), tag, subdirectory, vi (F4), help, search, viewer, hex, snapshot, command line"

@@ -35,8 +35,12 @@ inline-limit @  4 inline-limit !                \ code space is scarce: call eve
 : fs-read ( addr u id -- n ) 2 msg-read ;        \ READ: at most 1 KiB, 0 at the end
 : fs-close ( id -- ) 0 0 4 fs drop ;            \ CLOSE
 create dir-buf 4032 allot                       \ a QUERY answer: u64 n, n u32 tag ids; per file {u16 bytes,
-: fs-dir ( path u -- n|err )                     \ u16 name length, u32 tags, u64 size, the name ...}: the
-  tuck >msg 0 swap 0 40 fs  dup 0> if dir-buf 64 4032 5 tget then ; \ first part of the files a tag path names
+variable dir-facets                             \ u16 name length, u32 tags, u64 size, the name ...}: the
+create dir-hdr 64 allot                         \ first part of a directory's files; a record without a
+: fs-dir ( path u -- n|err )                     \ name is a deeper directory's file. dir-facets: the
+  tuck >msg 0 swap 0 40 fs                      \ reply's mode word, the subdirectories (tag ids below 64)
+  dir-hdr 0 64 5 tget 32 twait  dir-hdr 24 + @ dir-facets !
+  dup 0> if dir-buf 64 4032 5 tget then ;
 
 \ ---- the connection: buffered output -------------------------------------------------
 variable conn                                   \ the socket being answered
@@ -142,11 +146,21 @@ variable #files                                 \ the files in dir-buf
   s" <html><head><title>" out path 2@ out s" </title></head><body><h1>" out
   path 2@ out s" </h1><ul>" out out-nl
   dir-buf dup @ 4 * 15 + -8 and +               ( record )
-  #files @ 0 ?do  dup dup 16 + over @ 16 rshift $ffff and  ( record record name u )
-    s" <li><a href='" out out-dir 2dup out s" '>" out out s" </a> " out
-    8 + @ <# #s #> out s" </li>" out out-nl
+  #files @ 0 ?do  dup @ 16 rshift $ffff and if   \ (a record with a name: a file of this directory)
+      dup dup 16 + over @ 16 rshift $ffff and   ( record record name u )
+      s" <li><a href='" out out-dir 2dup out s" '>" out out s" </a> " out
+      8 + @ <# #s #> out s" </li>" out out-nl then
     dup @ $ffff and +
-  loop drop  s" </ul></body></html>" out out-nl ;
+  loop drop
+  dir-facets @ if                               \ its subdirectories: every tag whose bit is set
+    0 0 >msg 0 0 0 41 fs 0 max  dir-buf 64 4032 5 tget  dir-buf swap 0 ?do   ( tag-record )
+      dup @ 32 rshift dup 64 < if dir-facets @ swap rshift 1 and if
+          dup 16 + over @ 16 rshift $ffff and   ( tag-record name u )
+          s" <li><a href='" out out-dir 2dup out s" /'>" out out s" /</a></li>" out out-nl then
+      else drop then
+      dup @ $ffff and +
+    loop drop then
+  s" </ul></body></html>" out out-nl ;
 : serve-listing ( n -- ) #files !  ['] list-page serve-page ; \ the n files in dir-buf
 
 \ ---- the answer to a request --------------------------------------------------------------

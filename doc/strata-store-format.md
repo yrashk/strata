@@ -136,7 +136,7 @@ extent reads as zeros. Stream pages hold data only, with no header.
 |---|---|
 | `obj` | object id (u64 big-endian) → the file's record |
 | `data` | object id → the contents (inline or a stream; none when the file is empty) |
-| `dnam` | u32 tag id (big-endian), the name → u64 object id |
+| `dnam` | the file's tag ids in ascending order (u32 big-endian each), four zero bytes, the name → u64 object id |
 | `attr` | the index: u32 attribute id (big-endian), value, object id (big-endian) → nothing |
 | `dict` | counters and the names of tags and attributes |
 
@@ -147,10 +147,10 @@ u32 tag id per tag, padded to a multiple of 8; then per attribute u32 id,
 u8 type (0 integer, 1 string), u8 length, u16 0 and the value padded to a
 multiple of 8 (an integer is 8 bytes); then the name (at most 255 bytes).
 
-**The names.** A name is unique within a directory, and a directory is a
-tag: `dnam` has an entry for every tag a file carries, under that tag's id
-and the file's name. A file with no tag is in the root: its entry is under
-tag id 0.
+**The names.** A file's directory is the set of its tags, and a name is
+unique within a directory: `dnam` has one entry a file, under its tag ids
+in ascending order, four zero bytes (no tag has id 0) and its name. A file
+with no tag is in the root: four zero bytes and the name.
 
 **The index** has an entry for every tag a file carries (for a file with
 no tag: one under tag id 0, the root's listing) and every attribute it

@@ -12,7 +12,9 @@
 \ the same modes, motions, operators with counts, undo and redo, ., search,
 \ : commands, status line, screen-size question (ESC [ 6 n, 80 x 24 without
 \ an answer, Ctrl-L), and highlighting of Strata assembly and Strata Forth in
-\ the site's colours, with the same rules. The keys are vi.s's. Given the
+\ the site's colours and of C (.c, .h), with the same rules; a comment's
+\ state over lines is kept as vi.s keeps it (every 16th line, and the last
+\ top line). The keys are vi.s's. Given the
 \ same keys, it writes the same files (tools/test-vifs.sh checks that).
 \
 \ How it fits. The program's code is several times the I-LS a program has
@@ -42,7 +44,8 @@
 \
 \ The keyword tables are generated at build time (tools/vi-syntax.py ->
 \ vi-syntax.fs, a disk file next to this one) from the sources the site's
-\ highlighter uses, like vi.s's; vi.fs reads them once, into far memory.
+\ highlighter uses and from cc, like vi.s's; vi.fs reads them once, into far
+\ memory.
 \ Compiling the editor costs some 6 M instructions at every start.
 
 inline-limit @  4 inline-limit !                \ dense code (more of it in the cache): primitives are called

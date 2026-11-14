@@ -50,7 +50,7 @@ const PRESETS = {
     args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
     fitScreen: true,
     type: "nav /src /bin\n",
-    about: "nav, the file navigator: two panels in the manner of the Norton and Midnight Commanders, for StrataOS's tag file system (the page types nav /src /bin at the shell's first prompt). The arrows move, Tab switches panels, Enter goes into a directory, Backspace up; F3 views a file, F4 edits it in vi, F5 copies it to the other panel's directory, F2 files the same file there too, F8 deletes, F9 or Ctrl-Q shows it in the other panel, F10 quits (Esc and a digit is that F-key). A file is in every directory it is tagged with: the third column lists the others. Type anything to search the whole disk as you type: try sh, vi, or lang=asm.",
+    about: "nav, the file navigator: two panels in the manner of the Norton and Midnight Commanders, for StrataOS's tag file system (the page types nav /src /bin at the shell's first prompt). The arrows move, Tab switches panels, Enter goes into a directory, Backspace up; F3 views a file, F4 edits it in vi, F5 copies it to the other panel's directory, F2 gives it that directory's tags too, F8 deletes, F9 or Ctrl-Q shows it in the other panel, F10 quits (Esc and a digit is that F-key). A directory is the set of its files' tags (/src/demo). Type anything to search the whole disk as you type: try sh, vi, or lang=asm; Ctrl-X switches typing to a command line.",
   },
   cc: {
     files: ["bootrom.stx", "disk.img"],

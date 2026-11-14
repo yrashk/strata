@@ -152,7 +152,7 @@ test-list:
 .PHONY: build-main build-test-disks build-stdb-test build-forth build-small build-ls32 build-ls16-4 build-ls4-32 build-f44 \
         build-wasm build-wasm-test build-wasm-rtl-test
 build-main: all examples os $(BUILD)/stdb
-build-test-disks: $(BUILD)/http-test/disk.img $(BUILD)/isol-test/disk.img $(BUILD)/files-test/disk.img
+build-test-disks: $(BUILD)/http-test/disk.img $(BUILD)/isol-test/disk.img $(BUILD)/files-test/disk.img $(BUILD)/forth-test/disk.img
 build-stdb-test: $(BUILD)/stdb-test $(BUILD)/stdb-many
 build-forth: $(BUILD)/forth.stx
 
@@ -350,14 +350,17 @@ kira-dat:
 	python3 tools/kira-art.py
 	python3 tools/kira-assets.py
 
-# vi, the editor: its keyword tables come from the assembler, the Forth README
-# and the site's highlighter (tools/vi-syntax.py writes them as an include)
-$(BUILD)/vi-syntax.s: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth/README.md site/hl.js
+# vi, the editor: its keyword tables come from the assembler, the Forth README,
+# the site's highlighter and cc's keywords and headers (tools/vi-syntax.py
+# writes them as an include)
+$(BUILD)/vi-syntax.s: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth/README.md site/hl.js \
+                      lang/cc/cc.c $(wildcard lang/cc/lib/include/*.h)
 	@mkdir -p $(BUILD)
 	python3 tools/vi-syntax.py $@
 
 # the same tables for the Forth port, lang/forth/vi.fs, as Forth source (a disk file next to it)
-$(BUILD)/forth-os/vi-syntax.fs: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth/README.md site/hl.js os/progs/vi.s
+$(BUILD)/forth-os/vi-syntax.fs: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth/README.md site/hl.js os/progs/vi.s \
+                                lang/cc/cc.c $(wildcard lang/cc/lib/include/*.h)
 	@mkdir -p $(BUILD)/forth-os
 	python3 tools/vi-syntax.py $@
 
@@ -479,24 +482,25 @@ DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(DBPROGS) $(NPROGS) $(BUILD)/prog
               $(BUILD)/prog/units $(BUILD)/prog/vi $(BUILD)/prog/nav $(SRCS) $(USRCS) $(BUILD)/src/vi.s $(FORTH_DISK)
 
 # The same files with their tags (mkdisk -t TAGS applies to the files after it).
-# The file system has no directories: `ls /bin` lists the files tagged bin,
-# `ls /src/demo` those tagged both src and demo.
+# A file's directory is the set of its tags: `ls /bin` lists the files tagged
+# bin and nothing else, `ls /src/demo` those tagged src and demo (a
+# subdirectory of /src). Programs are looked for in /bin.
 DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc %/resolv,$(OS_FILES)) \
-             -t sys $(SPROGS) -t bin $(UPROGS) $(DBPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag -t bin,net $(NPROGS) -t bin,ws $(WSPROGS) \
-             -t bin,demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units $(BUILD)/prog/vi $(BUILD)/prog/nav \
+             -t sys $(SPROGS) -t bin $(UPROGS) $(DBPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag -t bin $(NPROGS) $(WSPROGS) \
+             $(PROGS) $(BUILD)/prog/as $(BUILD)/prog/units $(BUILD)/prog/vi $(BUILD)/prog/nav \
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) $(BUILD)/src/vi.s \
-             -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
+             -t bin $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
              lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUILD)/forth-os/vi-syntax.fs \
              $(BUILD)/forth-os/progs.pk \
-             -t forth,demo $(wildcard lang/forth/demos/*.fs) \
-             -t forth,net lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd-ps.fs -t forth,net,demo lang/forth/httpd.fs
+             $(wildcard lang/forth/demos/*.fs) \
+             lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd-ps.fs lang/forth/httpd.fs
 # kira and its data (tagged ws: the program opens /ws/kira.dat)
 DISK_FILES += $(BUILD)/prog/kira $(KIRA_DAT)
-DISK_ARGS  += -t bin,ws $(BUILD)/prog/kira -t ws $(KIRA_DAT)
+DISK_ARGS  += -t bin $(BUILD)/prog/kira -t ws $(KIRA_DAT)
 
 # wdoom and its data (tagged ws: the program opens /ws/wdoom.dat)
 DISK_FILES += $(BUILD)/prog/wdoom $(WDOOM_DAT)
-DISK_ARGS  += -t bin,ws $(BUILD)/prog/wdoom -t ws $(WDOOM_DAT)
+DISK_ARGS  += -t bin $(BUILD)/prog/wdoom -t ws $(WDOOM_DAT)
 # the web site httpd serves (index.html at /, the stylesheet of every page)
 WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)
@@ -504,7 +508,7 @@ DISK_ARGS  += -t www $(WWW_FILES)
 DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS)
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST)
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) -t guest,forth $(FORTH_GUEST)
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST)
 
 os: $(BUILD)/bootrom.stx $(BUILD)/disk.img
 
@@ -643,7 +647,7 @@ $(BUILD)/isol-test/dlsgap: tools/dlsgap.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/isol-test
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
 $(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin,test $(BUILD)/isol-test/dlsgap
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap
 
 # the disk of tools/test-files.sh: the standard one plus 300 small files tagged
 # many (f000 .. f299, each holding its own name): more files than one window
@@ -658,7 +662,7 @@ $(BUILD)/files-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs) \
                               $(wildcard lang/forth/tests/http/*)
 	@mkdir -p $(BUILD)/forth-test
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t forth,test $(wildcard lang/forth/tests/*.fs) \
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t forth $(wildcard lang/forth/tests/*.fs) \
 	  -t httptest $(wildcard lang/forth/tests/http/*)
 
 forth: $(BUILD)/strata-emu $(BUILD)/forth.stx

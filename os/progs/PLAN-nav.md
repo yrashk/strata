@@ -34,12 +34,15 @@ programs.
   part by part) and then its subdirectories (the facets); `..` first except
   at `/`. The root lists the snapshots too, as `@NAME/`, read-only
   directories (`/@NAME/...` paths).
-- A file is in every directory it is tagged with. The third column says
-  where else it is ("also in" with the other tags), and the two ways of
-  putting a file into the other panel's directory are separate keys:
-  F5 copies (a new file, its own contents), F2 files it there too (TAG: the
-  same file, now in both). F8 asks, for a file in several directories,
-  whether to delete it everywhere or only take it out of this one (UNTAG).
+- A directory is the set of its files' tags (the file system's rework on
+  `main`): a file is in exactly one directory. A directory panel shows its
+  own files and, as subdirectories, the other tags of its deeper ones'
+  files (QUERY's nameless records). A search's panel shows each file's
+  directory in a third column. The two ways of putting a file into the
+  other panel's directory are separate keys: F5 copies (a new file), F2
+  tags it with that directory's tags too (one RENAME: the same file, now
+  in the directory of both). F8 offers, besides deleting, taking the
+  directory's last tag away (UNTAG: up a level).
 - F4 runs the system's `vi` on the file (`nav -e EDITOR` names another
   command) and redraws when it ends.
 - Search: any printable key starts it. A plain text asks the file server
@@ -90,16 +93,19 @@ interpreter, 8 cores):
 
 | text | found | first results | all |
 |---|---|---|---|
-| `needle` | 1 | 4.0 ms | 215.7 ms |
-| `kernel` | 693 (357 begin with it) | 9.6 ms | 262.7 ms |
-| `k` | 698 | 9.3 ms | 270.5 ms |
-| `eta` | 691 | 13.5 ms | 231.6 ms |
-| `zzz` | 0 | 219.6 ms (none) | 219.6 ms |
-| `size>9000` | 107 | 185.7 ms | 187.9 ms |
-| `_` (every generated file) | 10,002 | 10.8 ms | 344.3 ms |
+| `needle` | 1 | 13.5 ms | 225.5 ms |
+| `kernel` | 693 (357 begin with it) | 14.9 ms | 288.7 ms |
+| `k` | 698 | 14.4 ms | 296.1 ms |
+| `eta` | 691 | 23.0 ms | 241.5 ms |
+| `zzz` | 0 | 222.9 ms (none) | 222.9 ms |
+| `_` (every generated file) | 10,002 | 17.6 ms | 351.3 ms |
+
+(After `main`'s rework of names: a directory is a tag set, about 80 of them
+on this disk, each a seek or two. Before it, with an entry per tag: 4 to
+14 ms to the first results.)
 
 The first results are what FIND mode 0 gives (names that begin with the
-text: one seek per directory, then the records of the files found). "All"
+text: a seek or two per directory, then the records of the files found). "All"
 adds FIND mode 1, which reads every record (about 21 us each): there is no
 index of parts of names. It comes in parts of 384 records (about 8 ms), and
 a key typed meanwhile stops it, so typing is not held up. Before FIND, the

@@ -687,17 +687,15 @@ hard links (an object has one name; tags do what links did).
 
 1. **One server.** The store and the fs layer are two modules of one
    process that answers both `fs` and `db` (7.1).
-2. **No hierarchy, names per directory.** Tags are the only grouping and
-   a path is a query. Every tag is a directory; a file is in each
-   directory it is tagged with and nowhere else, a file with no tag is in
-   the root, and a name is unique within a directory (the name index's
-   key is the tag and the name: an entry per directory a file is in, tag
-   0 for the root). Subdirectories stay what they were: the other tags of
-   a directory's files, each a narrower view. So one name can be in two
-   directories as two files, but `/src/x` and `/src/demo/x` are one
-   file. RENAME is a move; TAG and UNTAG put a file into a directory and
-   take it out. A program is looked for where its starter is, then in
-   `/bin` and `/sys`.
+2. **A directory is a set of tags; names per directory.** Tags are the
+   only grouping. The set of a file's tags is its directory (`/src/demo`
+   is `/demo/src`), a file with no tag is in the root, and a name is
+   unique within a directory: the name index's key is the tag ids in
+   order and the name, one entry a file. So `/src/x` and `/src/demo/x`
+   are two files. A directory's subdirectories are the other tags of the
+   files in deeper directories. RENAME, TAG and UNTAG each move a file to
+   another directory in one step. A program is looked for where its
+   starter is, then in `/bin` and `/sys`.
 3. **Snapshots are wanted** (section 4.1, stage 8). The format carries
    what they need from the first stage, so adding them changes no disk.
 4. **Query terms are path components** (`ls '/src/size>4096'`), quoted in

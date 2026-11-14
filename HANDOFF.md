@@ -258,15 +258,17 @@ built from. The kernel boots from a boot manifest (`u_disk` in
   and one start-up message); about 5 KiB of its I-LS and 1 KiB of its D-LS
   are free. Its small data must stay below 32 KiB (loads use absolute
   16-bit addresses), so the large buffers are declared last.
-- Names are per directory (2026-11): a tag is a directory, a file is in
-  each one it is tagged with and nowhere else, one with no tag is in the
-  root, and a name is unique within a directory (`dnam`: tag id, name).
-  A bare name means the current directory, so nothing finds `/doc/motd`
-  as `motd` from the root. Programs are looked for where the starter is,
-  then in `/bin`, then `/sys` (fs LOADIMG; `proc` passes the starter).
-  `mv` is a move; `tag` is refused where the name is taken. A program
-  that applies several tags to a file follows it into its new directory
-  after the first (`tag`, `cp -t`): the old path may not name it any more.
+- A directory is a set of tags, names are per directory (2026-11): the
+  set of a file's tags is its directory (`/src/demo` = `/demo/src`), a
+  file with no tag is in the root, a name is unique within a directory
+  (`dnam`: the tag ids in order, a zero word, the name; one entry a
+  file). A bare name means the current directory. `tag`, `untag`, `retag`
+  and `mv` each move a file once (TAG and UNTAG take all their tags in
+  one request). Programs are looked for where the starter is, then in
+  `/bin`, then `/sys` (fs LOADIMG; `proc` passes the starter), so every
+  program of the standard disk is tagged `bin` and nothing else. A
+  listing's reply carries deeper directories' files as records without a
+  name: their tags are the subdirectories.
 - The server's seldom used handlers are code units (`fsunits.s`, its rules
   at the top): one unit is at work at a time, handlers are units, what
   they share is resident. `tools/check-fsunits.py` checks the jumps.
@@ -325,7 +327,8 @@ built from. The kernel boots from a boot manifest (`u_disk` in
 - `conformance/FINDINGS.md` F7 and F8 (documentation) are open.
 
 **Smaller, from PLAN.md's open boxes**
-- `make test-forth` is not part of `make test`; run it on its own.
+- `make test-forth` is not part of `make test`; run it on its own. Its
+  StrataOS half is (`forth-os`, fast tier), its bare-metal half is not.
 - The emulator does not enforce one break read per core.
 - The manual's op tables (18.x) were never re-checked against the final
   kernel and servers.
