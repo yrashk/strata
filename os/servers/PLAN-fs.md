@@ -29,7 +29,8 @@ decisions taken.
 - [x] `tools/stdb/mkdisk.c` (`build/mkdisk-stdb`; it replaces
       `tools/mkdisk.c` when the server reads the format)
 - [x] `stdb check`, `dump`, `ls`, `get`, `info`
-- [ ] A million objects on the host
+- [x] A million files on the host (`tools/stdb/many.c`, in `make
+      test-stdb`): made in 4 s, checked whole; trees 3 and 4 levels high
 
 ## Stage 2: persistence
 - [x] Emulator `-w FILE` (the disk as it is at the end)
@@ -67,8 +68,8 @@ decisions taken.
       Give up only the failing client's work
 - [ ] A commit writes each changed page with a command of its own; pages
       that lie together could go in one
-- [ ] `compare-boot.sh`: also compare the two disks' `stdb dump` (needs
-      `-w` on both; the RTL harness has it)
+- [x] `compare-boot.sh` checks the disks the emulator and the RTL leave
+      and compares their `stdb dump`
 - [x] `make test` runs `test-stdb` and `test-store`; `test-sh.out` regenerated
       (a file's tags are listed in the order it got them; a 25-byte name is
       a name). `test-http.out` expects an older `sh.s` size: not from here
@@ -84,7 +85,9 @@ decisions taken.
 - [ ] Forth: `sys.fs`, `ls.fs`, `httpd.fs`, `tag.fs`, `tags.fs`, `vi-edit.fs`
 - [ ] DIR (10) and TAGS (14) removed
 - [x] `doc/strataos.md`
-- [ ] The manual (`ch-os`, `ch-firmware`, `ch-appendices`), `HANDOFF.md`
+- [x] The manual: the disk layout (`ch-firmware`), the file system's
+      structure and limits (`ch-os`, `ch-appendices`); its table of fs
+      operations still lists DIR and TAGS only; `HANDOFF.md`
 
 ## Looking into the store from inside the OS
 - [x] `os/lib/stview.s`: the disk's trees read with READBLK (the last

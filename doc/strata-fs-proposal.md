@@ -362,7 +362,11 @@ file, nodes 70% full (cells: `obj` 96 bytes, `name` 26, tag 18, extent
 | 1,000,000 | 33,650 | 9,170 | 13,000 | 12,140 | about 68,000 pages, 266 MiB | 4 / 3 |
 
 About 270 bytes of metadata per object, against 40 today; a small disk
-pays about 50 KiB of fixed cost. The million-object case needs a device
+pays about 50 KiB of fixed cost. (Built since: `tools/stdb/many.c` makes a
+million files with two tags and an attribute each and checks the whole
+store, in about ten seconds on the host; the trees are 3 and 4 levels high
+with 4 KiB pages, as estimated. With aligned cells the per-object cost is
+somewhat above the estimate.) The million-object case needs a device
 larger than today's 16 MiB (`STX_DISK_BLOCKS`); the emulator already
 accepts a larger image, the RTL harness does not.
 

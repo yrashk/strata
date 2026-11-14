@@ -151,10 +151,10 @@ OS runs it with \insn{xcall} through \reg{c12} (Section~\ref{sec:os-kpaging}).
 24 & u32 & data blocks\\
 28 & u32 & data D-LS address (\hex{A000})\\
 32 & u32 & entry I-LS address (\hex{4000})\\
-36 & u32 & directory LBA (1; used by the OS)\\
-40 & u32 & first free LBA (used by the OS)\\
 44 & u32 & far image LBA (0 if there is none)\\
 48 & u32 & far image length in blocks\\
+56 & 4 bytes & \texttt{STDB}: the rest of the disk is a store (used by the OS)\\
+60 & u32 & the store's page size in bytes (used by the OS)\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -164,22 +164,26 @@ prototype ROM uses the fixed addresses \hex{4000} and \hex{A000} rather than rea
 
 \subsection{Disk layout}
 
-\texttt{tools/mkdisk -o disk.img -k kernel.stx [-b blocks] [file \ldots]} builds a bootable disk image
-(default 8192 blocks, 4~MiB) from the kernel image and up to 128 files:
+\texttt{mkdisk -o disk.img -k kernel.stx [-b blocks] [-p pagesize] [-B names] [[-t tags] file \ldots]}
+(\texttt{tools/stdb/mkdisk.c}) builds a bootable disk image (default 32768 blocks, 16~MiB) from the
+kernel image and any number of files. In pages of 4096 bytes (\texttt{-p}: 1024 or 2048):
 
 \begin{center}\small
 \begin{tabular}{@{}l l@{}}
 \toprule
-\textbf{Blocks} & \textbf{Contents}\\\midrule
-0 & boot header\\
-1--8 & directory: 128 entries of \{ char name[24], u32 first LBA, u32 size in bytes \}\\
-9\ldots & OS code image (I-LS bytes \hex{4000}--\hex{7FFF}), then OS data image (D-LS bytes \hex{A000}--\hex{DFFF})\\
+\textbf{Pages} & \textbf{Contents}\\\midrule
+0 & boot header (its first block)\\
+1, 2 & the store's two meta pages: a commit writes the one it did not write last\\
+3\ldots & OS code image (I-LS bytes \hex{4000}--\hex{7FFF}), then OS data image (D-LS bytes \hex{A000}--\hex{DFFF})\\
 then & the far image: the kernel image's T3 section (\texttt{.far}), whose offset 0 is far address 0 of \reg{c12}\\
-then & each file given on the command line, block-aligned, under its base name\\
-rest & free space for files the OS creates\\
+rest & the store: copy-on-write B+trees (the file system's records, names, index and dictionary), the files' contents, free pages\\
 \bottomrule
 \end{tabular}
 \end{center}
 
-A name shorter than 24 bytes is zero-padded. The code and data images are limited to 16~KiB each and
-the far image to \hex{D0000} bytes (832~KiB). A file is a contiguous run of blocks.
+The code and data images are limited to 16~KiB each and the far image to \hex{D0000} bytes
+(832~KiB). The files named by \texttt{-B} (by default \texttt{proc}, \texttt{dev} and \texttt{fs}) are
+boot objects: each is stored in one run of pages and listed in the boot manifest, a page the newer
+meta block points at, from which the kernel loads the first servers without reading a tree. The
+format is described at the top of \texttt{tools/stdb/store.c}; \texttt{build/stdb check} verifies an
+image.

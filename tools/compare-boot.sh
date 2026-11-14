@@ -45,9 +45,9 @@ split_trace() { # $1 = fifo, $2 = output prefix
 }
 split_trace "$tmp/e.fifo" "$tmp/e" & pe=$!
 split_trace "$tmp/r.fifo" "$tmp/r" & pr=$!
-"$b/strata-emu" -j -c "$n" ${EMU_ARGS:-} -T virtual -g none -m 4000000000 -d "$tmp/d1.img" -i "$3" -t "$tmp/e.fifo" "$1" >"$tmp/e.out" 2>"$tmp/e.err"
+"$b/strata-emu" -j -c "$n" ${EMU_ARGS:-} -T virtual -g none -m 4000000000 -d "$tmp/d1.img" -w "$tmp/w1.img" -i "$3" -t "$tmp/e.fifo" "$1" >"$tmp/e.out" 2>"$tmp/e.err"
 erc=$?
-"$b/strata-rtl" -T virtual -g none -m 4000000000 -d "$tmp/d2.img" -i "$3" -t "$tmp/r.fifo" "$1" >"$tmp/r.out" 2>"$tmp/r.err"
+"$b/strata-rtl" -T virtual -g none -m 4000000000 -d "$tmp/d2.img" -w "$tmp/w2.img" -i "$3" -t "$tmp/r.fifo" "$1" >"$tmp/r.out" 2>"$tmp/r.err"
 rrc=$?
 wait $pe $pr
 # normalise what depends on timing: ps rows keep pid, parent, core, cores and
@@ -73,7 +73,19 @@ while [ $c -lt "$n" ]; do
   cmp -s "$tmp/e.$c" "$tmp/r.$c" || { echo "  core $c boot trace differs"; ok=0; }
   c=$((c + 1))
 done
+# the disks the two machines leave: each must pass the store's check, and
+# hold the same files with the same bytes, tags and attributes (stdb dump
+# does not depend on where things lie or on commit numbers)
+dsk=""
+if [ -x "$b/stdb" ] && [ -s "$tmp/w1.img" ] && [ -s "$tmp/w2.img" ]; then
+  for w in w1 w2; do
+    "$b/stdb" check "$tmp/$w.img" >/dev/null 2>"$tmp/$w.chk" || { echo "  the disk left ($w) fails its check:"; head -3 "$tmp/$w.chk" | sed 's/^/    /'; ok=0; }
+    "$b/stdb" dump "$tmp/$w.img" >"$tmp/$w.dump" 2>/dev/null
+  done
+  cmp -s "$tmp/w1.dump" "$tmp/w2.dump" || { echo "  the disks left differ:"; diff "$tmp/w1.dump" "$tmp/w2.dump" | head -6; ok=0; }
+  dsk="; disks checked and compared"
+fi
 ins=$(cat "$tmp/e.count")
 cyc=$(sed -n 's/^total cycles: //p' "$tmp/r.err")
-if [ $ok -eq 1 ]; then printf '%-14s OK    %8s instructions  %9s RTL cycles (console compared; boot traces)\n' "${4:-boot}" "$ins" "$cyc"; exit 0; fi
+if [ $ok -eq 1 ]; then printf '%-14s OK    %8s instructions  %9s RTL cycles (console compared; boot traces%s)\n' "${4:-boot}" "$ins" "$cyc" "$dsk"; exit 0; fi
 printf '%-14s FAIL\n' "${4:-boot}"; exit 1

@@ -752,6 +752,15 @@ $(BUILD)/stdb: $(STDB_LIB) $(STDB_HDR) tools/stdb/stdb.c
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ $(STDB_LIB) tools/stdb/stdb.c
 
+$(BUILD)/stdb-many: $(STDB_LIB) $(STDB_HDR) tools/stdb/many.c
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ $(STDB_LIB) tools/stdb/many.c
+
+# test-stdb: the store against a model and power cuts; then a million files
+# (about ten seconds, 1.5 GiB of memory), and 20,000 on small pages (trees
+# four levels high)
 .PHONY: test-stdb
-test-stdb: $(BUILD)/stdb-test
+test-stdb: $(BUILD)/stdb-test $(BUILD)/stdb-many
 	$(BUILD)/stdb-test
+	$(BUILD)/stdb-many 1000000
+	$(BUILD)/stdb-many 20000 1024
