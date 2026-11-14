@@ -642,12 +642,16 @@ $(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
 
 # the disk of tools/test-isolate.sh: the standard one plus dlsgap (tools/dlsgap.s),
-# which checks that no process sees what another left in its core's D-LS
+# which checks that no process sees what another left in its core's D-LS or
+# its arena, and dlsgapcut, dlsgap without its last 8 bytes: its last section
+# ends beyond the bytes loaded, and CREATE must refuse it
 $(BUILD)/isol-test/dlsgap: tools/dlsgap.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/isol-test
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
-$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap
+$(BUILD)/isol-test/dlsgapcut: $(BUILD)/isol-test/dlsgap
+	head -c $$(( $$(wc -c <$<) - 8 )) $< >$@
+$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/dlsgapcut
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/dlsgapcut
 
 # the disk of tools/test-files.sh: the standard one plus 300 small files tagged
 # many (f000 .. f299, each holding its own name): more files than one window

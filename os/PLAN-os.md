@@ -44,7 +44,8 @@ tools/test-break.sh, tools/test-preempt.sh, tools/test-as.sh (StrataOS part), Ma
   arena[0xC0000, +code) (≤ 64 KiB) to the output file; the status becomes 0.
 - Arena layout (N threads): [0,P) program, P = 0xD0000 - (N-1)*48K; thread k≥1 save
   areas below 0xD0000; image [0xD0000,0xF0000) (128 KiB max); thread 0 save 0xF0000;
-  buffer 0xFF000; start-up block 0x7F000. Arenas are scrubbed (zeroed) at MEMORY.
+  buffer 0xFF000; start-up block 0x7F000. Arenas are scrubbed (zeroed) at MEMORY
+  (for an image, mode 2: not the image area, nor the gap above the save area).
   Since revocation by address an arena is any run of 256 KiB granules (1 MiB by
   default, MEMORY's length / SPAWN mode >> 16 / sh `-m N` for more); the offsets above
   are from its layout base (E bytes in for an arena of 1 MiB + E), c0 grows by E.

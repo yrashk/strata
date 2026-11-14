@@ -129,7 +129,8 @@ kernel makes a revocable region of its own at boot and lends to the window serve
 
 \subsection{Arenas}
 A process's memory is one arena: a run of whole 256~KiB granules of the arena pool (1~MiB unless the
-spawner asked for more, Section~\ref{sec:os-servers}), zeroed when it is handed out. At boot the kernel
+spawner asked for more, Section~\ref{sec:os-servers}), zeroed when it is handed out wherever the new
+process could read what an earlier owner left (below). At boot the kernel
 makes each of the pool's two parts one revocable region (\insn{cdom}) and keeps only their revokers, in
 the system core's save table, and a bitmap of the pool's granules in its D-LS. It allocates an arena
 from the bitmap (the first free run that is long enough) and makes a capability for it by address: it
@@ -396,14 +397,25 @@ still holds the previous thread's bytes, and the next one could read them. So th
 whose bytes its D-LS holds. When it loads a thread of another process, and on a thread's first load,
 it restores the thread's whole D-LS, \hex{0000}--\hex{9FFF} and \hex{E000}--\hex{FFFF} (48~KiB, two
 \insn{tget}s), from the save area instead of only the extent and the stack. Outside those the save area
-holds zeros: the arena is scrubbed when MEMORY hands it out, CREATE accepts only such arenas, the
+holds zeros: MEMORY scrubs the save areas of every arena it hands out, CREATE accepts only such arenas, the
 program cannot reach its save area, and a switch writes there only the extent and the live stack.
 What it holds is therefore zeros or older bytes of the same thread, never another process's. A first
 load takes the zeros and then the image's data section on top (the transfers act in issue order),
 which replaces a 40~KiB store loop. A thread that returns to a core where nothing else ran meanwhile
 gets back only its extent and stack, as before. \texttt{tools/test-isolate.sh} checks this with
 two copies of \texttt{tools/dlsgap.s} on one core: one fills its gaps with a pattern, the other must
-never find it in its own, at its first load and after each switch back.
+never find it in its own, at its first load and after each switch back. It checks the arenas as
+well: one copy writes the pattern over all its far memory and exits, the next, on the same granules,
+must find none of it.
+
+MEMORY zeroes (scrubs) everything a new process can read before it writes it: its program memory, the
+save areas and the message buffer, with 4~KiB \insn{tput}s of a zeroed buffer from the system core. For
+the arena of a program being spawned (MEMORY mode 2) it leaves the image area (which \texttt{fs} then
+fills only as far as the image goes) and the unused gap above the save area as they are, which saves about 14\% of the scrubbing: only the kernel
+reads the image area, and CREATE, told the image's length by \texttt{proc}, refuses an image whose
+sections end beyond it. The rest cannot go in software: a program reaches all of its memory through
+\reg{c0} at offsets of its own choosing, and the kernel cannot know which of it the earlier owner
+wrote. In the demo session the scrubbing is still 30\% of the far bus's cycles.
 
 The I-LS above a program's resident code still holds the previous program's code and code-cache units.
 Nothing can read it: loads and \insn{tget} use the D-LS, \insn{tgetx} only writes the I-LS, \insn{ltag}
@@ -570,13 +582,16 @@ numbering of StrataOS 0.1; operation numbers are per server.
 \begin{tabularx}{\linewidth}{@{}r l X@{}}
 \toprule
 \textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
-1 & CREATE & attachment: an arena holding the image at \hex{D0000} and the start-up block. Data: pid,
+1 & CREATE & attachment: an arena holding the image at \hex{D0000} and the start-up block; mode = the
+  image's length (sections that end beyond it are refused). Data: pid,
   thread count (0 = one time-shared thread), flags, a core to pin to or $-1$, the cores of the endpoints
   for \reg{c1}--\reg{c4}, \reg{a0}--\reg{a2}. Reply: 0 and the first core; the process starts. A server's
   reply carries an endpoint to its core\\
 2 & DESTROY & handle = pid. The process is stopped and its arena revoked; \texttt{proc} later
   receives EXITED with the killed bit\\
 3 & MEMORY & length = the size wanted (0: 1~MiB; rounded up to whole 256~KiB granules, at least 1~MiB).
+  Mode 1: an extra arena for a process; mode 2: for an image (only CREATE or FREE take it; its image
+  area and the gap above the save area are not zeroed).
   Reply: a zeroed arena with a fresh capability, as an attachment; data: its base and size; $-6$ if none\\
 4 & STATS & reply: counters for the machine, every core and every process\\
 5 & TUNE & length = the time slice in ticks, 100--100000; $-1$ out of range\\

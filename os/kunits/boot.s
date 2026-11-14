@@ -540,6 +540,7 @@ u_loadsrv:
         mv    s1, a0                    ; s1 = the entry
         ld    a0, cr_pid-GPBASE(gp)     ; an arena (1 MiB) for it -> c10, a0 = slot
         li    a1, 0                     ; ...
+        li    a2, 1                     ; (for an image)
         la    t5, u_alloc               ; ...
         xcall ra, c12, t5               ; ...
         bltz  a0, uls_missing           ; (cannot happen at boot)
@@ -547,6 +548,7 @@ u_loadsrv:
         cmov  c9, c10                   ; the disk reads into c9
         lwu   s2, 24(s1)                ; first block
         lwu   s3, 28(s1)                ; size
+        sd    s3, cr_ilen-GPBASE(gp)    ; (the image's length: u_parse)
         addi  s3, s3, 511               ; blocks
         srli  s3, s3, 9                 ; ...
         li    s4, A_IMG                 ; arena offset

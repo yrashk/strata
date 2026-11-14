@@ -41,10 +41,10 @@
 ;              and freed when the caller ends, unless LESS gave it back first
 ;  44 LESS     an extra arena as the attachment -> 0: it is freed
 ;
-; Spawning: MEMORY (an arena from the kernel: 1 MiB, or what SPAWN asked for; the
+; Spawning: MEMORY mode 2 (an arena from the kernel: 1 MiB, or what SPAWN asked for; the
 ; kernel revokes it by address when the process ends)
 ; -> the start-up block written into it -> fs LOADIMG (the image read into
-; it) -> [old protocol: fs READALL of the `<` file] -> DUPS at the servers
+; it; CREATE gets its length) -> [old protocol: fs READALL of the `<` file] -> DUPS at the servers
 ; of the handles passed -> CREATE. While it waits for those answers, proc
 ; keeps the caller's request parked in the kernel.
 ;
@@ -121,6 +121,7 @@ mo_sz:  .dword 0                        ; ... the bytes it wants
 sp_nc:  .dword 0                        ; spawn parameters: ncores
 sp_mode: .dword 0                       ; mode
 sp_aext: .dword 0                       ; the arena's size - 1 MiB: where its top part (the image) is
+sp_ilen: .dword 0                       ; the image's length (as fs loaded it)
 sp_kfl: .dword 0                        ; kernel flags
 sp_eps: .dword 0                        ; endpoint cores
 sp_par: .dword 0                        ; parent
@@ -633,7 +634,7 @@ ds_mem:
         li    a0, 1                     ; ...
         li    a1, K_MEMORY              ; ...
         li    a2, 0                     ; ...
-        li    a4, 0                     ; ...
+        li    a4, 2                     ; (mode 2: for an image, only CREATE or FREE take it)
         call  sys_msg                   ; ...
         bltz  a0, ds_ret                ; -6
         li    a0, 1                     ; data[1] = its size
@@ -664,6 +665,8 @@ ds_mem:
         or    a4, a4, t0                ; ...
         call  sys_msg                   ; a0 = size; the arena back in c6
         bltz  a0, ds_free               ; not loaded
+        la    t0, sp_ilen               ; (CREATE reads nothing beyond it)
+        sd    a0, 0(t0)                 ; ...
         la    t0, sys_hdr               ; found in /bin or /sys: the reply's data is the path it
         ld    s2, 16(t0)                ; was found by. That becomes the command's first word (a
         beqz  s2, ds_img                ; program finds what lies beside it by its own path), and
@@ -802,7 +805,8 @@ ds_eps:
         li    a1, K_CREATE              ; ...
         li    a2, 0                     ; ...
         li    a3, 64                    ; ...
-        li    a4, 0                     ; ...
+        la    a4, sp_ilen               ; mode: the image's length
+        ld    a4, 0(a4)                 ; ...
         call  sys_msg                   ; a0 = 0, data[0] = its core
         bltz  a0, ds_undo               ; refused: the arena came back
         li    a0, 0                     ; its core
