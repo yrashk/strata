@@ -117,6 +117,7 @@ test: all examples os $(BUILD)/stdb test-stdb
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vi.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vifs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-fs-progs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	python3 tools/check-fsunits.py $(BUILD)/prog/fs
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-store.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) ./tools/test-files.sh $(BUILD)/bootrom.stx $(BUILD)/files-test/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-net.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
@@ -269,7 +270,7 @@ $(BUILD)/prog/%: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
-$(BUILD)/prog/fs: os/servers/fsops.s os/servers/store.s os/servers/storew.s os/servers/sblob.s os/servers/fsattr.s
+$(BUILD)/prog/fs: os/servers/fsunits.s os/servers/fsops.s os/servers/store.s os/servers/storew.s os/servers/sblob.s os/servers/fsattr.s
 $(SPROGS): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
