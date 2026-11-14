@@ -397,7 +397,7 @@ strata$ cc -o calc calc.c           # -o names the output; -h KIB sizes the heap
 ```
 
 - **Two compilers.** `cc.c` is the compiler, written in the C it compiles.
-  `cc.s` is the bootstrap compiler, 14,400 lines of Strata assembly, there
+  `cc.s` is the bootstrap compiler, 13,900 lines of Strata assembly, there
   so that `cc.c` can be compiled on a machine with no C compiler. `make
   test-cc-boot` does it inside StrataOS: the bootstrap compiler compiles
   `cc.c`, the result compiles `cc.c` again, and that one once more; the last

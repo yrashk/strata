@@ -227,7 +227,7 @@ units (`cc.u`), and an image `cc` of 47 KiB: the 8 KiB library and 38 KiB of
 data. The host program `strata-cc` is the same source and 115 lines of
 `host/host.c`.
 
-`cc.s` and the files it includes: 14,400 lines of assembly, of which the
+`cc.s` and the files it includes: 13,900 lines of assembly, of which the
 resident part is 4 KiB of code and the 30 code units 119 KiB; the D-LS
 section is the full 40 KiB (16 KiB symbols, 7 KiB types, 13 KiB variables
 and buffers). The library: 2,800 lines, 8 KiB of code and 3 KiB of data in
