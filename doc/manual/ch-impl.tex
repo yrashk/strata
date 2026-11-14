@@ -57,7 +57,10 @@ the core turns it off).
 With the parameter \texttt{LS\_1P} (off by default) a core's two Local Stores are one single-port
 memory, the I-LS in its low words and the D-LS above, with one access per cycle. A beat that arrives
 from the far bus for a \insn{tget} or \insn{tgetx} is written at once and the core gives way for that
-cycle: a fetch, a load, a store or a tag-table access waits and the read-ahead is skipped. Otherwise the
+cycle: a fetch, a load, a store or a tag-table access waits and the read-ahead is skipped. The TU
+holds a beat from far memory back for one cycle, never two running, when the core's state says it is
+about to use the memory (the far bus has a ready for read beats that only this lowers), so a core and
+a burst take turns. Otherwise the
 fetch and the data access have the memory when they want it, a \insn{tput}'s read of the D-LS takes
 the cycles they leave, and the read-ahead the rest. A core-control reset then writes the two stores'
 words in alternate cycles. Again no instruction's result depends on it. The integer registers are LUT-RAM with one write port and three asynchronous read ports (every

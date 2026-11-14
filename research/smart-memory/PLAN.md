@@ -42,8 +42,11 @@ Store memories raise the RTL's speed or cut its area? The answer is
 - [x] Deadlock found by the conformance suite and the OS boot (the fetch held the memory while waiting for a core-control write) and fixed; the read-ahead gives way to a waiting `tput` read
 - [x] `make BUILD=build/ls1p LS_1P=1 test`: passes (with it `test-small`, `test-ls` and `test-nostream` in single-port builds)
 - [x] `make test` with the default: passes
-- [x] Measured: StrataOS session 1.75 -> 1.84 busy cycles per instruction (+5%); streaming examples +6%, the others 1% or less
-- [ ] The core and an arriving burst sharing the memory cycle by cycle (a two-word buffer for beats, or a ready for read beats on the far bus)
+- [x] Measured as first built: StrataOS session 1.75 -> 1.84 busy cycles per instruction (+5%); streaming examples +6%, the others 1% or less
+- [x] Where the 5% went (stream fetch misses, not waiting for the memory); a late read-ahead now costs one cycle (retire to F1); a ready for read beats on the far bus so the core and a burst take turns
+- [x] Measured now: 1.80 (+2.9%); streaming examples +3.4%
+- [ ] Read two words ahead (a third word register): the rest of the cost
+- [ ] `fpga/arty/strata_arty.sv`: honour `ext_t3_rready` (needed only with `LS_1P`)
 - [ ] `asic/`: a single-port `strata_ram1` replacement, one store array in the floorplan, the 1024 x 8 3.3 V macros
 - [ ] Area and clock of the change
 

@@ -35,7 +35,7 @@
 // outside F0, so the core keeps the word F1 read (fb_cur) and reads the
 // word after it while it executes (fb_nxt: the read-ahead). An instruction
 // that retires to pc + 4 and finds its successor there goes straight to EX
-// with it. Everything else goes through F0 and F1 as before: transfers of
+// with it (to F1, for one cycle, when that word is only just being read). Everything else goes through F0 and F1 as before: transfers of
 // control, traps, every transfer instruction (so the fetch hazard and the
 // wait for a core-control write are checked where they always were), a
 // pending stop or reset. Nothing is read ahead while a tgetx is in the
@@ -47,7 +47,9 @@
 // access per cycle. A beat arriving from the far bus (tget, tgetx) is
 // written at once and the core gives way for that cycle (ls_wait: the
 // fetch, a load, a store or a tag-table access waits, the read-ahead is
-// skipped); otherwise the fetch and the data access have the memory when
+// skipped); the unit holds a beat from far memory back for a cycle when
+// the core's registers say it is about to use the memory, never two cycles
+// running, so the two take turns; otherwise the fetch and the data access have the memory when
 // they want it, a tput's read of the D-LS takes the cycles they leave, and
 // the read-ahead those that are left after it. The reset sequencer writes
 // the two stores' words in alternate cycles.
@@ -80,6 +82,7 @@ module strata_core
   input  logic        tu_gnt,
   input  logic        tu_wready,
   input  logic        tu_rvalid,
+  output logic        tu_rready,
   input  logic        tu_done,
   input  logic        tu_retry,
 
@@ -252,7 +255,7 @@ module strata_core
   // number), the word after it once read (fb_nxt, fb_nxt_v), and whether
   // that read was issued last cycle (ra_infl: the word is on ia_rdata now)
   logic [63:0] fb_cur, fb_nxt, nxt_word;
-  logic        fb_nxt_v, ra_infl, ra_ok, ra_any, st_exec, ex_seq, fast_ok;
+  logic        fb_nxt_v, ra_infl, ra_ok, ra_any, st_exec, ex_seq, fast_ok, seq_ok;
   logic [13:0] ra_addr;
 
   logic        da_en;
@@ -304,7 +307,7 @@ module strata_core
   // and classify cells by them); with LS_1P they are two unused words each
   // and u_ls1 holds the stores.
   logic [63:0] ia_q2, da_q2, tu_q2, ls1_q;
-  logic        ls_wait, ls_gnt, tu_get_beat, tu_put_want, ra_go, ia_f0;
+  logic        ls_wait, ls_gnt, ls_denied, ls_want, tu_get_beat, tu_put_want, ra_go, ia_f0;
   strata_ram #(.WORDS(LS_1P ? 2 : ILS_WORDS), .INIT(LS_1P ? "" : ILS_INIT)) u_ils (
     .clk,
     .a_en(ia_en && !LS_1P), .a_we(8'h00), .a_addr(ia_addr[(LS_1P ? 1 : IAW)-1:0]), .a_wdata(64'b0), .a_rdata(ia_q2),
@@ -327,6 +330,11 @@ module strata_core
   // the core gives way to a beat from the bus; the unit's reads give way to
   // the fetch and the data access, and the read-ahead to them (ra_go)
   assign ls_wait = LS_1P && tu_get_beat;
+  // the core is about to use the memory, as far as registers tell (the
+  // unit holds a beat from far memory back for it: strata_tu)
+  assign ls_want = LS_1P && (state == S_F0 || (state == S_EX && (d.kind == K_LOAD || d.kind == K_STORE)) ||
+                             (state == S_LT && !lt_ph) || state == S_LW ||
+                             (STREAM && (state == S_F1 || (st_exec && !fb_nxt_v && !ra_infl))));
   assign ls_gnt  = !LS_1P || !(ia_f0 || da_en);
 
   if (LS_1P) begin : g_1p
@@ -564,14 +572,14 @@ module strata_core
     .iss_space(xcap.space), .iss_far(xcap.base + rb[FW-1:0]), .iss_len(LSW'(rc)), .iss_ready(tu_iss_ready),
     .iss_hz(tu_iss_hz),
     .tag_busy, .idle(tu_idle), .mem_idle(tu_mem_idle), .put_idle(tu_put_idle), .cc_busy(tu_cc_busy), .quiet(tu_quiet),
-    .getx_busy(tu_getx_busy), .get_beat(tu_get_beat), .put_want(tu_put_want), .ls_gnt,
+    .getx_busy(tu_getx_busy), .get_beat(tu_get_beat), .put_want(tu_put_want), .ls_gnt, .ls_want, .ls_used(LS_1P && (ia_en || da_en)), .ls_denied,
     .hz_addr, .hz_len, .hz_rd_stall, .hz_wr_stall, .hz_pc(LSW'(pc)), .hz_fetch_stall,
     .dls_en(tu_dls_en), .dls_we(tu_dls_we), .dls_addr(tu_dls_addr), .dls_wdata(tu_dls_wdata),
     .dls_rdata(tu_dls_rdata),
     .ils_en(tu_ils_en), .ils_addr(tu_ils_addr), .ils_wdata(tu_ils_wdata),
     .b_req(tu_req), .b_we(tu_we), .b_space(tu_space), .b_addr(tu_addr), .b_beats(tu_beats),
     .b_byte(tu_byte), .b_wvalid(tu_wvalid), .b_wdata(tu_wdata), .b_gnt(tu_gnt),
-    .b_wready(tu_wready), .b_rvalid(tu_rvalid), .b_rdata(bus_rdata), .b_done(tu_done),
+    .b_wready(tu_wready), .b_rvalid(tu_rvalid), .b_rready(tu_rready), .b_rdata(bus_rdata), .b_done(tu_done),
     .b_retry(tu_retry)
   );
 
@@ -812,6 +820,7 @@ module strata_core
     // one memory (LS_1P): everything waits for a beat from the bus, and the
     // read-ahead also for the core's own data access
     ra_go = ra_any && !(LS_1P && (da_en || tu_put_want)) && !ls_wait;
+    ls_denied = ls_wait && (ia_en || da_en || ra_any);
     if (ls_wait) begin
       ia_en = 0;
       da_en = 0;
@@ -838,7 +847,8 @@ module strata_core
   // to pass through F0 (a transfer instruction has one: see the header)
   assign ex_seq   = !(d.kind inside {K_JAL, K_JALR, K_XFER, K_XCALL, K_SYS}) && !(d.kind == K_BRANCH && br_taken);
   // ... and its successor is here, with no stop or reset to take first
-  assign fast_ok  = (!pc[2] || fb_nxt_v || ra_infl) && !rpend && !reset_req && !(user && (ipend || stop_req));
+  assign seq_ok   = !rpend && !reset_req && !(user && (ipend || stop_req));
+  assign fast_ok  = (!pc[2] || fb_nxt_v || ra_infl) && seq_ok;
   // capability-table write: csave stores the source capability
   // save-table write: csave stores the source capability, crestore of a
   // linear entry empties the slot; S_RST empties every slot
@@ -865,6 +875,11 @@ module strata_core
 `ifdef SIMULATION
       if (trace_on) sim_trace(COREID, next_pc, nir);
 `endif
+    end else if (STREAM && ex_seq && seq_ok && pc[2] && ra_go) begin
+      // the next word is only being read now (the read-ahead was late: a
+      // data access or the Transfer Unit had the memory): F1 takes it
+      // from the memory next cycle, as it does after F0
+      state <= S_F1;
     end
   endtask
 

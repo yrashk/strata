@@ -35,7 +35,7 @@ Since this was written the first recommendation has been built
 (`STREAM` in `rtl/strata_core.sv`, since made the default) and measured:
 section 9. The StrataOS session runs at 1.75 cycles per instruction, 1.84x.
 The second has been built too (`LS_1P`, off by default): section 10. It
-costs 5% of that, more than predicted.
+costs 3% of that (5% as first built).
 
 Which numbers are measured, estimated or from the literature is stated per
 table and collected in the last section.
@@ -696,33 +696,59 @@ This is not `exp/ls_unified.sv`'s order in one respect: there the unit
 could always be refused. In the real machine a beat from the bus cannot,
 so it goes first.
 
-**Cycles per instruction** (profiler, busy cycles, `STREAM = 1` in both
-columns):
+**Cycles per instruction** (profiler, busy cycles, `STREAM = 1`
+everywhere). "First" is the arbitration above as first built; "now" has
+the two changes described below:
 
-| | two dual-port stores | one single-port memory | |
-|---|---|---|---|
-| StrataOS session | 1.75 | 1.84 | +5% |
-| `parsum` | 1.49 | 1.59 | +6% |
-| `stream_sum` | 1.50 | 1.59 | +6% |
-| `gfx` | 1.74 | 1.76 | +1% |
-| `mandel` | 2.17 | 2.19 | +1% |
-| `pipeline` | 1.69 | 1.70 | under 1% |
-| `swcache` | 1.56 | 1.56 | none |
+| | two dual-port stores | one memory, first | one memory, now | |
+|---|---|---|---|---|
+| StrataOS session | 1.75 | 1.84 | 1.80 | +2.9% |
+| `parsum` | 1.49 | 1.59 | 1.54 | +3.4% |
+| `stream_sum` | 1.50 | 1.59 | 1.55 | +3.3% |
+| `gfx` | 1.74 | 1.76 | 1.75 | +0.6% |
+| `mandel` | 2.17 | 2.19 | 2.18 | +0.5% |
+| `pipeline` | 1.69 | 1.70 | 1.70 | under 1% |
+| `swcache` | 1.56 | 1.56 | 1.56 | none |
 
-The whole StrataOS session takes 89.4 M clock cycles (86.8 M with two
+The whole StrataOS session takes 88.6 M clock cycles (86.8 M with two
 stores, 148.2 M before the stream fetch).
 
-That is more than section 3.1 and section 9 predicted (0.7% to 1.3%).
-Those counted the cycles in which the core and the unit want the memory
-together and charged one cycle each, to the unit. In the machine it is the
-core that waits, and a burst of beats arrives one per cycle: the core runs
-out of instructions it already holds and then stands still for the rest of
-the burst, so the cost is close to one core cycle per incoming beat (about
-5 M beats in the session) while the core has work. The programs that
-compute while data streams in (`parsum`, `stream_sum`) pay 6%; those that
-wait for their transfers pay nothing. A two-word buffer for arriving beats,
-or a ready signal for read beats on the far bus, would let the core and a
-burst share the memory cycle by cycle; neither is built.
+**Where the cost was.** Sections 3.1 and 9 predicted 0.7% to 1.3% by
+counting the cycles in which the core and the unit want the memory
+together. The first build cost 5%, and the profile shows why: almost none
+of it is waiting for the memory. It is the stream fetch missing. With two
+stores the read of the next word is issued in the first cycle of a word
+and arrives exactly when the second instruction retires; there is no
+slack. With one memory a store or load in that first cycle, or a beat from
+the bus, takes the memory, the read-ahead is a cycle late, and the retire
+found no successor and went back through `F0` and `F1`: two cycles lost
+for one cycle of delay. 1.6 M more instructions went through `F1` in the
+session.
+
+**Two changes, measured.**
+
+- *A late read-ahead costs one cycle.* An instruction that retires into
+  the next word while that word is only just being read goes to `F1`,
+  which takes it from the memory in the next cycle as it does after `F0`.
+  (This is in the core's fetch for both settings of `LS_1P`; with two
+  stores it almost never happens, and the examples' cycle counts there are
+  unchanged.) Session 1.84 -> 1.80.
+- *The core and a burst take turns.* The far bus has a ready for read
+  beats now (`rready`: `strata_bus`, `strata_mem`, `ext_t3_rready` on the
+  top). The Transfer Unit lowers it for one cycle, never two running, when
+  the core's state registers say it is about to use the memory (a fetch in
+  `F0`, a load or store in `EX`, a tag-table access, a read-ahead), so no
+  execute-stage logic reaches the bus. A core that turns out to be waiting
+  (a load stalled on the very transfer) is not believed again until a beat
+  has actually made it wait. Only memory targets hold a beat; device beats
+  are taken as before, and every other master keeps `rready` high. By
+  itself this won little (1.84 -> 1.82): the bursts were not the main
+  cost.
+
+What is left, 2.9% in the session, is mostly the one-cycle penalty of a
+late read-ahead (1.7 M of them). Reading two words ahead instead of one
+(a third 64-bit register) would give the read-ahead a cycle of slack and
+should remove most of it; not built.
 
 **A deadlock found on the way.** `F0` presents the fetch address in every
 cycle, also while it waits for a core-control write to complete; with one
@@ -740,11 +766,13 @@ overlay map, the smaller store sizes and the fetch without the stream as
 single-port builds; all pass. `make test` with the default passes.
 
 **What it is worth.** A dual-port macro costs 1.6x to 1.9x a single-port
-one where it exists (section 5.1), and GF180MCU has none: 5% of the cycles
+one where it exists (section 5.1), and GF180MCU has none: 3% of the cycles
 for 40% to 47% of the memory area, or for a design that can be built at
 all. `u_ils` and `u_dls` remain as two unused words each when `LS_1P = 1`
 so that the names the FPGA and ASIC scripts rely on do not depend on the
-parameter; the ASIC flow's `strata_ram` replacement, its floorplan and the
+parameter; an external system memory (`T3_EXT`, the board's DRAM adapter)
+must honour `ext_t3_rready` before `LS_1P` is used with it, which
+`fpga/arty/strata_arty.sv` does not yet; the ASIC flow's `strata_ram` replacement, its floorplan and the
 1024 x 8 macros are the next step there (`asic/` is unchanged). Area and
 clock of the change are not measured.
 
