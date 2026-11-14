@@ -1309,7 +1309,7 @@ in `os/ws/`).
   first servers before there is a file server, reads only the directory's
   first 8 blocks: the servers must be among the first 128 files, as they
   are when `mkdisk` is given them first. `tools/test-files.sh` runs a disk
-  of 413 files.
+  of 415 files.
 - Memory handed over by the boot ROM: c0 = [0, 15 MiB), and **c13 =
   [16 MiB, 48 MiB)**: system memory above the load area and below the
   framebuffer window; and core 0 also gets **c14 = the framebuffer window

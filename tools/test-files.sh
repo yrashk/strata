@@ -5,7 +5,7 @@
 #   tools/test-files.sh bootrom.stx files-test/disk.img
 #
 # The disk is the standard one plus 300 files tagged many (f000 .. f299, each
-# holding its own name): 413 files in a directory of 1024 entries. One
+# holding its own name): 415 files in a directory of 1024 entries. One
 # session on the emulator: ls lists all 300 (three DIR messages); files of
 # several windows are read; df counts them; a file is created, one removed,
 # one renamed, one tagged, and the listings and the tags' counts follow;
@@ -72,11 +72,11 @@ has out1 'cat: .*f150' "the removed file could still be read"
 
 # what reached the disk (hexdump N reads block N from the device): the header's
 # directory size (offset 56: 1024), the fourth new file's directory entry
-# (number 416: the first of block 1 + 416 / 16), the new tag's name (the tag
-# table starts at block 65) and f299's tag set (entry 412: many and extra,
+# (number 418: the third of block 1 + 418 / 16), the new tag's name (the tag
+# table starts at block 65) and f299's tag set (entry 414: many and extra,
 # bits 10 and 11)
 has out1 '^030  .. .. .. .. 41 00 00 00 00 04 00 00' "the header does not say 1024 entries, or the tag table is not at block 65"
-has out1 '^000  6e 34 00 00' "the new file's directory entry is not on the disk"
+has out1 '^040  6e 34 00 00' "the new file's directory entry is not on the disk"
 has out1 '^0b0  65 78 74 72 61 00' "the new tag's name is not on the disk"
-has out1 '^0e0  00 0c 00 00 00 00 00 00' "the tagged file's tag set is not on the disk"
-echo "test-files: ok    413 files: listings in parts, several directory windows, create, remove, rename, tag, the blocks written"
+has out1 '^0f0  00 0c 00 00 00 00 00 00' "the tagged file's tag set is not on the disk"
+echo "test-files: ok    415 files: listings in parts, several directory windows, create, remove, rename, tag, the blocks written"

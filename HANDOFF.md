@@ -181,7 +181,7 @@ The boot header's offset 56 holds the directory's entries (a multiple of
 grows with it. `fs` keeps the directory and the tag sets in its far I/O
 buffer and works on a 128-entry window in its D-LS (`win`, `wput` in
 `os/servers/fs.s`); DIR takes a count of files to skip, and `ls` reads a
-long listing in parts. `tools/test-files.sh` (413 files) is in `make test`.
+long listing in parts. `tools/test-files.sh` (415 files) is in `make test`.
 Limits:
 - The kernel reads only the directory's first 8 blocks at boot (`u_disk`
   in `os/kunits/boot.s`): the servers it starts must be among the first 128
