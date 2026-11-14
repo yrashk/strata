@@ -80,14 +80,20 @@ decisions taken.
 - [x] `ls` (names of any length, listings of any length)
 - [x] `cp`, `cp.fs`: no size limit
 - [x] `sh` completion (asks for `PATH/PREFIX*`) and `httpd`'s listings
-      (part by part): file names whole, any number of files. Both still
-      ask DIR once for the facets, and TAGS for tag names
-- [ ] `tag` / `tags` / `cp -t`, `vi`'s tags, the facets everywhere: still
-      TAGS and DIR's tag set (16-byte tag names, 64 tags of a file, tag
-      ids below 64 in the facets)
+      (part by part): file names whole, any number of files; the facets
+      from QUERY mode 1 (`sys_count`)
+- [x] `tag` / `tags` / `cp -t`, `vi`'s tags, the shell's and `httpd`'s tag
+      names: TAGS2 (`retag`, the shell and `httpd` take one message's
+      worth of tags, `vi` what its buffer holds)
+- [ ] Facets of tags with ids of 64 and up: the reply's tag set has 64
+      bits (`ls` works them out from the files' tag ids; the shell's
+      completion, `httpd` and `ls.fs` do not)
 - [x] `vi`, `vi-edit.fs`: no "128 KiB at most" for `:w`
-- [ ] Forth: `sys.fs`, `ls.fs`, `httpd.fs`, `tag.fs`, `tags.fs`, `vi-edit.fs`
-- [ ] DIR (10) and TAGS (14) removed
+- [x] Forth: `sys.fs` (`tags-of`, `rec-next`, `rec-name`, `rec-id`),
+      `ls.fs`, `httpd.fs` (the first part of a listing), `tag.fs`,
+      `tags.fs`, `cp.fs`, `vi-edit.fs`
+- [x] DIR (10) and TAGS (14) removed from the server; `sys_dir`,
+      `sys_query`, `sys_tags` from `sys.s`
 - [x] `doc/strataos.md`
 - [x] The manual: the disk layout (`ch-firmware`), the file system's
       structure and limits (`ch-os`, `ch-appendices`); its table of fs

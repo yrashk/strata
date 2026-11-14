@@ -31,21 +31,21 @@
 ; it are tags the file must carry. "motd", "/motd" and "/doc/motd" all name
 ; motd if it carries doc; "/bin/doc/motd" names nothing. Opening for writing
 ; adds the path's tags to the file (creating tags that do not exist yet).
-; DIR takes a path of tags; its last component may instead name one file. A
-; component "-tag" before the name (or last, in DIR) is an exclusion: the
+; QUERY takes a path of tags; its last component may instead name one file. A
+; component "-tag" before the name (or last, in QUERY) is an exclusion: the
 ; file must not carry that tag ("/notes/-work": tagged notes, not work;
 ; excluding a tag that does not exist excludes nothing). Paths that create
 ; (writing, the new name of RENAME) cannot exclude (-1), and a tag name
 ; cannot start with "-".
 ;
-; Subdirectories are facets: DIR also answers, in the reply's mode word, the
+; Subdirectories are facets: QUERY also answers, in the reply's mode word, the
 ; other tags that at least one listed file carries (bit t = tag id t, for
 ; the ids below 64). `ls` shows them as "tag/".
 ;
 ; The current tag path. Every process has one, the tag-system analogue of a
 ; working directory (none kept = "/", every file). A path that does not
 ; start with "/" is relative: it is read as the requester's current path, a
-; "/", then the path; DIR with no path lists the current one. Every path is
+; "/", then the path; QUERY with no path lists the current one. Every path is
 ; then normalized: "." components go, ".." takes the one before it away
 ; (never above "/"). When creating, exclusions that come from the current
 ; path are dropped; one in the request's own text is -1. CWD (20) reads or
@@ -71,17 +71,9 @@
 ;   1 READ    handle = id, length -> bytes (0 at the end of the file)
 ;   2 WRITE   handle = id, length, data -> bytes
 ;   4 CLOSE   handle = id -> 0
-;  10 DIR     data = a tag path (none or "/": every file), handle = matching
-;             files to skip -> files; data: 32-byte records {name[24], u64
-;             size} (126 at most: with 126, ask again skipping those; a name
-;             longer than 24 bytes is cut); mode word = the facets; -4 no such tag
 ;  11 UNLINK  data = path -> 0 / -4
 ;  12 TAG     data = path, a zero byte, a tag name -> 0 / -4 / -6 / -1
 ;  13 UNTAG   data = path, a zero byte, a tag name -> 0 / -4
-;  14 TAGS    data = a path (none: every tag) -> tags; data: 32-byte records
-;             {name[16], u64 files carrying it, u64 tag id}: every tag, or
-;             the tags of the file the path names (126 at most; a name
-;             longer than 16 bytes is cut)
 ;  15 RENAME  data = path, a zero byte, a new path -> 0 / -4 / -6 / -1: the
 ;             file takes the new path's name and gains its tags (created if
 ;             new); it keeps its tags and its contents. Another file of the
@@ -101,16 +93,20 @@
 ;             arena as attachment -> size (the whole file is copied in)
 ;  35 WRITEALL handle = id (write), mode = arena offset, length = bytes; the
 ;             arena as attachment -> bytes (appended to the file)
-;  40 QUERY   DIR without its limits: a cursor, whole names, each file's
-;             tags (fsops.s)
-;  41 TAGS2   TAGS without its limits (fsops.s)
+;  40 QUERY   data = a tag path (none: the current one) -> the files that
+;             carry its tags, part by part (a cursor), whole names, each
+;             file's tags; mode word = the facets; mode 1: only the count
+;             and the facets (fsops.s). 10 DIR, with 24-byte names, is gone
+;  41 TAGS2   data = a path (none: every tag) -> tags, part by part: every
+;             tag, or the tags of the file the path names (fsops.s). 14
+;             TAGS, with 16-byte names, is gone
 ;  42 SETATTR / 43 GETATTR   a file's attributes (fsattr.s, which also has
 ;             the terms a path may hold: size>4096, colour=red, PREFIX*)
 ;  45 SNAP    snapshots (fsops.s): mode 0 take one (data = its name), 1 delete
 ;             it, 2 list them, 3 restore it (the file system becomes what it
 ;             shows). A snapshot is the whole disk as of a commit;
 ;             a path whose first component is "@NAME" reads it: OPEN for
-;             reading, DIR, TAGS, STAT, LOADIMG, QUERY, TAGS2
+;             reading, STAT, LOADIMG, QUERY, TAGS2
 ;  64 DBGET / 65 DBSCAN / 66 DBBATCH   the store for programs: trees of keys
 ;             and values in namespaces of their own (fsops.s)
 ;  36 DUPS / 37 CLEANUP / 38 CANCEL from proc (see srv.s)
@@ -132,7 +128,6 @@ SVC_WAIT = 1                            ; svc: wait for a buffer to come back
 SVC_RECV = 2                            ; svc: receive a request
 SVC_REPLY = 3                           ; svc: answer one
 SYS_MAX = 4032                          ; data bytes per message
-OP_DIR  = 10                            ; DIR
 OP_CWD  = 20                            ; CWD
 SCR     = 0                             ; I/O buffer: scratch for blocks (4 KiB)
 CWDFAR  = 0x1000                        ; I/O buffer: the current tag paths' texts
@@ -313,16 +308,12 @@ loop:
         beq   t1, t2, op_open           ; ...
         li    t2, 4                     ; CLOSE
         beq   t1, t2, op_close          ; ...
-        li    t2, 10                    ; DIR
-        beq   t1, t2, op_dir            ; ...
         li    t2, 11                    ; UNLINK
         beq   t1, t2, op_unlink         ; ...
         li    t2, 12                    ; TAG
         beq   t1, t2, op_tag            ; ...
         li    t2, 13                    ; UNTAG
         beq   t1, t2, op_untag          ; ...
-        li    t2, 14                    ; TAGS
-        beq   t1, t2, op_tags           ; ...
         li    t2, 15                    ; RENAME
         beq   t1, t2, op_rename         ; ...
         li    t2, OP_CWD                ; CWD
@@ -1256,7 +1247,7 @@ g2_ret:
 
 
 ; setpath(a0 = text, a1 = length (<= PATHMAX)): the path -> pbuf, plen,
-; resolved: a relative one (not starting with "/"; DIR's and QUERY's empty one too) gets
+; resolved: a relative one (not starting with "/"; QUERY's empty one too) gets
 ; the requester's current path and a "/" in front (pcwdl = the bytes that
 ; came from it), then pnorm. s registers are kept.
 setpath:
@@ -1274,8 +1265,6 @@ setpath:
 stp_empty:
         la    t0, srv_hdr               ; only a listing's empty path is the current one
         ld    t0, 0(t0)                 ; ...
-        li    t1, OP_DIR                ; ...
-        beq   t0, t1, stp_rel           ; ...
         li    t1, 40                    ; (QUERY)
         bne   t0, t1, stp_text          ; ...
 stp_rel:

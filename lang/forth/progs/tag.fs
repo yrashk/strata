@@ -10,10 +10,10 @@
 
 variable mode                                   \ 0 tag, 1 untag, 2 retag
 2variable file  2variable given  variable #old
-create tagb 64 32 * allot                       \ retag: the file's tags before
+create tagb 4032 allot                          \ retag: the file's tags before
 : tag-use ( -- ) s" usage: tag FILE TAG... / untag FILE TAG... / retag FILE [TAG...]" usage ;
 : no-file ( -- ) s" tag: no such file: " +e file 2@ +e e! 1 stop ;
-: old-tag ( i -- a u ) 32 * tagb + 16 zlen ;
+: old-tag ( i -- a u ) tagb swap 0 ?do rec-next loop rec-name ;
 : among? ( a u -- f )                           \ is the tag one of those given?
   2>r given 2@ begin arg dup while 2r@ str= if 2drop 2r> 2drop true exit then repeat
   2drop 2drop 2r> 2drop false ;

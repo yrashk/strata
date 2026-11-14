@@ -871,15 +871,9 @@ reference counts per process).
 for writing gets its new contents when its last reference closes, in one
 commit: the disk holds the old contents or the new, never a mixture;
 appending extends the contents where they are and commits at the close; a
-file has no size limit but the disk's); 10 DIR (data = a tag path, none =
-every file) → count
-+ 32-byte records (24 bytes name, u64 size; 126 at most), and in the reply's
-mode word the *facets*: a tag set (bit t = tag number t) of the other tags
-the matching files carry; -4 no such tag; 11 UNLINK;
+file has no size limit but the disk's); 11 UNLINK;
 12 TAG / 13 UNTAG (data = path, a zero byte, a tag name) → 0, -4, -6 (64
-tags in use), -1 (bad tag name); 14 TAGS (data = a path, none = every tag)
-→ count + 32-byte records (16 bytes name, u64 files carrying it, u64 tag
-number); 15 RENAME (data = path, a zero byte, a new path) → 0, -4, -6, -1
+tags in use), -1 (bad tag name); 15 RENAME (data = path, a zero byte, a new path) → 0, -4, -6, -1
 (bad new name): the file takes the new path's name and gains its tags
 (created if new), keeping its own tags and its contents;
 another file of the new name is deleted; 20 CWD (mode 0 get → length, data
@@ -894,18 +888,19 @@ files; 33 READBLK (handle = block) → the raw 512-byte block; 34 READALL
 (handle = id, mode = arena offset, length = most bytes, the arena as
 attachment) → size, the whole file copied in; 35 WRITEALL (handle = id,
 mode = arena offset, length, the arena as attachment) → bytes appended to
-the file; 36–38 from `proc`; 40 QUERY (DIR without its limits: data = a tag
-path, handle = a cursor, 0 at first → count; the reply's handle word is the
+the file; 36–38 from `proc`; 40 QUERY (a listing: data = a tag
+path, none = the current one, handle = a cursor, 0 at first → the count of
+files in this part, -4 no such tag; the reply's handle word is the
 cursor to ask with again, 0 when that was all, its length word the data's
-bytes; data: u64 n and n u32 ids of the path's own tags, then per file {u16
+bytes, its mode word the *facets*: a tag set (bit t = tag id t, ids below
+64) of the other tags the files of this part carry; with mode 1 no records
+come, the count is of every file and the facets are of them all; data: u64 n and n u32 ids of the path's own tags, then per file {u16
 record bytes, u16 name length, u32 tags, u64 size, the name, the file's tag
-ids}, each part padded to 8 bytes); 41 TAGS2 (TAGS likewise: handle = a
-cursor; records {u16 record bytes, u16 name length, u32 id, u64 files
-carrying it, the name}). DIR and TAGS remain for the programs that still
-use them (the Forth ports; the shell's completion and `httpd` for the
-facets and the tags' names, their files come from QUERY): they cut a
-name to 24 bytes and a tag's to 16, DIR's facets hold only the tags with
-ids below 64, and one reply holds 126 records. Every call answers -5 when
+ids}, each part padded to 8 bytes); 41 TAGS2 (data = a path, none = every tag;
+handle = a cursor; records {u16 record bytes, u16 name length, u32 id, u64
+files carrying it, the name}: every tag, or the tags of that file). The
+older DIR (10) and TAGS (14), with names cut to 24 and 16 bytes and 126
+records, are gone: no program used them any more. Every call answers -5 when
 the disk cannot be read as a store or a page of it fails its checksum.
 
 **The disk is a store.** `fs` keeps nothing on the disk but trees of the
