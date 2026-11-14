@@ -11,23 +11,28 @@
 #    that picture on the screen. Checked: the report, and the picture
 #    itself: the 960 x 600 pixels of the game (320 x 200 at three times)
 #    must have the expected checksum.
-#      demo 1  Friends from above: a click on the dog's cell: Kira walks
-#              there and the dog is found; two steps with the arrow keys
+#      demo 1  Friends from above: a click on the duck's cell: Kira walks
+#              there and the duck is found; three steps with the arrow keys
 #      demo 2  the hand is moved to FRIENDS with the arrows and pressed;
 #              all friends found; a step onto the picnic blanket: the party;
 #              a key: a new game in a new world
 #      demo 3  Friends through Kira's eyes: quarter turns and steps
 #      demo 4  ... and the party seen so
-#      demo 8  sixty games one after another, each in a new world (all
-#              friends found, a step onto the blanket, a key)
-#    (A demo's random numbers start from a fixed seed, so its worlds are
-#    always the same ones.)
+#      demo 5  Garden: a daisy is sown and watered into bloom (a butterfly
+#              comes); the garden is left (and written to its file) and
+#              come back to
+#      demo 6  Paint: two regions are filled, the next page, one more
+#      demo 7  Music: a bar struck by a click, one by a key, a friend's
+#              voice, a song
+#      demo 8  sixty games of Friends one after another, each in a new world
+#              (all friends found, a step onto the blanket, a key)
+#    (A demo's random numbers start from a fixed seed, so its worlds, its
+#    butterflies and its song are always the same ones.)
 # 2. `ws kira` on a machine with the sound device (-A: what it plays goes
-#    to a WAV file) and a pointer (-P): a click on FRIENDS and one on the
-#    bar's button for the other view (each pops), q ends the program; the
-#    window server then opens a terminal, where a command leaves a file;
-#    Alt+Shift+Q, and the shell shows the file. Checked: the file, and that
-#    the WAV holds the pops.
+#    to a WAV file) and a pointer (-P): a click on MUSIC, clicks on two of
+#    the xylophone's bars, q ends the program; the window server then opens
+#    a terminal, where a command leaves a file; Alt+Shift+Q, and the shell
+#    shows the file. Checked: the file, and that the WAV holds the notes.
 # A checksum changes with the art, the world, the demo or the drawing: when
 # one of those is changed on purpose, look at $BUILD/test-kira/frameN.ppm
 # and put the number the test prints into KIRA_CRC below.
@@ -37,7 +42,7 @@ set -e
 BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
-KIRA_CRC="1:1e2e8840:2 2:c3d23aec:2 3:e9feb1c4:2 4:35bb692b:2 8:ab531bf5:40"
+KIRA_CRC="1:10875dd2:6 2:b28d0fb6:4 3:a4a6212e:4 4:3001150d:4 5:e654c81a:4 6:8ac2eeac:4 7:453116f1:4 8:bb71d3b4:40"
 T=$BUILD/test-kira
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W
@@ -76,14 +81,14 @@ cp "$DISK" $T/disk.img
 START="ws kira\n$W$W$W$W $W"
 printf "$START$W$W$W${W}q$W$W${W}echo kira-q-ok > kmark\n$W${AQ}cat kmark\n" > $T/keys
 N=$(printf "$START" | wc -c | tr -d ' ')
-N1=$((N + 10))                          # (one Alt+Shift+W later)
-printf "k$N move 400 340\nk$N down 0\nk$N up 0\nk$N1 move 1070 670\nk$N1 down 0\nk$N1 up 0\n" > $T/ptr   # FRIENDS; the other view
+N1=$((N + 10)) N2=$((N + 20))           # (one Alt+Shift+W later, and two)
+printf "k$N move 874 524\nk$N down 0\nk$N up 0\nk$N1 move 280 416\nk$N1 down 0\nk$N1 up 0\nk$N2 move 688 416\nk$N2 down 0\nk$N2 up 0\n" > $T/ptr   # MUSIC; the first bar; the fifth
 $BUILD/strata-emu -c 12 -g none -m 40000000000 -A $T/sound.wav -P $T/ptr -d $T/disk.img -i $T/keys "$ROM" > $T/outp.txt 2>&1 || {
   echo "test-kira: FAILED: the emulator exited with an error (pointer, sound)"; tail -5 $T/outp.txt; exit 1; }
 grep -q '^kira-q-ok' $T/outp.txt || fail "q did not end kira (no terminal took the command after it)" outp
 grep -q '^ws: stopped' $T/outp.txt || fail "ws did not quit to the shell" outp
 if grep -q 'fault\|panic' $T/outp.txt; then fail "a fault was reported" outp; fi
-python3 - $T/sound.wav <<'PY' || fail "the sound device did not play the buttons' pops" outp
+python3 - $T/sound.wav <<'PY' || fail "the sound device did not play the xylophone's notes" outp
 import sys, wave, struct
 w = wave.open(sys.argv[1])
 d = w.readframes(w.getnframes())

@@ -42,7 +42,7 @@ NLIGHT = 4                              # light levels in the colour map
 SHADE = 0.08                            # how much darker each level is
 SND_RATE = 11025
 TRANSP = 255
-MAPW, MAPH = 64, 32                     # the world's array (40 x 20 of it are used)
+MAPW, MAPH = 64, 20                     # the world's array (40 x 20 of it are used)
 WORLDW, WORLDH = 40, 20
 PIC_MAX = 2040                          # bytes of a picture's slab at most, coded
 
@@ -55,23 +55,35 @@ PAINTS = [(230, 40, 50), (250, 140, 30), (255, 225, 50), (70, 190, 80), (110, 20
           (50, 90, 220), (150, 80, 200), (255, 150, 200), (150, 95, 50), (255, 255, 255)]
 PICTURES = ['menu', 'garden', 'music', 'paint_1', 'paint_2', 'paint_3']
 
-# ---- songs: (tics before the note, note 0..7 = C D E F G A B C') ---------------
-TWINKLE = [0, 0, 4, 4, 5, 5, 4, -1, 3, 3, 2, 2, 1, 1, 0, -1,
-           4, 4, 3, 3, 2, 2, 1, -1, 4, 4, 3, 3, 2, 2, 1, -1,
-           0, 0, 4, 4, 5, 5, 4, -1, 3, 3, 2, 2, 1, 1, 0]
+# ---- songs: notes 0..7 = C D E F G A B C', -1 a rest; all traditional tunes --
+SONGS = [
+    [0, 0, 4, 4, 5, 5, 4, -1, 3, 3, 2, 2, 1, 1, 0, -1,                   # Twinkle, twinkle, little star
+     4, 4, 3, 3, 2, 2, 1, -1, 4, 4, 3, 3, 2, 2, 1, -1,
+     0, 0, 4, 4, 5, 5, 4, -1, 3, 3, 2, 2, 1, 1, 0],
+    [2, 1, 0, 1, 2, 2, 2, -1, 1, 1, 1, -1, 2, 4, 4, -1,                  # Mary had a little lamb
+     2, 1, 0, 1, 2, 2, 2, 2, 1, 1, 2, 1, 0],
+    [0, 1, 2, 0, 0, 1, 2, 0, 2, 3, 4, -1, 2, 3, 4, -1,                   # Frere Jacques
+     4, 5, 4, 3, 2, 0, 4, 5, 4, 3, 2, 0, 0, 4, 0, -1, 0, 4, 0],
+    [2, 2, 3, 4, 4, 3, 2, 1, 0, 0, 1, 2, 2, 1, 1, -1,                    # Ode to Joy
+     2, 2, 3, 4, 4, 3, 2, 1, 0, 0, 1, 2, 1, 0, 0],
+]
+SONG_TICS = 12                          # tics from a note to the next
 FANFARE = [(0, 0), (4, 2), (4, 4), (4, 7), (8, 4), (4, 7), (0, 2), (10, 0), (0, 4), (0, 7)]
 
 # ---- the demos (`kira demo N`): (tics to wait, key), one tic a frame -----------
 # Keys: U D L R the arrows, other characters themselves. tools/test-kira.sh
 # compares the last frame of each.
 DEMOS = {
-    1: "9 1,10 @152:140,160 .,5 R,10 R,60 .",     # Friends from above: a click on the dog's cell; two steps
+    1: "9 1,10 @40:28,200 .,5 R,10 R,10 D,40 .",  # Friends from above: a click on the duck's cell; three steps
     2: "5 L,3 L,3 L,3 L,3 L,3 L,3 L,3 U,3 U,3 U,5  ,10 !,30 R,80 .,5 .,20 .",   # the hand presses FRIENDS; the party; a new world
     3: "9 1,5  ,10 R,12 R,12 U,12 U,12 L,30 .",   # through her eyes: turns and steps
     4: "9 1,5  ,10 !,30 U,60 .",                  # ... and the party seen so
-    8: "9 1," + "2 !,3 R,80 .,2 .," * 60 + "20 .",   # sixty games, each in a new world
+    5: "9 2,5 2,5 @88:100,10 5,5 @88:100,20 @88:100,30 @136:146,250 .,5 m,10 2,60 .",   # Garden: a daisy sown and watered into bloom; left and come back to
+    6: "9 3,5 1,5 @100:60,5 4,5 @200:120,5 n,5 7,5 @160:80,30 .",    # Paint: two regions, the next page, one more
+    7: "9 4,5 @40:100,10 3,10 @30:30,10 p,200 .",                     # Music: a bar by a click, one by a key, a friend, a song
+    8: "9 1,1 {60,2 !,3 R,80 .,2 .,1 },20 .",   # sixty games, each in a new world
 }
-KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '!': 0xfd}
+KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '!': 0xfd, '}': 0xfc}
 
 
 def read_png(path):
@@ -317,7 +329,7 @@ def build(art, outdir, preview=None):
             for r, g, b, a in row:
                 if a >= 128:
                     colours[(r, g, b)] = colours.get((r, g, b), 0) + 1
-    extra = [(0, 0, 0), (255, 255, 255), (165, 155, 185), (140, 200, 250), (200, 180, 230)] + PAINTS
+    extra = [(0, 0, 0), (255, 255, 255), (254, 254, 254), (165, 155, 185), (140, 200, 250), (200, 180, 230)] + PAINTS
     rgb = sorted(colours, key=lambda c: (-colours[c], c))
     for c in extra:
         if c not in colours:
@@ -437,7 +449,7 @@ def build(art, outdir, preview=None):
                     if img[y0][x0] != -1:
                         continue
                     n += 1
-                    assert n <= 250, name + ': too many regions'
+                    assert n <= 63, name + ': too many regions'
                     stack = [(x0, y0)]
                     img[y0][x0] = n
                     while stack:
@@ -463,15 +475,18 @@ def build(art, outdir, preview=None):
                                    spr['word_' + a], i + 8, 0, 0, 0) for i, a in enumerate(FRIENDS))
 
     # ---- songs and demos
-    song = bytearray()
-    wait = 0
-    for n in TWINKLE:
-        if n < 0:
-            wait += 14
-        else:
-            song += bytes((wait, n))
-            wait = 14
-    song += b'\xff\xff'
+    songs = bytearray()
+    songdir = bytearray()
+    for notes in SONGS:
+        songdir += struct.pack('<H', 2 * len(SONGS) + len(songs))
+        wait = 0
+        for n in notes:
+            if n < 0:
+                wait += SONG_TICS
+            else:
+                songs += bytes((wait, n))
+                wait = SONG_TICS
+        songs += b'\xff\xff'
     fanfare = b''.join(bytes(p) for p in FANFARE) + b'\xff\xff'
     demos = bytearray()
     demodir = bytearray()
@@ -482,6 +497,8 @@ def build(art, outdir, preview=None):
             if k.startswith('@'):       # a click
                 x, y = k[1:].split(':')
                 demos += bytes((int(t), 0xfe, int(x) // 2, int(y)))
+            elif k.startswith('{'):     # what follows, up to }, so many times
+                demos += bytes((int(t), 0xfb, int(k[1:]), 0))
             else:
                 demos += bytes((int(t), KEYS.get(k, ord(k))))
         demos += b'\0\0'
@@ -516,10 +533,11 @@ def build(art, outdir, preview=None):
              ('R_FRIEND', friends, 'friends: u16 sprite (eyes), sprite (above), icon, word, sound; 16 bytes'),
              ('R_PAINT', pad8(bytes(index[c] for c in PAINTS)), 'the ten paint colours'),
              ('R_NREG', pad8(bytes(nreg)), 'regions of each colouring page'),
-             ('R_SONG', pad8(bytes(song)), 'the song: u8 tics before the note, u8 note; 255 ends it'),
+             ('R_SONGS', pad8(bytes(songdir) + bytes(songs)), 'the songs: a u16 offset from here each, then '
+              'u8 tics before the note, u8 note each; 255 ends one'),
              ('R_FANFARE', pad8(fanfare), 'the fanfare, likewise'),
              ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: eight u16 offsets from here, then '
-              'u8 tics, u8 key (1..4: up, down, left, right; 0xfe: a click, x / 2 and y follow; 0xfd: all found) each; 0 ends one')]
+              'u8 tics, u8 key (1..4: up, down, left, right; 0xfe: a click, x / 2 and y follow; 0xfd: all found; 0xfb: a loop begins, its count and 0 follow; 0xfc: it ends) each; 0 ends one')]
     res = bytearray()
     lines = ['; dat.s: the layout of kira.dat. Written by tools/kira-assets.py: do not edit.', '']
 
@@ -541,6 +559,7 @@ def build(art, outdir, preview=None):
     equ('SND_RATE', SND_RATE, 'samples per second')
     equ('C_BLACK', index[(0, 0, 0)], 'palette indices: black')
     equ('C_WHITE', index[(255, 255, 255)], 'white')
+    equ('C_PAPER', index[(254, 254, 254)], 'a colouring page not yet painted')
     equ('C_GREY', index[(165, 155, 185)], 'a friend not yet found')
     equ('C_SKY', index[(140, 200, 250)], 'the sky')
     equ('C_EDGE', index[(200, 180, 230)], 'the strip above and below the tiles')
