@@ -29,7 +29,11 @@
  * By its end, because pages are taken from an extent's front: the key
  * stays. A record of 0 pages means nothing and goes when it is next read.
  * The pending tree: u64 commit, u64 start (big-endian) -> u64 pages, u64
- * birth: pages freed by that commit, reusable once it is on the disk.
+ * birth: pages freed by that commit, reusable once it is on the disk. A key
+ * whose commit has its top bit set is a snapshot's dead list: pages the store
+ * no longer uses but the snapshot of that commit (or an older one) shows;
+ * they are not free. Namespace 0's tree "snap": u64 commit (big-endian) ->
+ * u64 catalog root, u64 height, the snapshot's name.
  * The catalog: u32 namespace (big-endian), tree name -> u64 root, u64 height.
  * Namespace 0 holds the tree "ns": a namespace's name -> u64 id, u64 flags.
  *
@@ -985,7 +989,7 @@ int st_check(Store *st, FILE *out) {
     for (kl = 0; st_seek(st, &st->pend, k, kl, ST_GT, k, &kl, v, &vl, NULL);) {
       if (kl != 16 || vl != 16) { bad(c, "bad pending record", gbe(k + 8)); continue; }
       mark(c, gbe(k + 8), g64(v), 3, "pending extent outside the store");
-      nfree += g64(v);
+      if (!(gbe(k) >> 63)) nfree += g64(v); /* (top bit: a snapshot's dead list: kept, not free) */
     }
     check_streams(c);
     if (st->manifest) { mark(c, st->manifest, 1, 1, "manifest outside the store"); P(st, st->manifest); }

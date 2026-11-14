@@ -187,15 +187,20 @@ built from. The kernel boots from a boot manifest (`u_disk` in
   from outside, read back after a second boot, power cuts). The emulator
   and the RTL harness take `-w FILE` (the disk written back); the emulator
   `--disk-cut N` and `--disk-cache SEED`.
-- What to know before changing the server: its D-LS is nearly full (about
-  1.8 KiB free of 40) and its I-LS too (about 1.7 KiB of 32); the library's
+- What to know before changing the server: the library's
   three 4 KiB buffers serve as its own (see the top of `fs.s`). A page
   address from `P` is good only until the second `P` after it. Tree changes
   use static scratch and do not nest; reads (`st_get`, `st_seek`) may
   happen inside one.
+- Inside the OS: `db` and `wdb` (a window) show the trees, read from the
+  disk with READBLK (`os/lib/stview.s`); `snap` takes, lists and deletes
+  snapshots, read through `/@NAME/` paths.
+- The server's I-LS is full (40 bytes left of 32 KiB) and its D-LS nearly
+  (600 bytes): the next feature needs room first (the server carries the
+  whole of `sys.s` and uses little of it).
 - Not done (the plan has the list): the store's calls for other programs
   (namespaces over the endpoint, transactions), attributes and query terms
-  in paths, snapshots, the shell's completion and `httpd` on the cursor
+  in paths, the shell's completion and `httpd` on the cursor
   calls (they still use DIR and TAGS, which cut names to 24 bytes), writing
   a boot object from inside the OS.
 

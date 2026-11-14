@@ -896,7 +896,20 @@ server works on trees larger than its Local Stores through a cache of 124
 pages in far memory and three page buffers in its D-LS. A boot object
 (`proc`, `dev`, `fs`: what the boot manifest lists) cannot be written,
 renamed or deleted from inside the OS yet. `build/stdb check IMAGE` checks
-a disk from outside, `stdb dump`, `ls` and `get` read one. Inside the OS,
+a disk from outside, `stdb dump`, `ls` and `get` read one. **Snapshots**
+(`snap NAME` takes one, `snap` lists them, `snap -d NAME` deletes one; fs
+call 45 SNAP: mode 0 take, 1 delete, data = a name of 1–32 bytes; 2 list →
+40-byte records {u64 commit, name[32]}): a snapshot is the whole disk as of
+one commit, under a name. Taking one records that commit's catalog root
+and copies nothing; from then on a page born no later than the newest
+snapshot is not freed when the live store stops using it but goes on that
+snapshot's dead list, and deleting a snapshot frees what was born after the
+snapshot before it and passes the rest on to that one. A path whose first
+component is `@NAME` is read in the snapshot (`ls /@monday/src`, `cat
+/@monday/notes`, `cp /@monday/notes notes` to bring an old version back):
+OPEN for reading, DIR, TAGS, STAT, LOADIMG, QUERY and TAGS2 take such
+paths; nothing can be written, renamed or deleted there. `df` counts the
+pages snapshots keep as used. Inside the OS,
 `db` shows the store's trees (`db`: the trees with their roots and heights;
 `db fs/name`: a tree's records; `db -p PAGE`: one page's cells, so a tree
 can be walked by hand), and `wdb` does the same in a window, page by page

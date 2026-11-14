@@ -18,6 +18,10 @@
 #    pass the check; every file of the original disk must be there unchanged;
 #    each file of the session must be absent, empty (made, not yet closed)
 #    or whole; and the machine must boot from it and list its files.
+# 4. Snapshots (`snap`): two are taken while files change; each shows the
+#    files of its time through /@NAME/ paths and cannot be written; the disk
+#    with them passes the check; after a second boot they still read, and
+#    deleting them gives their space back.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 b="$here/${BUILD:-build}"
@@ -179,4 +183,62 @@ EOF
 done
 [ "$cuts" -ge 10 ] || fail "only $cuts cuts fell inside the session"
 echo "test-store: $cuts power cuts (every $step blocks, every other one with a write cache losing blocks): each disk passes its check and holds whole files"
+# ---- 4. snapshots ------------------------------------------------------------------------
+cat >"$tmp/s5.txt" <<'EOF'
+echo one > /notes/v
+seq 30000 > keep
+snap first
+echo two > v
+rm keep
+seq 9000 > other
+snap second
+echo three > v
+tag v late
+cat /@first/v
+cat /@second/v
+cat v
+wc < /@first/keep
+ls /@first/notes
+tags /@first/v
+echo x > /@first/w
+rm /@first/v
+snap
+df
+halt
+EOF
+run "$tmp/s5.txt" "$disk" -w "$tmp/sn.img" || fail "the snapshot session did not end well"
+python3 - "$tmp/out.txt" <<'EOF' || { cat "$tmp/out.txt" >&2; exit 1; }
+import sys
+t = open(sys.argv[1], errors="replace").read()
+def after(cmd, n=1):
+    i = t.index("$ " + cmd + "\n") + len(cmd) + 3
+    return t[i:].split("\n")[:n]
+assert after("cat /@first/v") == ["one"], "the first snapshot's file"
+assert after("cat /@second/v") == ["two"], "the second snapshot's file"
+assert after("cat v") == ["three"], "the live file"
+assert after("wc < /@first/keep")[0].split()[0] == "30000", "a file deleted since, read from its snapshot"
+assert after("tags /@first/v")[0].rstrip().endswith("notes"), "a snapshot shows the tags of its time"
+assert "cannot open /@first/w" in t and "no such file: /@first/v" in t, "a snapshot was written"
+assert after("snap", 2)[0].startswith("first ") and after("snap", 2)[1].startswith("second "), "the list"
+EOF
+"$b/stdb" check "$tmp/sn.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "a disk with snapshots fails its check"; }
+used1=$(grep '^disk:' "$tmp/out.txt" | tail -1 | awk '{print $4}')
+cat >"$tmp/s6.txt" <<'EOF'
+cat /@first/v
+wc < /@first/keep
+snap -d first
+cat /@first/v
+cat /@second/v
+snap -d second
+snap
+df
+halt
+EOF
+run "$tmp/s6.txt" "$tmp/sn.img" -w "$tmp/sn2.img" || fail "the boot from a disk with snapshots did not end well"
+grep -q '^one$' "$tmp/out.txt" && grep -q '^two$' "$tmp/out.txt" && grep -q '^30000 ' "$tmp/out.txt" && grep -q '(no snapshots)' "$tmp/out.txt" ||
+  { cat "$tmp/out.txt" >&2; fail "snapshots after a second boot: read, deleted"; }
+"$b/stdb" check "$tmp/sn2.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk after its snapshots were deleted fails its check"; }
+used2=$(grep '^disk:' "$tmp/out.txt" | tail -1 | awk '{print $4}')
+[ "$used2" -lt "$used1" ] || fail "deleting the snapshots freed nothing ($used1 blocks used before, $used2 after)"
+echo "test-store: snapshots: read as they were, not writable, checked on the disk, kept across a boot; deleting them freed $((used1 - used2)) blocks"
 echo "test-store: OK"

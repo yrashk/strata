@@ -96,16 +96,24 @@ decisions taken.
 ## Stage 7: the store for programs
 - [ ] NSOPEN, NSGRANT, TREE, GET, SCAN, BATCH, BEGIN / COMMIT / ABORT,
       SOPEN over the endpoint; handles through SPAWN and CLEANUP. (The
-      server's code is 31 of the I-LS's 32 KiB with the whole of `sys.s`
-      in it, of which it uses little: a library of what a server needs
-      comes first)
+      server's code fills the I-LS's 32 KiB with the whole of `sys.s` in
+      it, of which it uses little: a library of what a server needs comes
+      first)
 - [ ] `db` utility; Forth words
 - [ ] Attributes: SETATTR, GETATTR, `attr`; query terms in paths (the host
       side has attributes: `mkdisk -a`, `stdb dump`)
 
 ## Stage 8: snapshots
 - [x] Births in pages and extents (in the format from stage 1)
-- [ ] Dead lists; take, list, delete; `fs@NAME` and `/@NAME/` paths
+- [x] Dead lists in the pending tree (`st_deadlim`, `pfree`, `drain_fr`);
+      SNAP (45): take, delete, list; `/@NAME/` paths for the calls that
+      read; `snap`; `test-store.sh` part 4; `stdb check` knows dead lists
+- [ ] Pages of the free and pending trees themselves are kept on dead
+      lists too when they are older than a snapshot (no snapshot shows
+      them): they come back when the snapshot is deleted, not before
+- [ ] `stdb`: listing snapshots and reading through one on the host
+- [ ] The server's I-LS is full (40 bytes left): anything more needs the
+      library trimmed to what a server uses
 
 ## Later
 - [ ] Browser persistence (IndexedDB, download)
