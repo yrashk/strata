@@ -676,6 +676,9 @@ module strata_dev
   always_ff @(posedge clk) begin
     if (disk_rd) dq <= disk[da];
     if (disk_wr) disk[da] <= m_rdata;
+`ifdef SIMULATION
+    if (disk_wr) disk_write(int'(da), longint'(m_rdata)); // the harness keeps the disk (-w)
+`endif
   end
 
   assign m_req      = gs == G_WREQ || gs == G_RREQ;

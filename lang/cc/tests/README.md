@@ -115,5 +115,5 @@ Environment: `CC_FLAGS=-p` compiles in the paged code model; `CC_NAME=cc0`
 uses the bootstrap compiler (`make test-cc0`); `CC_HOST=build/strata-cc`
 compiles on the host with the cross compiler and only runs the programs in
 StrataOS (`make test-cc-host`), which is the quick way to try a change to
-`cc.c`. `cmp.c` is the file comparison that `tools/test-cc-boot.sh` uses to
+`cc.c`. `../examples/cmp.c` is the file comparison that `tools/test-cc-boot.sh` uses to
 check that the compiler reproduces itself.

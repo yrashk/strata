@@ -867,13 +867,13 @@ server that owns it; SPAWN passes handles to the child (the servers keep
 reference counts per process).
 
 **fs (c2)**: 3 OPEN (mode 0 read, 1 write/truncate, 2 append; data = path)
-→ id; 1 READ (0 at the end of the file), 2 WRITE, 4 CLOSE (a written file is
-saved to disk when its last reference closes; files being written are held
-in a 128 KiB region); 10 DIR (data = a tag path, none = every file; handle
-= matching files to skip) → count + 32-byte records (24 bytes name, u64
-size; 126 at most: a longer listing is read in parts, skipping what came
-already, as `ls` does; `sh`'s completion and `httpd`'s listings take the
-first part only), and in the reply's
+→ id; 1 READ (0 at the end of the file), 2 WRITE, 4 CLOSE (a file opened
+for writing gets its new contents when its last reference closes, in one
+commit: the disk holds the old contents or the new, never a mixture;
+appending extends the contents where they are and commits at the close; a
+file has no size limit but the disk's); 10 DIR (data = a tag path, none =
+every file) → count
++ 32-byte records (24 bytes name, u64 size; 126 at most), and in the reply's
 mode word the *facets*: a tag set (bit t = tag number t) of the other tags
 the matching files carry; -4 no such tag; 11 UNLINK;
 12 TAG / 13 UNTAG (data = path, a zero byte, a tag name) → 0, -4, -6 (64
@@ -881,10 +881,10 @@ tags in use), -1 (bad tag name); 14 TAGS (data = a path, none = every tag)
 → count + 32-byte records (16 bytes name, u64 files carrying it, u64 tag
 number); 15 RENAME (data = path, a zero byte, a new path) → 0, -4, -6, -1
 (bad new name): the file takes the new path's name and gains its tags
-(created if new), keeping its own tags, its blocks and its directory entry;
+(created if new), keeping its own tags and its contents;
 another file of the new name is deleted; 20 CWD (mode 0 get → length, data
 = the current tag path, "/" at the root; mode 1 set, data = a path → the new
-one as get, -4 no such tag or no file in that view, -1 longer than 64
+one as get, -4 no such tag or no file in that view, -1 longer than 120
 bytes, -6 table full; mode 2 from `proc` only, data = u64 parent pid, u64
 child pid: the child starts in the parent's path); 27 STAT (data = path) → size; 28 LOADIMG (from `proc` when
 spawning: data = path, handle = most bytes, mode = arena offset, the arena
@@ -894,12 +894,106 @@ files; 33 READBLK (handle = block) → the raw 512-byte block; 34 READALL
 (handle = id, mode = arena offset, length = most bytes, the arena as
 attachment) → size, the whole file copied in; 35 WRITEALL (handle = id,
 mode = arena offset, length, the arena as attachment) → bytes appended to
-the file; 36–38 from `proc`. Files are contiguous runs of blocks in a
-128-entry directory.
+the file; 36–38 from `proc`; 40 QUERY (DIR without its limits: data = a tag
+path, handle = a cursor, 0 at first → count; the reply's handle word is the
+cursor to ask with again, 0 when that was all, its length word the data's
+bytes; data: u64 n and n u32 ids of the path's own tags, then per file {u16
+record bytes, u16 name length, u32 tags, u64 size, the name, the file's tag
+ids}, each part padded to 8 bytes); 41 TAGS2 (TAGS likewise: handle = a
+cursor; records {u16 record bytes, u16 name length, u32 id, u64 files
+carrying it, the name}). DIR and TAGS remain for the programs that still
+use them (the Forth ports; the shell's completion and `httpd` for the
+facets and the tags' names, their files come from QUERY): they cut a
+name to 24 bytes and a tag's to 16, DIR's facets hold only the tags with
+ids below 64, and one reply holds 126 records. Every call answers -5 when
+the disk cannot be read as a store or a page of it fails its checksum.
+
+**The disk is a store.** `fs` keeps nothing on the disk but trees of the
+store it is built on (`os/servers/store.s`, `storew.s`, `sblob.s`;
+`doc/strata-fs-proposal.md` has the design, `tools/stdb/store.c` and
+`fsl.h` the format): ordered key-value B+trees, copy-on-write, in
+namespaces. Its own namespace, `fs`, holds the files' records by object
+id, their contents (short ones in the tree, longer ones as streams of
+extents), the names, an index (attribute, value, object: tags, size, last
+change) and a dictionary of tag names. A change is committed by writing
+every changed page to free pages, a FLUSH, one meta block and a FLUSH: a
+power cut leaves the commit before or the new one, never a mixture, and
+nothing is repaired at mount. Every tree page has a checksum. Nothing is
+counted in advance: files, tags, names up to 255 bytes and file sizes are
+bounded by the disk, and space freed anywhere is reused. UNLINK, TAG,
+UNTAG and RENAME are a commit each (the reply means it is on the disk), as
+is the close of a written file; a long write commits every MiB. The
+server works on trees larger than its Local Stores through a cache of 124
+pages in far memory and three page buffers in its D-LS. A boot object
+(`proc`, `dev`, `fs`: what the boot manifest lists) can be written from
+inside the OS (`cp new-fs /sys/fs`): at its close its contents are brought
+into one run of pages and the manifest is written anew, in the same
+commit, so the next boot loads the old server or the new one. It cannot be
+renamed or deleted. `build/stdb check IMAGE` checks
+a disk from outside, `stdb dump`, `ls` and `get` read one (`stdb snaps`
+lists its snapshots, `stdb -s SNAP dump|ls|get` reads it as one has it).
+**Snapshots**
+(`snap NAME` takes one, `snap` lists them, `snap -d NAME` deletes one,
+`snap -r NAME` restores one; fs call 45 SNAP: mode 0 take, 1 delete, 3
+restore, data = a name of 1–32 bytes; 2 list → 40-byte records {u64 commit,
+name[32]}): a snapshot is the whole disk as of
+one commit, under a name. Taking one records that commit's catalog root
+and copies nothing; from then on a page born no later than the newest
+snapshot is not freed when the live store stops using it but goes on that
+snapshot's dead list, and deleting a snapshot frees what was born after the
+snapshot before it and passes the rest on to that one. A path whose first
+component is `@NAME` is read in the snapshot (`ls /@monday/src`, `cat
+/@monday/notes`, `cp /@monday/notes notes` to bring an old version back):
+OPEN for reading, DIR, TAGS, STAT, LOADIMG, QUERY and TAGS2 take such
+paths; nothing can be written, renamed or deleted there. `df` counts the
+pages snapshots keep as used. Restoring makes the file system what the
+snapshot shows, in one commit: its trees take the snapshot's roots, the
+pages only the state given up used are freed (or kept, where a later
+snapshot shows them), and the snapshot's pages that had gone to dead lists
+are in use again. The snapshots stay, the restored one too; it is refused
+(-1) while a file is open for writing. **Attributes and terms.** A file carries
+attributes besides its tags: a name and a value each, a number (given in
+digits) or a string of up to 255 bytes (`attr FILE NAME VALUE`, `attr
+FILE`, `attr -d FILE NAME`; fs calls 42 SETATTR: data = path, 0, name, 0,
+value, an empty value takes the attribute away; 43 GETATTR: data = path →
+records {u16 record bytes, u16 name length, u8 type, u8 value length, u16
+0, name, value}). They are in the file's record and in the index. A
+component of a path that holds `=`, `<` or `>` is a *term*, a condition
+instead of a tag: `NAME=VALUE`, `NAME<VALUE`, `NAME>VALUE` over an
+attribute, over `size` or over `modified` (the commit that changed the
+file last); a value in digits is compared as a number, any other as bytes;
+a file without the attribute matches none. In a listing the last component
+may be `PREFIX*`. So `ls /src/lang=asm`, `ls '/src/size>100000'` (quoted
+for the shell), `ls /bin/ca*`, `cat /t/colour=blue/a2`. A path that
+creates cannot hold a term. Terms narrow what the tags give by looking at
+each file's record: the index is not yet walked for them. **The store for
+programs.** A program can keep data of its own in the store, beside the
+file system: in a namespace of its own, in named trees of keys and values
+(bytes, in key order; a key up to 480 bytes, a value up to about 1,000,
+with 4 KiB pages). Three fs calls do it; each request's data starts with
+{u8 namespace name length, u8 tree name length, u16 key length, u32 0} and
+the two names: 64 DBGET (then the key) → the value; 65 DBSCAN (then a key;
+mode 0 from it on, 1 after it) → as many records {u16 key length, u16
+value length, u32 0, key, value} in key order as fit, to be asked for again
+after the last key; 66 DBBATCH (handle = items; items {u8 1 put / 2
+delete, u8 0, u16 key length, u16 value length, u16 0, key, value} from
+the next multiple of 8) → all of them in one commit, or none. A namespace
+and a tree are made by the first write. Namespaces made this way are
+public (any program names them); `fs` is private and refused. `os/lib/kv.s` wraps them for assembly programs (`kv_open`,
+`kv_get`, `kv_put`, `kv_del`, `kv_scan`). `db put
+NS/TREE KEY VALUE`, `db get NS/TREE KEY` and `db del NS/TREE KEY` use
+them from the shell. Inside the OS,
+`db` shows the store's trees (`db`: the trees with their roots and heights;
+`db fs/name`: a tree's records; `db -p PAGE`: one page's cells, so a tree
+can be walked by hand), and `wdb` does the same in a window: it opens on
+the same list of trees, Enter opens the tree at hand at its root page and
+then a branch's child, Backspace goes back (to the list from a root), j/k
+move, t returns to the list. Both read the disk as it was last committed, with READBLK
+(`os/lib/stview.s`).
 
 **Tags instead of directories.** A file has one name, unique on the disk,
-and carries any number of the disk's 64 tags (names of 1–16 bytes, no
-`/`). A "directory" is a set of tags, so one file shows up in several
+and carries any number of tags (names of 1–255 bytes, no `/`; a file's
+record, a quarter page at most, holds some 200 of them). A "directory" is a set of tags, so one file shows up in several
 directories at once, without copies or links. Every name `fs` takes is a
 *path*: components separated by `/` (empty ones are skipped). The last
 component is the file's name; the ones before it are tags the file must
@@ -919,7 +1013,7 @@ A path that creates (opening for writing, RENAME's new path) cannot exclude
 (-1), and a tag name cannot start with `-`.
 
 **The current tag path** is the tag-system analogue of a working
-directory. `fs` keeps one per process (a table of 32 entries of at most 64
+directory. `fs` keeps one per process (a table of 64 entries of at most 120
 bytes, one per live process that is not at `/`) and reads every path that
 does not start with `/` under it: the requester's path (from the sender pid
 the kernel stamps), a `/`, then the path. So in `/src/demo`, `cat hello.s`
@@ -963,12 +1057,12 @@ the data section so that a context switch keeps it) and exits with status 1
 after printing `file:line: message` for the first error; `-p` pages the
 program's code in 4 KiB units. It needs its own code units, `/bin/cc.u`,
 which its start-up code loads into the arena and the dispatcher pages from
-there, and `cc.lib` (the library, its headers, the instruction table of
-`asm("...")`): the file `/bin/cc.lib`, or, as on the standard disk, the
-same bytes behind the units in `cc.u`. `cc` is `lang/cc/cc.c` compiled by
-itself; the bootstrap compiler in assembly, `cc0`, and `cc.c` are on the
-disk that `make boot` starts, not on the one the tests use (whose directory
-is full).
+there, and `/bin/cc.lib` (the library, its headers, the instruction table
+of `asm("...")`). `cc` is `lang/cc/cc.c` compiled by itself. The bootstrap
+compiler in assembly, `cc0` (with `/bin/cc0.lib`), and the compiler's
+source, `/src/cc.c`, are on the disk too, beside the C examples (`hi.c`,
+`calc.c`, `asm.c`, `cmp.c`): `cc0 -p -h 0 -o cc1 /src/cc.c` compiles the
+compiler on the machine.
 
 Utilities: `ls [-t] [PATH]` (files, then facets as `tag/`; `-t` adds each
 file's tags; no PATH: the current tag path), `cat`, `cp [-t] SRC DST` (a copy; DST's path gives it tags,
@@ -1317,24 +1411,17 @@ in `os/ws/`).
 - The boot ROM loads the far image into the load area at 0xF30000 (at most
   0xD0000 bytes) and gives core 0 a read+execute share of exactly that range
   in **c12** (other cores do not get it).
-- The directory has N entries of {name[24], u32 first block, u32 size}
-  from block 1 on (N / 16 blocks); files are contiguous runs of blocks.
-  N is in header offset 56 (u32): a multiple of 128, at most 1024, which is
-  what `mkdisk` makes unless told otherwise (`-n N`; 0 in the header means
-  128: a disk from before the field). Header offset 52: u32 LBA of the tag
-  table (right after the directory; 0 = none): 64 tag names of 16 bytes
-  (zero-padded; a zero first byte = a free slot), then N u64 tag sets, one
-  per directory entry (bit t of set f = entry f carries tag t): 2 + N / 64
-  blocks. `mkdisk -t tag,tag...` tags the files named after it (a tag name
-  has no `/` and does not start with `-`).
-- A directory of 1024 entries is 32 KiB, with 8 KiB of tag sets: more than
-  the file server's D-LS can spare. `fs` keeps both in its I/O buffer (far
-  memory) and works on a window of 128 entries in its D-LS, written back
-  and fetched as it walks (`os/servers/fs.s`). The kernel, which loads the
-  first servers before there is a file server, reads only the directory's
-  first 8 blocks: the servers must be among the first 128 files, as they
-  are when `mkdisk` is given them first. `tools/test-files.sh` runs a disk
-  of 415 files.
+- The rest of the disk is a store (header offset 56 "STDB", offset 60 the
+  page size, 4096 unless `mkdisk -p` says 1024 or 2048): pages 1 and 2 are
+  its two meta pages, the kernel's images follow, then its trees and the
+  files. The kernel does not walk trees: the newer good meta block names
+  one page, the **boot manifest**, which lists the boot objects (`mkdisk
+  -B`, by default `proc,dev,fs`) as {name[16], first page, bytes}, each
+  kept in one run of pages; `u_disk` checks both checksums and loads the
+  servers from it. `mkdisk` fails when a boot object is not among its
+  files. `mkdisk -t tag,tag...` tags the files named after it (a tag name
+  has no `/` and does not start with `-`); `-a name=value` gives them an
+  attribute.
 - Memory handed over by the boot ROM: c0 = [0, 15 MiB), and **c13 =
   [16 MiB, 48 MiB)**: system memory above the load area and below the
   framebuffer window; and core 0 also gets **c14 = the framebuffer window
@@ -1623,9 +1710,7 @@ messages and the `:` and `/` lines take its place.
   short, and vi says so); lines of 1000 bytes at most (a longer one is
   split when the file is read); 96 KiB in the register; a change bigger
   than the 224 KiB history cannot be undone (the history before it goes).
-  `fs` holds a file being written in 128 KiB, so `:w` refuses a bigger
-  buffer before the file is touched; `/src/sh.s` (333 KiB) opens, but
-  cannot be written back. Every line is written with a newline after it.
+  Every line is written with a newline after it.
   No counts on inserts, no `f t`, no marks or named registers, no regular
   expressions.
 - **In Forth.** `forth vi.fs FILE` (or `include vi.fs` at the Forth prompt,

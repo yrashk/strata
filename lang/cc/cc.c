@@ -3196,9 +3196,6 @@ void intrinsic(int k)
 
 /* ================= expressions ================= */
 
-#ifndef SELF_UNITS
-#define SELF_UNITS (*(long *)32)    /* the start-up word __uload: the size of this program's cc.u */
-#endif
 #ifndef STK_MIN
 #define STK_MIN 0xE400          /* the stack is 0xE000..0xFFFF */
 #endif
@@ -5342,12 +5339,7 @@ void lib_load(void)
     int i;
     lib_base = A_LIB;
     lib_len = m_load("/bin/cc.lib", A_LIB, A_LIBEND - A_LIB, 1);
-    if (lib_len < 0) {                  /* no such file: the library may follow this program's own units */
-        lib_base = 0x10000 + ((SELF_UNITS + 7) & ~7);
-        lib_len = 0x8000;
-        far_read(lib_base, iob, 8);
-        if (!SELF_UNITS || !streq((char *)iob, "CCLIB1")) err("cannot read /bin/cc.lib", 0);
-    }
+    if (lib_len < 0) err("cannot read /bin/cc.lib", 0);
     lib_sym = lib_find("libc.sym");
     lib_nsym = lib_sz / 24;
     for (i = 0; i < 130; i++) iob[i] = 0;

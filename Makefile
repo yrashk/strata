@@ -108,7 +108,7 @@ $(BUILD)/examples/%.stx: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 
 examples: $(IMAGES)
 
-test: all examples os
+test: all examples os $(BUILD)/stdb test-stdb
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/compare.sh $(IMAGES)
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/compare-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/demo.txt
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/compare-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/guest-demo.txt guests
@@ -117,6 +117,7 @@ test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vi.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vifs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-fs-progs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-store.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) ./tools/test-files.sh $(BUILD)/bootrom.stx $(BUILD)/files-test/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-net.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-http.sh $(BUILD)/bootrom.stx $(BUILD)/http-test/disk.img
@@ -227,9 +228,12 @@ test-dbg: $(BUILD)/strata-dbg $(BUILD)/strata-emu examples os
 # ---- firmware, OS and disk image -------------------------------------------
 OS_FILES := $(wildcard os/files/*)
 
-$(BUILD)/mkdisk: tools/mkdisk.c common/stx.h asm/isa.h
+STDB_LIB := tools/stdb/store.c tools/stdb/fsl.c
+STDB_HDR := tools/stdb/stdb.h tools/stdb/fsl.h
+# mkdisk writes the store format (doc/strata-fs-proposal.md): tools/stdb
+$(BUILD)/mkdisk: $(STDB_LIB) $(STDB_HDR) tools/stdb/mkdisk.c common/stx.h asm/isa.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -o $@ tools/mkdisk.c
+	$(CC) $(CFLAGS) -o $@ $(STDB_LIB) tools/stdb/mkdisk.c
 
 $(BUILD)/bootrom.stx: firmware/bootrom.s firmware/fw.s $(BUILD)/sasm
 	$(BUILD)/sasm -g $(BUILD)/bootrom.map -o $@ firmware/bootrom.s
@@ -264,11 +268,15 @@ $(BUILD)/prog/%: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
+$(BUILD)/prog/fs: os/servers/fsops.s os/servers/store.s os/servers/storew.s os/servers/sblob.s os/servers/fsattr.s
 $(SPROGS): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
-$(UPROGS) $(NPROGS): $(BUILD)/prog/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
+# db: looks into the store on the disk (os/lib/stview.s; wdb is its window)
+DBPROGS := $(BUILD)/prog/db $(BUILD)/prog/snap $(BUILD)/prog/attr
+$(BUILD)/prog/db: os/lib/stview.s os/lib/kv.s
+$(UPROGS) $(NPROGS) $(DBPROGS): $(BUILD)/prog/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
@@ -302,7 +310,8 @@ $(BUILD)/prog/retag: $(BUILD)/prog/tag
 	cp $<.map $@.map
 
 # the window server and its clients (os/ws/, os/lib/gfx.s, os/lib/wsclient.s)
-WSPROGS := $(patsubst %,$(BUILD)/prog/%,ws term wmandel wclock)
+WSPROGS := $(patsubst %,$(BUILD)/prog/%,ws term wmandel wclock wdb)
+$(BUILD)/prog/wdb: os/lib/stview.s
 $(WSPROGS): $(BUILD)/prog/%: os/progs/%.s $(wildcard os/ws/*.s) os/lib/gfx.s os/lib/font/font.s os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -I os/ws -I os/lib -g $@.map -o $@ $<
@@ -393,12 +402,6 @@ $(BUILD)/prog/cc: $(BUILD)/strata-cc $(BUILD)/cc/cc.lib lang/cc/cc.c
 	@test -f $@.u
 $(BUILD)/prog/cc.u: $(BUILD)/prog/cc
 	@touch $@
-# on the standard disk cc.lib rides behind the compiler's units in cc.u (the
-# start-up code loads the whole file; cc looks there when /bin/cc.lib is not
-# a file): the disk's directory has 128 entries and its tests need the rest
-$(BUILD)/cc/bin/cc.u: $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib
-	@mkdir -p $(BUILD)/cc/bin
-	cat $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib > $@
 # sasm assembles the whole bootstrap compiler into one image; mklib.py splits
 # it: the program cc0 keeps the Local Store sections, its code units go into
 # cc0.lib
@@ -448,16 +451,19 @@ FORTH_DISK += lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUI
 # the ports of os/progs, with their library and loader: one file
 FORTH_DISK += $(BUILD)/forth-os/progs.pk
 
-# the C compiler, its library file and two C programs to try it on
-CC_DISK := $(BUILD)/prog/cc $(BUILD)/cc/bin/cc.u lang/cc/examples/hi.c
-DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as $(CC_DISK) \
+# the C compiler: cc and its code units, cc.lib; the bootstrap compiler cc0
+# with cc0.lib; the compiler's source, so that it can be compiled on the
+# machine (cc0 -p -h 0 -o cc1 /src/cc.c); and some C programs to try
+CC_DISK := $(BUILD)/prog/cc $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib $(BUILD)/prog/cc0 $(BUILD)/cc/cc0.lib
+CC_SRCS := lang/cc/cc.c $(sort $(wildcard lang/cc/examples/*.c))
+DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(DBPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as $(CC_DISK) $(CC_SRCS) \
               $(BUILD)/prog/units $(BUILD)/prog/vi $(SRCS) $(USRCS) $(BUILD)/src/vi.s $(FORTH_DISK)
 
 # The same files with their tags (mkdisk -t TAGS applies to the files after it).
 # The file system has no directories: `ls /bin` lists the files tagged bin,
 # `ls /src/demo` those tagged both src and demo.
 DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc %/resolv,$(OS_FILES)) \
-             -t sys $(SPROGS) -t bin $(UPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag -t bin,net $(NPROGS) -t bin,ws $(WSPROGS) \
+             -t sys $(SPROGS) -t bin $(UPROGS) $(DBPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag -t bin,net $(NPROGS) -t bin,ws $(WSPROGS) \
              -t demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units $(BUILD)/prog/vi \
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) $(BUILD)/src/vi.s \
              -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
@@ -476,10 +482,7 @@ DISK_ARGS  += -t bin,ws $(BUILD)/prog/wdoom -t ws $(WDOOM_DAT)
 WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)
 DISK_ARGS  += -t www $(WWW_FILES)
-# The directory has 128 entries and the tests that create many files (HTTP,
-# isolation, Forth) fill it: their disks are built without the C compiler.
-DISK_ARGS_NOCC := $(DISK_ARGS)
-DISK_ARGS  += -t bin $(BUILD)/prog/cc $(BUILD)/cc/bin/cc.u -t src lang/cc/examples/hi.c
+DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS)
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) -t guest,forth $(FORTH_GUEST)
@@ -508,15 +511,8 @@ BOOT_EMU := $(BUILD)/strata-emu -c 12 -a
 # BOOT_NET="-N peer"` for the offline test peer instead.
 BOOT_NET ?= -N nat,fwd=8080:80,fwd=8000:8000
 
-# the disk make boot starts: the standard one and the C compiler's bootstrap:
-# cc0 (the compiler in assembly), cc.c, and cc.lib as a file for the
-# compilers made from it:   cc0 -p -h 0 -o cc1 /src/cc.c   (lang/cc/DESIGN.md).
-# The tests keep the standard disk: some of them need its free directory entries.
-$(BUILD)/disk-boot.img: $(BUILD)/disk.img $(BUILD)/prog/cc0 $(BUILD)/cc/cc0.lib $(BUILD)/cc/cc.lib lang/cc/cc.c
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/prog/cc0 $(BUILD)/cc/cc0.lib $(BUILD)/cc/cc.lib -t src lang/cc/cc.c
-
-boot: $(BUILD)/strata-emu os $(BUILD)/disk-boot.img
-	@cp $(BUILD)/disk-boot.img $(BUILD)/disk-run.img
+boot: $(BUILD)/strata-emu os
+	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
 	@$(BOOT_EMU) $(BOOT_NET) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
 
 boot-net: boot
@@ -560,7 +556,7 @@ $(BUILD)/mkhex: tools/mkhex.c common/stx.h common/platform.h asm/isa.h
 
 fpga-images: $(BUILD)/mkhex $(BUILD)/bootrom.stx $(BUILD)/kernel.stx $(BUILD)/mkdisk $(BUILD)/prog/hello $(BUILD)/prog/mandel
 	@mkdir -p $(FPGA)
-	$(BUILD)/mkdisk -b 256 -n 128 -o $(FPGA)/disk.img -k $(BUILD)/kernel.stx os/files/motd os/files/rc $(BUILD)/prog/hello $(BUILD)/prog/mandel
+	$(BUILD)/mkdisk -b 256 -B "" -o $(FPGA)/disk.img -k $(BUILD)/kernel.stx
 	$(BUILD)/mkhex ils $(BUILD)/bootrom.stx $(FPGA)/bootrom_ils.hex
 	$(BUILD)/mkhex dls $(BUILD)/bootrom.stx $(FPGA)/bootrom_dls.hex
 	$(BUILD)/mkhex disk $(FPGA)/disk.img 16384 $(FPGA)/disk.hex
@@ -600,7 +596,6 @@ $(BUILD)/prog/forth: $(FORTH_OS_SRC) $(BUILD)/forth-os/corefs.s $(BUILD)/sasm
 #   test-cc-host  the whole ladder compiled by build/strata-cc, only run inside StrataOS
 CC_TEST_DEPS := $(BUILD)/strata-emu $(BUILD)/mkdisk $(BUILD)/bootrom.stx $(BUILD)/kernel.stx $(SPROGS) $(BUILD)/prog/sh $(BUILD)/prog/rm \
                 $(BUILD)/prog/cc $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib
-CC_BOOT := -t bin $(BUILD)/prog/cc0 $(BUILD)/cc/cc0.lib -t src lang/cc/cc.c lang/cc/tests/cmp.c
 .PHONY: test-cc test-cc-fast test-cc-boot test-cc0 test-cc-host
 test-cc: $(CC_TEST_DEPS)
 	BUILD=$(BUILD) lang/cc/tests/run.sh
@@ -608,20 +603,11 @@ test-cc0: $(CC_TEST_DEPS) $(BUILD)/prog/cc0
 	BUILD=$(BUILD) CC_NAME=cc0 lang/cc/tests/run.sh
 test-cc-host: $(CC_TEST_DEPS) $(BUILD)/strata-cc
 	BUILD=$(BUILD) CC_HOST=$(BUILD)/strata-cc lang/cc/tests/run.sh
-# the disk of tools/test-cc.sh: the standard one plus the other examples
-$(BUILD)/cc-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) lang/cc/examples/calc.c lang/cc/examples/asm.c
-	@mkdir -p $(BUILD)/cc-test
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t src lang/cc/examples/calc.c lang/cc/examples/asm.c
-# the disk of tools/test-cc-boot.sh: the system, both compilers, cc.c
-$(BUILD)/cc-boot/disk.img: $(CC_TEST_DEPS) $(BUILD)/prog/cc0 lang/cc/cc.c lang/cc/tests/cmp.c
-	@mkdir -p $(BUILD)/cc-boot
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx -t sys $(SPROGS) -t bin $(BUILD)/prog/sh $(BUILD)/prog/rm \
-	    $(BUILD)/prog/cc $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib $(CC_BOOT)
-test-cc-fast: $(CC_TEST_DEPS) $(BUILD)/cc-test/disk.img
+test-cc-fast: $(CC_TEST_DEPS) $(BUILD)/disk.img
 	BUILD=$(BUILD) lang/cc/tests/run.sh -f lang/cc/tests/ladder/FAST.txt
-	BUILD=$(BUILD) ./tools/test-cc.sh $(BUILD)/bootrom.stx $(BUILD)/cc-test/disk.img
-test-cc-boot: $(CC_TEST_DEPS) $(BUILD)/cc-boot/disk.img
-	BUILD=$(BUILD) ./tools/test-cc-boot.sh $(BUILD)/bootrom.stx $(BUILD)/cc-boot/disk.img
+	BUILD=$(BUILD) ./tools/test-cc.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+test-cc-boot: $(CC_TEST_DEPS) $(BUILD)/disk.img
+	BUILD=$(BUILD) ./tools/test-cc-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 test: test-cc-boot
 test: test-cc-fast
 
@@ -632,7 +618,7 @@ $(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	printf 'GET /www/style.css HTTP/1.1\r\nHost: localhost:8080\r\nUser-Agent: Mozilla/5.0 (test)\r\nAccept: text/css,*/*;q=0.1\r\nAccept-Language: en\r\nConnection: keep-alive\r\n\r\n' >$(BUILD)/http-test/browser.req
 	{ printf 'GET /doc/about?x=1 HTTP/1.1\r\nHost: localhost:8080\r\nCookie: '; for i in $$(seq 1 80); do printf 'c%s=0123456789abcdef0123456789abcdef; ' $$i; done; \
 	  printf '\r\nAccept: */*\r\n\r\n'; } >$(BUILD)/http-test/cookie.req
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS_NOCC) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
 test: $(BUILD)/http-test/disk.img
 
 # the disk of tools/test-isolate.sh: the standard one plus dlsgap (tools/dlsgap.s),
@@ -641,7 +627,7 @@ $(BUILD)/isol-test/dlsgap: tools/dlsgap.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/isol-test
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
 $(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS_NOCC) -t bin,test $(BUILD)/isol-test/dlsgap
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin,test $(BUILD)/isol-test/dlsgap
 test: $(BUILD)/isol-test/disk.img
 
 # the disk of tools/test-files.sh: the standard one plus 300 small files tagged
@@ -658,7 +644,7 @@ test: $(BUILD)/files-test/disk.img
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs) \
                               $(wildcard lang/forth/tests/http/*)
 	@mkdir -p $(BUILD)/forth-test
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS_NOCC) -t forth,test $(wildcard lang/forth/tests/*.fs) \
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t forth,test $(wildcard lang/forth/tests/*.fs) \
 	  -t httptest $(wildcard lang/forth/tests/http/*)
 
 forth: $(BUILD)/strata-emu $(BUILD)/forth.stx
@@ -892,3 +878,28 @@ manual:
 
 clean:
 	rm -rf $(BUILD)
+
+# The store on the host (doc/strata-fs-proposal.md): its tests against a
+# model and against power cuts.
+
+$(BUILD)/stdb-test: tools/stdb/store.c tools/stdb/test.c tools/stdb/stdb.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ tools/stdb/store.c tools/stdb/test.c
+
+# the tool that checks and reads a disk image
+$(BUILD)/stdb: $(STDB_LIB) $(STDB_HDR) tools/stdb/stdb.c
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ $(STDB_LIB) tools/stdb/stdb.c
+
+$(BUILD)/stdb-many: $(STDB_LIB) $(STDB_HDR) tools/stdb/many.c
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ $(STDB_LIB) tools/stdb/many.c
+
+# test-stdb: the store against a model and power cuts; then a million files
+# (about ten seconds, 1.5 GiB of memory), and 20,000 on small pages (trees
+# four levels high)
+.PHONY: test-stdb
+test-stdb: $(BUILD)/stdb-test $(BUILD)/stdb-many
+	$(BUILD)/stdb-test
+	$(BUILD)/stdb-many 1000000
+	$(BUILD)/stdb-many 20000 1024

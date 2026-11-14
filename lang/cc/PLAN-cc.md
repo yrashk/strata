@@ -160,12 +160,12 @@ section 6).
       `examples/asm.c`, run by `tools/test-cc.sh` in both code models
 
 ## Integration
-- [x] `cc`, `cc.u` (with `cc.lib` behind the units: the directory is full)
-      and `hi.c` on the OS disk (Makefile `CC_DISK`); `make boot` starts
-      `disk-boot.img`, which adds `cc0`, `cc0.lib`, `cc.lib` and `cc.c`, so
-      that the bootstrap can be done by hand there; the
-      disks of the HTTP, isolation and Forth tests are built without them
-      (`DISK_ARGS_NOCC`): those tests fill the 128-entry directory
+- [x] on the OS disk (Makefile `CC_DISK`, `CC_SRCS`): `cc`, `cc.u`,
+      `cc.lib`, the bootstrap compiler `cc0` with `cc0.lib`, and under
+      `/src` the compiler's source `cc.c` and the examples, so that the
+      bootstrap can be done by hand on the machine. (While the directory
+      had 128 entries the library rode behind `cc.u` and `cc0` had a disk
+      of its own; the store has no such limit)
 - [x] `help` line in the shell
 - [x] `make test-cc` (the ladder), `make test-cc-fast` (52 tests and
       `tools/test-cc.sh`: `hi.c` and `calc.c` compiled and run in the OS),
@@ -247,8 +247,8 @@ every program. `cc.lib` is 25 KiB (the library, the headers, the table of
   lsfault` finds a faulting compiler; the image of a compiled program can be
   pulled out of a session with `cat prog` between two `echo` markers and
   disassembled on the host.
-- **The disk's directory** (128 entries) is nearly full: every file added to
-  the standard disk needs the tests that create files to still fit.
+- **Files added to the disk** change what `tools/test-http.sh` prints
+  (listings, counts): `tools/test-http.sh -u` after looking at the diff.
 - The time of a ladder run is about a minute; the full `make test` took an
   hour and passed through its main part with this change (examples, OS
   sessions on emulator and RTL, the OS tests, the JIT, the debuggers, the

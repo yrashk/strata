@@ -227,7 +227,7 @@ status 1, no output file).
 
 `lib/libc.s`, in Strata assembly, assembled by `sasm` with the C calling
 convention; `lib/include/*.h` declare it. Both are packed, with the export
-table, into one disk file, `cc.lib` (the disk's directory has 128 entries).
+table, into one disk file, `cc.lib`.
 
 - `crt0`: the `"SYS2"` marker, handles from the start-up block, `gp`,
   `xslot`, `main(argc, argv)`, `exit`.
@@ -301,10 +301,6 @@ It is the same one-pass design as `cc.s` (section 4), with these changes:
   symbols (700), types (600), the value stack; everything else is in the
   arena: identifiers and their hash, macros, fixups, parameter types, the
   cases of open `switch` statements, the image being built.
-- **One file less on the disk.** The disk's directory is full, so on the
-  standard disk `cc.lib` is appended to `cc.u`: the start-up code loads the
-  whole file, and `cc` looks behind its own units when `/bin/cc.lib` is not
-  a file.
 - **The source is read as the scanner goes**, through a 64 KiB window of
   the arena, so a source file may be larger than the arena has room for
   (`cc.c` itself is 130 KiB). An array whose length its initialiser gives is

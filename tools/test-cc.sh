@@ -1,11 +1,11 @@
 #!/bin/sh
 # The C compiler inside StrataOS: boots the standard disk with a scripted
 # console that compiles the two C programs of lang/cc/examples with `cc`
-# (hi.c, on every disk under /src, and calc.c and asm.c, which the Makefile
-# adds to this test's disk) and runs the results, also in the paged code model (-p),
+# (hi.c, calc.c and asm.c, on the disk under /src)
+# and runs the results, also in the paged code model (-p),
 # and compares the console output with tools/test-cc.out.
 #
-#   tools/test-cc.sh build/bootrom.stx build/cc-test/disk.img     (-u: update the .out)
+#   tools/test-cc.sh build/bootrom.stx build/disk.img     (-u: update the .out)
 #
 # The emulator runs the interpreter with the virtual timer (-j -T virtual),
 # so the session is deterministic. The output is compared from the first

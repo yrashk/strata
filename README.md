@@ -405,9 +405,9 @@ strata$ cc -o calc calc.c           # -o names the output; -h KIB sizes the heap
 - **Also a cross compiler.** `make build/strata-cc` builds the same `cc.c`
   with the host's C compiler (`lang/cc/host/` stands in for StrataOS):
   `build/strata-cc -o prog prog.c` writes the image `cc` would write, byte
-  for byte. The `cc` on the disk is made this way. `make boot` starts a
-  disk that also carries `cc0` and `cc.c`: `cc0 -p -h 0 -o cc1 /src/cc.c`
-  bootstraps the compiler there by hand.
+  for byte. The `cc` on the disk is made this way. The disk also carries
+  `cc0` and `/src/cc.c`: `cc0 -p -h 0 -o cc1 /src/cc.c` bootstraps the
+  compiler there by hand.
 - **No assembler pass, no linker.** `cc` emits the image itself: compiler
   output has more labels and address loads than `as` holds in its 40 KiB of
   tables. The run-time library is assembled once at fixed addresses and copied
@@ -628,9 +628,10 @@ the main points:
   when a program was waiting for input.
 - The file system has tags instead of directories (`ls /src/demo` lists
   the files tagged both `src` and `demo`, `ls /src/-demo` those tagged `src`
-  but not `demo`; subdirectories are facets: `ls /src` ends with `demo/`), but files are contiguous runs of
-  blocks, a deleted file's space comes back only if it was the last one, and
-  a disk holds at most 1024 files and 64 tags.
+  but not `demo`; subdirectories are facets: `ls /src` ends with `demo/`), and the disk is a
+  copy-on-write store of B+trees with snapshots (`doc/strata-fs-proposal.md`):
+  files, names and tags have no limit but the disk's. Some older programs
+  still list through calls that cut a name to 24 bytes.
 - The shell has no globbing and no `2>`.
 - Strata Forth runs on the bare machine only, not yet as a StrataOS program.
 - With timer-driven preemption, the emulator and the RTL cannot be compared

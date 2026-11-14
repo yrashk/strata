@@ -1,5 +1,5 @@
 # mklib.py OUT LIBC.stx LIBC.map LIBC.s HEADER...: pack cc.lib, the one file cc
-# needs beside itself (the disk's directory has 128 entries).
+# needs beside itself and its code units.
 #
 #   0   "CCLIB1\0\0"
 #   8   directory: 32-byte entries { name[24], u32 offset, u32 size }, ended by

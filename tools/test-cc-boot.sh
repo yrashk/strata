@@ -5,9 +5,9 @@
 # the same files: the compiler reproduces itself. They must also be the cc
 # of the disk, which the Makefile makes with cc.c built for the host
 # (build/strata-cc): the cross compiler and the native one agree byte for
-# byte. The files are compared with lang/cc/tests/cmp.c, compiled by cc.
+# byte. The files are compared with lang/cc/examples/cmp.c, compiled by cc.
 #
-#   tools/test-cc-boot.sh build/bootrom.stx build/cc-boot/disk.img     (-u: update the .out)
+#   tools/test-cc-boot.sh build/bootrom.stx build/disk.img     (-u: update the .out)
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 b="$here/${BUILD:-build}"

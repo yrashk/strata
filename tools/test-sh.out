@@ -195,6 +195,10 @@ n1: notes work
 strata$ cat /notes/n
 n1  n2  n3
 strata$ cat /notes/n^[[12D^[[K
+strata$ echo long > /work/a-name-of-more-than-twenty-four-bytes.txt
+strata$ cat /work/a-name-of-more-than-twenty-four-bytes.txt 
+long
+strata$ rm a-name-of-more-than-twenty-four-bytes.txt
 strata$ untag n3 work; untag n1 work; ls /work
 ls: no such tag or file: /work
 [exit 1]
@@ -253,7 +257,7 @@ done/  p1     p2     p3     todo/
 strata$ ls /proj/^[[9D^[[K
 strata$ cp /proj/p1 /copy/p4; cp -t p2 /copy/p5; ls -t /copy; cat p4 p5
 p4                              4  copy
-p5                              4  proj todo copy
+p5                              4  copy proj todo
 proj/
 todo/
 one
@@ -269,28 +273,25 @@ cp: no such file: /todo/p1
 [exit 1]
 [1] strata$ mv p4 /done/; echo old > p6; mv p5 p6; ls -t /done; tags p6; cat p6
 p3                              0  proj done
-p4                              4  done copy
+p4                              4  copy done
 proj/
 copy/
-p6: proj todo copy
+p6: copy proj todo
 two
-strata$ mv nosuch p7; mv p6 /a/-b/p7; mv p6 0123456789012345678901234; mv p6
+strata$ mv nosuch p7; mv p6 /a/-b/p7; mv p6
 mv: no such file: nosuch
 [exit 1]
 mv: cannot rename p6 to /a/-b/p7
 [exit 1]
-mv: cannot rename p6 to 0123456789012345678901234
-[exit 1]
 usage: mv SRC DST
 [exit 2]
-[2] strata$ touch p1 /proj/p8 /proj/-done/p9 0123456789012345678901234; ls -t /proj; cat p1
+[2] strata$ touch p1 /proj/p8 /proj/-done/p9 a_name_longer_than_24_bytes; ls -t /proj; cat p1; rm a_name_longer_than_24_bytes
 touch: cannot create /proj/-done/p9
-touch: cannot create 0123456789012345678901234
 [exit 1]
 p1                              4  proj
 p2                              4  proj todo
 p3                              0  proj done
-p6                              4  proj todo copy
+p6                              4  copy proj todo
 p8                              0  proj
 todo/
 done/
@@ -300,7 +301,7 @@ strata$ touch /extra/p2; tags p2; cat p2
 p2: proj todo extra
 two
 strata$ retag p6 x y; tags p6; retag p6 y; tags p6; retag p6; tags p6; retag nosuch
-p6: x y
+p6: y x
 p6: y
 p6:
 tag: no such file: nosuch

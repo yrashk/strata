@@ -11,11 +11,9 @@
 ; SRC is read with sys_open / sys_read and DST written chunk by chunk (opened
 ; for writing: created, or replaced keeping its tags; the path's tags are
 ; added, as for `echo hi > /notes/todo`). With -t each of SRC's tags
-; (sys_tags) is then given to DST with sys_tag. The file server holds a file
-; being written in a 128 KiB region, so a larger SRC is refused before DST
-; is touched. Errors go to standard error with exit code 1: "cp: no such
-; file: SRC", "cp: too big (128 KiB at most): SRC", "cp: same file: SRC DST",
-; "cp: cannot write DST".
+; (sys_tags) is then given to DST with sys_tag. Errors go to standard error
+; with exit code 1: "cp: no such file: SRC", "cp: same file: SRC DST", "cp:
+; cannot write DST".
 
         .data                           ; data Local Store
         .align 8                        ; aligned buffers
@@ -27,8 +25,6 @@ m_use:  .ascii "usage: cp [-t] SRC DST\n" ; error text
 m_use_e:                                ; end of the text above
 m_no:   .ascii "cp: no such file: "     ; error text
 m_no_e:                                 ; end of the text above
-m_big:  .ascii "cp: too big (128 KiB at most): " ; error text
-m_big_e:                                ; end of the text above
 m_wr:   .ascii "cp: cannot write "      ; error text
 m_wr_e:                                 ; end of the text above
 m_same: .ascii "cp: same file: "        ; error text
@@ -91,12 +87,10 @@ a_dst:
         mv    a3, s1                    ; ...
         call  str_eq                    ; ...
         bnez  a0, same                  ; yes
-        mv    a0, s2                    ; does SRC exist, and does it fit?
+        mv    a0, s2                    ; does SRC exist?
         mv    a1, s3                    ; ...
         call  sys_stat                  ; a0 = size or < 0
         bltz  a0, nosrc                 ; no such file
-        li    t0, 0x20000               ; 128 KiB at most
-        bgtu  a0, t0, big               ; ...
         mv    a0, s2                    ; open SRC for reading
         mv    a1, s3                    ; ...
         li    a2, 0                     ; ...
@@ -175,10 +169,6 @@ same:
         mv    a0, s6                    ; DST
         mv    a1, s5                    ; ...
         j     fail                      ; ...
-big:
-        la    a0, m_big                 ; "cp: too big (128 KiB at most): "
-        li    a1, m_big_e - m_big       ; ...
-        j     fail_src                  ; ...
 nosrc:
         la    a0, m_no                  ; "cp: no such file: "
         li    a1, m_no_e - m_no         ; ...

@@ -223,8 +223,7 @@ Chapter~\ref{ch:encoding}. Table~\ref{tab:insindex} lists every instruction.
 \item[StrataOS] The limits of Table~\ref{tab:os-limits} apply: 16 threads per core (11 with a 64-slot save table), 1~MiB arenas,
   eight handles. A thread's \reg{c8}--\reg{c15} do not survive a context switch. An attachment is paired
   with the next message from the same core, so a process that sends attachments must be alone on its
-  core or tolerate the pairing. A file being written is limited to 128~KiB, and the directory to 128
-  contiguous files. The kernel is not preempted.
+  core or tolerate the pairing. The kernel is not preempted.
 \item[Integer arithmetic] There are no 32-bit arithmetic forms, no signed high multiply, and no
   floating point.
 \end{description}
