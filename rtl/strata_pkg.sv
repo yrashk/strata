@@ -238,8 +238,9 @@ package strata_pkg;
   localparam logic [63:0] DEV_NET_RX     = 64'h4208;  // RX (waits for a packet)
   localparam logic [63:0] DEV_NET_STATUS = 64'h4210;  // STATUS (latched at byte 0)
   localparam logic [63:0] DEV_NET_CANCEL = 64'h4218;  // CANCEL (completes waiting RX reads with zeros)
+  localparam logic [63:0] DEV_PMAP       = 64'h4400;  // written-page map: a word per 256 KiB granule of T3
   localparam logic [63:0] DEV_LEN     = 64'h5000;
-  localparam int          PLAT_LEN    = 320;        // 32 + 32 x 9 entries (common/platform.h)
+  localparam int          PLAT_LEN    = 352;        // 32 + 32 x 10 entries (common/platform.h)
   localparam longint      TMR_HZ      = 1000000;    // timer ticks per second (1 tick = 1 us)
   localparam longint      FRAME_TICKS = 16667;      // one 60 Hz display refresh, in ticks
   localparam int          IDENT_LEN   = 64;

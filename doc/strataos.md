@@ -30,7 +30,7 @@ them apart.
 | 0x4100 | **pointer** | 0x00 EVENT, 0x08 STATE |
 | 0x4200 | **network interface** | 0x00 TX, 0x08 RX, 0x10 STATUS, 0x18 CANCEL |
 | 0x4300 | sound (optional) | 0x00 PCM, 0x08 RATE, 0x10 STATUS |
-| 0x4400 | written-page map (optional) | 0x000..0x7F8: a word per 256 KiB granule of T3 |
+| 0x4400 | **written-page map** | 0x000..0x7F8: a word per 256 KiB granule of T3 |
 
 `DEV_SPACE_LEN` becomes 0x5000.
 
@@ -251,10 +251,13 @@ that compare the two machines run without it).
 One bit per 4 KiB page of T3 (16,384 bits, 2 KiB), set by every write to
 the page: a transfer, a far atomic, the block device's DMA. At power-on
 every bit is set (a page may hold anything). It lets the kernel zero only
-the pages of an arena written since it last zeroed them (2.2). It is
-**optional**: a machine that has it lists it in the platform table (type
-10). The emulator has it with `-W`; the RTL does not yet (the sessions
-that compare the two machines run without it).
+the pages of an arena written since it last zeroed them (2.2). Both
+machines have it and list it in the platform table (type 10); in the RTL
+`strata_top` sees every T3 write on the far bus (a burst's write beats, an
+atomic) and `strata_dev` keeps the bits, one word per 256 KiB granule of
+the T3 it is built with. `strata-emu --no-pmap` is a machine without it
+(the kernel then zeroes everything, as before; `tools/test-isolate.sh`
+runs it so). Conformance test `pmap`.
 
 - **Word n** (0x4400 + 8 n, n = 0..255): the bits of T3's granule n, bit i
   for page 64 n + i. A read gives them (latched at byte 0); a write clears
@@ -262,9 +265,9 @@ that compare the two machines run without it).
 
 ### 1.3 Platform table
 
-Four new entry types; `PLAT_ENTRIES` grows by four (to 9, 320 bytes). A
-machine with the sound device, or the written-page map, has an entry more
-for each (352 or 384 bytes).
+Five new entry types; `PLAT_ENTRIES` grows by five (to 10, 352 bytes). A
+machine with the sound device has an eleventh entry (384 bytes); one
+without the written-page map (`--no-pmap`) lacks the tenth.
 
 | Type | Name | space | base | size | info |
 |---|---|---|---|---|---|
@@ -273,7 +276,7 @@ for each (352 or 384 bytes).
 | 7 | PT_POINTER | SP_DEV (4) | 0x4100 | 0x10 | buttons (bits 0..7: left, right, middle) \| wheels << 8 (bit 8 y, bit 9 x): 0x0307 |
 | 8 | PT_NET | SP_DEV (4) | 0x4200 | 0x20 | the MTU (1500) |
 | 9 | PT_SOUND | SP_DEV (4) | 0x4300 | 0x18 | samples the queue holds (16384); only on a machine that has the device |
-| 10 | PT_PMAP | SP_DEV (4) | 0x4400 | 0x800 | the page size (4096); only on a machine that has the written-page map |
+| 10 | PT_PMAP | SP_DEV (4) | 0x4400 | 0x800 | the page size (4096) |
 
 All have node = 0xffff (nothing to `cgive` to). The framebuffer
 controller's ports are at the fixed device address 0x4000.
@@ -698,16 +701,20 @@ start-up block at 0x7F000, `vi`'s register at 0xB8000, `cc`'s and `as`'s
 output at 0xC0000), and the kernel cannot see which of it the earlier
 owner wrote.
 
-On a machine with the **written-page map** (1.2) it can: the kernel
+With the **written-page map** (1.2) it can: the kernel
 finds the map at boot (K0_PMAP), and MEMORY reads the map's word for each
 granule of the arena, zeroes only the pages whose bit is set, waits for
 those writes (which set the bits again) and then clears the bits of the
 pages it zeroed. Pages it leaves for an image keep their bits. A page
 nobody wrote since its last zeroing is not written at all; a page used
-for the first time since power-on is (every bit starts set). With `-W`
-the same session's scrubbing is 2,188 transfers, 1.16 M of 12.45 M bus
+for the first time since power-on is (every bit starts set). Without the
+map (an older platform, `strata-emu --no-pmap`) it zeroes as above. With
+it the same session's scrubbing is 2,188 transfers, 1.16 M of 12.45 M bus
 cycles (9%), most of them the first use of each page; reading and
-clearing the words adds 354 device transfers of 8 bytes.
+clearing the words adds 354 device transfers of 8 bytes. On the RTL (8
+cores, `strata-rtl -T virtual -g none`) the session takes 157,503,927
+cycles with the map against 160,841,887 without it (the kernel of the
+commit before), 2% less: most of the session is fixed waits.
 
 The kernel counts switches and bytes moved per process and per core
 (shown by `ps`, `cores`, `uptime`, `sched`, and drawn by the window

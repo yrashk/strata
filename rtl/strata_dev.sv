@@ -12,6 +12,11 @@
 //                           waiting ones with 0), STATE
 //   0x4200  network         TX (write: one transfer = one IPv4 packet), RX
 //           interface       (read: waits for a packet), STATUS, CANCEL
+//   0x4400  written-page    a word per 256 KiB granule of T3, a bit per 4 KiB
+//           map             page: set by every write to the page (strata_top
+//                           sees them on the bus: pm_set, pm_page), all set at
+//                           reset; a read gives a word (latched at byte 0), a
+//                           write clears the bits written as 1 (at byte 7)
 //
 // Device transfers move single bytes. A stream port ignores the byte index; a
 // ROM or register reads byte `addr + i`. A register is latched when its byte
@@ -66,6 +71,7 @@ module strata_dev
   import strata_pkg::*;
 #(
   parameter int    NCORES      = 4,
+  parameter int    T3_W        = T3_WORDS,   // system memory's size (the written-page map covers it)
   parameter int    DISK_WORDS  = 2097152,    // 16 MiB
   parameter string DISK_INIT   = "",
   parameter string PLAT_INIT   = "",
@@ -111,6 +117,10 @@ module strata_dev
   output logic [7:0]  give_dst,
   output cap_t        give_cap,
   input  logic        give_ack,
+
+  // T3 writes, for the written-page map: page pm_page was written
+  input  logic        pm_set,
+  input  logic [31:0] pm_page,
 
   // console on FPGA
   output logic        uart_txd,
@@ -251,6 +261,16 @@ module strata_dev
       next_frame <= next_frame + 64'(FRAME_TICKS);
     end
   end
+
+  // written-page map: PMW words (at least one), a bit per 4 KiB page of T3
+  localparam int PMW = T3_W / 32768 > 0 ? T3_W / 32768 : 1;
+  localparam int PMB = PMW > 1 ? $clog2(PMW) : 1;
+  logic [63:0]    pmap [PMW];
+  logic [63:0]    lat_pm, pm_wbuf;   // the word latched by a read; the bytes of a write
+  logic           pm_hit;
+  logic [PMB-1:0] pm_ri;
+  assign pm_hit = ra >= DEV_PMAP && ra < DEV_PMAP + 64'(8 * PMW);
+  assign pm_ri  = PMB'(((ra - DEV_PMAP) >> 3) & 64'(PMW - 1));
 
   logic        is_con_in, is_cq, is_brk, rom_hit;
   logic        rx_brk, rx_ok;   // the received byte is a Ctrl-C / is ordinary input
@@ -440,6 +460,9 @@ module strata_dev
         end else if (tmr_hit) begin
           rvalid = 1;
           rdata  = {56'b0, tmr_val[8*ra[2:0] +: 8]};
+        end else if (pm_hit) begin                   // byte 0 reads the live word, the rest the latch
+          rvalid = 1;
+          rdata  = {56'b0, ra[2:0] == 0 ? pmap[pm_ri][7:0] : lat_pm[8*ra[2:0] +: 8]};
         end else if (is_con_in) begin
           if (in_rel_me) begin                       // released: zeros, no input taken
             rvalid = 1;
@@ -586,6 +609,26 @@ module strata_dev
   // timer and VSYNC state: latches, DEADLINE writes, armed VSYNC reads
   logic [63:0] wa;          // byte address of the current write beat
   assign wa = t_port + 64'(t_idx);
+
+  // the written-page map: set by T3 writes, read and cleared through its words. A
+  // T3 write and a device write never share a cycle (one transaction at a time).
+  logic           pm_wh;
+  logic [PMB-1:0] pm_wi, pm_si;
+  assign pm_wh = ts == T_RUN && t_we && wvalid && wa >= DEV_PMAP && wa < DEV_PMAP + 64'(8 * PMW);
+  assign pm_wi = PMB'(((wa - DEV_PMAP) >> 3) & 64'(PMW - 1));
+  assign pm_si = PMB'((pm_page >> 6) & 32'(PMW - 1));
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      for (int i = 0; i < PMW; i++) pmap[i] <= '1;   // power-on: every page may hold anything
+    end else begin
+      if (ts == T_RUN && !t_we && rvalid && pm_hit && ra[2:0] == 0) lat_pm <= pmap[pm_ri];
+      if (pm_set) pmap[pm_si][pm_page[5:0]] <= 1'b1;
+      else if (pm_wh) begin
+        pm_wbuf[8*wa[2:0] +: 8] <= wdata[7:0];
+        if (wa[2:0] == 3'd7) pmap[pm_wi] <= pmap[pm_wi] & ~{wdata[7:0], pm_wbuf[55:0]};
+      end
+    end
+  end
   always_ff @(posedge clk) begin
     if (rst) begin
       deadline <= '0;

@@ -55,7 +55,7 @@ register and window starts at a multiple of 8, so a capability can be cut to exa
 \hex{4200} & \hex{20} & network interface & \hex{4200} TX; \hex{4208} RX; \hex{4210} STATUS;
                                             \hex{4218} CANCEL\\
 \hex{4300} & \hex{18} & sound (optional) & \hex{4300} PCM; \hex{4308} RATE; \hex{4310} STATUS\\
-\hex{4400} & \hex{800} & written-page map (optional) & \hex{4400}$+8n$: the pages of T3's granule $n$\\
+\hex{4400} & \hex{800} & written-page map & \hex{4400}$+8n$: the pages of T3's granule $n$\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -160,11 +160,12 @@ little-endian.
   (bit 8 vertical, bit 9 horizontal): \hex{0307}\\
 8 & network interface & the MTU in bytes (1500)\\
 9 & sound & samples the device's queue holds (16384)\\
+10 & written-page map & the page size in bytes (4096)\\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-The prototype publishes nine entries:
+The prototype publishes ten entries:
 
 \begin{center}\small
 \begin{tabular}{@{}l l l l l l l@{}}
@@ -173,20 +174,19 @@ The prototype publishes nine entries:
 0 & memory & 0 & 3 & --- & 0 & 64 MiB\\
 1 & memory & 1 & 2 & --- & 0 & 256 KiB\\
 2 & console & 0 & 4 & --- & \hex{0000} & \hex{100}\\
-3 & platform & 0 & 4 & --- & \hex{1000} & 320\\
+3 & platform & 0 & 4 & --- & \hex{1000} & 352\\
 4 & block & 0 & 4 & $N$ & \hex{2000} & \hex{300}\\
 5 & framebuffer & 0 & 3 & --- & \hex{3000000} & 16 MiB\\
 6 & timer & 0 & 4 & --- & \hex{3000} & \hex{30}\\
 7 & pointer & 0 & 4 & --- & \hex{4100} & \hex{10}\\
 8 & network & 0 & 4 & --- & \hex{4200} & \hex{20}\\
+9 & written-page map & 0 & 4 & --- & \hex{4400} & \hex{800}\\
 \bottomrule
 \end{tabular}
 \end{center}
 
-A machine with the sound device (Section~\ref{sec:sound}) publishes a tenth entry, of type 9, at
-\hex{4300} with size \hex{18}; its table is 352 bytes long. A machine with the written-page map
-(Section~\ref{sec:pmap}) publishes one more, of type 10, at \hex{4400} with size \hex{800} and the
-page size, 4096, as its info; with both devices the table is 384 bytes long.
+A machine with the sound device (Section~\ref{sec:sound}) publishes an eleventh entry, of type 9, at
+\hex{4300} with size \hex{18}; its table is 384 bytes long.
 
 The framebuffer entry describes the framebuffer \emph{memory}: a region of system memory. The
 framebuffer controller's two registers are at the fixed device offset \hex{4000} and have no entry of
@@ -445,8 +445,10 @@ set, since a page may hold anything. Word $n$, at \hex{4400}$+8n$, holds the 64 
 granule $n$ (bit $i$ for page $64n+i$). A read gives the word (latched when byte 0 is read); a write
 clears the bits written as 1, when byte 7 is written, and leaves the others. A kernel that must hand
 out memory with nothing of its earlier owner in it uses the map to zero only the pages written since
-it last zeroed them, then clears their bits. The device is optional and listed in the platform table
-(type 10). The reference emulator has it when started with \texttt{-W}; the RTL does not yet.
+it last zeroed them, then clears their bits. It is listed in the platform table (type 10). In the RTL
+the top level sees every write to T3 on the far bus (a burst's write beats, an atomic at its start),
+and the device keeps one word for each 256~KiB granule of the T3 it is built with (at least one). The
+reference emulator started with \texttt{-{}-no-pmap} is a machine without it.
 
 \section{Block device}\label{sec:blkdev}
 

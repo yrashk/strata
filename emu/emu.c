@@ -153,8 +153,8 @@ typedef struct {
 /* ------------------------------------------------------------ devices */
 
 static uint8_t plat_rom[PLAT_LEN_MAX];
-static unsigned plat_len = PLAT_LEN; /* an entry longer with each optional device */
-static bool pmap_present; /* the machine has the written-page map (-W) */
+static unsigned plat_len = PLAT_LEN; /* an entry shorter without the map, longer with the sound device */
+static bool pmap_present = true; /* the machine has the written-page map (not with --no-pmap) */
 static uint64_t pmap[PMAP_WINDOW / 8]; /* a word per granule of T3, a bit per page: written since cleared */
 static uint64_t pmap_l, pmap_w; /* the word latched by a read, the bits a write is clearing */
 static uint8_t blk_rom[BLK_IDENT_LEN];
@@ -1737,7 +1737,7 @@ static int round_idle(void) {
   "usage: strata-emu [-c ncores] [-t trace.txt] [-m max_steps] [-d disk.img] [-i input.txt]\n"       \
   "                  [-P pointer.txt] [-b steps] [-T real|virtual] [-g none] [-F frame.ppm]\n"             \
   "                  [-z scale] [-r WxH] [-S entries] [-X entries] [-L D[,I]]\n"                                 \
-  "                  [-H] [-N mode] [-a] [-A sound.wav] [-W] [-J|-j] image.stx\n"                                                                     \
+  "                  [-H] [-N mode] [-a] [-A sound.wav] [--no-pmap] [-J|-j] image.stx\n"                                                                     \
   "  -c N        cores (1..15, default 4)\n"                                                          \
   "  -t FILE     write an instruction trace\n"                                                        \
   "  -m N        stop after N steps (timeout)\n"                                                      \
@@ -1761,7 +1761,7 @@ static int round_idle(void) {
   "  -a          the machine has the sound device (common/sound.h); it plays through the host's\n" \
   "              audio when there is a window\n"                                                  \
   "  -A FILE     the same, and what it plays is written to FILE as a WAV at exit\n"               \
-  "  -W          the machine has the written-page map (common/platform.h: DEV_PMAP)\n"         \
+  "  --no-pmap   the machine has no written-page map (common/platform.h: DEV_PMAP)\n"         \
   "  -J / -j     run with the JIT / only interpret (default: the JIT, except with -t or\n"     \
   "              -T virtual, which keep the exact one-instruction interleaving)\n"                \
   "  --debug WHERE  run under the debug engine, stopped at the first instruction: WHERE is\n"   \
@@ -1842,7 +1842,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "-N") && more) {
       if (!net_host_open(argv[++i])) return 2;
     } else if (!strcmp(argv[i], "-a")) snd_opt = true;
-    else if (!strcmp(argv[i], "-W")) pmap_present = true;
+    else if (!strcmp(argv[i], "--no-pmap")) pmap_present = false;
     else if (!strcmp(argv[i], "-A") && more) { snd_opt = true; snd_wav_opt = argv[++i]; }
     else if (dbg_option(argc, argv, &i)) continue;
     else if (!strcmp(argv[i], "-J")) jit_opt = 1;
@@ -1867,11 +1867,11 @@ int main(int argc, char **argv) {
   disk = stx_disk_load(disk_path, &disk_blocks);
   plat_build_fb(plat_rom, ncores, disk_blocks, fb_w, fb_h, ctab_size, nxmap, (unsigned)(dls_size / 1024),
                 (unsigned)(ils_size / 1024));
+  if (!pmap_present) plat_len = plat_drop_pmap(plat_rom); /* a machine without the written-page map */
   if (snd_opt) { /* a machine with the sound device */
     if (!snd_host_init(snd_wav_opt)) { perror(snd_wav_opt); return 2; }
     plat_len = plat_add_sound(plat_rom, plat_len);
   }
-  if (pmap_present) plat_len = plat_add_pmap(plat_rom, plat_len); /* a machine with the written-page map */
   memset(pmap, 0xff, sizeof pmap); /* power-on: every page may hold anything */
   blk_ident(blk_rom, disk_blocks);
   t2 = img.t2;
