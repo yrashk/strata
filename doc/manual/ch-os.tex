@@ -697,6 +697,26 @@ handles (CLEANUP) and completes the parent's WAIT.
   attachment: the whole file is copied into it\\
 35 & WRITEALL & handle = a file id, mode = arena offset, length; the arena as attachment: appended to
   the file\\
+40 & QUERY & data = a path of tags and terms, handle = a cursor (0 at first). Reply: the count of
+  files in this part; the handle word is the cursor to ask with again (0: that was all), the mode
+  word the facets, the length word the data's bytes. Data: u64 $n$ and $n$ u32 ids of the path's
+  own tags; then per file u16 record bytes, u16 name length, u32 tags, u64 size, the name, the
+  file's tag ids, each padded to 8 bytes. Names are whole, a listing has no limit\\
+41 & TAGS2 & as TAGS, with a cursor. Per tag: u16 record bytes, u16 name length, u32 id, u64 files
+  carrying it, the name\\
+42 & SETATTR & data = a path, a zero byte, an attribute's name, a zero byte, a value (digits: a
+  number; none: the attribute is taken away)\\
+43 & GETATTR & data = a path. Reply: the count; per attribute u16 record bytes, u16 name length, u8
+  type, u8 value length, u16 0, the name, the value\\
+45 & SNAP & mode 0 take, 1 delete, 2 list, 3 restore; data = a snapshot's name. A path that starts
+  with \texttt{@NAME} reads the files as the snapshot has them\\
+64 & DBGET & data = u8 namespace name length, u8 tree name length, u16 key length, u32 0, the two
+  names, the key. Reply: the value's length, data: the value; $-4$\\
+65 & DBSCAN & as DBGET; mode 0 from the key on, 1 after it. Reply: the count; data: per record u16
+  key length, u16 value length, u32 0, the key, the value (each padded to 8 bytes), in key order\\
+66 & DBBATCH & handle = items; after the names, from the next multiple of 8, per item u8 1 put / 2
+  delete, u8 0, u16 key length, u16 value length, u16 0, the key, the value. Reply 0: all of them
+  are on the disk, in one commit; or none is\\
 \bottomrule
 \end{tabularx}
 \end{table}

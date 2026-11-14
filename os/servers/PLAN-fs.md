@@ -91,7 +91,8 @@ decisions taken.
 - [x] `doc/strataos.md`
 - [x] The manual: the disk layout (`ch-firmware`), the file system's
       structure and limits (`ch-os`, `ch-appendices`); its table of fs
-      operations still lists DIR and TAGS only; `HANDOFF.md`
+      operations (QUERY to DBBATCH added; the PDF is not rebuilt);
+      `HANDOFF.md`
 
 ## Looking into the store from inside the OS
 - [x] `os/lib/stview.s`: the disk's trees read with READBLK (the last
