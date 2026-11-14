@@ -164,7 +164,7 @@ decisions taken.
       TAGS2, TAG / UNTAG / RENAME / CWD, attributes. Units of 2 KiB; the
       resident code is 25 KiB of the 32, the code cache has three slots
 - [x] `tools/check-fsunits.py` (in `make test`): no jump leaves its unit
-- [ ] A boot on the RTL with the paged server compared with the emulator's
+- [x] A boot on the RTL with the paged server compared with the emulator's
 
 ## Stage 10: names per directory
 A name need only be unique within a directory. A directory is a tag, and
@@ -177,30 +177,32 @@ shows the unassigned files and every directory. Tags stay intersections:
       in both; the root lists every directory. Tested by name
 - [ ] The rules written into `doc/strata-fs-proposal.md` (a section of its
       own) and `doc/strata-store-format.md` (the name index's new key)
-- [ ] The name index: tree `names`, key (tag id big-endian, name) -> file,
+- [x] The name index: tree `dnam`, key (tag id big-endian, name) -> file,
       an entry per directory the file is in, tag id 0 for an unassigned
       file. A disk with the old `name` tree is refused
-- [ ] Host: `tools/stdb/fsl.c` (add, lookup by path, check, dump in an
+- [x] Host: `tools/stdb/fsl.c` (add, lookup by path, check, dump in an
       order that does not depend on ids), `mkdisk` (refuses two files of
       one name in one directory, two boot objects of one name), `stdb ls
       / get` by path, `many.c`, `test.c`
-- [ ] `fs`: a path resolves as the name in its first directory, checked
+- [x] `fs`: a path resolves as the name in its first directory, checked
       against the others; a bare name means the current directory (at the
       root: the unassigned files); create, delete, the index entry per
       directory
-- [ ] `fs`: TAG refuses a directory that has the name; UNTAG of the last
+- [x] `fs`: TAG refuses a directory that has the name; UNTAG of the last
       tag leaves the file in the root (refused if the root has the name)
-- [ ] `fs`: RENAME is a move: with directories in the new path the file's
+- [x] `fs`: RENAME is a move: with directories in the new path the file's
       directories become exactly those; a bare new name changes only the
       name. It replaces a file of that name only if that file is in no
       other directory; otherwise it is refused
-- [ ] `fs`: the root's listing: unassigned files, and every directory as a
-      facet; a way to list every file with its directories (`ls -A`)
+- [x] `fs`: the root's listing: unassigned files (index entries under tag
+      0), and every directory as a facet (the reply's tag set with every
+      bit set); QUERY mode bit 1 lists every file
+- [ ] `ls -A`: every file with its directories
 - [ ] Snapshots, attributes, terms, boot objects (the manifest names them
       without a directory: no two boot objects of one name) still right
-- [ ] `proc`: the servers it starts by name (`tty`, `pipe`, `net`) by
-      their directory; SPAWN takes the path as given, relative to the
-      requester's directory
+- [x] `proc`: `/sys/tty`, `/sys/pipe`, `/bin/sh`; fs LOADIMG reads a
+      program's path from its starter's directory (the starter's pid in
+      the mode word), then looks in `/bin` for a name without `/`
 - [ ] The shell: commands without a `/` in the current directory, then
       along a search path (default `/bin`); `rc` and `motd` by directory;
       completion of commands from the search path
