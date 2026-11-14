@@ -125,7 +125,7 @@ section 6).
 - [x] `cc.c` on the host: `lang/cc/host/`, `build/strata-cc`; the Makefile
       builds the `cc` of the disk with it
 - [x] `cc.c` passes the ladder: all 521
-- [x] the bootstrap compiler follows: 512 of 521. Ported to `cc.s`:
+- [x] the bootstrap compiler follows: all 521 too. Ported to `cc.s`:
       trigraphs, `#line`, `_Pragma`, `#include` of a macro, macros named
       like keywords, the never-expand-again mark, stringified blanks and
       escapes, comments in macro arguments, `\u` and `L'x'`, hexadecimal
@@ -135,7 +135,11 @@ section 6).
       `va_arg` as builtins, float arithmetic rounded to float, an enum in
       a parameter list, `extern` in a block. Its code window is 1 KiB now
       (it was 2): that freed the data these needed
-- [ ] the bootstrap compiler's last nine: variable-length arrays
+- [x] variable-length arrays in `cc.s` (`cc-vla.s`): the same design as in
+      `cc.c`, except that `break` and `continue` do not give a block's
+      array back (the end of the block and `return` do)
+- [x] found on the way, in `cc.s`: an lvalue through a pointer that a call
+      left in a0 was read after a0 had been loaded with the first argument
 - [x] found on the way, fixed in `cc.s`: a register stored to the frame
       inside one arm of `?:`, `&&`, `||` was read back on the other path
 - [x] in `cc.c` beyond the bootstrap compiler: variable-length arrays and
@@ -214,6 +218,7 @@ host and gives the same).
 | **`cc.c`**: `#include` of a macro, `strtod` | 32 | 12 | 93 | 33 | 58 | 75 | 18 | 139 | 61 | 521 |
 | the bootstrap compiler now (headers kept, `strtod`) | 32 | 12 | 89 | 31 | 53 | 71 | 17 | 97 | 50 | 452 |
 | the bootstrap compiler, all but variable-length arrays | 32 | 12 | 93 | 33 | 58 | 75 | 18 | 132 | 59 | 512 |
+| the bootstrap compiler with variable-length arrays | 32 | 12 | 93 | 33 | 58 | 75 | 18 | 139 | 61 | 521 |
 
 ## Size
 
@@ -222,8 +227,8 @@ units (`cc.u`), and an image `cc` of 47 KiB: the 8 KiB library and 38 KiB of
 data. The host program `strata-cc` is the same source and 115 lines of
 `host/host.c`.
 
-`cc.s` and the files it includes: 12,400 lines of assembly, of which the
-resident part is 3.8 KiB of code and the 27 code units 107 KiB; the D-LS
+`cc.s` and the files it includes: 14,400 lines of assembly, of which the
+resident part is 4 KiB of code and the 30 code units 119 KiB; the D-LS
 section is the full 40 KiB (16 KiB symbols, 7 KiB types, 13 KiB variables
 and buffers). The library: 2,800 lines, 8 KiB of code and 3 KiB of data in
 every program. `cc.lib` is 25 KiB (the library, the headers, the table of

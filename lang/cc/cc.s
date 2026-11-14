@@ -139,6 +139,8 @@ TK_UNION = 12                           ; .
 TF_UNS   = 1                            ; unsigned
 TF_VARIADIC = 2                         ; function: ... after the parameters
 TF_OLD   = 4                            ; function: declared with ()
+TF_VM    = 8                            ; array: its size is not a constant: in the frame word TY_AUX
+TF_VMD   = 16                           ; array in a parameter list: its size waits for the function's entry (cc-vla.s)
 NTYPES   = 448                          ; records in the table
 
 ; ---- symbol record (D-LS, 16 bytes; a symbol is the address of its record) ----------
@@ -161,6 +163,7 @@ SC_PARAM = 8                            ; a parameter of a prototype (not in sco
 SF_DEF   = 1                            ; defined (a function's body, an object's storage)
 SF_S0    = 2                            ; a local addressed from s0, not sp
 SF_EXT   = 4                            ; declared extern, no address yet
+SF_VLA   = 16                           ; ... which malloc gave: a variable-length array
 SF_REF   = 8                            ; a local whose frame word holds the object's address (a structure parameter)
 NSYMS    = 1000                         ; records in the table
 
@@ -1379,6 +1382,7 @@ vpu_ok:
         .include "cc-stmt.s"            ; ...
         .include "cc-init.s"            ; ...
         .include "cc-fp.s"              ; ...
+        .include "cc-vla.s"             ; ...
         .include "cc-intr.s"            ; ...
 
         .data                           ; the variables end here: they must not reach the tables,

@@ -1,10 +1,1 @@
 # rung/test	why it is not expected to pass with the bootstrap compiler cc0 (cc.s); the runner reports these apart and flags a test that passes anyway
-08-c99-misc/lacc-vla-arg.c	variable-length arrays are not in the bootstrap compiler yet
-08-c99-misc/lacc-vla-block-declaration.c	variable-length arrays are not in the bootstrap compiler yet
-08-c99-misc/lacc-vla-compatibility.c	variable-length arrays are not in the bootstrap compiler yet
-08-c99-misc/lacc-vla-old-param.c	variable-length arrays are not in the bootstrap compiler yet
-08-c99-misc/lacc-vla-pointer.c	variable-length arrays are not in the bootstrap compiler yet
-08-c99-misc/lacc-vla-static-pointer.c	variable-length arrays are not in the bootstrap compiler yet
-08-c99-misc/lacc-vla.c	variable-length arrays are not in the bootstrap compiler yet
-09-float/lacc-vla-sizeof.c	variable-length arrays are not in the bootstrap compiler yet
-09-float/lacc-vla-ternary-length.c	variable-length arrays are not in the bootstrap compiler yet
