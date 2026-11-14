@@ -872,7 +872,8 @@ record bytes, u16 name length, u32 tags, u64 size, the name, the file's tag
 ids}, each part padded to 8 bytes); 41 TAGS2 (TAGS likewise: handle = a
 cursor; records {u16 record bytes, u16 name length, u32 id, u64 files
 carrying it, the name}). DIR and TAGS remain for the programs that still
-use them (the shell's completion, `httpd`, the Forth ports): they cut a
+use them (the Forth ports; the shell's completion and `httpd` for the
+facets and the tags' names, their files come from QUERY): they cut a
 name to 24 bytes and a tag's to 16, DIR's facets hold only the tags with
 ids below 64, and one reply holds 126 records. Every call answers -5 when
 the disk cannot be read as a store or a page of it fails its checksum.

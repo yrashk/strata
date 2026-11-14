@@ -195,6 +195,10 @@ n1: notes work
 strata$ cat /notes/n
 n1  n2  n3
 strata$ cat /notes/n^[[12D^[[K
+strata$ echo long > /work/a-name-of-more-than-twenty-four-bytes.txt
+strata$ cat /work/a-name-of-more-than-twenty-four-bytes.txt 
+long
+strata$ rm a-name-of-more-than-twenty-four-bytes.txt
 strata$ untag n3 work; untag n1 work; ls /work
 ls: no such tag or file: /work
 [exit 1]

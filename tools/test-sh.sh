@@ -115,6 +115,9 @@ CW=$(printf '\027'); CL=$(printf '\014'); CD=$(printf '\004')
   printf 'cat /work/n%s%s%s\n' "$TAB" "$TAB" "$CU"
   printf 'echo more >> /work/n1; tags n1\n'
   printf 'cat /notes/n%s%s%s\n' "$TAB" "$TAB" "$CU"
+  printf 'echo long > /work/a-name-of-more-than-twenty-four-bytes.txt\n'
+  printf 'cat /work/a-na%s\n' "$TAB"
+  printf 'rm a-name-of-more-than-twenty-four-bytes.txt\n'
   printf 'untag n3 work; untag n1 work; ls /work\n'
   printf 'tags | grep notes\n'
   printf 'tag n1 a/b; tag nosuch x; untag; tags nosuch\n'

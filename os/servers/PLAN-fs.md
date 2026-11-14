@@ -79,9 +79,12 @@ decisions taken.
 - [x] `sys.s`: `sys_list`, `sys_tags2`
 - [x] `ls` (names of any length, listings of any length)
 - [x] `cp`, `cp.fs`: no size limit
-- [ ] `sh` completion, `httpd`, `tag` / `tags` / `cp -t`, `vi`'s tags: still
-      DIR and TAGS (24-byte names, 16-byte tag names, 126 records, tag ids
-      below 64 in the facets)
+- [x] `sh` completion (asks for `PATH/PREFIX*`) and `httpd`'s listings
+      (part by part): file names whole, any number of files. Both still
+      ask DIR once for the facets, and TAGS for tag names
+- [ ] `tag` / `tags` / `cp -t`, `vi`'s tags, the facets everywhere: still
+      TAGS and DIR's tag set (16-byte tag names, 64 tags of a file, tag
+      ids below 64 in the facets)
 - [x] `vi`, `vi-edit.fs`: no "128 KiB at most" for `:w`
 - [ ] Forth: `sys.fs`, `ls.fs`, `httpd.fs`, `tag.fs`, `tags.fs`, `vi-edit.fs`
 - [ ] DIR (10) and TAGS (14) removed

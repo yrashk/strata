@@ -201,8 +201,9 @@ built from. The kernel boots from a boot manifest (`u_disk` in
   16-bit addresses), so the large buffers are declared last.
 - Not done (the plan has the list): private namespaces and
   transactions over several requests for other programs, terms answered
-  from the index, the shell's completion and `httpd` on the cursor
-  calls (they still use DIR and TAGS, which cut names to 24 bytes).
+  from the index, the Forth ports on the cursor calls (they
+  still use DIR and TAGS, which cut names to 24 bytes), facets beyond 64
+  tags.
 
 ## Open work
 
