@@ -1,17 +1,20 @@
 ; =============================================================================
-; ls.s: list the files on the disk, or the files that carry tags
+; ls.s: list the files of a directory
 ; =============================================================================
 ;
-;   ls                    the files of the current tag path (cd; at "/":
-;                         every file): name (padded to 26 columns), size
+;   ls                    the files of the current directory (cd; at "/": the
+;                         files in no directory, then every directory): name
+;                         (padded to 26 columns), size
 ;   ls TAG/...  ls NAME   a path without the leading "/": under the current one
 ;   ls /TAG/TAG...        the files that carry every one of the tags
 ;   ls /TAG.../NAME       that one file, if it carries the tags
 ;   ls /TAG/-TAG...       "-TAG": files that do not carry it (ls /src/-demo)
 ;   ls -t [PATH]          the same, with each file's tags after its size
+;   ls -A                 every file on the disk, wherever it is, with its tags
+;                         (its directories)
 ;
-; The file system has no directories: a "directory" is a set of tags (see
-; os/servers/fs.s). Asks the file server for the files with sys_list, part by
+; A directory is a tag, and a file is in each one it is tagged with (see
+; os/servers/fs.s); a name is unique within a directory. Asks the file server for the files with sys_list, part by
 ; part (a listing has no limit; each part's records hold a file's name, size
 ; and tag ids) and, with -t, for each file's tags with sys_tags2.
 ; Subdirectories are facets: after the files come the other tags they carry,
@@ -43,6 +46,7 @@ m_none_e:                               ; end of the text above
 m_err:  .ascii "ls: no such tag or file: " ; error text
 m_err_e:                                ; end of the text above
 m_t:    .ascii "-t"                     ; the option
+m_A:    .ascii "-A"                     ; ...
 m_sl:   .ascii "/"                      ; after a facet
 
         .text                           ; instruction Local Store
@@ -66,7 +70,17 @@ arg:
         la    a2, m_t                   ; -t?
         li    a3, 2                     ; ...
         call  str_eq                    ; ...
+        bnez  a0, a_t                   ; ...
+        mv    a0, s2                    ; -A? every file (the listing's mode 2), with tags
+        mv    a1, s3                    ; ...
+        la    a2, m_A                   ; ...
+        li    a3, 2                     ; ...
+        call  str_eq                    ; ...
         beqz  a0, a_path                ; no
+        la    t0, sys_lmode             ; ...
+        li    t1, 2                     ; ...
+        sd    t1, 0(t0)                 ; ...
+a_t:
         li    t0, 1                     ; yes
         la    t1, flag_t                ; ...
         sd    t0, 0(t1)                 ; ...

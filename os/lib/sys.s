@@ -154,6 +154,7 @@ sys_buf:   .space 4096                  ; staging for message data (aligned for 
 sys_start: .space 512                   ; the start-up block: pid, parent, handles, command line
 sys_bufb:  .dword 0                     ; base of our message buffer (what the kernel waits for)
 sys_intrf: .dword 0                     ; an interrupt arrived while we waited (-2 seen)
+sys_lmode: .dword 0                     ; sys_list's mode word (2: every file, wherever it is)
 sys_htab:  .space NHAND * 16            ; handles: {server register, server id}, register 0 = free
 out_buf:   .space 4096                  ; buffered standard output
 out_len:   .dword 0                     ; bytes waiting in out_buf
@@ -2294,7 +2295,8 @@ sys_fsl:
         ld    a1, 32(sp)                ; op
         ld    a2, 24(sp)                ; cursor
         ld    a3, 16(sp)                ; length
-        li    a4, 0                     ; ...
+        la    a4, sys_lmode             ; (a listing's mode: `sys_lmode`, 0 unless set)
+        ld    a4, 0(a4)                 ; ...
         call  sys_msg                   ; a0 = count
         li    a1, 0                     ; (no more after an error)
         bltz  a0, sfl_ret               ; ...
