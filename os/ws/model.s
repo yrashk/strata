@@ -27,7 +27,10 @@
 ; m_slice (the scheduler's time slice, microseconds).
 ;
 ; Windows (tiles): m_nwin records of WN_SIZE bytes at m_wins, in tile order;
-; m_focus is the focused one's index.
+; m_focus is the focused one's index. m_full: the focused window is shown
+; alone, the other tiles are not drawn: FM_FULL full screen (it covers the
+; strip too and has no frame), FM_ONE a single tile (the strip and its frame
+; stay); m_fulltag: frames the sign that says "full screen" is still shown.
 ;   WN_KIND   WK_TERM / WK_GFX          WN_PID, WN_CORE   its process
 ;   WN_NAME   8 bytes: TERM, WMANDEL ... WN_SURF the client's surface (48 B)
 ;   WN_CUR    x, y, w, h now (moves while sliding)
@@ -46,6 +49,9 @@ MAXCORE   = 16                          ; cores the lattice can show
 MAXPROC   = 64                          ; processes (proc's NPROC)
 MAXWIN    = 4                           ; tiles
 PULSE_MAX = 10                          ; frames a pulse lasts
+FULL_TAG  = 150                         ; frames the "full screen" sign is shown
+FM_FULL   = 1                           ; m_full: the focused window is the whole screen
+FM_ONE    = 2                           ; ... or the only tile
 
 CO_PID    = 0                           ; core record: running process
 CO_FLAGS  = 8                           ; flags
@@ -93,6 +99,8 @@ m_ncores: .dword 0                      ; cores
 m_nproc:  .dword 0                      ; processes
 m_nwin:   .dword 0                      ; windows
 m_focus:  .dword 0                      ; focused window
+m_full:   .dword 0                      ; it is shown alone: FM_FULL, FM_ONE (0: the tiling)
+m_fulltag: .dword 0                     ; frames its "full screen" sign stays
 m_clock:  .dword 0                      ; seconds since midnight
 m_uptime: .dword 0                      ; seconds since boot
 m_swps:   .dword 0                      ; context switches per second

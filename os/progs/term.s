@@ -23,11 +23,12 @@
 ; fetched without blocking. Nothing is polled.
 ;
 ; D-LS: the library's buffers 13 KiB, strips 5 KiB, fonts 3 KiB, and the
-; grid: 47 rows of 160 cells (a full-screen tile at 1280 x 800), 15 KiB.
+; grid: 50 rows of 160 cells (a full-screen window at 1280 x 800), 16 KiB:
+; with it the data ends 304 bytes below 0xA000, the end of a program's D-LS.
 ; Scrollback: 512 rows in far memory, the top 160 KiB of the arena (which
 ; is the band otherwise: wc_keep).
 
-GRID_CAP  = 47                          ; ring rows of the grid
+GRID_CAP  = 50                          ; ring rows of the grid
 GRID_STR  = 160                         ; cells per ring row (a row: 320 bytes, whole words)
 FAR_ROWS  = 512                         ; scrollback kept in far memory (the arena's top 160 KiB)
 RDMAX     = 512                         ; bytes read from the shell at a time

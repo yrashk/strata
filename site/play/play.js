@@ -26,7 +26,7 @@ const PRESETS = {
     args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
     fitScreen: true,
     sound: true,
-    about: "The boot ROM finds the disk, loads the kernel into every core's Local Stores, and StrataOS starts its servers and the shell on 12 cores. Try help, ls, ps, -n 3 mandel, or ws for the window server (click the screen; Alt+P launches programs, wdoom among them; Alt+Enter opens a terminal, Alt+? lists the keys).",
+    about: "The boot ROM finds the disk, loads the kernel into every core's Local Stores, and StrataOS starts its servers and the shell on 12 cores. Try help, ls, ps, -n 3 mandel, or ws for the window server (click the screen; Alt+P launches programs, wdoom among them; Alt+Enter opens a terminal, Alt+F makes a window full screen, Alt+? lists the keys).",
   },
   osws: {
     files: ["bootrom.stx", "disk-ws.img"],
@@ -34,7 +34,7 @@ const PRESETS = {
     fitScreen: true,
     screenKeys: true,
     sound: true,
-    about: "StrataOS on 12 cores with the window server started at boot (its rc runs ws): the real ws, its terminals running the real shell. A key help comes up after the splash; any key or click dismisses it. Alt+Enter opens a terminal, Alt+P the launch palette (try wdoom), a click focuses a tile, the wheel scrolls a terminal back, Alt+? shows the help again.",
+    about: "StrataOS on 12 cores with the window server started at boot (its rc runs ws): the real ws, its terminals running the real shell. A key help comes up after the splash; any key or click dismisses it. Alt+Enter opens a terminal, Alt+P the launch palette (try wdoom), Alt+F makes the focused window full screen and Alt+Z the only tile (again: back), a click focuses a tile, the wheel scrolls a terminal back, Alt+? shows the help again.",
   },
   kira: {
     files: ["bootrom.stx", "disk.img"],
