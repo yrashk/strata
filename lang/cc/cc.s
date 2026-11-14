@@ -332,7 +332,7 @@ fn_s0:    .dword 0                      ; 1: its parameters are at 8 * i (s0)
 fn_sret:  .dword 0                      ; frame offset (from sp, or s0) of the word holding the address for a structure result
 fr_cur:   .dword 0                      ; frame bytes in use now
 fr_max:   .dword 0                      ; the most used
-fr_tmp:   .dword 0                      ; frame bytes in use by declared objects (temporaries are above)
+fr_keep:  .dword 0                      ; frame bytes a statement's end must not release (compound literals of the block)
 fn_rchain: .dword 0                     ; chain of jumps to the epilogue
 scope:    .dword 0                      ; nesting depth of the current block (0: file scope)
 brk_chain: .dword 0                     ; chain of jumps leaving the innermost loop or switch
