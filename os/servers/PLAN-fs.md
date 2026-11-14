@@ -111,7 +111,10 @@ decisions taken.
       SPAWN and CLEANUP
 - [ ] Transactions over several requests (BEGIN / COMMIT / ABORT, other
       writers parked); conditions in a batch (REQUIRE-ABSENT ...)
-- [ ] Wrappers in `sys.s`; Forth words
+- [x] Wrappers: `os/lib/kv.s` (`kv_open`, `kv_get`, `kv_put`, `kv_del`,
+      `kv_scan`; a library of its own, so that programs that keep nothing
+      in the store do not grow); `db` is built on it
+- [ ] Forth words for the store's calls
 - [x] Attributes: SETATTR (42), GETATTR (43), `attr` (`fsattr.s`); terms
       in paths: `NAME=VALUE`, `<`, `>` over attributes, `size`,
       `modified`; `PREFIX*` last in a listing; `test-store.sh` part 7
@@ -128,7 +131,8 @@ decisions taken.
       roots; `drop_tree` frees what only the state given up used; the
       snapshot's own pages leave the dead lists (a dead-list entry says
       whose namespace's pages it holds). `test-store.sh` part 5
-- [ ] `stdb`: listing snapshots and reading through one on the host
+- [x] `stdb snaps IMAGE`; `stdb -s SNAP dump|ls|get|info IMAGE` reads the
+      disk as a snapshot has it (`test-store.sh` part 5)
 - [x] The server no longer carries `sys.s` (it used one message and three
       buffers of it): about 5 KiB of its I-LS are free
 

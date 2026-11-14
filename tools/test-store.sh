@@ -280,6 +280,9 @@ grep -q '^one$' "$tmp/out.txt" && grep -q '^two$' "$tmp/out.txt" && grep -q 'no 
 "$b/stdb" check "$tmp/r1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk after a restore fails its check"; }
 "$b/stdb" dump "$tmp/r0.img" >"$tmp/r0.dump"
 "$b/stdb" dump "$tmp/r1.img" >"$tmp/r1.dump"
+[ "$("$b/stdb" snaps "$tmp/r1.img" | cut -d' ' -f1 | tr '\n' ' ')" = "s1 s2 " ] || fail "stdb snaps does not list the two snapshots"
+"$b/stdb" -s s1 dump "$tmp/r1.img" | cmp -s - "$tmp/r0.dump" || fail "the snapshot read on the host (stdb -s) is not the disk of that time"
+[ "$("$b/stdb" -s s2 get "$tmp/r1.img" a)" = two ] || fail "a file read through the later snapshot on the host"
 cmp -s "$tmp/r0.dump" "$tmp/r1.dump" || { diff "$tmp/r0.dump" "$tmp/r1.dump" | head -5 >&2; fail "the restored disk is not the disk of the snapshot"; }
 printf 'snap -d s2\nsnap -d s1\ncat a\ndf\nhalt\n' >"$tmp/r2.txt"
 run "$tmp/r2.txt" "$tmp/r1.img" -w "$tmp/r2.img" || fail "the boot after a restore did not end well"

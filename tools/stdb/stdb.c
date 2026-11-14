@@ -6,7 +6,11 @@
  *                             that does not depend on where things lie
  *   stdb ls IMAGE [TAG]       names, sizes and tags
  *   stdb get IMAGE NAME [OUT] a file's contents (to the standard output)
- *   stdb info IMAGE           sizes and counts */
+ *   stdb info IMAGE           sizes and counts
+ *   stdb snaps IMAGE          the snapshots: name, commit
+ *   stdb -s SNAP dump|ls|get|info IMAGE ...
+ *                             the same, of the disk as the snapshot SNAP has
+ *                             it (every namespace, as it was at that commit) */
 #include <stdlib.h>
 #include <string.h>
 
@@ -81,13 +85,41 @@ static void dump_rest(void) {
   }
 }
 
+static const char usage[] = "usage: stdb [-s SNAPSHOT] check|dump|ls|get|info|snaps IMAGE [...]\n";
+
+/* The snapshots (namespace 0's tree "snap": commit -> catalog root, height,
+ * name): listed, or with a name the catalog becomes that snapshot's, so
+ * every tree opened after is the one the snapshot has. */
+static int snaps(const char *want) {
+  StTree *t = st_tree(&st, 0, "snap", 0);
+  uint8_t k[8], v[ST_MAXPS / 4];
+  int kl = 0, vl;
+  while (t && st_seek(&st, t, k, kl, ST_GT, k, &kl, v, &vl, NULL)) {
+    uint64_t c = 0;
+    for (int i = 0; i < 8; i++) c = c << 8 | k[i];
+    if (!want) { printf("%.*s commit %llu\n", vl - 16, (char *)v + 16, (unsigned long long)c); continue; }
+    if ((int)strlen(want) != vl - 16 || memcmp(want, v + 16, (size_t)vl - 16)) continue;
+    st.cat.root = st.cat.height = 0;
+    for (int i = 7; i >= 0; i--) { st.cat.root = st.cat.root << 8 | v[i]; st.cat.height = st.cat.height << 8 | v[8 + i]; }
+    st.commit = c;
+    memset(st.open, 0, sizeof st.open);
+    return 1;
+  }
+  return 0;
+}
+
 int main(int argc, char **argv) {
-  if (argc < 3) { fprintf(stderr, "usage: stdb check|dump|ls|get|info IMAGE [...]\n"); return 2; }
+  const char *snap = NULL;
+  if (argc > 3 && !strcmp(argv[1], "-s")) { snap = argv[2]; argv += 2; argc -= 2; }
+  if (argc < 3) { fputs(usage, stderr); return 2; }
   const char *cmd = argv[1];
   load(argv[2]);
   jmp_buf jb;
   st.jb = &jb;
   if (setjmp(jb)) { fprintf(stderr, "stdb: %s: %s\n", argv[2], st.msg); return 1; }
+  if (!strcmp(cmd, "snaps")) { snaps(NULL); return 0; }
+  if (snap && !strcmp(cmd, "check")) { fprintf(stderr, "stdb: check is of the whole disk, not of a snapshot\n"); return 2; }
+  if (snap && !snaps(snap)) { fprintf(stderr, "stdb: %s: no such snapshot: %s\n", argv[2], snap); return 1; }
   int havefs = !fs_open(&st, &fs);
   if (!strcmp(cmd, "check")) {
     int bad = st_check(&st, stderr);
@@ -138,6 +170,6 @@ int main(int argc, char **argv) {
     if (o != stdout) fclose(o);
     return 0;
   }
-  fprintf(stderr, "usage: stdb check|dump|ls|get|info IMAGE [...]\n");
+  fputs(usage, stderr);
   return 2;
 }

@@ -271,7 +271,7 @@ $(SPROGS): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sa
 
 # db: looks into the store on the disk (os/lib/stview.s; wdb is its window)
 DBPROGS := $(BUILD)/prog/db $(BUILD)/prog/snap $(BUILD)/prog/attr
-$(BUILD)/prog/db: os/lib/stview.s
+$(BUILD)/prog/db: os/lib/stview.s os/lib/kv.s
 $(UPROGS) $(NPROGS) $(DBPROGS): $(BUILD)/prog/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<

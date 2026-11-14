@@ -900,7 +900,9 @@ inside the OS (`cp new-fs /sys/fs`): at its close its contents are brought
 into one run of pages and the manifest is written anew, in the same
 commit, so the next boot loads the old server or the new one. It cannot be
 renamed or deleted. `build/stdb check IMAGE` checks
-a disk from outside, `stdb dump`, `ls` and `get` read one. **Snapshots**
+a disk from outside, `stdb dump`, `ls` and `get` read one (`stdb snaps`
+lists its snapshots, `stdb -s SNAP dump|ls|get` reads it as one has it).
+**Snapshots**
 (`snap NAME` takes one, `snap` lists them, `snap -d NAME` deletes one,
 `snap -r NAME` restores one; fs call 45 SNAP: mode 0 take, 1 delete, 3
 restore, data = a name of 1–32 bytes; 2 list → 40-byte records {u64 commit,
@@ -947,7 +949,8 @@ after the last key; 66 DBBATCH (handle = items; items {u8 1 put / 2
 delete, u8 0, u16 key length, u16 value length, u16 0, key, value} from
 the next multiple of 8) → all of them in one commit, or none. A namespace
 and a tree are made by the first write. Namespaces made this way are
-public (any program names them); `fs` is private and refused. `db put
+public (any program names them); `fs` is private and refused. `os/lib/kv.s` wraps them for assembly programs (`kv_open`,
+`kv_get`, `kv_put`, `kv_del`, `kv_scan`). `db put
 NS/TREE KEY VALUE`, `db get NS/TREE KEY` and `db del NS/TREE KEY` use
 them from the shell. Inside the OS,
 `db` shows the store's trees (`db`: the trees with their roots and heights;
