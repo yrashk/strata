@@ -30,6 +30,7 @@
 # 8. Boot objects (the first servers' files) written inside the OS.
 # 9. `fsck`, the check of the store from inside the OS.
 # 10. A full disk: only the writer that did not fit loses its work.
+# 11. Names per directory: one name in several, the root, subdirectories.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 b="$here/${BUILD:-build}"
@@ -47,13 +48,13 @@ run() { # run INPUT DISK OUT [emulator options]: a session; the console's transc
 # ---- 1. a session that changes files ---------------------------------------------------
 cat >"$tmp/s1.txt" <<'EOF'
 echo hello > /notes/a
-echo more >> a
+echo more >> /notes/a
 seq 40000 > /nums/big
 seq 300 > mid
-cp motd m2
+cp /doc/motd m2
 tag m2 x y
-mv m2 /keep/m3
-cp about gone
+mv /x/m2 /keep/m3
+cp /doc/about gone
 rm gone
 echo first > twice
 echo second > twice
@@ -91,7 +92,7 @@ want("mid", "".join("%d\n" % i for i in range(1, 301)).encode(), "")
 want("twice", b"second\n", "")
 want("empty", b"", "notes")
 assert "gone" not in d1 and "m2" not in d1
-assert d1["m3"]["sum"] == d0["motd"]["sum"] and d1["m3"]["tags"] == "keep,x,y", d1["m3"]
+assert d1["m3"]["sum"] == d0["motd"]["sum"] and d1["m3"]["tags"] == "keep", d1["m3"]  # (mv is a move: it left x and y)
 for k, v in d0.items():
     assert d1.get(k) == v, "a file of the original disk changed: " + k
 assert set(d1) - set(d0) == {"a", "big", "mid", "twice", "empty", "m3"}, set(d1) - set(d0)
@@ -101,12 +102,12 @@ echo "test-store: the session's disk: $(sed 's/^[^:]*: //' "$tmp/check.txt")"
 
 # ---- 2. the machine boots from it again --------------------------------------------------
 cat >"$tmp/s2.txt" <<'EOF'
-cat a
+cat /notes/a
 cat twice
-tags m3
+tags /keep/m3
 seq 40000 > again
 db
-db fs/name
+db fs/dnam
 db -p 3
 halt
 EOF
@@ -119,16 +120,17 @@ grep -q '^hello$' "$tmp/out.txt" && grep -q '^more$' "$tmp/out.txt" && grep -q '
 cmp -s "$tmp/big1" "$tmp/big2" || fail "a file written on the second boot differs from the first's"
 [ "$(wc -l <"$tmp/big1")" -eq 40000 ] || fail "the large file does not have its lines"
 # `db` walks the trees from the disk, below the file system: the trees are
-# listed, the names tree holds the first session's files, and a page that is
+# listed, the tree of names holds the first session's files, under each of their directories, and a page that is
 # not a tree page is refused
 grep -q '^fs/obj  *root page [0-9]*, height [0-9]' "$tmp/out.txt" && grep -q '^catalog  *root page' "$tmp/out.txt" ||
   { cat "$tmp/out.txt" >&2; fail "db does not list the trees"; }
 for f in a big mid twice empty m3 motd; do
-  grep -q "^\"$f\" = " "$tmp/out.txt" || fail "db fs/name does not show $f"
+  grep -q "^\"[^\"]*$f\" = " "$tmp/out.txt" || fail "db fs/dnam does not show $f"
 done
 names=$(grep -c '^"[^"]*" = "' "$tmp/out.txt")
-files=$("$b/stdb" dump "$tmp/d1.img" | wc -l | tr -d ' ')
-[ "$names" -eq $((files + 1)) ] || fail "db fs/name shows $names names: not the first session's $files files and one more"
+# (an entry for each directory a file is in, or one for a file in none)
+files=$("$b/stdb" dump "$tmp/d1.img" | awk '{ n = 1; for (i = 2; i <= NF; i++) if ($i ~ /^tags=/) n = split($i, t, ","); s += n } END { print s }')
+[ "$names" -eq $((files + 1)) ] || fail "db fs/dnam shows $names names: not the first session's $files and one more"
 grep -q '^db: not a tree page: 3' "$tmp/err.txt" "$tmp/out.txt" || fail "db -p took a page that is not a tree's"
 echo "test-store: read back after a second boot; db walks the trees"
 
@@ -138,9 +140,9 @@ cat >"$tmp/s3.txt" <<'EOF'
 seq 3000 > /cut/c1
 echo one > /cut/c2
 seq 20000 > c3
-cp motd c4
+cp /doc/motd c4
 tag c4 cut
-echo two > c2
+echo two > /cut/c2
 halt
 EOF
 run "$tmp/s3.txt" "$disk" -w "$tmp/ref.img" || fail "the cut session did not end well"
@@ -196,20 +198,20 @@ cat >"$tmp/s5.txt" <<'EOF'
 echo one > /notes/v
 seq 30000 > keep
 snap first
-echo two > v
+echo two > /notes/v
 rm keep
 seq 9000 > other
 snap second
-echo three > v
-tag v late
-cat /@first/v
-cat /@second/v
-cat v
+echo three > /notes/v
+tag /notes/v late
+cat /@first/notes/v
+cat /@second/notes/v
+cat /notes/v
 wc < /@first/keep
 ls /@first/notes
-tags /@first/v
+tags /@first/notes/v
 echo x > /@first/w
-rm /@first/v
+rm /@first/notes/v
 snap
 df
 halt
@@ -221,22 +223,22 @@ t = open(sys.argv[1], errors="replace").read()
 def after(cmd, n=1):
     i = t.index("$ " + cmd + "\n") + len(cmd) + 3
     return t[i:].split("\n")[:n]
-assert after("cat /@first/v") == ["one"], "the first snapshot's file"
-assert after("cat /@second/v") == ["two"], "the second snapshot's file"
-assert after("cat v") == ["three"], "the live file"
+assert after("cat /@first/notes/v") == ["one"], "the first snapshot's file"
+assert after("cat /@second/notes/v") == ["two"], "the second snapshot's file"
+assert after("cat /notes/v") == ["three"], "the live file"
 assert after("wc < /@first/keep")[0].split()[0] == "30000", "a file deleted since, read from its snapshot"
-assert after("tags /@first/v")[0].rstrip().endswith("notes"), "a snapshot shows the tags of its time"
-assert "cannot open /@first/w" in t and "no such file: /@first/v" in t, "a snapshot was written"
+assert after("tags /@first/notes/v")[0].rstrip().endswith("notes"), "a snapshot shows the tags of its time"
+assert "cannot open /@first/w" in t and "no such file: /@first/notes/v" in t, "a snapshot was written"
 assert after("snap", 2)[0].startswith("first ") and after("snap", 2)[1].startswith("second "), "the list"
 EOF
 "$b/stdb" check "$tmp/sn.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "a disk with snapshots fails its check"; }
 used1=$(grep '^disk:' "$tmp/out.txt" | tail -1 | awk '{print $4}')
 cat >"$tmp/s6.txt" <<'EOF'
-cat /@first/v
+cat /@first/notes/v
 wc < /@first/keep
 snap -d first
-cat /@first/v
-cat /@second/v
+cat /@first/notes/v
+cat /@second/notes/v
 snap -d second
 snap
 df
@@ -261,17 +263,17 @@ cat >"$tmp/r1.txt" <<'EOF'
 echo one > /notes/a
 seq 2000 > nums
 snap s1
-echo two > a
+echo two > /notes/a
 seq 50000 > big
-rm motd
+rm /doc/motd
 rm nums
-tag a later
-mv about about2
+tag /notes/a later
+mv /doc/about about2
 snap s2
-echo three > a
+echo three > /notes/a
 snap -r s1
-cat a
-cat /@s2/a
+cat /notes/a
+cat /@s2/notes/a
 ls big
 snap -r nosuch
 halt
@@ -286,7 +288,7 @@ grep -q '^one$' "$tmp/out.txt" && grep -q '^two$' "$tmp/out.txt" && grep -q 'no 
 "$b/stdb" -s s1 dump "$tmp/r1.img" | cmp -s - "$tmp/r0.dump" || fail "the snapshot read on the host (stdb -s) is not the disk of that time"
 [ "$("$b/stdb" -s s2 get "$tmp/r1.img" a)" = two ] || fail "a file read through the later snapshot on the host"
 cmp -s "$tmp/r0.dump" "$tmp/r1.dump" || { diff "$tmp/r0.dump" "$tmp/r1.dump" | head -5 >&2; fail "the restored disk is not the disk of the snapshot"; }
-printf 'snap -d s2\nsnap -d s1\ncat a\ndf\nhalt\n' >"$tmp/r2.txt"
+printf 'snap -d s2\nsnap -d s1\ncat /notes/a\ndf\nhalt\n' >"$tmp/r2.txt"
 run "$tmp/r2.txt" "$tmp/r1.img" -w "$tmp/r2.img" || fail "the boot after a restore did not end well"
 "$b/stdb" check "$tmp/r2.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk after the restore's snapshots were deleted fails its check"; }
 "$b/stdb" dump "$tmp/r2.img" | cmp -s - "$tmp/r0.dump" || fail "deleting the snapshots after a restore changed the files"
@@ -300,15 +302,15 @@ db put app/conf size 43
 db del app/log 0001
 db put app/log 0002 again
 db get app/conf size
-db put fs/name evil x
-db get fs/name motd
+db put fs/dnam evil x
+db get fs/dnam motd
 forth db.fs put app/forth k1 from-forth
 forth db.fs put app/forth k2 gone
 forth db.fs del app/forth k2
 forth db.fs get app/conf colour
 db get app/forth k1
 echo --fscan; forth db.fs scan app/conf
-forth db.fs get fs/name motd
+forth db.fs get fs/dnam motd
 halt
 EOF
 run "$tmp/k1.txt" "$disk" -w "$tmp/k1.img" || fail "the session with a namespace of its own did not end well"
@@ -337,15 +339,15 @@ cat >"$tmp/a1.txt" <<'EOF'
 echo x > /t/a1
 echo yy > /t/a2
 echo zzz > /t/a3
-attr a1 colour red
-attr a1 year 1984
-attr a2 colour blue
-attr a2 year 2001
-attr a3 year 1999
-attr a1 colour green
-attr -d a1 year
-attr a1
-attr a1 size 5
+attr /t/a1 colour red
+attr /t/a1 year 1984
+attr /t/a2 colour blue
+attr /t/a2 year 2001
+attr /t/a3 year 1999
+attr /t/a1 colour green
+attr -d /t/a1 year
+attr /t/a1
+attr /t/a1 size 5
 echo --blue; ls /t/colour=blue
 echo --eq1; ls /colour=blue
 echo --eq2; ls /year=1999
@@ -356,7 +358,7 @@ echo --new; ls '/t/year>1999'
 echo --big; ls '/t/size>2'
 echo --pre; ls /bin/ca*
 echo --open; cat /t/colour=blue/a2; cat /t/colour=blue/a1
-rm a2
+rm /t/a2
 echo --gone; ls /t/colour=blue
 halt
 EOF
@@ -371,7 +373,7 @@ def sect(mark):
         if l.startswith("--") or "strata$" in l: break
         out.append(l.split()[0] if l.split() else "")
     return [x for x in out if x]
-assert "colour = green" in t and "year = 1984" not in t.split("strata$ attr a1\n")[-1].split("strata$")[0], "attr lists what was set last"
+assert "colour = green" in t and "year = 1984" not in t.split("strata$ attr /t/a1\n")[-1].split("strata$")[0], "attr lists what was set last"
 assert "attr: cannot set size" in t, "size is not an attribute to set"
 assert sect("blue") == ["a2"], sect("blue")
 assert sect("eq1") == ["a2", "t/"] and sect("eq2") == ["a3", "t/"], "a term alone (the index walked): %r %r" % (sect("eq1"), sect("eq2"))
@@ -488,4 +490,44 @@ EOF
 "$b/stdb" check "$tmp/d1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk after it was full fails its check"; }
 [ "$("$b/stdb" get "$tmp/d1.img" a)" = "$(printf 'one\ntwo')" ] || fail "the other writer's file on the disk"
 echo "test-store: a full disk: the file that did not fit is given up and its space is back; a file another program was writing is whole"
+# ---- 11. names per directory -----------------------------------------------------------------
+# One name in two directories and in the root: three files, each read by its
+# path, on the disk as three; a directory that has the name refuses a second
+# file of it; a move leaves the old directory; subdirectories stay.
+cat >"$tmp/n1.txt" <<'EOF'
+echo in-a > /na/same
+echo in-b > /nb/same
+echo in-root > same
+tag /na/same nb
+echo deep > /na/sub/deep
+mv /nb/same /nc/moved
+echo --ls-na; ls /na
+echo --ls-sub; ls /na/sub
+echo --cat; cat /na/same same /nc/moved /na/sub/deep /sub/deep
+cd /na/sub
+echo --cwd; cat deep
+halt
+EOF
+run "$tmp/n1.txt" "$disk" -w "$tmp/n1.img" || fail "the session with one name in several directories did not end well"
+python3 - "$tmp/out.txt" <<'EOF' || { cat "$tmp/out.txt" >&2; exit 1; }
+import sys
+t = open(sys.argv[1], errors="replace").read()
+def sect(mark):
+    out = []
+    for l in t.split("\n--" + mark + "\n")[1].split("\n"):
+        if l.startswith("--") or "strata" in l: break
+        out.append(l.split()[0] if l.split() else "")
+    return [x for x in out if x]
+assert "cannot tag /na/same with nb" in t, "a directory that has the name took a second file of it"
+assert sect("ls-na") == ["same", "deep", "sub/"], "a directory's files and its subdirectory: %r" % sect("ls-na")
+assert sect("ls-sub") == ["deep"], "a subdirectory's files: %r" % sect("ls-sub")
+assert sect("cat") == ["in-a", "in-root", "in-b", "deep", "deep"], "each file by its path: %r" % sect("cat")
+assert sect("cwd") == ["deep"], "a name alone in a subdirectory"
+EOF
+"$b/stdb" check "$tmp/n1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk with one name in several directories fails its check"; }
+"$b/stdb" dump "$tmp/n1.img" | grep -E '^(same|moved|deep) ' | sed 's/ sum=[0-9a-f]*//' >"$tmp/n1.dump"
+printf 'deep size=5 tags=na,sub\nmoved size=5 tags=nc\nsame size=5 tags=na\nsame size=8\n' | cmp -s - "$tmp/n1.dump" ||
+  { cat "$tmp/n1.dump" >&2; fail "the files on the disk are not the three of one name, the moved one and the one in a subdirectory"; }
+[ "$("$b/stdb" get "$tmp/n1.img" /na/same)" = in-a ] && [ "$("$b/stdb" get "$tmp/n1.img" /same)" = in-root ] || fail "stdb get by path"
+echo "test-store: names per directory: one name in two directories and the root, a refused tag, a move, a subdirectory; the disk checked"
 echo "test-store: OK"
