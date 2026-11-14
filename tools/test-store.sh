@@ -24,6 +24,8 @@
 #    deleting them gives their space back.
 # 5. `snap -r` restores a snapshot: the files, names and tags are again
 #    what they were, and the pages are accounted for.
+# 6. The store for programs (`db put`, `get`, `del`: DBBATCH, DBGET): trees
+#    in a namespace of their own, beside the file system's.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 b="$here/${BUILD:-build}"
@@ -282,4 +284,29 @@ run "$tmp/r2.txt" "$tmp/r1.img" -w "$tmp/r2.img" || fail "the boot after a resto
 "$b/stdb" check "$tmp/r2.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk after the restore's snapshots were deleted fails its check"; }
 "$b/stdb" dump "$tmp/r2.img" | cmp -s - "$tmp/r0.dump" || fail "deleting the snapshots after a restore changed the files"
 echo "test-store: a snapshot restored: the disk holds what it held then; the later snapshot still reads; nothing is lost when both are deleted"
+# ---- 6. the store for programs -----------------------------------------------------------
+cat >"$tmp/k1.txt" <<'EOF'
+db put app/conf colour amber
+db put app/conf size 42
+db put app/log 0001 started
+db put app/conf size 43
+db del app/log 0001
+db put app/log 0002 again
+db get app/conf size
+db put fs/name evil x
+db get fs/name motd
+halt
+EOF
+run "$tmp/k1.txt" "$disk" -w "$tmp/k1.img" || fail "the session with a namespace of its own did not end well"
+grep -q '^43$' "$tmp/out.txt" || { cat "$tmp/out.txt" >&2; fail "db get does not answer what db put wrote"; }
+[ "$(grep -c '^db: refused' "$tmp/out.txt")" -eq 2 ] || fail "the file system's namespace was not refused to db put and db get"
+"$b/stdb" check "$tmp/k1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk with a program's namespace fails its check"; }
+"$b/stdb" dump "$tmp/k1.img" | grep '^app/' >"$tmp/k1.dump"
+printf 'app/conf "colour" = "amber"\napp/conf "size" = "43"\napp/log "0002" = "again"\n' | cmp -s - "$tmp/k1.dump" ||
+  { cat "$tmp/k1.dump" >&2; fail "the namespace on the disk is not what was put"; }
+"$b/stdb" dump "$tmp/k1.img" | grep -v '^app/' | cmp -s - "$tmp/dump0.txt" || fail "a program's namespace changed the file system"
+printf 'db get app/log 0002\ndb app/conf\nhalt\n' >"$tmp/k2.txt"
+run "$tmp/k2.txt" "$tmp/k1.img" || fail "the boot from a disk with a program's namespace did not end well"
+grep -q '^again$' "$tmp/out.txt" && grep -q '^"size" = "43"$' "$tmp/out.txt" || fail "a program's namespace after a second boot"
+echo "test-store: a namespace of a program's own: put, get, del, on the disk as put, read after a boot; fs refused"
 echo "test-store: OK"

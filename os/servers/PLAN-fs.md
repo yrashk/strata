@@ -94,14 +94,21 @@ decisions taken.
 - [ ] `wdb` has no test of its own (it was looked at on a captured frame)
 
 ## Stage 7: the store for programs
-- [ ] NSOPEN, NSGRANT, TREE, GET, SCAN, BATCH, BEGIN / COMMIT / ABORT,
-      SOPEN over the endpoint; handles through SPAWN and CLEANUP. (The
-      server's code fills the I-LS's 32 KiB with the whole of `sys.s` in
-      it, of which it uses little: a library of what a server needs comes
-      first)
-- [ ] `db` utility; Forth words
-- [ ] Attributes: SETATTR, GETATTR, `attr`; query terms in paths (the host
-      side has attributes: `mkdisk -a`, `stdb dump`)
+- [x] DBGET (64), DBSCAN (65), DBBATCH (66): trees of keys and values in
+      namespaces made by the first write; a batch is one commit;
+      namespaces made so are public, `fs` is private and refused
+- [x] `db put / get / del`; `test-store.sh` part 6
+- [ ] DBSCAN has no user and no test yet (`db TREE` reads the disk)
+- [ ] Values longer than a quarter page (streams) through these calls
+- [ ] Private namespaces for programs: handles, grants (NSGRANT), through
+      SPAWN and CLEANUP
+- [ ] Transactions over several requests (BEGIN / COMMIT / ABORT, other
+      writers parked); conditions in a batch (REQUIRE-ABSENT ...)
+- [ ] Wrappers in `sys.s`; Forth words
+- [ ] Attributes: SETATTR, GETATTR, `attr`; query terms in paths (prefix,
+      range, attribute comparisons). The host side has attributes
+      (`mkdisk -a`, `stdb dump`); the server keeps them in records it
+      rewrites but offers no call to set or ask for them
 
 ## Stage 8: snapshots
 - [x] Births in pages and extents (in the format from stage 1)

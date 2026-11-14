@@ -915,7 +915,22 @@ snapshot shows, in one commit: its trees take the snapshot's roots, the
 pages only the state given up used are freed (or kept, where a later
 snapshot shows them), and the snapshot's pages that had gone to dead lists
 are in use again. The snapshots stay, the restored one too; it is refused
-(-1) while a file is open for writing. Inside the OS,
+(-1) while a file is open for writing. **The store for
+programs.** A program can keep data of its own in the store, beside the
+file system: in a namespace of its own, in named trees of keys and values
+(bytes, in key order; a key up to 480 bytes, a value up to about 1,000,
+with 4 KiB pages). Three fs calls do it; each request's data starts with
+{u8 namespace name length, u8 tree name length, u16 key length, u32 0} and
+the two names: 64 DBGET (then the key) → the value; 65 DBSCAN (then a key;
+mode 0 from it on, 1 after it) → as many records {u16 key length, u16
+value length, u32 0, key, value} in key order as fit, to be asked for again
+after the last key; 66 DBBATCH (handle = items; items {u8 1 put / 2
+delete, u8 0, u16 key length, u16 value length, u16 0, key, value} from
+the next multiple of 8) → all of them in one commit, or none. A namespace
+and a tree are made by the first write. Namespaces made this way are
+public (any program names them); `fs` is private and refused. `db put
+NS/TREE KEY VALUE`, `db get NS/TREE KEY` and `db del NS/TREE KEY` use
+them from the shell. Inside the OS,
 `db` shows the store's trees (`db`: the trees with their roots and heights;
 `db fs/name`: a tree's records; `db -p PAGE`: one page's cells, so a tree
 can be walked by hand), and `wdb` does the same in a window: it opens on
