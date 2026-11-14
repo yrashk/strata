@@ -156,6 +156,32 @@ boots into it (`ws PROGRAM` is new); `tools/test-wdoom.sh` is in `make test`.
   that the pistol's samples reach a WAV file. Not verified: the SDL path
   beyond compiling.
 
+## The disk's directory: 1024 files (added 2026-11-13)
+
+The boot header's offset 56 holds the directory's entries (a multiple of
+128, at most 1024, `mkdisk -n`; 0 = 128, an older disk); the tag table
+grows with it. `fs` keeps the directory and the tag sets in its far I/O
+buffer and works on a 128-entry window in its D-LS (`win`, `wput` in
+`os/servers/fs.s`); DIR takes a count of files to skip, and `ls` reads a
+long listing in parts. `tools/test-files.sh` (413 files) is in `make test`.
+Limits:
+- The kernel reads only the directory's first 8 blocks at boot (`u_disk`
+  in `os/kunits/boot.s`): the servers it starts must be among the first 128
+  files. `mkdisk` is given them first; nothing checks it.
+- One DIR reply holds 126 files. `ls` asks again for the rest; `sh`'s
+  completion, `httpd`'s listings and the Forth ports (`ls.fs`, `httpd.fs`)
+  take the first 126 only.
+- Not verified across a boot: the emulator does not write a disk image
+  back. The test reads the written blocks back within one session
+  (`hexdump N`).
+- In `fs`, an entry's address is good only while its window is in the
+  D-LS. `find` leaves the found entry's window there; the routines that
+  walk everything (`dfree` when it finds nothing, `tag_gc`, `tcount`,
+  `dcount`) put the window back. New code that holds two entries at once
+  must remember the first one's window, as RENAME does.
+- Still 64 tags, names of 24 bytes, contiguous files, and a deleted file's
+  blocks come back only if it was the last one.
+
 ## Open work
 
 **Waiting on a decision**
