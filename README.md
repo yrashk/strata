@@ -337,6 +337,19 @@ optional PCM output: `strata-emu -a`, on in `make boot` and in the browser)
 it has sound. [`os/progs/PLAN-wdoom.md`](os/progs/PLAN-wdoom.md) has the
 design and what a frame costs.
 
+![kira: Princess Kira and her seven friends at the picnic, in a StrataOS window](site/img/kira.png)
+
+`kira` is Princess Kira: gentle games for a five-year-old, written in
+Strata assembly as one more client of the window server. There are no
+enemies, no timer and no way to lose. In the first of them Kira walks
+through her castle and its garden, by the arrow keys or by clicking where
+she should go, and finds her seven animal friends, who follow her in a
+parade to a picnic. The art is original and is drawn by a script
+(`tools/kira-art.py`); the sounds are synthesised. Run `ws kira` from the
+shell, or `kira` from the palette.
+[`os/progs/PLAN-kira.md`](os/progs/PLAN-kira.md) has the design and what
+comes next.
+
 
 `make ws-demo` runs the same renderers on the bare machine against a
 simulated twelve-core system (no OS needed), and the site's play page has

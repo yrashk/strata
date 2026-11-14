@@ -121,6 +121,7 @@ test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-http.sh $(BUILD)/bootrom.stx $(BUILD)/http-test/disk.img
 	BUILD=$(BUILD) ./tools/test-ws.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) ./tools/test-wdoom.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) ./tools/test-kira.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-preempt.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-isolate.sh $(BUILD)/bootrom.stx $(BUILD)/isol-test/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-guest.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
@@ -309,6 +310,20 @@ $(BUILD)/prog/wdoom: os/progs/wdoom.s $(wildcard os/progs/wdoom/*.s) os/lib/wscl
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -I os/lib -g $@.map -o $@ $<
 
+# kira, Princess Kira's games in a window (os/progs/kira.s, os/progs/kira/): the
+# program, and its data file, which tools/kira-assets.py makes from the art
+# that tools/kira-art.py draws into os/progs/kira/art (the converted file is
+# in the tree: os/progs/kira/kira.dat; `make kira-dat` makes both again)
+KIRA_DAT := os/progs/kira/kira.dat
+$(BUILD)/prog/kira: os/progs/kira.s $(wildcard os/progs/kira/*.s) os/progs/wdoom/sound.s os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -I os/lib -g $@.map -o $@ $<
+
+.PHONY: kira-dat
+kira-dat:
+	python3 tools/kira-art.py
+	python3 tools/kira-assets.py
+
 # vi, the editor: its keyword tables come from the assembler, the Forth README
 # and the site's highlighter (tools/vi-syntax.py writes them as an include)
 $(BUILD)/vi-syntax.s: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth/README.md site/hl.js
@@ -391,6 +406,10 @@ DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc
              $(BUILD)/forth-os/progs.pk \
              -t forth,demo $(wildcard lang/forth/demos/*.fs) \
              -t forth,net lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd-ps.fs -t forth,net,demo lang/forth/httpd.fs
+# kira and its data (tagged ws: the program opens /ws/kira.dat)
+DISK_FILES += $(BUILD)/prog/kira $(KIRA_DAT)
+DISK_ARGS  += -t bin,ws $(BUILD)/prog/kira -t ws $(KIRA_DAT)
+
 # wdoom and its data (tagged ws: the program opens /ws/wdoom.dat)
 DISK_FILES += $(BUILD)/prog/wdoom $(WDOOM_DAT)
 DISK_ARGS  += -t bin,ws $(BUILD)/prog/wdoom -t ws $(WDOOM_DAT)
@@ -439,6 +458,11 @@ boot-ws: $(BUILD)/strata-emu $(BUILD)/bootrom.stx $(BUILD)/disk-ws.img
 boot-wdoom: $(BUILD)/strata-emu $(BUILD)/bootrom.stx $(BUILD)/disk-wdoom.img
 	@cp $(BUILD)/disk-wdoom.img $(BUILD)/disk-run.img
 	@$(BOOT_EMU) $(BOOT_NET) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
+
+# test-kira: Princess Kira's demos (their last frames' checksums), the pointer, sound and q (part of make test)
+.PHONY: test-kira
+test-kira: $(BUILD)/strata-emu os
+	BUILD=$(BUILD) ./tools/test-kira.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 
 # test-wdoom: the game's demo (its last frame's checksum), its sound and q (part of make test)
 .PHONY: test-wdoom

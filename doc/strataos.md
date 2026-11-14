@@ -1258,6 +1258,18 @@ window whose process ends is removed.
   the machine has one. `wdoom demo` plays a recorded run one tic a frame
   and reports the frame rate. `os/progs/wdoom.s`, `os/progs/wdoom/`,
   `os/progs/PLAN-wdoom.md`.
+- **`kira`**: Princess Kira, gentle games for a small child, with no
+  enemies, no timer and no way to lose: a menu and its activities, one at
+  a time. In Friends, Kira walks through her castle and garden a cell at a
+  time (an arrow key is a step; a click on a cell walks her there, by a
+  breadth-first search over the screen's cells) and finds her seven animal
+  friends, who follow her to a picnic. It draws as `wdoom` does (320 x 200
+  in slabs, scaled by a whole factor), but only when something changed;
+  whole pictures are run-length coded a slab at a time. Its art is drawn
+  by a script (`tools/kira-art.py`), its sounds are synthesised
+  (`tools/kira-assets.py`), and both are in a data file, `/ws/kira.dat`.
+  `kira demo N` plays recorded keys and clicks one tic a frame.
+  `os/progs/kira.s`, `os/progs/kira/`, `os/progs/PLAN-kira.md`.
 - Any program can do the same through `os/lib/wsclient.s` and
   `os/lib/gfx.s` (surfaces, display lists, spans, text).
 - `make ws-demo` runs the same renderers on the bare machine against a

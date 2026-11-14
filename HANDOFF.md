@@ -140,6 +140,23 @@ file-scope model/counters and a `sim_cycle()` for this.
 - Limits: no idle detection (a waiting machine keeps a CPU busy), no
   network far end, `-T virtual` only (machine time = cycles / 100).
 
+## kira (added 2026-11-13, in stages)
+
+`kira` (`os/progs/kira.s`, `os/progs/kira/`, plan in `os/progs/PLAN-kira.md`)
+is Princess Kira: games for a five-year-old as a window-server client, on
+the ordinary disk (`ws kira`, or `kira` from the palette). Stage 1 is the
+menu and Friends seen from above; the menu's other three buttons only pop.
+- The art is drawn by `tools/kira-art.py` into `os/progs/kira/art/` (the
+  specification is `SPEC.md` there, with exact sizes and rectangles the
+  program relies on); `tools/kira-assets.py` converts it and synthesises
+  the sounds; `make kira-dat` runs both. The art for all four games is
+  already there and converted.
+- `tools/test-kira.sh` (in `make test`) compares the last frame of each
+  `kira demo N`; a change of art, world or drawing needs new checksums.
+- Not done: Friends through Kira's eyes, Garden, Paint, Music; the play
+  page; frame rates. The colouring pages `paint_2` and `paint_3` want
+  redrawing before Paint.
+
 ## wdoom and the sound device (added 2026-11-13, not yet deployed)
 
 `wdoom` (`os/progs/wdoom.s`, `os/progs/wdoom/`, plan and measurements in
