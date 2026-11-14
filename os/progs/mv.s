@@ -2,13 +2,12 @@
 ; mv.s: move or rename a file
 ; =============================================================================
 ;
-;   mv SRC /DIR/DST       SRC is now DST in DIR, and in no other directory
-;                         (mv /notes/a /todo/b; /DIR/DIR/DST: in both)
+;   mv SRC /DIR/DST       SRC is now DST in DIR (mv /notes/a /todo/b;
+;                         /DIR/SUB/DST: in that subdirectory)
 ;   mv SRC /DIR/          DST ending in "/": the same name, there
 ;   mv SRC DST            DST without any "/": only the name changes, SRC
 ;                         stays where it is
-; A file named DST where SRC goes is replaced if it is in no other
-; directory; if it is, the move is refused.
+; A file named DST where SRC goes is replaced.
 ;
 ; One request to the file server (sys_rename, fs RENAME): the file keeps its
 ; blocks, its directory entry and its tags, and gains the tags of DST's path

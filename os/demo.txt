@@ -1,7 +1,7 @@
 help
 ls
 cat /doc/about
-cat wc.s | wc
+cat /src/wc.s | wc
 seq 30 | grep 2 | wc
 seq 12 > nums
 wc < nums
@@ -23,7 +23,7 @@ wait
 -n 2 hello
 -n 2 mandel
 units
-as < hello.s > hi
+as < /src/demo/hello.s > hi
 -n 2 hi
 hexdump 0
 devs

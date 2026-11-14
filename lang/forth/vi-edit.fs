@@ -136,7 +136,7 @@
 \ ---- files ---------------------------------------------------------------------------------------
 : buf-reset ( -- )                              \ no text, every chunk free, no history, the cursor home
   nchmax @ dup nfree !  0 ?do nchmax @ 1- i - fstk i + c! loop
-  -1 cidx ! -1 lc-n !  0 cdirty ! 0 nch ! 0 nl ! 0 cy ! 0 cx ! 0 top ! 0 lcol ! 0 hs-n ! 0 hs-s !
+  -1 cidx ! -1 lc-n !  0 cdirty ! 0 nch ! 0 nl ! 0 cy ! 0 cx ! 0 top ! 0 lcol ! 0 hs-n ! 0 hs-s ! 1 ck-n !
   0 u-end ! 0 u-top ! 0 u-saved !  1 dall ! 1 setw ! ;
 : >msg ( a u -- ) tuck tbuf swap move  0 tbuf 2 pick + c!  tbuf 64 rot 1+ aligned 5 tput ; \ request data
 : fs-open ( a u mode -- id|err ) >r tuck >msg 0 swap r> 3 2 (msg) ;
@@ -148,10 +148,11 @@
 : buf-bytes ( -- u ) 0 nch @ 0 ?do i cb@ + loop ; \ the text's bytes as a file
 : m-size ( -- ) bl m-chr nl @ m-dec m+"  lines," bl m-chr buf-bytes m-dec m+"  bytes" ;
 : zlen ( a max -- a u ) over swap 0 ?do dup c@ 0= if leave then 1+ loop over - ;
-: syn-detect ( -- )                             \ highlighting by the name (.s .fs), else by the tags (src forth)
-  1 dall !  0 syn !
+: syn-detect ( -- )                             \ highlighting by the name (.s .fs .c .h), else by the tags
+  1 dall !  0 syn !  1 ck-n !  0 hs-n !  0 hs-s ! \   (src forth)
   fnl @ 3 < 0= if fname fnl @ + 3 - 3 s" .fs" str= if 2 syn ! exit then then
-  fnl @ 2 < 0= if fname fnl @ + 2 - 2 s" .s" str= if 1 syn ! exit then then
+  fnl @ 2 < 0= if fname fnl @ + 2 - 2 2dup s" .s" str= if 2drop 1 syn ! exit then
+    2dup s" .c" str= >r s" .h" str= r> or if 3 syn ! exit then then
   fnl @ 0= if exit then
   fname fnl @ >msg  0 fnl @ 0 41 2 (msg)  dup 0> 0= if drop exit then \ TAGS2: the first of its tags,
   tbuf 64 1008 5 tget  tbuf swap                \ those whose records lie in tbuf:  {u16 bytes, u16 name

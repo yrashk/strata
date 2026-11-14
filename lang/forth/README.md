@@ -33,7 +33,7 @@ the Forth kernel stays in the I-LS: everything compiled after it goes into
 (the hardware's `xslot`/`xcall`/`xmiss`, the operating system's miss
 handler; "Code paging" below). So a program may be much bigger than the
 I-LS with no annotations: the editor `vi.fs`, the Forth port of
-StrataOS's `vi`, is about 60 KiB of code.
+StrataOS's `vi`, is about 68 KiB of code.
 
 ## Running it
 
@@ -707,7 +707,7 @@ machine, `tools/fs-progs-speed.sh` for the ports):
 | vi.fs: opening `/src/sh.s` (333 KiB) | 21.6 M | 23.2 M (1,640 misses with drawing and `:q`) |
 | vi.fs: opening `seq 15000` (77 KiB) | 17.6 M | 20.3 M |
 | vi.fs: a key in normal mode (`j`, `k`) | 55 K | 54 K (14 misses) |
-| vi.fs: code / data space left | 0 of I-LS (19 overlays of 4.1 KiB) / 1.2 KiB | 31 KiB of units / 2.0 KiB |
+| vi.fs: code / data space left | 0 of I-LS (19 overlays of 4.1 KiB) / 1.2 KiB | 31 KiB of units / 2.0 KiB (1.3 KiB since C colouring: 23 KiB of units) |
 | the ports: a run | | 3 to 4 % more (about 110 K: start-up, sys.fs's units) |
 | `forth units.fs` | 3.72 M | 3.50 M (257 misses) |
 
@@ -753,16 +753,17 @@ vi notes.fs                             # as often as wanted; :q comes back to t
 The Forth port of StrataOS's editor (`os/progs/vi.s`, doc/strataos.md 2.12):
 the same modes, motions, operators with counts, undo and redo, `.`, search,
 `:` commands, status line, screen-size question and highlighting of Strata
-assembly and Forth, with the same keys. Given the same keys it writes the
+assembly, Forth and C, with the same keys. Given the same keys it writes the
 same files: `tools/test-vifs.sh` runs the assembly vi's test session with
 `forth vi.fs` and compares the files with both editors' expected output, then
 checks the colours of an `.s` and an `.fs` file, a Ctrl-C, and `vi` at the
-Forth prompt (in `make test`; `tools/vi-shots.sh -f` takes its pictures in a
-window).
+Forth prompt; `tools/test-vic.sh -f` runs vi.s's C sessions with it and
+compares its frames with vi.s's (in `make test`; `tools/vi-shots.sh -f` takes
+its pictures in a window).
 
-It is 920 lines in three files (`vi.fs` includes `vi-text.fs` and
+It is 1020 lines in three files (`vi.fs` includes `vi-text.fs` and
 `vi-edit.fs`: an included file's text must fit in 64 KiB with what it
-includes) and about 60 KiB of code, which is in code units like any other
+includes) and about 68 KiB of code, which is in code units like any other
 ("Code paging": it needs no annotations; it was nineteen code overlays of
 overlay.fs before, and its longest words are split to fit units). The byte loops (lines, keywords, identifiers, strings, numbers) are
 code words assembled with core.fs's assembler; the keyword tables are
@@ -783,6 +784,18 @@ it was cut short). Every start compiles the editor: about 6 M instructions
 source costs about 23 M instructions (vi.s: 18 M), `seq 15000`'s 77 KiB file
 20 M (7 M), a key in normal mode about 54 K (45 K, most of it the tty's
 messages, the same for both).
+
+C colouring (`vi-text.fs`'s `hl-c`, with code words for its byte loops)
+added about 8 KiB of code units, 656 bytes of data space (`ckbits`, the
+comment state of every 16th line, is 256 of them) and 2 KiB of far heap (the
+third keyword table; the messages and what follows them moved up). On
+`cc.c`, counting every core's instructions, a screen down (Ctrl-F) costs
+about 600 K, a line scrolled 570 K to 620 K and a character typed 114 K: what
+the same file cost when it was coloured as assembly (530 K, 600 K to 615 K,
+111 K), and about twice what it costs plain (`:syntax off`: 270 K, 280 K,
+86 K). The first visit to a part of a file works out its comment states:
+about 2,000 instructions a line (6 M for the first 3000 lines of `cc.c`;
+vi.s: 700).
 
 ### The ports of os/progs
 

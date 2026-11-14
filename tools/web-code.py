@@ -3,7 +3,7 @@
 
     python3 tools/web-code.py OUTDIR      (make web-code: OUTDIR = build/web-code)
 
-Copies every Strata assembly and Forth source of the repository into
+Copies every Strata assembly, Forth and C source of the repository into
 OUTDIR/src/<path> and writes OUTDIR/manifest.json: the files grouped by area
 (path, lines, bytes, language, title and description from the file's header
 comment, a "run in browser" link where the play page can run it) and the
@@ -40,7 +40,10 @@ GROUPS = [
                "lang/forth/guest/*.s", "lang/forth/guest/*.fs",
                "lang/forth/demos/*.fs", "lang/forth/tests/*.fs",
                "lang/forth/*.fs", "lang/forth/progs/*.fs"]),
-    ("C compiler", ["lang/cc/cc.s", "lang/cc/cc-*.s", "lang/cc/lib/*.s"]),
+    ("C compiler", ["lang/cc/cc.c", "lang/cc/host/*.c", "lang/cc/host/*.h",
+                    "lang/cc/cc.s", "lang/cc/cc-*.s", "lang/cc/lib/*.s",
+                    "lang/cc/lib/include/*.h", "lang/cc/lib/src/*.c"]),
+    ("C programs", ["lang/cc/examples/*.c"]),
     ("Conformance tests", ["conformance/tests/*.s", "conformance/tests/lib/*.s"]),
 ]
 
@@ -54,6 +57,8 @@ RUN = {
     "lang/forth/forth.s": "forth",
     "lang/forth/core.fs": "forth",
     "lang/cc/cc.s": "cc",
+    "lang/cc/cc.c": "cc",
+    "lang/cc/examples/hi.c": "cc",
 }
 
 
@@ -143,6 +148,16 @@ def header(text, lang):
     indented examples and "Run:" lines are skipped; of a bullet list, the
     first bullet is kept)."""
     lines = []
+    if lang == "c":                   # the first comment, if the file starts with one (or with its guard)
+        rest = text.lstrip()
+        while rest.startswith("#"):
+            rest = rest.partition("\n")[2].lstrip()
+        end = rest.find("*/")
+        text = ""
+        if rest.startswith("/*") and end > 0:
+            body = rest[2:end].rstrip().split("\n")
+            text = "\n".join("// " + (re.sub(r"^ ?\* ?| {1,3}", "", l, count=1) if n else l.strip())
+                             for n, l in enumerate(body))
     for raw in text.splitlines():
         s = raw.strip()
         m = re.match(r"^\\ ?(.*)$" if lang == "forth" else r"^(?:;+|#|//) ?(.*)$", s)
@@ -159,7 +174,7 @@ def header(text, lang):
     while lines and not lines[0].strip():
         lines.pop(0)
     title = ""
-    m = re.match(r"^[\w./-]+\.(?:s|fs):\s*(.*)$", lines[0]) if lines else None
+    m = re.match(r"^[\w./-]+\.(?:s|fs|c|h):\s*(.*)$", lines[0]) if lines else None
     if m:
         t = [m.group(1)]
         i = 1
@@ -227,7 +242,7 @@ def main():
                 if rel in seen or not os.path.isfile(p):
                     continue
                 seen.add(rel)
-                lang = "forth" if rel.endswith(".fs") else "asm"
+                lang = "forth" if rel.endswith(".fs") else "c" if rel.endswith((".c", ".h")) else "asm"
                 text = read(rel)
                 title, desc = header(text, lang)
                 n = text.count("\n") + (0 if text.endswith("\n") or not text else 1)

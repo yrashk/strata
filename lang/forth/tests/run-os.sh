@@ -2,9 +2,8 @@
 # Strata Forth as a StrataOS 0.1 program: boots StrataOS on the emulator with
 # scripted console input (12 cores, interpreter, virtual timer: deterministic)
 # from the test disk (build/forth-test/disk.img: the standard disk plus
-# tests/*.fs in /test and /forth, and tests/http/* in /httptest) and checks
-# five things:
-#   1. tests/test.fs through `-n 6 forth < test.fs` gives tests/test.out, the
+# tests/*.fs, and tests/http/* tagged httptest) and checks four things:
+#   1. tests/test.fs through `-n 6 forth < /forth/test.fs` gives tests/test.out, the
 #      output of the bare-metal Forth (first line and the lines marked as
 #      platform-specific aside);
 #   2. tests/ostest.fs and a few command lines (files, tools on demand,
@@ -40,7 +39,7 @@ mask() { sed -e 's/[0-9][0-9]* code bytes free, [0-9][0-9]* data bytes free/N co
 ok=1
 
 # ---- 1. the common regression test, on 6 threads
-printf -- '-n 6 forth < /test/test.fs\nhalt\n' > "$OUT/os1.in"
+printf -- '-n 6 forth < /forth/test.fs\nhalt\n' > "$OUT/os1.in"
 boot os1
 sed -n '/^Strata Forth/,/^bye /p' "$OUT/os1.con" | sed -e '1d' -e '/^23 kvar @ /d' -e 's/^bye .*/bye /' > "$OUT/os1.out"
 sed -e '1d' -e '/^23 kvar @ /d' "$HERE/test.out" > "$OUT/os1.exp"
@@ -53,21 +52,20 @@ fi
 
 # ---- 2. files, tools, command lines, pipes
 {
-  printf 'forth < /test/ostest.fs\n'
+  printf 'forth < /forth/ostest.fs\n'
   printf 'forth inc2.fs from-inc2 cr\n'
   printf 'forth -e 6 7 * . cr .( done)\n'
   printf 'echo "2 3 + ." | forth | upper\n'
   printf 'echo ": sq dup * ; 12 sq . see sq" | forth | grep mul | wc\n'
   printf 'forth nofile.fs\n'
   printf 'forth incerr.fs\n'
-  # the current directory: relative names (and nested includes) resolve
-  # under it, then in /forth (where inc2.fs also is: found from /demo too)
-  printf 'cd /test; forth -e include inc1.fs cr .fcache\n'
+  # the current tag path: relative names (and nested includes) resolve under it
+  printf 'cd /forth; forth -e include inc1.fs cr .fcache\n'
   printf 'cd /demo; forth inc2.fs; cd /\n'
   printf 'halt\n'
 } > "$OUT/os2.in"
 boot os2
-sed -n '/^strata\$ forth < \/test\/ostest.fs/,$p' "$OUT/os2.con" | mask > "$OUT/os2.out"
+sed -n '\|^strata\$ forth < /forth/ostest.fs|,$p' "$OUT/os2.con" | mask > "$OUT/os2.out"
 if [ "${UPDATE:-0}" = 1 ]; then cp "$OUT/os2.out" "$HERE/os.out"; echo "test-forth: os.out updated"; fi
 if cmp -s "$OUT/os2.out" "$HERE/os.out"; then
   echo "test-forth: StrataOS files, tools on demand, command lines and pipes match tests/os.out ($(wc -l < "$HERE/os.out" | tr -d ' ') lines)"
@@ -99,7 +97,7 @@ fi
 # its log is shown last. HTTP's CRs are dropped before the comparison, and
 # the size of /~ps in the log is masked.
 {
-  printf 'forth < /test/nettest.fs\n'
+  printf 'forth < /forth/nettest.fs\n'
   printf -- '-n 2 forth -e 80 tcp-listen\n'
   printf 'forth httpd.fs 8000 11 > hlog &\n'
   printf 'echo "GET /httptest/note.txt HTTP/1.0" | nc 127.0.0.1 8000\n'
@@ -116,7 +114,7 @@ fi
   printf 'wait\ncat hlog\nhalt\n'
 } > "$OUT/os4.in"
 boot os4
-sed -n '/^strata\$ forth < \/test\/nettest.fs/,$p' "$OUT/os4.con" | mask | tr -d '\r' | sed 's|^GET /~ps 200 [0-9]* $|GET /~ps 200 N |' > "$OUT/os4.out"
+sed -n '\|^strata\$ forth < /forth/nettest.fs|,$p' "$OUT/os4.con" | mask | tr -d '\r' | sed 's|^GET /~ps 200 [0-9]* $|GET /~ps 200 N |' > "$OUT/os4.out"
 if [ "${UPDATE:-0}" = 1 ]; then cp "$OUT/os4.out" "$HERE/net.out"; echo "test-forth: net.out updated"; fi
 if cmp -s "$OUT/os4.out" "$HERE/net.out"; then
   echo "test-forth: StrataOS network words and httpd.fs (loopback) match tests/net.out ($(wc -l < "$HERE/net.out" | tr -d ' ') lines)"

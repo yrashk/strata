@@ -11,9 +11,10 @@
  *           integer, 1 string), u8 length, u16 0 and the value padded to a
  *           multiple of 8 (an integer: 8 bytes); then the name
  *   data  object id -> the contents (a blob; none when the file is empty)
- *   dnam  u32 tag id (big-endian), name -> u64 object id: an entry for every
- *           directory (tag) the file is in; tag id 0 for a file in none
- *           (the root). A name is unique within a directory
+ *   dnam  the file's tag ids in ascending order (u32 big-endian each), four
+ *           zero bytes, the name -> u64 object id. A file's directory is the
+ *           set of its tags, and a name is unique within a directory; a
+ *           file with no tag is in the root (four zero bytes, the name)
  *   attr  u32 attribute id (big-endian), value, object id (big-endian) -> nothing
  *           1 tag (value: u32 tag id, big-endian; id 0: a file in no directory), 2 size and 3 modified
  *           (u64 big-endian), 4 boot (no value); from 16 on, attributes by
@@ -59,7 +60,7 @@ int fs_open(Store *st, Fs *fs); /* -1: the store has no file system */
 int64_t fs_add(Fs *fs, const char *name, const uint8_t *data, uint64_t len,
                const char **tags, int ntags, int boot);
 int fs_setattr(Fs *fs, uint64_t oid, const char *aname, int type, const uint8_t *val, int len);
-int64_t fs_lookup(Fs *fs, const char *path);     /* "dir/dir/name"; "name": in the root; -1 none */
+int64_t fs_lookup(Fs *fs, const char *path);     /* "tag/tag/name": the file of that name with exactly those tags; -1 none */
 int64_t fs_find(Fs *fs, const char *name);       /* by name alone: the root's, else the only one; -1, -2 several */
 int fs_next(Fs *fs, uint64_t *oid);              /* every object in id order (*oid = 0 at first) */
 int fs_rec(Fs *fs, uint64_t oid, FsRec *r);

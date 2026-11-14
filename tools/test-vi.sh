@@ -93,7 +93,7 @@ CB=$(printf '\002'); CC=$(printf '\003'); CG=$(printf '\007')
   printf 'x:e w1\n:e! w1\nx:x\n'
   printf 'cat n1; cat w1\n'
   # highlighting: assembly, Forth, a ( comment over two lines
-  printf 'vi /src/hello.s\n45G:q\n'
+  printf 'vi /src/demo/hello.s\n45G:q\n'
   printf 'vi /forth/gfx.fs\n:q\n'
   printf 'vi m.fs\n'
   printf 'i( open\nstill ) : w ;%s:wq\n' "$E"
@@ -120,7 +120,7 @@ fi
 # highlighting: the SGR colour before each word (site/hl.css's colours as the terminal's)
 grep -q 'all cores halted' "$tmp/raw.out" || fail "the session did not end"
 for want in '[90m; =====' '[34m.data' '[97m_start' '[31mcsrr' '[37ms0' '[91mcoreid' \
-            '[96maddi' '[95mbeqz' '[93mctake' '[93mc3' '[32m1' '[35m"Hello from Strata core "' \
+            '[96maddi' '[95mbeqz' '[93mctake c3' '[32m1' '[35m"Hello from Strata core "' \
             '[31m:' '[97mentry' '[90m( i -- addr )' '[34mcreate' '[33mtget' '[95mdo' \
             '[32m$1000' '[35m.( gfx.fs needs bare metal)' '[90mstill )' '[31m:' ; do
   grep -qF "$E$want" "$tmp/raw.out" || fail "no highlighting: ESC$want"
