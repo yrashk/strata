@@ -142,30 +142,31 @@ module ls_prof
       if (tu_es == 3'd2 && tu_b_rvalid) n_beat_get <= n_beat_get + 1;
       if (tu_pop) n_beat_put <= n_beat_put + 1;
 
-      // retired instructions (d still holds the one that retired: ir changes in S_F1)
-      if (retired && int'(d.kind) < NK) begin
-        n_ret_kind[d.kind] <= n_ret_kind[d.kind] + 1;
+      // retired instructions (dq: the instruction of the cycle before, the one that retired;
+      // with STREAM the next one may already be in ir)
+      if (retired && int'(dq.kind) < NK) begin
+        n_ret_kind[dq.kind] <= n_ret_kind[dq.kind] + 1;
         if (user) n_ret_user <= n_ret_user + 1; else n_ret_sup <= n_ret_sup + 1;
         if (last_kind == 5'(K_LOAD) && last_rd != 0 &&
-            (((d.kind == K_ALU || d.kind == K_BRANCH) && (d.rs1 == last_rd || d.rs2 == last_rd)) ||
-             (d.kind == K_ALUI && d.rs1 == last_rd)))
+            (((dq.kind == K_ALU || dq.kind == K_BRANCH) && (dq.rs1 == last_rd || dq.rs2 == last_rd)) ||
+             (dq.kind == K_ALUI && dq.rs1 == last_rd)))
           n_ld_use <= n_ld_use + 1;
-        if (d.kind == K_STORE && (last_kind == 5'(K_ALU) || last_kind == 5'(K_ALUI)) && last2_kind == 5'(K_LOAD) &&
-            last2_maddr == last_st_addr && d.rs2 == last_alu_rd)
+        if (dq.kind == K_STORE && (last_kind == 5'(K_ALU) || last_kind == 5'(K_ALUI)) && last2_kind == 5'(K_LOAD) &&
+            last2_maddr == maddr_q && dq.rs2 == last_alu_rd)
           n_ld_op_st <= n_ld_op_st + 1;
-        if (d.kind == K_LOAD) begin
-          if (d.rs1 == 5'd2 || d.rs1 == 5'd3) n_ld_sp <= n_ld_sp + 1;
-          if (d.msize == 2'd3) n_ld8 <= n_ld8 + 1;
+        if (dq.kind == K_LOAD) begin
+          if (dq.rs1 == 5'd2 || dq.rs1 == 5'd3) n_ld_sp <= n_ld_sp + 1;
+          if (dq.msize == 2'd3) n_ld8 <= n_ld8 + 1;
         end
-        if (d.kind == K_STORE) begin
-          if (d.rs1 == 5'd2 || d.rs1 == 5'd3) n_st_sp <= n_st_sp + 1;
-          if (d.msize == 2'd3) n_st8 <= n_st8 + 1;
+        if (dq.kind == K_STORE) begin
+          if (dq.rs1 == 5'd2 || dq.rs1 == 5'd3) n_st_sp <= n_st_sp + 1;
+          if (dq.msize == 2'd3) n_st8 <= n_st8 + 1;
         end
         last2_kind  <= last_kind;
         last2_maddr <= last_maddr;
-        last_kind   <= 5'(d.kind);
-        last_rd     <= d.rd;
-        last_alu_rd <= d.rd;
+        last_kind   <= 5'(dq.kind);
+        last_rd     <= dq.rd;
+        last_alu_rd <= dq.rd;
         last_maddr  <= ex_maddr;
       end
     end
@@ -173,9 +174,14 @@ module ls_prof
 
   // the address of a load / store is ra + imm in S_EX; a load retires in S_LD
   // (ra may have been its own rd), so keep the address seen in S_EX
-  logic [63:0] ex_maddr, last_st_addr;
+  logic [63:0] ex_maddr, maddr_q;
+  dec_t        dq;
   always_ff @(posedge clk) if (state == S_EX) ex_maddr <= maddr;
-  assign last_st_addr = maddr;      // a store retires in S_EX: maddr is its address now
+  // a store retires in S_EX: its address is the maddr of the cycle before
+  always_ff @(posedge clk) begin
+    dq      <= d;
+    maddr_q <= maddr;
+  end
 
   function automatic string kname(input int k);
     case (k)

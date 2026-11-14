@@ -58,6 +58,7 @@ module strata_tu
   output logic        put_idle,     // nothing in flight but device reads (what a gift to the block device waits for)
   output logic        cc_busy,      // a core-control write in flight (the next instruction waits for it)
   output logic        quiet,        // only waiting device reads are left, and no bus transaction runs
+  output logic        getx_busy,    // a tgetx is queued or under way (the I-LS is about to change)
 
   // hazard queries
   input  logic [LSW-1:0] hz_addr,
@@ -144,10 +145,12 @@ module strata_tu
     mem_idle = 1;     // device transfers (a break read may wait forever) do not count
     put_idle = 1;
     cc_busy  = 0;
+    getx_busy = 0;
     for (int i = 0; i < QD; i++) begin
       if (q_v[i] && q_sp[i] != SP_DEV) mem_idle = 0;
       if (q_v[i] && !(q_sp[i] == SP_DEV && q_kind[i] == XF_GET)) put_idle = 0;
       if (q_v[i] && q_sp[i] == SP_CORE) cc_busy = 1;
+      if (q_v[i] && q_kind[i] == XF_GETX) getx_busy = 1;
     end
   end
   // quiet: every entry is a device read that waits, and the bus is not

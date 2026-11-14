@@ -107,6 +107,12 @@ Not verified:
   4 KiB saved (88 at 64/64 KiB, 59 at 4/4).
 - Scripts: `fpga/synth.sh FAMILY N [NXMAP [D I]]`, `fpga/pnr.sh`,
   `fpga/ecp5-runs.sh`; the die picture is drawn from nextpnr's output.
+- `STREAM = 1` (a parameter of `strata_core` / `strata_top`, `make
+  STREAM=1`; off by default) lets sequential code skip the two fetch
+  cycles: the core keeps the I-LS word and reads the next one while it
+  executes. The scripted StrataOS session runs at 1.75 cycles per
+  instruction instead of 3.22. Not synthesized yet: its area and clock are
+  not measured (`research/smart-memory/REPORT.md`, section 9).
 
 **ASIC** (`asic/README.md`, `asic/results/`, site page `hardware/asic/`)
 - One core through LibreLane 3.0.17 (its arm64 Docker image, run under

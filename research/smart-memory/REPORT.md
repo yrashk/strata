@@ -31,6 +31,10 @@ on an affordable process as the goal.
    bring a few percent at best here, or cost area, or need custom memory
    that no affordable process offers.
 
+Since this was written the first recommendation has been built
+(`STREAM = 1` in `rtl/strata_core.sv`, off by default) and measured:
+section 9. The StrataOS session runs at 1.75 cycles per instruction, 1.84x.
+
 Which numbers are measured, estimated or from the literature is stated per
 table and collected in the last section.
 
@@ -562,5 +566,86 @@ double-pumped macro.
 
 **Not done:** no place and route and no liberty-based timing (no PDK is
 installed in this checkout, and whole-core runs were kept to one synthesis
-on purpose); no change to `rtl/`; the profile is one session of one OS
-build, with idle cores.
+on purpose); the profile is one session of one OS build, with idle cores.
+Sections 1 to 8 describe the RTL before the change of section 9.
+
+## 9. The first prototype: the stream fetch, measured
+
+`rtl/strata_core.sv` has a parameter `STREAM` (default 0: the fetch of
+sections 1 to 8, cycle for cycle). `make STREAM=1` builds the simulator
+with it; `strata_top` passes it to every core.
+
+**What it does.** The core keeps the I-LS word that `F1` read (`fb_cur`)
+and reads the word after it through the idle port A while it executes
+(`fb_nxt`). An instruction that retires to pc + 4 and finds its successor
+in one of the two goes straight to `EX` with it. Everything else goes
+through `F0` and `F1` as before, which keeps every check where it was:
+
+- transfers of control and traps (a taken branch, `jal`, `jalr`, `xcall`,
+  `xret`, `eret`);
+- every transfer instruction, so the fetch hazard of an overlapping
+  `tgetx` and the wait for a core-control write are still decided in `F0`;
+- a pending stop (in user mode) or reset request.
+
+Nothing is read ahead while a `tgetx` is in the Transfer Unit's queue (a
+new output of `strata_tu`, `getx_busy`), so a word that is about to be
+replaced is never held. The read-ahead is decided from registered state
+only (the state, two flags, `pc`), so no execute-stage logic reaches the
+I-LS address. This is simpler than `exp/ls_unified.sv`: there is no
+redirect port, and a transfer of control costs exactly what it costs
+today.
+
+**Cycles per instruction** (profiler, busy cycles; the model is section
+2.1's "stream"):
+
+| | `STREAM = 0` | model | `STREAM = 1` | Speed-up |
+|---|---|---|---|---|
+| StrataOS session | 3.22 | 1.92 | 1.75 | 1.84x |
+| `mandel` | 4.02 | 2.18 | 2.17 | 1.85x |
+| `pipeline` | 3.29 | 1.89 | 1.69 | 1.95x |
+| `swcache` | 3.17 | 1.58 | 1.56 | 2.03x |
+| `gfx` | 3.60 | 1.79 | 1.74 | 2.07x |
+| `parsum` | 3.21 | | 1.49 | 2.15x |
+| `stream_sum` | 3.22 | | 1.50 | 2.15x |
+
+The RTL beats the model where control often lands on the second
+instruction of a word: the model charged a cycle there, but the read-ahead
+issued in `F1` arrives in time. In the StrataOS session 26.6% of the
+instructions still go through `F0` and `F1` (0.53 of the 1.75 cycles);
+what is left is `EX` 57%, fetch 30%, load data 6%, far atomics 4%,
+multiply and divide 2.5%.
+
+**Whole runs** (clock cycles until every core halts, 8 cores; they
+include waiting):
+
+| | `STREAM = 0` | `STREAM = 1` | |
+|---|---|---|---|
+| StrataOS session | 148.2 M | 86.8 M | 1.71x |
+| `mandel` | 241,785 | 127,506 | 1.90x |
+| `parsum` | 884,515 | 448,575 | 1.97x |
+| `swcache` | 1,479,898 | 783,968 | 1.89x |
+| `pipeline` | 89,725 | 51,405 | 1.75x |
+| `gfx` | 10.00 M | 6.67 M | 1.50x |
+
+**One memory for both stores, again.** With the read-ahead the I-LS port
+is busier: in the StrataOS session the core and the unit would want a
+shared single-port memory in the same cycle in 1.43 M cycles (1.34 M
+before): 11.3% of the unit's beats, 1.3% of the busy cycles. Section 3.1's
+conclusion stands.
+
+**Checked.** `make test` passes with the default, and `make
+BUILD=build/stream STREAM=1 test` passes with the stream fetch: every
+example in lockstep with the emulator (console, halt state, every core's
+instruction trace), the scripted StrataOS and guest sessions, the break,
+preemption, isolation, guest, network and window-server tests, the
+conformance suite on interpreter, JIT and RTL, the 8-entry overlay map and
+the smaller Local Store sizes, and the browser build against the native
+one. (The browser build's rule had to be given the parameter too, or it
+compares a default machine with a stream one.)
+
+**Not measured:** the area and the clock of the change. It adds two 64-bit
+registers, two flags, a 14-bit incrementer and a few multiplexers at `ir`
+and the I-LS address (section 2.1 estimated 0.5% of the logic for a
+slightly larger front end); the new paths start at registers and at I-LS
+read data. A synthesis of the core with `STREAM = 1` (`fpga/synth.sh`
+needs a `chparam` for it) is the next check, then place and route.

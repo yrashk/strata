@@ -26,8 +26,16 @@ Store memories raise the RTL's speed or cut its area? The answer is
 - [x] `REPORT.md`: baseline, one section per direction, ranking table, recommendation, measured / estimated / literature
 - [x] `LITERATURE.md`
 
+## First prototype: the stream fetch (REPORT.md section 9)
+- [x] `STREAM` parameter in `rtl/strata_core.sv` (default 0: today's fetch), `getx_busy` from `rtl/strata_tu.sv`, passed through `rtl/strata_top.sv`; `make STREAM=1`
+- [x] `make lint`; `make test` with the default: passes
+- [x] `make BUILD=build/stream STREAM=1 test`: passes (the browser RTL rule now takes `STREAM` too)
+- [x] Profiler follows the retired instruction under `STREAM` (`prof/build.sh 8 64 64 1`, `prof/run.sh all -stream`)
+- [x] Measured: StrataOS session 3.22 -> 1.75 busy cycles per instruction (model 1.92), examples 1.85x to 2.15x
+- [ ] Area and clock of the change: one synthesis of the core with `STREAM = 1` (`fpga/synth.sh` needs a `chparam` for it), then place and route
+- [ ] `fpga/README.md`'s cycle table for `STREAM = 1`, once it is synthesized
+
 ## Not done (candidates for a next step)
-- [ ] The stream fetch in `rtl/strata_core.sv` itself (the first prototype the report recommends)
 - [ ] A single-port `strata_ram` with the Transfer Unit taking refusals, run through `make test`
 - [ ] A liberty-based timing run (no PDK is installed in this checkout; `sta/sta.py` is technology-independent)
 - [ ] Macro areas from an SRAM compiler for GF180MCU (OpenRAM has a technology directory; no published macro)

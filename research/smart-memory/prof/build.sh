@@ -3,7 +3,9 @@
 # every core: research/smart-memory/build/strata-rtl-prof. The same machine
 # as `make` builds (build/strata-rtl); rtl/ and sim/ are used as they are.
 #
-#   research/smart-memory/prof/build.sh [NCORES [DLS_KIB [ILS_KIB]]]
+#   research/smart-memory/prof/build.sh [NCORES [DLS_KIB [ILS_KIB [STREAM]]]]
+#
+# STREAM = 1: the cores' stream fetch (the binary is strata-rtl-prof-stream).
 set -eu
 here=$(cd "$(dirname "$0")/../../.." && pwd)
 cd "$here"
@@ -12,7 +14,9 @@ dk=${2:-64}
 ik=${3:-$dk}
 out=research/smart-memory/build
 sfx=
+st=${4:-0}
 [ "$dk$ik" = 6464 ] || sfx="-l$dk-$ik"
+[ "$st" = 0 ] || sfx="$sfx-stream"
 sdlc=$(pkg-config --cflags sdl2 2>/dev/null || echo -DNO_SDL)
 sdll=$(pkg-config --libs sdl2 2>/dev/null || true)
 rtl="rtl/strata_pkg.sv rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv rtl/strata_mul.sv
@@ -22,7 +26,7 @@ mkdir -p $out
 # shellcheck disable=SC2086
 verilator --cc --exe --build -j 0 -O3 --x-assign fast --x-initial fast \
   -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-DECLFILENAME \
-  -DSIMULATION -GNCORES=$n -GNXMAP=16 -GDLS_KIB=$dk -GILS_KIB=$ik --top-module strata_top \
+  -DSIMULATION -GNCORES=$n -GNXMAP=16 -GDLS_KIB=$dk -GILS_KIB=$ik -GSTREAM=$st --top-module strata_top \
   -Mdir $out/obj_dir$sfx -o strata-rtl-prof \
   -CFLAGS "-O2 -std=c++17 -DNCORES=$n -DNXMAP=16 -DDLS_KIB=$dk -DILS_KIB=$ik $sdlc" \
   -LDFLAGS "$sdll" $rtl research/smart-memory/prof/ls_prof.sv sim/main.cpp > $out/build$sfx.log 2>&1 \
