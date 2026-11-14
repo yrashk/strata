@@ -223,9 +223,12 @@ test-dbg: $(BUILD)/strata-dbg $(BUILD)/strata-emu examples os
 # ---- firmware, OS and disk image -------------------------------------------
 OS_FILES := $(wildcard os/files/*)
 
-$(BUILD)/mkdisk: tools/mkdisk.c common/stx.h asm/isa.h
+STDB_LIB := tools/stdb/store.c tools/stdb/fsl.c
+STDB_HDR := tools/stdb/stdb.h tools/stdb/fsl.h
+# mkdisk writes the store format (doc/strata-fs-proposal.md): tools/stdb
+$(BUILD)/mkdisk: $(STDB_LIB) $(STDB_HDR) tools/stdb/mkdisk.c common/stx.h asm/isa.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -o $@ tools/mkdisk.c
+	$(CC) $(CFLAGS) -o $@ $(STDB_LIB) tools/stdb/mkdisk.c
 
 $(BUILD)/bootrom.stx: firmware/bootrom.s firmware/fw.s $(BUILD)/sasm
 	$(BUILD)/sasm -g $(BUILD)/bootrom.map -o $@ firmware/bootrom.s
@@ -260,6 +263,7 @@ $(BUILD)/prog/%: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
+$(BUILD)/prog/fs: os/servers/fsops.s os/servers/store.s os/servers/storew.s os/servers/sblob.s
 $(SPROGS): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
@@ -733,18 +737,12 @@ clean:
 
 # The store on the host (doc/strata-fs-proposal.md): its tests against a
 # model and against power cuts.
-STDB_LIB := tools/stdb/store.c tools/stdb/fsl.c
-STDB_HDR := tools/stdb/stdb.h tools/stdb/fsl.h
 
 $(BUILD)/stdb-test: tools/stdb/store.c tools/stdb/test.c tools/stdb/stdb.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ tools/stdb/store.c tools/stdb/test.c
 
-# mkdisk for the store format, and the tool that checks and reads an image
-$(BUILD)/mkdisk-stdb: $(STDB_LIB) $(STDB_HDR) tools/stdb/mkdisk.c common/stx.h asm/isa.h
-	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -o $@ $(STDB_LIB) tools/stdb/mkdisk.c
-
+# the tool that checks and reads a disk image
 $(BUILD)/stdb: $(STDB_LIB) $(STDB_HDR) tools/stdb/stdb.c
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ $(STDB_LIB) tools/stdb/stdb.c
