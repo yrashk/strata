@@ -37,6 +37,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -246,12 +247,27 @@ static bool ok(JVal *r) {
   return false;
 }
 
-/* After a command that runs the machine: wait for it to stop (Ctrl-C pauses it). */
+static int live_ms; /* while the machine runs: print (or redraw) what changed in the stores every live_ms; 0: off */
+static void live_tick(void);
+static long long now_ms(void) {
+  struct timespec t;
+  clock_gettime(CLOCK_MONOTONIC, &t);
+  return (long long)t.tv_sec * 1000 + t.tv_nsec / 1000000;
+}
+
+/* After a command that runs the machine: wait for it to stop (Ctrl-C pauses
+ * it). With `live`, what changed in the stores meanwhile every live_ms. */
 static void wait_stop(void) {
   json_free(last_stop);
   last_stop = NULL;
   bool paused = false;
+  long long next = now_ms() + live_ms;
   while (!last_stop) {
+    if (live_ms && now_ms() >= next) {
+      live_tick();
+      next = now_ms() + live_ms;
+      if (last_stop) break;
+    }
     if (interrupted && !paused) {
       interrupted = 0;
       paused = true;
@@ -265,7 +281,8 @@ static void wait_stop(void) {
       (void)!write(eng_out, w.p, w.n);
       free(w.p);
     }
-    char *l = eng_line(100);
+    long long left = live_ms ? next - now_ms() : 100;
+    char *l = eng_line(left < 0 ? 0 : left > 100 ? 100 : (int)left);
     if (!l) continue;
     JVal *v = json_parse(l, strlen(l));
     free(l);
@@ -345,7 +362,7 @@ static void term_size(void) {
   if (!ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) && ws.ws_col) { term_w = ws.ws_col; term_h = ws.ws_row; }
 }
 
-typedef struct { char l[64][128]; int n; } Col;
+typedef struct { char l[64][320]; int n; } Col;
 static void col_add(Col *c, const char *fmt, ...) {
   if (c->n == 64) return;
   va_list ap;
@@ -354,7 +371,35 @@ static void col_add(Col *c, const char *fmt, ...) {
   va_end(ap);
 }
 
-/* one core's column: disassembly around pc, registers, capabilities, busy tags */
+static JVal *tui_chg; /* the answer to `changes` the view is drawn from */
+/* The engine's `changes` versions this front-end has seen: one for the
+ * `changes` command and the live printout, one for the split screen's marks. */
+static unsigned long long ch_since, tui_since;
+static const char *store_name(const JVal *st);
+static void kib(char *b, size_t n, unsigned long long v);
+static void usage_strip(char *b, int w, const JVal *st, long long blk, bool hot);
+
+/* the usage line of a store of the answer in tui_chg (core -1: T2) */
+static void tui_store(Col *col, int c, const char *space, int w) {
+  const JVal *ss = json_get(tui_chg, "stores");
+  for (const JVal *st = ss ? ss->kid : NULL; st; st = st->next) {
+    if (strcmp(S(st, "space"), space) || (c >= 0 && json_int(json_get(st, "core"), -1) != c)) continue;
+    char used[16], strip[80];
+    kib(used, sizeof used, json_u64(json_get(st, "used"), 0));
+    int sw = w - 13;
+    usage_strip(strip, sw > 64 ? 64 : sw < 8 ? 8 : sw, st, json_int(json_get(tui_chg, "blk"), 64), true);
+    char hot[200];
+    size_t k = 0;
+    for (const char *p = strip; *p && k < sizeof hot - 16; p++) { /* the changed pieces in yellow */
+      if (*p == 'o' || *p == '@') k += (size_t)snprintf(hot + k, sizeof hot - k, "\x1b[33m%c\x1b[0m", *p == 'o' ? '+' : '#');
+      else hot[k++] = *p;
+    }
+    hot[k] = 0;
+    col_add(col, "%-4s %6s [%s]", store_name(st), used, hot);
+  }
+}
+
+/* one core's column: disassembly around pc, registers, capabilities, busy tags, its stores */
 static void tui_core(Col *col, int c, int w, int ndis) {
   JVal *r = req("disasm", "core#", (long long)c, "before#", (long long)(ndis / 3), "n#", (long long)ndis, NULL);
   const JVal *co = core_of(last_stop, c);
@@ -403,6 +448,8 @@ static void tui_core(Col *col, int c, int w, int ndis) {
             (unsigned long long)hexv(json_get(e, "len")), (unsigned long long)json_u64(json_get(e, "issued"), 0), busy ? " BUSY" : "");
   }
   json_free(r);
+  tui_store(col, c, "dls", w);
+  tui_store(col, c, "ils", w);
 }
 
 /* visible width of a string with ANSI escapes */
@@ -437,13 +484,16 @@ static void tui_draw(void) {
   if (first < 0) first = 0;
   static Col cols[16];
   int ndis = term_h > 40 ? 12 : 8;
+  json_free(tui_chg);
+  tui_chg = req("changes", "since#", (long long)tui_since, NULL);
+  tui_since = json_u64(json_get(tui_chg, "version"), tui_since);
   int rows = 0;
   for (int i = 0; i < ncol; i++) {
     cols[i].n = 0;
     tui_core(&cols[i], first + i, colw, ndis);
     if (cols[i].n > rows) rows = cols[i].n;
   }
-  int room = term_h - 4 - (con_ntail ? (con_ntail < 4 ? con_ntail : 4) + 1 : 0);
+  int room = term_h - 5 - (con_ntail ? (con_ntail < 4 ? con_ntail : 4) + 1 : 0);
   if (rows > room) rows = room;
   fputs("\x1b[H\x1b[2J", out);
   for (int r = 0; r < rows; r++) {
@@ -457,6 +507,12 @@ static void tui_draw(void) {
     fprintf(out, "\x1b[2m-- console %.*s\x1b[0m\n", term_w - 12, "------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------");
     for (int i = con_ntail > 4 ? con_ntail - 4 : 0; i < con_ntail; i++) fprintf(out, "%.*s\n", term_w, con_tail[i]);
   }
+  Col t2 = {.n = 0};
+  tui_store(&t2, -1, "t2", term_w > 90 ? 90 : term_w);
+  if (t2.n) { put_cell(t2.l[0], term_w); fputc('\n', out); }
+  if (!last_stop) /* live: the machine runs */
+    fprintf(out, "\x1b[1mrunning\x1b[0m  tick %llu  round %llu  (the stores' changed pieces in yellow)\n",
+            (unsigned long long)json_u64(json_get(tui_chg, "tick"), 0), (unsigned long long)json_u64(json_get(tui_chg, "round"), 0));
   if (last_stop) {
     bool dn = !strcmp(S(last_stop, "ev"), "done");
     fprintf(out, "\x1b[1m%s\x1b[0m  tick %llu  round %llu  core %d of %d%s\n", dn ? S(last_stop, "why") : S(last_stop, "reason"),
@@ -703,6 +759,142 @@ static void info_tags(int c, bool all) {
     const JVal *st = json_get(co, "stall");
     if (st) fprintf(out, "  core %d stalled since round %llu: %s\n", json_int(json_get(co, "core"), 0),
                     (unsigned long long)json_u64(json_get(st, "since"), 0), S(st, "why"));
+  }
+  json_free(r);
+}
+
+/* ------------------------------------------------------------ the stores: what is in use, what changed */
+
+/* (ch_since, tui_since and live_ms: above) */
+
+static const char *store_name(const JVal *st) {
+  const char *sp = S(st, "space");
+  return !strcmp(sp, "dls") ? "D-LS" : !strcmp(sp, "ils") ? "I-LS" : "T2";
+}
+
+static void kib(char *b, size_t n, unsigned long long v) {
+  if (v % 1024) snprintf(b, n, "%.1fK", v / 1024.0);
+  else snprintf(b, n, "%lluK", v / 1024);
+}
+
+/* A store's usage as w characters: how full each piece is (' ' empty, '.',
+ * ':', '+', '#' full); with `hot`, the pieces with a changed range are
+ * capitals of their own: 'o' (or '@' when full). */
+static void usage_strip(char *b, int w, const JVal *st, long long blk, bool hot) {
+  const JVal *u = json_get(st, "units");
+  int nu = 0, cnt[256];
+  for (const JVal *e = u ? u->kid : NULL; e && nu < 256; e = e->next) cnt[nu++] = (int)json_int(e, 0);
+  unsigned long long unit = json_u64(json_get(st, "unit"), 1), size = json_u64(json_get(st, "size"), 1);
+  int per = (int)(unit / (unsigned long long)blk);
+  bool chg[256] = {0};
+  const JVal *rg = json_get(st, "ranges");
+  for (const JVal *e = hot && rg ? rg->kid : NULL; e; e = e->next) {
+    unsigned long long a = hexv(json_get(e, "addr")), n = hexv(json_get(e, "len"));
+    for (unsigned long long x = a / unit; x < (a + n + unit - 1) / unit && x < (unsigned long long)nu; x++) chg[x] = true;
+  }
+  if (w > nu) w = nu;
+  if (w < 1) w = 1;
+  for (int i = 0; i < w; i++) {
+    int lo = i * nu / w, hi = (i + 1) * nu / w, have = 0, all = 0;
+    bool c = false;
+    for (int k = lo; k < hi; k++) { have += cnt[k]; all += per; c |= chg[k]; }
+    int q = !have ? 0 : have * 4 <= all ? 1 : have * 2 <= all ? 2 : have < all ? 3 : 4;
+    b[i] = c ? (q == 4 ? '@' : 'o') : " .:+#"[q];
+  }
+  b[w] = 0;
+  (void)size;
+}
+
+static void info_stores(int only) {
+  JVal *r = only >= 0 ? req("changes", "core#", (long long)only, "since#", (long long)0xffffffff, NULL)
+                      : req("changes", "since#", (long long)0xffffffff, NULL);
+  if (!ok(r)) { json_free(r); return; }
+  long long blk = json_int(json_get(r, "blk"), 64);
+  const JVal *ss = json_get(r, "stores");
+  for (const JVal *st = ss ? ss->kid : NULL; st; st = st->next) {
+    char used[16], size[16], strip[80], who[16] = "";
+    kib(used, sizeof used, json_u64(json_get(st, "used"), 0));
+    kib(size, sizeof size, json_u64(json_get(st, "size"), 0));
+    usage_strip(strip, 64, st, blk, false);
+    if (json_get(st, "core")) snprintf(who, sizeof who, "core %d", (int)json_int(json_get(st, "core"), 0));
+    fprintf(out, "%-7s %-4s %6s of %-5s in use  [%s]\n", who, store_name(st), used, size, strip);
+  }
+  fprintf(out, "(each character is 1/64 of a store: ' ' empty, '.' up to a quarter of it in use, ':' half, '+' most, '#' all)\n");
+  json_free(r);
+}
+
+/* Prints the ranges of an answer to `changes`: each with its first `rows`
+ * lines of 16 bytes, at most `max` ranges. */
+static void print_changes(const JVal *r, int rows, int max) {
+  const JVal *ss = json_get(r, "stores");
+  int shown = 0, more = 0;
+  for (const JVal *st = ss ? ss->kid : NULL; st; st = st->next) {
+    const JVal *rg = json_get(st, "ranges");
+    for (const JVal *e = rg ? rg->kid : NULL; e; e = e->next) {
+      if (shown == max) { more++; continue; }
+      shown++;
+      unsigned long long a = hexv(json_get(e, "addr")), n = hexv(json_get(e, "len"));
+      char who[16] = "";
+      if (json_get(st, "core")) snprintf(who, sizeof who, "core %d ", (int)json_int(json_get(st, "core"), 0));
+      fprintf(out, "%s%s [0x%llx, 0x%llx)", who, store_name(st), a, a + n);
+      if (*S(e, "sym")) fprintf(out, " <%s>", S(e, "sym"));
+      fputc('\n', out);
+      const char *hx = S(e, "hex");
+      size_t hn = strlen(hx) / 2;
+      for (int row = 0; row < rows && (size_t)row * 16 < hn; row++) {
+        fprintf(out, "  0x%-6llx", a + (unsigned long long)row * 16);
+        for (size_t i = (size_t)row * 16; i < hn && i < (size_t)row * 16 + 16; i++) fprintf(out, " %.2s", hx + 2 * i);
+        if (row == rows - 1 && hn > (size_t)(row + 1) * 16) fprintf(out, " ...");
+        fputc('\n', out);
+      }
+    }
+  }
+  if (more) fprintf(out, "... and %d more range(s)\n", more);
+  if (json_bool(json_get(r, "truncated"), false)) fprintf(out, "(more changed than one answer carries: x/N shows the rest)\n");
+}
+
+/* `changes [dls|ils|t2] [core N]`: what changed since the last `changes` (or live printout) */
+static void cmd_changes(char *args) {
+  JW w = {0};
+  jw_reset(&w);
+  jw_obj(&w, NULL);
+  jw_str(&w, "cmd", "changes");
+  jw_uint(&w, "since", ch_since);
+  jw_bool(&w, "hex", true);
+  char *k;
+  while ((k = word(&args))) {
+    if (!strcmp(k, "dls") || !strcmp(k, "ils") || !strcmp(k, "t2")) jw_str(&w, "space", k);
+    else if (!strcmp(k, "core") && (k = word(&args))) jw_int(&w, "core", atoi(k));
+  }
+  jw_oend(&w);
+  JVal *r = request(&w);
+  free(w.p);
+  if (ok(r)) {
+    ch_since = json_u64(json_get(r, "version"), ch_since);
+    const JVal *ss = json_get(r, "stores");
+    bool any = false;
+    for (const JVal *st = ss ? ss->kid : NULL; st && !any; st = st->next) any = json_get(st, "ranges") && json_get(st, "ranges")->kid;
+    if (any) print_changes(r, 4, 64);
+    else fprintf(out, "no change\n");
+  }
+  json_free(r);
+}
+
+/* while the machine runs, every live_ms */
+static void live_tick(void) {
+  if (tui) { tui_draw(); return; }
+  JVal *r = req("changes", "since#", (long long)ch_since, "hex?", 1, NULL);
+  if (json_bool(json_get(r, "ok"), false)) {
+    ch_since = json_u64(json_get(r, "version"), ch_since);
+    const JVal *ss = json_get(r, "stores");
+    bool any = false;
+    for (const JVal *st = ss ? ss->kid : NULL; st && !any; st = st->next) any = json_get(st, "ranges") && json_get(st, "ranges")->kid;
+    if (any) {
+      fprintf(out, "live: tick %llu, round %llu\n", (unsigned long long)json_u64(json_get(r, "tick"), 0),
+              (unsigned long long)json_u64(json_get(r, "round"), 0));
+      print_changes(r, 1, 16);
+      fflush(out);
+    }
   }
   json_free(r);
 }
@@ -1038,6 +1230,10 @@ static void help(void) {
         "State\n"
         "  info registers (i r) | caps | ctab | inbox | xmap | tags [all] | pending | cores\n"
         "  info processes | granules | history\n"
+        "  info stores [N|all]     the Local Stores (every core's, or core N's) and T2: how much is in use, where\n"
+        "  changes [dls|ils|t2] [core N]   what changed in them since the last `changes` (or live)\n"
+        "  live [on|off|MS]        while the machine runs: every MS ms (500) what changed in the stores\n"
+        "                          (in the split screen: the view is redrawn, changed pieces in yellow)\n"
         "  x/N[bhwgsi] [dls:|ils:|t2:|t3:|disk:]ADDR|LOC\n"
         "  disassemble (disas) [LOC] [N],  list [LOC],  backtrace (bt)\n"
         "  log [N]                 the last N events (transfers, traps, gifts, stalls)\n"
@@ -1144,7 +1340,15 @@ static bool command(char *line) {
     else if (!strcmp(what, "pending") || !strcmp(what, "granules") || !strcmp(what, "history")) info_list(what, -1);
     else if (!strncmp(what, "proc", 4)) info_list("processes", -1);
     else if (!strncmp(what, "break", 5) || !strcmp(what, "b") || !strncmp(what, "watch", 5)) info_list("breakpoints", -1);
-    else fprintf(out, "info registers, caps, ctab, inbox, xmap, tags, pending, cores, processes, granules, history, breakpoints\n");
+    else if (!strcmp(what, "stores") || !strcmp(what, "ls")) info_stores(a2 && !strcmp(a2, "all") ? -1 : a2 ? core : -1);
+    else fprintf(out, "info registers, caps, ctab, inbox, xmap, tags, pending, cores, processes, granules, history, breakpoints, stores\n");
+  } else if (IS("changes")) cmd_changes(rest);
+  else if (IS("live")) {
+    if (arg1 && !strcmp(arg1, "off")) live_ms = 0;
+    else if (n > 0) live_ms = (int)n;
+    else if (!arg1 || !strcmp(arg1, "on")) live_ms = 500;
+    if (live_ms) fprintf(out, "while the machine runs: %s every %d ms\n", tui ? "the view is redrawn" : "what changed in the stores is shown", live_ms);
+    else fprintf(out, "live: off\n");
   } else if (IS("x")) examine(fmt, arg1);
   else if (IS("disassemble") || IS("disas")) {
     char *w = rest, *loc = word(&w), *cnt = word(&w);

@@ -402,11 +402,12 @@ delete, enable, disable & manage them (\texttt{info breakpoints} lists them)\\
 info registers, caps, ctab, inbox, xmap & a core's state\\
 info tags [all], pending, cores & transfers, device reads, every core and why it is stalled\\
 info processes, granules, history & StrataOS processes; revocation units; the recorded run\\
+info stores, changes, live [\textit{ms}] & the Local Stores and T2: how much is in use and where; what changed since the last look; the changes printed (or the split screen redrawn) while the machine runs\\
 x/\textit{nf} [\textit{space}:]\textit{addr} & memory: units \texttt{b h w g}, \texttt{s}, \texttt{i}; spaces \texttt{dls ils t2 t3 disk}\\
 disassemble, list, backtrace & code, source, the call chain\\
 log [n], prov c\textit{n} & the last events; a capability's history\\
 set \textit{reg value}, input \textit{text}, ctrl-c & change a register; console input; the break key\\
-tui & the cores side by side: disassembly, registers, capabilities and tags\\
+tui & the cores side by side: disassembly, registers, capabilities, tags and each core's stores\\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -414,7 +415,8 @@ tui & the cores side by side: disassembly, registers, capabilities and tags\\
 \subsection{The web debugger}
 \texttt{site/debug/} shows the cores side by side (disassembly with the current line and breakpoints,
 registers, capabilities, stall reasons), a transfer timeline (a row per core: transfers as they issue,
-device reads in flight from issue to completion, stalls, gifts between cores, traps), a Local Store map,
+device reads in flight from issue to completion, stalls, gifts between cores, traps), a Local Store map
+(per core and for T2: what is in use, what changed since the last look, and the bytes, redrawn while the machine runs),
 the provenance graph of the capabilities held, breakpoint and watchpoint management, the console and a
 slider over the recorded run. In the page it runs the WebAssembly emulator in a worker with
 \texttt{-{}-debug}; served by \texttt{strata-emu -{}-debug} \textit{port} it drives the desktop engine
