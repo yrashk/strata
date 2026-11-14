@@ -54,9 +54,7 @@ strata$ un
 units  unset  untag
 strata$ un^[[2D^[[Kecho listed
 listed
-strata$ echo stream_sum
-stream_sum    stream_sum.s
-strata$ echo stream_sum x^[[17D^[[K
+strata$ echo stream x^[[13D^[[K
 strata$ wc < tfile 
 1 2 11
 strata$ -n 2 hello 
@@ -161,6 +159,15 @@ usage: sleep SECONDS (for example 0.5)
 /doc/motd: doc
 /etc/rc: etc
 /bin/ls: bin
+strata$ cat mo
+cat: no such file: mo
+[exit 1]
+[1] strata$ cat /doc/motd  | wc
+25 255 1648
+strata$ cat 
+bin/    doc/    f1      f3      guest/  s1      sys/    ws/
+demo/   etc/    f2      forth/  net/    src/    tfile   www/
+strata$ cat ^[[4D^[[K
 strata$ echo alpha > n1; echo beta > /notes/n2; echo gamma > /notes/work/n3
 strata$ ls -t; tag n1 notes; ls -t
 tfile                          11 

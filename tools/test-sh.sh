@@ -106,6 +106,11 @@ CW=$(printf '\027'); CL=$(printf '\014'); CD=$(printf '\004')
   # there: a name alone means the current directory, at first the root);
   # intersections, tag paths
   printf 'tags /doc/motd /etc/rc /bin/ls\n'
+  # completing a file's name offers the current directory's files only (at the
+  # root: those in no directory), not every file of the disk
+  printf 'cat mo%s\n' "$TAB"
+  printf 'cat /doc/mo%s | wc\n' "$TAB"
+  printf 'cat %s%s%s\n' "$TAB" "$TAB" "$CU"
   printf 'echo alpha > n1; echo beta > /notes/n2; echo gamma > /notes/work/n3\n'
   printf 'ls -t; tag n1 notes; ls -t\n'
   printf 'ls -t /notes\n'
