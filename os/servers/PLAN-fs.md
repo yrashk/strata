@@ -11,8 +11,8 @@ decisions taken.
       snapshots wanted; query terms in paths; private or public
       namespaces; assembly; a commit per change. Emulator and RTL stay
       block devices only.
-- [ ] The format's specification (field offsets, the checksum, key
-      encodings) written out from `tools/stdb/` once stage 1 settles it
+- [x] The format's specification (field offsets, the checksum, key
+      encodings): `doc/strata-store-format.md`
 
 ## Stage 1: the store on the host
 - [x] `tools/stdb/store.c`: pages, B+tree (search, seek, insert, split,
