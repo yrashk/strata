@@ -60,7 +60,7 @@ HTTP/1.0 200 OK
 Server: StrataOS/0.1 httpd
 Connection: close
 Content-Type: text/plain; charset=utf-8
-Content-Length: 333828
+Content-Length: 334217
 
 strata$ echo GET /www/nosuch.html HTTP/1.0 | nc 127.0.0.1 80 > r7
 GET /www/nosuch.html 404 106
@@ -73,7 +73,6 @@ Content-Length: 106
 
 <!DOCTYPE html>
 <html><head><title>404 Not Found</title></head><body><h1>404 Not Found</h1></body></html>
-strata$ rm r1 r2 r3
 strata$ echo GET /bin HTTP/1.0 | nc 127.0.0.1 80 > r8
 GET /bin 301 122
 strata$ cat r8
@@ -117,21 +116,21 @@ strata$ wait %2
 strata$ grep HTTP/ < r13
 HTTP/1.0 200 OK
 strata$ echo GET /~ps HTTP/1.0 | nc 127.0.0.1 80 > r11
-GET /~ps 200 3118
+GET /~ps 200 3119
 strata$ grep "<h2>" < r11
 <h2>Cores</h2>
 <h2>Processes</h2>
 strata$ echo GET /src/sh.s HTTP/1.0 | nc 127.0.0.1 80 | wc
-GET /src/sh.s 200 333828
-6992 41559 333959
+GET /src/sh.s 200 334217
+6997 41624 334348
 strata$ cat sh.s | wc
-6986 41545 333828
+6991 41610 334217
 strata$ rm index.html
 strata$ echo GET / HTTP/1.0 | nc 127.0.0.1 80 > r12
-GET / 200 14117
+GET / 200 14183
 strata$ grep title < r12
 <html><head><meta charset="utf-8"><title>every file</title><link rel="stylesheet" href="/style.css"></head><body>
-strata$ rm r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15
+strata$ rm r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15
 strata$ kill %1
 [1] killed  httpd
 strata$ wait

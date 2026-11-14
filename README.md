@@ -532,7 +532,7 @@ the main points:
   the files tagged both `src` and `demo`, `ls /src/-demo` those tagged `src`
   but not `demo`; subdirectories are facets: `ls /src` ends with `demo/`), but files are contiguous runs of
   blocks, a deleted file's space comes back only if it was the last one, and
-  a disk holds at most 128 files and 64 tags.
+  a disk holds at most 1024 files and 64 tags.
 - The shell has no globbing and no `2>`.
 - Strata Forth runs on the bare machine only, not yet as a StrataOS program.
 - With timer-driven preemption, the emulator and the RTL cannot be compared

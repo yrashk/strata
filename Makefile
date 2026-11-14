@@ -117,6 +117,7 @@ test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vi.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vifs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-fs-progs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) ./tools/test-files.sh $(BUILD)/bootrom.stx $(BUILD)/files-test/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-net.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-http.sh $(BUILD)/bootrom.stx $(BUILD)/http-test/disk.img
 	BUILD=$(BUILD) ./tools/test-ws.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
@@ -321,7 +322,7 @@ $(BUILD)/forth-os/vi-syntax.fs: tools/vi-syntax.py tools/web-code.py asm/sasm.c 
 	python3 tools/vi-syntax.py $@
 
 # the Forth ports of os/progs (lang/forth/progs/*.fs) and their library, packed into
-# one disk file (the directory has room for 128 files) behind a loader, lang/forth/progs.fs
+# one disk file (the directory had room for 128 files when they were written) behind a loader, lang/forth/progs.fs
 FORTH_PROGS := lang/forth/sys.fs $(sort $(wildcard lang/forth/progs/*.fs))
 $(BUILD)/forth-os/progs.pk: tools/forth-pack.py lang/forth/progs.fs $(FORTH_PROGS)
 	@mkdir -p $(BUILD)/forth-os
@@ -466,7 +467,7 @@ $(BUILD)/mkhex: tools/mkhex.c common/stx.h common/platform.h asm/isa.h
 
 fpga-images: $(BUILD)/mkhex $(BUILD)/bootrom.stx $(BUILD)/kernel.stx $(BUILD)/mkdisk $(BUILD)/prog/hello $(BUILD)/prog/mandel
 	@mkdir -p $(FPGA)
-	$(BUILD)/mkdisk -b 256 -o $(FPGA)/disk.img -k $(BUILD)/kernel.stx os/files/motd os/files/rc $(BUILD)/prog/hello $(BUILD)/prog/mandel
+	$(BUILD)/mkdisk -b 256 -n 128 -o $(FPGA)/disk.img -k $(BUILD)/kernel.stx os/files/motd os/files/rc $(BUILD)/prog/hello $(BUILD)/prog/mandel
 	$(BUILD)/mkhex ils $(BUILD)/bootrom.stx $(FPGA)/bootrom_ils.hex
 	$(BUILD)/mkhex dls $(BUILD)/bootrom.stx $(FPGA)/bootrom_dls.hex
 	$(BUILD)/mkhex disk $(FPGA)/disk.img 16384 $(FPGA)/disk.hex
@@ -516,6 +517,16 @@ $(BUILD)/isol-test/dlsgap: tools/dlsgap.s os/lib/sys.s $(BUILD)/sasm
 $(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin,test $(BUILD)/isol-test/dlsgap
 test: $(BUILD)/isol-test/disk.img
+
+# the disk of tools/test-files.sh: the standard one plus 300 small files tagged
+# many (f000 .. f299, each holding its own name): more files than one window
+# of the file server's directory, or one DIR message, holds
+MANY := $(shell i=0; while [ $$i -lt 300 ]; do printf '$(BUILD)/files-test/many/f%03d ' $$i; i=$$((i + 1)); done)
+$(BUILD)/files-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
+	@mkdir -p $(BUILD)/files-test/many
+	@for f in $(MANY); do basename $$f > $$f; done
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) 2>&1 | cut -c1-200
+test: $(BUILD)/files-test/disk.img
 
 # the disk of `make test-forth`: the standard one plus the test files
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs) \

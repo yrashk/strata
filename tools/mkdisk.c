@@ -1,17 +1,23 @@
 /* mkdisk: builds a bootable Strata disk image.
  *
- *   mkdisk -o disk.img -k kernel.stx [-b blocks] [[-t tag,tag...] file...]
+ *   mkdisk -o disk.img -k kernel.stx [-b blocks] [-n entries] [[-t tag,tag...] file...]
  *
  * -t sets the tags of the files that follow it (comma-separated, at most 64
  * tags of at most 16 bytes on the disk, no "/", not starting with "-";
- * -t "" for none).
+ * -t "" for none). -n: the directory's entries, i.e. the files the disk can
+ * hold: a multiple of 128, at most 1024 (the default; a small disk for an
+ * FPGA's block RAM takes -n 128).
  *
- * Layout (512-byte blocks):
- *   0      boot header (see firmware/bootrom.s; offset 52: u32 tag table LBA)
- *   1..8   directory: 128 entries of { name[24], u32 lba, u32 size }
- *   9..12  tag table: 64 tag names of 16 bytes (zero-padded; empty = free),
- *          then 128 u64 tag sets, one per directory entry (bit t = tag t)
- *   13..   OS code image (I-LS bytes 0x4000..0x8000), then OS data image
+ * Layout (512-byte blocks), for a directory of N entries:
+ *   0      boot header (see firmware/bootrom.s; offset 52: u32 tag table LBA,
+ *          offset 56: u32 N; 0 there means 128: a disk made before the field)
+ *   1..    directory: N entries of { name[24], u32 lba, u32 size }, N / 16
+ *          blocks. The kernel looks for the servers it starts at boot in the
+ *          first 128 entries only: they are the first files given here.
+ *   then   tag table: 64 tag names of 16 bytes (zero-padded; empty = free),
+ *          then N u64 tag sets, one per directory entry (bit t = tag t):
+ *          2 + N / 64 blocks
+ *   then   OS code image (I-LS bytes 0x4000..0x8000), then OS data image
  *          (D-LS bytes 0xA000..0xE000), then the kernel's far image (its
  *          SK_T3 sections: the code units, at most 0xD0000 bytes, offset 0 =
  *          far address 0), then each file, block-aligned
@@ -27,15 +33,17 @@
 #define BLK 512u
 #define OS_TEXT 0x4000u
 #define OS_DATA 0xA000u
-#define DIRENTS 128
-#define DIRBLOCKS 8
+#define DIRMAX 1024
+#define DIRSTEP 128
 #define NTAGS 64
 #define TAGLEN 16
-#define TAGBLOCKS 4
+static int dirents = DIRMAX;
+#define DIRBLOCKS ((uint32_t)dirents / 16)
+#define TAGBLOCKS (2 + (uint32_t)dirents / 64)
 #define FAR_MAX 0xD0000u
 
 static uint8_t *disk;
-static uint32_t nblocks = STX_DISK_BLOCKS, next_lba = 1 + DIRBLOCKS + TAGBLOCKS;
+static uint32_t nblocks = STX_DISK_BLOCKS, next_lba;
 static char tagnames[NTAGS][TAGLEN + 1];
 static int ntags;
 
@@ -85,20 +93,29 @@ static uint32_t place(const uint8_t *data, uint32_t len, uint32_t *blocks) {
 
 int main(int argc, char **argv) {
   const char *out = NULL, *kernel = NULL;
-  const char *files[DIRENTS];
-  uint64_t ftags[DIRENTS];
+  const char *files[DIRMAX];
+  uint64_t ftags[DIRMAX];
   uint64_t cur_tags = 0;
   int nfiles = 0;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "-o") && i + 1 < argc) out = argv[++i];
     else if (!strcmp(argv[i], "-k") && i + 1 < argc) kernel = argv[++i];
     else if (!strcmp(argv[i], "-b") && i + 1 < argc) nblocks = (uint32_t)strtoul(argv[++i], NULL, 0);
-    else if (!strcmp(argv[i], "-t") && i + 1 < argc) cur_tags = tag_set(argv[++i]);
-    else if (argv[i][0] == '-') { fprintf(stderr, "usage: mkdisk -o disk.img -k kernel.stx [-b blocks] [[-t tags] file...]\n"); return 2; }
-    else if (nfiles < DIRENTS) { ftags[nfiles] = cur_tags; files[nfiles++] = argv[i]; }
-    else { fprintf(stderr, "mkdisk: at most %d files\n", DIRENTS); return 1; }
+    else if (!strcmp(argv[i], "-n") && i + 1 < argc) {
+      dirents = atoi(argv[++i]);
+      if (dirents < DIRSTEP || dirents > DIRMAX || dirents % DIRSTEP) {
+        fprintf(stderr, "mkdisk: -n: a multiple of %d, at most %d\n", DIRSTEP, DIRMAX);
+        return 2;
+      }
+    } else if (!strcmp(argv[i], "-t") && i + 1 < argc) cur_tags = tag_set(argv[++i]);
+    else if (argv[i][0] == '-') { fprintf(stderr, "usage: mkdisk -o disk.img -k kernel.stx [-b blocks] [-n entries] [[-t tags] file...]\n"); return 2; }
+    else if (nfiles < DIRMAX) { ftags[nfiles] = cur_tags; files[nfiles++] = argv[i]; }
+    else { fprintf(stderr, "mkdisk: at most %d files\n", DIRMAX); return 1; }
   }
-  if (!out || !kernel) { fprintf(stderr, "usage: mkdisk -o disk.img -k kernel.stx [-b blocks] [[-t tags] file...]\n"); return 2; }
+  if (!out || !kernel) { fprintf(stderr, "usage: mkdisk -o disk.img -k kernel.stx [-b blocks] [-n entries] [[-t tags] file...]\n"); return 2; }
+  if (nfiles > dirents) { fprintf(stderr, "mkdisk: %d files, but the directory has %d entries (-n)\n", nfiles, dirents); return 1; }
+  next_lba = 1 + DIRBLOCKS + TAGBLOCKS;
+  if (next_lba >= nblocks) { fprintf(stderr, "mkdisk: disk too small for a directory of %d entries (-n)\n", dirents); return 1; }
 
   disk = calloc(nblocks, BLK);
   StxImage img;
@@ -167,12 +184,13 @@ int main(int argc, char **argv) {
   put32(h + 44, flba);
   put32(h + 48, fblocks);
   put32(h + 52, 1 + DIRBLOCKS);
+  put32(h + 56, (uint32_t)dirents);
 
   FILE *o = fopen(out, "wb");
   if (!o) { perror(out); return 1; }
   fwrite(disk, BLK, next_lba, o); /* only the blocks in use: the rest of the disk reads zero */
   fclose(o);
-  fprintf(stderr, "mkdisk: %s: %u blocks, OS code %u + data %u + far %u blocks, %d files, %d tags, %u blocks free\n",
-          out, nblocks, tblocks, dblocks, fblocks, nfiles, ntags, nblocks - next_lba);
+  fprintf(stderr, "mkdisk: %s: %u blocks, OS code %u + data %u + far %u blocks, %d files (of %d), %d tags, %u blocks free\n",
+          out, nblocks, tblocks, dblocks, fblocks, nfiles, dirents, ntags, nblocks - next_lba);
   return 0;
 }

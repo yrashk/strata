@@ -672,7 +672,8 @@ handles (CLEANUP) and completes the parent's WAIT.
   gives the file the path's tags. Reply: a file id; $-4$\\
 4 & CLOSE & handle. A file that was written is saved to disk when its last reference closes\\
 10 & DIR & data = a path of tags (none: every file; \texttt{-tag} excludes). Reply: the count of
-  files carrying them all, and 32-byte records: 24 bytes of name, u64 size (126 at most); the mode
+  files carrying them all, and 32-byte records: 24 bytes of name, u64 size (126 at most; the handle
+  is a number of matching files to skip, for the next part of a longer listing); the mode
   word holds the facets, a tag set of the other tags those files carry; $-4$ no such tag\\
 11 & UNLINK & data = a path; $-4$\\
 12 & TAG & data = a path, a zero byte, a tag name (created if new). $-4$; $-6$ all 64 tags in use;
@@ -796,11 +797,14 @@ files tagged \texttt{src} and then \texttt{demo/}, \texttt{ls /src/demo} narrows
 \texttt{ls /} ends with every tag in use. Nothing on the disk changes. The shell's Tab completes facets
 in a path like folders (\texttt{cat /sr} gives \texttt{/src/}).
 
-On the disk the directory keeps its 128 entries of 32 bytes (the kernel reads it at boot to load the
-first servers), and the tag table follows it: four blocks, at the LBA in boot-header offset 52, of 64
-tag names of 16 bytes (zero-padded; a zero first byte is a free slot), then 128 64-bit tag sets, one
-per directory entry: bit $t$ of set $f$ says that entry $f$ carries tag $t$. A query is a loop over
-128 words with one \texttt{and} each. \texttt{fs} keeps the table (2~KiB) in its D-LS and writes it
+On the disk the directory has $N$ entries of 32 bytes ($N$ in boot-header offset 56: a multiple of
+128, at most 1024; the kernel reads the first 128 at boot to load the first servers), and the tag
+table follows it, at the LBA in boot-header offset 52: 64
+tag names of 16 bytes (zero-padded; a zero first byte is a free slot), then $N$ 64-bit tag sets, one
+per directory entry. The file server keeps the directory and the tag sets in far memory and works
+on a window of 128 entries in its data Local Store. In a tag set, bit $t$ of set $f$ says that
+entry $f$ carries tag $t$. A query is a loop over the tag sets, window by window, with one
+\texttt{and} each. \texttt{fs} keeps the tag names (1~KiB) in its D-LS and writes the table
 back with the directory. \texttt{mkdisk -t tag,tag\ldots} tags the files that follow it; the supplied
 disk tags its files \texttt{doc}, \texttt{etc}, \texttt{sys}, \texttt{bin}, \texttt{ws},
 \texttt{demo}, \texttt{src} and \texttt{forth}.
