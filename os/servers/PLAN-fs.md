@@ -32,9 +32,9 @@ decisions taken.
 - [ ] A million objects on the host
 
 ## Stage 2: persistence
-- [ ] Emulator `-w` (write back at exit and at FLUSH)
-- [ ] Emulator `--disk-cut N` and `--disk-cache`
-- [ ] RTL harness: `disk_write` and write-back at exit
+- [x] Emulator `-w FILE` (the disk as it is at the end)
+- [x] Emulator `--disk-cut N` and `--disk-cache SEED`
+- [x] RTL harness: `disk_write` and `-w FILE`
 
 ## Stage 3: boot
 - [ ] Kernel `u_disk` / `u_findfile`: meta pages, checksum, manifest

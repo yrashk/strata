@@ -253,6 +253,37 @@ static int blk_take_buf(int from, Gift *g) {
   return -1;
 }
 
+/* The disk beyond this run, and its power (for tests of what a file system
+ * leaves on the disk when the power goes in the middle of writing):
+ *   -w FILE          the disk as it is at the end is written to FILE
+ *   --disk-cut N     the power goes when N blocks have been written (in the
+ *                    middle of a command if that is where N falls): the
+ *                    disk is written to the -w file and the emulator ends
+ *   --disk-cache S   the device has a volatile write cache: at the cut each
+ *                    block written since the last FLUSH is, by a random
+ *                    choice seeded with S, either on the disk or lost */
+static const char *disk_out_path;
+static bool disk_cutting, disk_caching;
+static uint64_t disk_cut_at, disk_wblocks, disk_cache_seed;
+static struct { uint64_t lba; uint8_t old[BLK_BLOCK]; } *disk_unflushed;
+static size_t disk_nunflushed, disk_cunflushed;
+
+static void disk_cut(void) {
+  uint64_t s = disk_cache_seed * 0x9E3779B97F4A7C15ull + 1, lost = 0;
+  for (size_t i = disk_nunflushed; i-- > 0;) { /* newest first, so an older loss wins */
+    s ^= s << 13; s ^= s >> 7; s ^= s << 17;
+    if (!(s >> 20 & 1)) continue;
+    memcpy(disk + disk_unflushed[i].lba * BLK_BLOCK, disk_unflushed[i].old, BLK_BLOCK);
+    lost++;
+  }
+  fflush(stdout);
+  fprintf(stderr, "disk: power cut after %llu blocks written", (unsigned long long)disk_wblocks);
+  if (disk_caching) fprintf(stderr, " (%llu of the %zu not flushed are lost)", (unsigned long long)lost, disk_nunflushed);
+  fputc('\n', stderr);
+  if (disk_out_path) stx_disk_save(disk_out_path, disk, disk_blocks);
+  exit(0);
+}
+
 static void blk_run(void) {
   for (;;) {
     if (blk_out_to >= 0) {
@@ -292,11 +323,22 @@ static void blk_run(void) {
     if (st == BLK_OK && op != BLK_OP_FLUSH) {
       for (uint64_t i = 0; i < bytes; i += 8) {
         uint8_t *fp = far_ptr(k.space, k.base + off + i);
+        if (op == BLK_OP_WRITE && i % BLK_BLOCK == 0) { /* a block begins */
+          if (disk_cutting && disk_wblocks == disk_cut_at) disk_cut();
+          if (disk_caching) {
+            if (disk_nunflushed == disk_cunflushed)
+              disk_unflushed = realloc(disk_unflushed, (disk_cunflushed = disk_cunflushed ? disk_cunflushed * 2 : 256) * sizeof *disk_unflushed);
+            disk_unflushed[disk_nunflushed].lba = lba + i / BLK_BLOCK;
+            memcpy(disk_unflushed[disk_nunflushed++].old, disk + lba * BLK_BLOCK + i, BLK_BLOCK);
+          }
+          disk_wblocks++;
+        }
         if (op == BLK_OP_READ) { memcpy(fp, disk + lba * BLK_BLOCK + i, 8); far_wrote(k.space, k.base + off + i); }
         else memcpy(disk + lba * BLK_BLOCK + i, fp, 8);
       }
       if (dbg_on && op == BLK_OP_WRITE) dbg_disk_written(lba * BLK_BLOCK, bytes);
     }
+    if (st == BLK_OK && op == BLK_OP_FLUSH) disk_nunflushed = 0;
     uint8_t *e = cq[(cq_head + cq_cnt) % BLK_QDEPTH];
     memset(e, 0, 16);
     plat_put(e, cid, 2);
@@ -1672,6 +1714,9 @@ static int round_idle(void) {
   "  -t FILE     write an instruction trace\n"                                                        \
   "  -m N        stop after N steps (timeout)\n"                                                      \
   "  -d FILE     block device image\n"                                                                \
+  "  -w FILE     at the end, write the disk as it then is to FILE (may be the -d file)\n"            \
+  "  --disk-cut N    the disk's power goes after N blocks written: write it (-w) and end\n"          \
+  "  --disk-cache S  with --disk-cut: blocks not yet flushed are lost at random (seed S)\n"          \
   "  -i FILE     console input from FILE (default: the terminal / stdin)\n"                          \
   "  -P FILE     scripted pointer input (see common/display.h)\n"                                   \
   "  -b N        press Ctrl-C after N steps\n"                                                        \
@@ -1716,6 +1761,9 @@ int main(int argc, char **argv) {
   for (int i = 1; i < argc; i++) {
     bool more = i + 1 < argc;
     if (!strcmp(argv[i], "-d") && more) disk_path = argv[++i];
+    else if (!strcmp(argv[i], "-w") && more) disk_out_path = argv[++i];
+    else if (!strcmp(argv[i], "--disk-cut") && more) { disk_cutting = true; disk_cut_at = strtoull(argv[++i], NULL, 0); }
+    else if (!strcmp(argv[i], "--disk-cache") && more) { disk_caching = true; disk_cache_seed = strtoull(argv[++i], NULL, 0); }
     else if (!strcmp(argv[i], "-b") && more) opt_break_at = strtoull(argv[++i], NULL, 0);
     else if (!strcmp(argv[i], "-S") && more) {
       ctab_size = strtoull(argv[++i], NULL, 0);
@@ -1870,5 +1918,6 @@ int main(int argc, char **argv) {
   }
   fflush(stdout);
   if (trace) fclose(trace);
+  if (disk_out_path) stx_disk_save(disk_out_path, disk, disk_blocks);
   return faulted ? 1 : 0;
 }
