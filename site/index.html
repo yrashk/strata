@@ -26,6 +26,7 @@
     <a href="arch/">Architecture</a>
     <a href="isa/">Instructions</a>
     <a href="forth/">Forth</a>
+    <a href="c/">C</a>
     <a href="hardware/">Hardware</a>
     <a href="play/">Play</a>
     <a href="debug/">Debug</a>
@@ -54,6 +55,7 @@
       <li><b>C</b> reference emulator</li>
       <li><b>StrataOS</b> microkernel</li>
       <li><b>Forth</b> with native code</li>
+      <li><b>C99</b> <a href="c/">compiler that compiles itself</a></li>
       <li><b>Source</b> <a href="code/">browsable, syntax-coloured</a></li>
       <li><b>Manual</b> <a href="arch/">architecture</a> and <a href="isa/">instructions</a> on the web</li>
     </ul>
@@ -249,18 +251,46 @@ see sq
   </figure>
 </section>
 
+<section id="c" class="section">
+  <h2><span class="num">05</span>C, compiled on the machine</h2>
+  <div class="split">
+    <div>
+      <p><code>cc</code> is a C99 compiler that runs inside StrataOS and writes program images directly: one
+        pass, no assembler, no linker. It is <b>written in C and compiles itself</b>; the first compiler,
+        <code>cc0</code>, is the same language in Strata assembly, and compiling the compiler with itself twice
+        gives the same bytes as the <code>cc</code> on the disk.</p>
+      <ul class="ticks">
+        <li>Both compilers pass 521 tests from the suites of two other C compilers</li>
+        <li><code>asm("...")</code> and intrinsics for what only Strata has: transfers, capabilities</li>
+        <li>108 KiB of compiler in a 32 KiB instruction store: it pages itself</li>
+        <li>The same source builds as a cross compiler on your machine</li>
+      </ul>
+      <p><a href="c/">The bootstrap, the machine from C, the tests →</a></p>
+    </div>
+    <div class="terminal">
+<pre><span class="p">strata$</span> cc /src/hi.c
+<span class="p">strata$</span> hi there
+Hello from C on Strata, there!
+<span class="p">strata$</span> cc0 -p -h 0 -o cc1 /src/cc.c   <span class="c"># assembly compiles the compiler</span>
+<span class="p">strata$</span> cc1 -p -h 0 -o c2 /src/cc.c    <span class="c"># which compiles itself</span>
+<span class="p">strata$</span> cmp c2 /bin/cc
+c2 /bin/cc: same</pre>
+    </div>
+  </div>
+</section>
+
 <section id="play" class="section">
-  <h2><span class="num">05</span>Try it in your browser</h2>
+  <h2><span class="num">06</span>Try it in your browser</h2>
   <div class="card accent">
     <p>The reference emulator, compiled to WebAssembly. Boot StrataOS on 12 cores and type at its
       shell, watch eight cores draw a Mandelbrot set into the framebuffer, or define words in Forth
-      and see them run as native Strata code — no install.</p>
+      and see them run as native Strata code, compile a C program with the compiler on the disk — no install.</p>
     <p class="cta play-cta"><a class="btn" href="play/">Run Strata in your browser</a></p>
   </div>
 </section>
 
 <section id="build" class="section">
-  <h2><span class="num">06</span>Run it</h2>
+  <h2><span class="num">07</span>Run it</h2>
   <p class="intro">Needs a C compiler and Verilator&nbsp;5; SDL2 is optional (for the window). Or read it first:
     the <a href="code/">source browser</a> has every assembly and Forth program, syntax-coloured.</p>
   <div class="cmds">
@@ -281,6 +311,7 @@ see sq
     <a href="arch/">architecture outline</a> ·
     <a href="isa/">instruction set</a> ·
     <a href="forth/">Strata Forth</a> ·
+    <a href="c/">C compiler</a> ·
     <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
 </footer>
 

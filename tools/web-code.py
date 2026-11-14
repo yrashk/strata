@@ -40,6 +40,7 @@ GROUPS = [
                "lang/forth/guest/*.s", "lang/forth/guest/*.fs",
                "lang/forth/demos/*.fs", "lang/forth/tests/*.fs",
                "lang/forth/*.fs", "lang/forth/progs/*.fs"]),
+    ("C compiler", ["lang/cc/cc.s", "lang/cc/cc-*.s", "lang/cc/lib/*.s"]),
     ("Conformance tests", ["conformance/tests/*.s", "conformance/tests/lib/*.s"]),
 ]
 
@@ -52,6 +53,7 @@ RUN = {
     "firmware/bootrom.s": "os",
     "lang/forth/forth.s": "forth",
     "lang/forth/core.fs": "forth",
+    "lang/cc/cc.s": "cc",
 }
 
 
