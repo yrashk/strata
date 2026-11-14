@@ -135,9 +135,12 @@ decisions taken.
 - [x] Attributes: SETATTR (42), GETATTR (43), `attr` (`fsattr.s`); terms
       in paths: `NAME=VALUE`, `<`, `>` over attributes, `size`,
       `modified`; `PREFIX*` last in a listing; `test-store.sh` part 7
-- [ ] Terms are checked against each record of what the tags give; walking
-      the index for a term (a range of values, a prefix of names) is not
-      done, so a term alone still reads every record
+- [x] A path without tags with a term `NAME=VALUE` (an attribute, `size`,
+      `modified`) is answered from the index: the entries of one value are
+      in object order, which is the order a listing's cursor needs
+- [ ] `<`, `>` and `PREFIX*` alone still read every record: their index
+      entries are in value order (name order), and a listing's cursor is
+      an object id
 
 ## Stage 8: snapshots
 - [x] Births in pages and extents (in the format from stage 1)

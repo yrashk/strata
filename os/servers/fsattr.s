@@ -24,9 +24,11 @@
 ; an attribute, or size (bytes), or modified (the commit that changed the
 ; file last). A value in digits is compared as a number, any other as bytes.
 ; A file without the attribute matches none of them. In a listing the last
-; component may also be PREFIX*: the files whose names begin so. Terms only
-; narrow what the tags (or the whole disk) give: they are checked against
-; each file's record; the index is not walked for them yet. A path that
+; component may also be PREFIX*: the files whose names begin so. Terms
+; narrow what the tags give: they are checked against each file's record.
+; A path without tags that has a term NAME=VALUE is answered from the index
+; (q_next in fs.s): only the files with that value are looked at. A path of
+; only < and > terms, or PREFIX*, still looks at every file. A path that
 ; creates cannot hold a term (-1). In the shell a term with < or > is quoted.
 
 T_PRE   = 1                             ; a term's subject: the name's beginning,

@@ -966,7 +966,9 @@ a file without the attribute matches none. In a listing the last component
 may be `PREFIX*`. So `ls /src/lang=asm`, `ls '/src/size>100000'` (quoted
 for the shell), `ls /bin/ca*`, `cat /t/colour=blue/a2`. A path that
 creates cannot hold a term. Terms narrow what the tags give by looking at
-each file's record: the index is not yet walked for them. **The store for
+each file's record; a path without tags that has a `NAME=VALUE` term is
+answered from the index (only the files with that value are read), while
+`<`, `>` and `PREFIX*` alone still read every record. **The store for
 programs.** A program can keep data of its own in the store, beside the
 file system: in a namespace of its own, in named trees of keys and values
 (bytes, in key order; a key up to 480 bytes, a value up to about 1,000,

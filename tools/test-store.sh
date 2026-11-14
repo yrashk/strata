@@ -347,6 +347,10 @@ attr -d a1 year
 attr a1
 attr a1 size 5
 echo --blue; ls /t/colour=blue
+echo --eq1; ls /colour=blue
+echo --eq2; ls /year=1999
+echo --eq3; ls /colour=mauve
+echo --eq4; ls /size=4/year=1999
 echo --old; ls '/t/year<2000'
 echo --new; ls '/t/year>1999'
 echo --big; ls '/t/size>2'
@@ -370,6 +374,8 @@ def sect(mark):
 assert "colour = green" in t and "year = 1984" not in t.split("strata$ attr a1\n")[-1].split("strata$")[0], "attr lists what was set last"
 assert "attr: cannot set size" in t, "size is not an attribute to set"
 assert sect("blue") == ["a2"], sect("blue")
+assert sect("eq1") == ["a2", "t/"] and sect("eq2") == ["a3", "t/"], "a term alone (the index walked): %r %r" % (sect("eq1"), sect("eq2"))
+assert sect("eq3") == ["(no"] and sect("eq4") == ["a3", "t/"], "a term alone: no such value; two terms: %r %r" % (sect("eq3"), sect("eq4"))
 assert sect("old") == ["a3"], sect("old")
 assert sect("new") == ["a2"], sect("new")
 assert sect("big") == ["a2", "a3"], sect("big")
