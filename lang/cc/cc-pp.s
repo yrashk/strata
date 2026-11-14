@@ -27,7 +27,7 @@ MK_STR   = 0xC0                         ; + n: # parameter n
 MK_CAT   = 0xFF                         ; ##
 MAXPAR   = 32                           ; parameters of a macro
 XBSZ     = 1536                         ; bytes of arguments being expanded at one time
-NARGS    = 48                           ; arguments of all the expansions in progress
+NARGS    = 40                           ; arguments of all the expansions in progress
 
         .data                           ; the preprocessor's variables
         .align 8                        ; (words first)
