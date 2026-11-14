@@ -2008,13 +2008,6 @@ gcp_end:
         sd    s1, vsp(zero)             ; ...
         jalr  zero, gp, lv6-R           ; done
 
-; ---- floating point: not supported yet -------------------------------------------------
-f_cast:
-f_unop:
-f_binop:
-        li    a0, m_nofp                ; ...
-        jalr  zero, gp, error-R         ; ...
-
         .align 4096                     ; ---- unit: gen4 ----
 u_gen4:
 ; arith(a0 = type, a1 = type) -> a0: the usual arithmetic conversions' common type  (leaf, no frame)

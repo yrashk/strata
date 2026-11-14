@@ -234,12 +234,19 @@ table, into one disk file, `cc.lib` (the disk's directory has 128 entries).
   strncmp strcat strchr strrchr strstr`, `atoi strtol abs qsort`, `<ctype.h>`.
 - Soft-float and the helpers compiled code calls.
 
-## 6. A second source, in C
+## 6. Bootstrap: `cc.s`, then `cc.c`
 
-`cc.c` is the same compiler written in the C it accepts. The assembly
-compiler compiles it (paged); the result must write, for any input, the image
-the assembly compiler writes, and in particular for `cc.c` itself. The test
-is that fixed point: `cc1 = asm-cc(cc.c)`, `cc2 = cc1(cc.c)`, and `cc1` and
-`cc2` are the same bytes. To make that feasible the two follow the same
-algorithm routine by routine: same order of emission, same allocation of
-registers, labels, data and fixups.
+The assembly compiler, `cc.s`, is the **bootstrap** compiler: it exists so
+that a C compiler can be built on a machine that has none. The **main**
+compiler is to be `cc.c`, written in the C that `cc.s` accepts, compiled by
+`cc.s` (in the paged code model) into `cc1`.
+
+- `cc.c` does not have to emit what `cc.s` emits: it is free to generate
+  better code. The two only have to agree on the calling convention and on
+  the library.
+- The test of `cc.c` is its own fixed point: `cc1 = cc.s(cc.c)`,
+  `cc2 = cc1(cc.c)`, `cc3 = cc2(cc.c)`, and `cc2` and `cc3` are the same
+  bytes. (`cc1` and `cc2` differ whenever the two compilers generate
+  different code.)
+- `cc.s` therefore only needs to stay good enough to compile `cc.c`; new
+  language features go into `cc.c` first.

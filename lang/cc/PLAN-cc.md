@@ -87,10 +87,15 @@ Each stage ends with the ladder run and its score recorded below.
       arithmetic, comparisons, `printf` of `%f`)
 - [ ] `printf` family, `malloc`, strings, `<ctype.h>` complete in the library
 
-### Stage 6: the second source
-- [ ] paged code model (`-p`) tested on the ladder
-- [ ] `cc.c`, compiled by the assembly compiler
-- [ ] fixed point: `cc1 = cc(cc.c)`, `cc2 = cc1(cc.c)`, identical bytes
+### Stage 6: the main compiler, in C
+`cc.s` is the bootstrap compiler; `cc.c` is to be the main one and need not
+emit the same bytes (DESIGN.md, section 6).
+- [x] paged code model (`-p`): functions placed in 4 KiB units; the whole
+      ladder passes with `CC_FLAGS=-p` exactly as without
+- [ ] `cc.c`, compiled by `cc.s`
+- [ ] fixed point: `cc2 = cc1(cc.c)`, `cc3 = cc2(cc.c)`, identical bytes
+- [ ] programs whose image exceeds 128 KiB: code units in a second file,
+      loaded by `crt0` (as `cc` itself does with `cc.lib`)
 
 ### Stage 7: the machine from C
 - [ ] intrinsics (`<strata.h>`), one instruction each; tags, capability
