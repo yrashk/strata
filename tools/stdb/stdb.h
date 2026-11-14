@@ -53,7 +53,6 @@ typedef struct Store {
   uint8_t *dirty;
   int began, in_ft, in_b, in_fin;
   uint64_t txfreed;       /* pages freed in this transaction, not yet reusable */
-  uint64_t x;             /* free records with a key up to x were looked at */
   uint64_t last;          /* the page allocated last: the next one goes after it */
   StExt *avail; int navail, cavail;   /* free extents taken into memory, sorted */
   StExt *freed; int nfreed, cfreed;   /* freed in this transaction */

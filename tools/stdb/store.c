@@ -225,14 +225,23 @@ static void ld_take(Store *st, uint64_t end, uint64_t len) {
   avail_add(st, end - len, len);
 }
 
-/* The next free record after the ones looked at -> memory. 0: there is none. */
-static int load_next(Store *st) {
-  uint8_t k[8], ok[8], ov[8];
-  int okl, ovl;
-  pbe(k, st->x);
-  if (!st_seek(st, &st->fre, k, 8, ST_GT, ok, &okl, ov, &ovl, NULL)) return 0;
-  st->x = gbe(ok);
-  if (!ld_has(st, st->x)) ld_take(st, st->x, g64(ov));
+/* A free record not yet taken -> memory: the first one of at least n pages
+ * among the first 64 looked at, else the largest of those. Records of no
+ * pages are taken on the way (and so deleted). 0: there is none to take. */
+static int load_fit(Store *st, uint64_t n) {
+  uint8_t k[8] = {0}, v[8];
+  int kl, vl, seen = 0;
+  uint64_t best = 0, bestlen = 0;
+  while (seen < 64 && st_seek(st, &st->fre, k, 8, ST_GT, k, &kl, v, &vl, NULL)) {
+    uint64_t end = gbe(k), len = g64(v);
+    if (ld_has(st, end)) continue;
+    if (!len) { ld_take(st, end, 0); continue; }
+    seen++;
+    if (len >= n) { ld_take(st, end, len); return 1; }
+    if (len > bestlen) { best = end; bestlen = len; }
+  }
+  if (!bestlen) return 0;
+  ld_take(st, best, bestlen);
   return 1;
 }
 
@@ -310,7 +319,7 @@ static uint64_t alloc(Store *st, uint64_t n, uint64_t hint, uint64_t *got) {
   if (hint) for (int i = 0; i < st->navail; i++) if (st->avail[i].len >= 8 * n) return take(st, i, n, got);
   for (;;) {
     for (int i = 0; i < st->navail; i++) if (st->avail[i].len >= n) return take(st, i, n, got);
-    if (st->in_ft || !load_next(st)) break;
+    if (st->in_ft || !load_fit(st, n)) break;
   }
   if (!st->navail) fail(st, "disk full");
   return take(st, 0, n, got);
@@ -657,15 +666,14 @@ static int avail_end(Store *st, uint64_t end) {
  *      extents first; the pages this needs come from the largest. The last
  *      extent left is not put into the tree (that insert could need more
  *      pages than the extent has): it is the meta page's spare extent.
- * While the free tree is being changed nothing is read from it, so enough
- * free pages are taken into memory before each pass. */
+ * While one change to the free tree is under way nothing is read from it,
+ * so a few free pages are taken into memory before each. */
 static void finalize(Store *st) {
   st->in_fin = 1;
   for (int it = 1;; it++) {
     if (it > 50) fail(st, "the allocator does not settle");
     if (it > st->maxiter) st->maxiter = it;
-    st->x = 0;
-    while (avail_total(st) < ST_RES && load_next(st)) {}
+    while (avail_total(st) < ST_RES && load_fit(st, 1)) {}
     for (int i = 0; i < st->navail; i++) { /* join neighbours still in the tree */
       uint64_t s = st->avail[i].start, e = s + st->avail[i].len;
       int n = st->nld;
@@ -673,13 +681,14 @@ static void finalize(Store *st) {
       load_at(st, e);
       if (st->nld != n) i = -1;
     }
-    st->in_ft = 1;
-    while (st->nld) {
+    while (st->nld) { /* (each delete may need pages: a few are kept at hand) */
       uint8_t k[8];
+      while (avail_total(st) < 8 && load_fit(st, 1)) {}
       pbe(k, st->ld[--st->nld]);
+      st->in_ft = 1;
       st_del(st, &st->fre, k, 8);
+      st->in_ft = 0;
     }
-    st->in_ft = 0;
     while (st->npld) st_del(st, &st->pend, st->pld[--st->npld], 16);
     while (st->nfreed) {
       StExt e = st->freed[--st->nfreed];
@@ -752,7 +761,6 @@ void st_commit(Store *st) {
   st->commit = st->txn++;
   st->began = 0;
   st->txfreed = 0;
-  st->x = 0;
 }
 
 static void reset(Store *st) {
@@ -760,7 +768,6 @@ static void reset(Store *st) {
   st->navail = st->nfreed = st->nld = st->npld = 0;
   st->began = st->in_ft = st->in_b = st->in_fin = 0;
   st->txfreed = 0;
-  st->x = 0;
 }
 
 static int meta_load(Store *st) {
