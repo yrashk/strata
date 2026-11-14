@@ -26,3 +26,4 @@
 /doc/manual/gen-*.tex
 /build-*/
 __pycache__/
+/formal/build/

@@ -117,6 +117,7 @@ test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vi.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vifs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-fs-progs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) ./tools/test-files.sh $(BUILD)/bootrom.stx $(BUILD)/files-test/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-net.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-http.sh $(BUILD)/bootrom.stx $(BUILD)/http-test/disk.img
 	BUILD=$(BUILD) ./tools/test-ws.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
@@ -154,6 +155,9 @@ test-small:
 # conformance/tests/lssize.s (which needs a 16 KiB D-LS: the harness's
 # signature buffer), and on StrataOS refusing the machine (it needs 64 KiB of
 # each; 64/32, which the kernel itself refuses, on the emulator only).
+# Last, with 4/4 KiB and two cores (build-f44/): the two programs that
+# reproduce what the formal proofs found (formal/FINDINGS.md F1, F2), emulator
+# against RTL.
 LSA := $(BUILD)/ls32
 LSB := $(BUILD)/ls16-4
 LSC := $(BUILD)/ls4-32
@@ -171,6 +175,7 @@ test-ls: os
 	BUILD=$(LSC) NCORES=$(NCORES) EMU_ARGS="-L 4,32" ./tools/compare.sh $(patsubst %,$(LSC)/examples/%.stx,$(LSC_EXAMPLES))
 	BUILD=$(LSC) NCORES=$(NCORES) EMU_ARGS="-L 4,32" ./tools/test-ls-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) EMU_ARGS="-L 64,32" RTL=none ./tools/test-ls-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	./formal/repro/run.sh
 
 run: all examples
 	@for img in $(IMAGES); do \
@@ -336,7 +341,7 @@ $(BUILD)/forth-os/vi-syntax.fs: tools/vi-syntax.py tools/web-code.py asm/sasm.c 
 	python3 tools/vi-syntax.py $@
 
 # the Forth ports of os/progs (lang/forth/progs/*.fs) and their library, packed into
-# one disk file (the directory has room for 128 files) behind a loader, lang/forth/progs.fs
+# one disk file (the directory had room for 128 files when they were written) behind a loader, lang/forth/progs.fs
 FORTH_PROGS := lang/forth/sys.fs $(sort $(wildcard lang/forth/progs/*.fs))
 $(BUILD)/forth-os/progs.pk: tools/forth-pack.py lang/forth/progs.fs $(FORTH_PROGS)
 	@mkdir -p $(BUILD)/forth-os
@@ -490,7 +495,7 @@ $(BUILD)/mkhex: tools/mkhex.c common/stx.h common/platform.h asm/isa.h
 
 fpga-images: $(BUILD)/mkhex $(BUILD)/bootrom.stx $(BUILD)/kernel.stx $(BUILD)/mkdisk $(BUILD)/prog/hello $(BUILD)/prog/mandel
 	@mkdir -p $(FPGA)
-	$(BUILD)/mkdisk -b 256 -o $(FPGA)/disk.img -k $(BUILD)/kernel.stx os/files/motd os/files/rc $(BUILD)/prog/hello $(BUILD)/prog/mandel
+	$(BUILD)/mkdisk -b 256 -n 128 -o $(FPGA)/disk.img -k $(BUILD)/kernel.stx os/files/motd os/files/rc $(BUILD)/prog/hello $(BUILD)/prog/mandel
 	$(BUILD)/mkhex ils $(BUILD)/bootrom.stx $(FPGA)/bootrom_ils.hex
 	$(BUILD)/mkhex dls $(BUILD)/bootrom.stx $(FPGA)/bootrom_dls.hex
 	$(BUILD)/mkhex disk $(FPGA)/disk.img 16384 $(FPGA)/disk.hex
@@ -541,6 +546,16 @@ $(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin,test $(BUILD)/isol-test/dlsgap
 test: $(BUILD)/isol-test/disk.img
 
+# the disk of tools/test-files.sh: the standard one plus 300 small files tagged
+# many (f000 .. f299, each holding its own name): more files than one window
+# of the file server's directory, or one DIR message, holds
+MANY := $(shell i=0; while [ $$i -lt 300 ]; do printf '$(BUILD)/files-test/many/f%03d ' $$i; i=$$((i + 1)); done)
+$(BUILD)/files-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
+	@mkdir -p $(BUILD)/files-test/many
+	@for f in $(MANY); do basename $$f > $$f; done
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) 2>&1 | cut -c1-200
+test: $(BUILD)/files-test/disk.img
+
 # the disk of `make test-forth`: the standard one plus the test files
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs) \
                               $(wildcard lang/forth/tests/http/*)
@@ -588,6 +603,24 @@ conformance: all
 
 fuzz: all
 	BUILD=$(BUILD) NCORES=$(NCORES) python3 conformance/fuzz/fuzz.py -n $(SEEDS) -s $(FIRST)
+
+# ---- formal verification (formal/): make formal, make formal-NAME --------------
+# SymbiYosys proofs of the RTL, one formal/NAME.sby per target (formal/README.md
+# says what each proves and assumes). Not part of `make test`: some are slow.
+# The RTL is converted with sv2v as for synthesis, with FORMAL defined, which
+# brings in the property files (formal/props/) and the specifications
+# (formal/spec/).
+FORMAL_TARGETS := $(patsubst formal/%.sby,%,$(wildcard formal/*.sby))
+.PHONY: formal formal-report $(addprefix formal-,$(FORMAL_TARGETS))
+formal/build/strata.v: $(RTL) $(wildcard formal/spec/*.sv formal/props/*.svh)
+	@mkdir -p formal/build
+	sv2v -DFORMAL -Iformal/props -E assert $(RTL) $(wildcard formal/spec/*.sv) > $@
+$(addprefix formal-,$(FORMAL_TARGETS)): formal-%: formal/build/strata.v
+	sby -f --prefix formal/build/$* formal/$*.sby
+formal: formal/build/strata.v
+	./formal/run.sh
+formal-report:
+	./formal/run.sh -r
 
 # ---- the JIT (emu/jit/): make test-jit, make bench ----------------------------
 .PHONY: test-jit bench

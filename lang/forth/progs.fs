@@ -3,8 +3,8 @@
 \ =============================================================================
 \
 \ The ports (lang/forth/progs/NAME.fs) and their library sys.fs are not files
-\ on the disk: its directory has room for 128 files, and nearly all are
-\ taken. tools/forth-pack.py makes one file of them, progs.pk: this text, with
+\ on the disk: its directory had room for 128 files when they were written,
+\ and nearly all were taken. tools/forth-pack.py makes one file of them, progs.pk: this text, with
 \ an index put in where it says (a line "OFFSET LENGTH port NAME" per file)
 \ and the pack's size in front of PK-DONE, then the files. INCLUDED, given a name that is
 \ no file, runs the word in KVAR 39 instead (once: it clears it): os.fs's

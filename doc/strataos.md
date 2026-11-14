@@ -869,8 +869,11 @@ reference counts per process).
 **fs (c2)**: 3 OPEN (mode 0 read, 1 write/truncate, 2 append; data = path)
 → id; 1 READ (0 at the end of the file), 2 WRITE, 4 CLOSE (a written file is
 saved to disk when its last reference closes; files being written are held
-in a 128 KiB region); 10 DIR (data = a tag path, none = every file) → count
-+ 32-byte records (24 bytes name, u64 size; 126 at most), and in the reply's
+in a 128 KiB region); 10 DIR (data = a tag path, none = every file; handle
+= matching files to skip) → count + 32-byte records (24 bytes name, u64
+size; 126 at most: a longer listing is read in parts, skipping what came
+already, as `ls` does; `sh`'s completion and `httpd`'s listings take the
+first part only), and in the reply's
 mode word the *facets*: a tag set (bit t = tag number t) of the other tags
 the matching files carry; -4 no such tag; 11 UNLINK;
 12 TAG / 13 UNTAG (data = path, a zero byte, a tag name) → 0, -4, -6 (64
@@ -1080,7 +1083,7 @@ whole.
   (untag, retag), tags, ls, df, free, uptime, devs, cores, ps, sched, spin
   and units, with the same arguments, output, errors and exit codes. They
   share `sys.fs` and are packed into one disk file, `progs.pk` (the
-  directory has room for 128 files), which Forth's `include` looks in for a
+  directory had room for 128 files then), which Forth's `include` looks in for a
   name that is no file. A start costs about 2.5 M instructions more than the
   assembly program; long inputs about 1.1 to 1.8 times its instructions.
 - Not there: globbing, `2>`; completion
@@ -1289,13 +1292,24 @@ in `os/ws/`).
 - The boot ROM loads the far image into the load area at 0xF30000 (at most
   0xD0000 bytes) and gives core 0 a read+execute share of exactly that range
   in **c12** (other cores do not get it).
-- The directory has 128 entries (8 blocks) of {name[24], u32 first block,
-  u32 size}; files are contiguous runs of blocks. Header offset 52: u32 LBA
-  of the tag table (4 blocks, right after the directory; 0 = none): 64 tag
-  names of 16 bytes (zero-padded; a zero first byte = a free slot), then 128
-  u64 tag sets, one per directory entry (bit t of set f = entry f carries
-  tag t). `mkdisk -t tag,tag...` tags the files named after it (a tag name
+- The directory has N entries of {name[24], u32 first block, u32 size}
+  from block 1 on (N / 16 blocks); files are contiguous runs of blocks.
+  N is in header offset 56 (u32): a multiple of 128, at most 1024, which is
+  what `mkdisk` makes unless told otherwise (`-n N`; 0 in the header means
+  128: a disk from before the field). Header offset 52: u32 LBA of the tag
+  table (right after the directory; 0 = none): 64 tag names of 16 bytes
+  (zero-padded; a zero first byte = a free slot), then N u64 tag sets, one
+  per directory entry (bit t of set f = entry f carries tag t): 2 + N / 64
+  blocks. `mkdisk -t tag,tag...` tags the files named after it (a tag name
   has no `/` and does not start with `-`).
+- A directory of 1024 entries is 32 KiB, with 8 KiB of tag sets: more than
+  the file server's D-LS can spare. `fs` keeps both in its I/O buffer (far
+  memory) and works on a window of 128 entries in its D-LS, written back
+  and fetched as it walks (`os/servers/fs.s`). The kernel, which loads the
+  first servers before there is a file server, reads only the directory's
+  first 8 blocks: the servers must be among the first 128 files, as they
+  are when `mkdisk` is given them first. `tools/test-files.sh` runs a disk
+  of 413 files.
 - Memory handed over by the boot ROM: c0 = [0, 15 MiB), and **c13 =
   [16 MiB, 48 MiB)**: system memory above the load area and below the
   framebuffer window; and core 0 also gets **c14 = the framebuffer window

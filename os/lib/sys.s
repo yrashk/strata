@@ -154,6 +154,7 @@ sys_start: .space 512                   ; the start-up block: pid, parent, handl
 sys_bufb:  .dword 0                     ; base of our message buffer (what the kernel waits for)
 sys_intrf: .dword 0                     ; an interrupt arrived while we waited (-2 seen)
 sys_htab:  .space NHAND * 16            ; handles: {server register, server id}, register 0 = free
+sys_fskip: .dword 0                     ; sys_query: matching files to skip (a listing's next part)
 out_buf:   .space 4096                  ; buffered standard output
 out_len:   .dword 0                     ; bytes waiting in out_buf
 in_buf:    .space 4096                  ; buffered standard input
@@ -1004,7 +1005,10 @@ sys_dir:
         j     sys_fsdata                ; (tail call)
 
 ; sys_query(a0 = buffer, 128 * 32 bytes, a1 = tag path, a2 = its length) ->
-; a0 = files carrying every tag of the path (records as sys_dir), or -4
+; a0 = files carrying every tag of the path (records as sys_dir), or -4.
+; One call brings 126 files at most. A listing longer than that is read in
+; parts: after a call that brought 126, add 126 to `sys_fskip` and call
+; again, until fewer come (ls does; sys_fskip starts as 0).
 sys_query:
         mv    a3, a2                    ; length
         mv    a2, a1                    ; the path
@@ -1032,7 +1036,8 @@ sys_fsq:
         call  sys_put                   ; ...
         li    a0, 2                     ; fs
         ld    a1, 8(sp)                 ; op
-        li    a2, 0                     ; ...
+        la    t0, sys_fskip             ; (DIR: the files to skip; else ignored)
+        ld    a2, 0(t0)                 ; ...
         ld    a3, 24(sp)                ; length
         li    a4, 0                     ; ...
         call  sys_msg                   ; a0 = count

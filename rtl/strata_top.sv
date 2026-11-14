@@ -196,6 +196,11 @@ module strata_top
   //           read on to the end of the unit holding b - 1 (hi), then write
   //           [lo, hi): m + 1, heads at lo, a and b
   // A walk takes one cycle per granule; the core waits in EX meanwhile.
+  // A core that is reset while it waits withdraws its request (w_gone); the
+  // walk still runs to its end, so the table stays consistent, but its done
+  // is not given: with small Local Stores the core can be back, and asking
+  // for another walk, before this one is over, and would take this one's
+  // done (and generation) for its own.
   typedef enum logic [2:0] {W_IDLE, W_BACK, W_READ, W_WRITE, W_TAIL, W_DONE} walk_t;
   localparam int CW = NCORES > 1 ? $clog2(NCORES) : 1;
   logic [16:0]   mt3 [NG3];
@@ -208,6 +213,7 @@ module strata_top
   logic [15:0]   w_m;
   logic [16:0]   w_e;                                 // the entry at w_k
   logic          w_any;
+  logic          w_gone;                              // the requester stopped asking during the walk
   logic [CW-1:0] w_first;
 `ifdef SIMULATION
   initial begin
@@ -223,7 +229,7 @@ module strata_top
     for (int c = NCORES - 1; c >= 0; c--)
       if (dom_req[c]) begin w_any = 1; w_first = CW'(c); end
     dom_done = '0;
-    if (ws == W_DONE) dom_done[w_who] = 1;
+    if (ws == W_DONE && !w_gone && dom_req[w_who]) dom_done[w_who] = 1;
     gt_we  = ws == W_WRITE || (ws == W_TAIL && w_hi < w_end);
     gt_t2  = w_t2;
     gt_idx = ws == W_TAIL ? w_hi : w_k;
@@ -237,9 +243,11 @@ module strata_top
       if (gt_t2) mt2[G2W'(gt_idx)] <= gt_wd;
       else       mt3[G3W'(gt_idx)] <= gt_wd;
     end
+    if (ws != W_IDLE && !dom_req[w_who]) w_gone <= 1;
     if (rst) ws <= W_IDLE;
     else case (ws)
       W_IDLE: if (w_any) begin
+        w_gone <= 0;
         w_who <= w_first;
         w_op  <= dom_op[w_first];
         w_t2  <= dom_t2[w_first];
@@ -414,4 +422,8 @@ module strata_top
         end
     end
   end
+
+`ifdef FORMAL
+`include "strata_top.svh"
+`endif
 endmodule

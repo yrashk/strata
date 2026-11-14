@@ -34,6 +34,7 @@ Unit, with capabilities for authority. The tree has:
   debugger, both on the engine's JSON-lines protocol (`doc/debug-protocol.md`).
 - `conformance/`: 32 self-checking tests run on the interpreter, the JIT and
   the RTL, plus a differential fuzzer.
+- `formal/`: SymbiYosys proofs of the RTL (added 2026-11-13, see below).
 - `fpga/`: Yosys synthesis for Xilinx 7-series and ECP5, nextpnr place and
   route on ECP5, the die drawing. `asic/`: LibreLane on GF180MCU.
 - `doc/manual/`: the Architecture Reference Manual (LaTeX, built by CI);
@@ -173,6 +174,61 @@ boots into it (`ws PROGRAM` is new); `tools/test-wdoom.sh` is in `make test`.
   that the pistol's samples reach a WAV file. Not verified: the SDL path
   beyond compiling.
 
+## The disk's directory: 1024 files (added 2026-11-13)
+
+The boot header's offset 56 holds the directory's entries (a multiple of
+128, at most 1024, `mkdisk -n`; 0 = 128, an older disk); the tag table
+grows with it. `fs` keeps the directory and the tag sets in its far I/O
+buffer and works on a 128-entry window in its D-LS (`win`, `wput` in
+`os/servers/fs.s`); DIR takes a count of files to skip, and `ls` reads a
+long listing in parts. `tools/test-files.sh` (413 files) is in `make test`.
+Limits:
+- The kernel reads only the directory's first 8 blocks at boot (`u_disk`
+  in `os/kunits/boot.s`): the servers it starts must be among the first 128
+  files. `mkdisk` is given them first; nothing checks it.
+- One DIR reply holds 126 files. `ls` asks again for the rest; `sh`'s
+  completion, `httpd`'s listings and the Forth ports (`ls.fs`, `httpd.fs`)
+  take the first 126 only.
+- Not verified across a boot: the emulator does not write a disk image
+  back. The test reads the written blocks back within one session
+  (`hexdump N`).
+- In `fs`, an entry's address is good only while its window is in the
+  D-LS. `find` leaves the found entry's window there; the routines that
+  walk everything (`dfree` when it finds nothing, `tag_gc`, `tcount`,
+  `dcount`) put the window back. New code that holds two entries at once
+  must remember the first one's window, as RENAME does.
+- Still 64 tags, names of 24 bytes, contiguous files, and a deleted file's
+  blocks come back only if it was the last one.
+
+## Formal verification (added 2026-11-13)
+
+`formal/` holds SymbiYosys proofs of the RTL: `make formal` (all, about 15
+minutes, not part of `make test`), `make formal-NAME`. `formal/README.md`
+has the table of proofs, the assumptions and what is not covered;
+`formal/FINDINGS.md` what was found.
+- The RTL modules `strata_div`, `strata_mul`, `strata_bus`, `strata_tu`,
+  `strata_mem`, `strata_dev`, `strata_core` and `strata_top` each end with three lines that include
+  `formal/props/MODULE.svh` under `ifdef FORMAL`. Nothing else in `rtl/`
+  knows about the proofs. A change to one of these modules should be
+  followed by `make formal-NAME`; the properties name internal signals, so
+  a rename breaks them (the error names the line in `formal/build/strata.v`).
+- Two RTL bugs were found and fixed. FINDINGS F1 (`strata_top`): a
+  revocation walk that outlived its core's reset gave its done to the
+  core's next request; only reachable with both Local Stores at 4 KiB.
+  F2 (`strata_core`): a store that a stop preempted in user mode had
+  already written the D-LS, so the supervisor saw memory changed by an
+  instruction that had not executed (it runs again on resume, which hid
+  it). `formal/repro/run.sh` shows both on the emulator and the RTL (it
+  builds `build-f44/`: two cores, 4/4 KiB). The emulator needed no change.
+- Verified after the fix: `make lint`, `make conformance`,
+  `BUILD=build NCORES=8 ./tools/compare.sh build/examples/*.stx`, the
+  reproduction, and every proof. The full `make test` was not re-run.
+- Also changed in the RTL: `ct_we` has `&& !rpend` (FINDINGS O7).
+  `make test-ls` ends with `formal/repro/run.sh`.
+- Not proved: what instructions compute (the emulator comparison's ground),
+  what device ports return, `strata_uart`, the system-wide invariant that
+  write access to a byte has one holder. `formal/README.md` lists them with reasons.
+
 ## Open work
 
 **Waiting on a decision**
@@ -211,6 +267,12 @@ boots into it (`ws PROGRAM` is new); `tools/test-wdoom.sh` is in `make test`.
 - The RTL behind the same protocol; a timing model; per-line stepping; the
   timeline's axis is rounds, which jump when an idle machine skips time.
 
+**Formal**
+- `formal/repro/stopstore.s` as a conformance test in the harness (stops
+  at every cycle of an instruction, for more instructions than a store);
+  what the device ports return and the block device's engine; the
+  system-wide invariant that no two holders have write access to a byte.
+
 **Smaller**
 - The native JIT backends do not translate code while a device read is
   pending (they use the fast interpreter loop then).
@@ -236,6 +298,7 @@ boots into it (`ws PROGRAM` is new); `tools/test-wdoom.sh` is in `make test`.
 | `emu/jit/README.md` | Native JIT |
 | `web/README.md` | Browser build: worker, fast interpreter, wasm JIT, networking |
 | `conformance/README.md`, `conformance/FINDINGS.md` | Conformance suite and what it found |
+| `formal/README.md`, `formal/FINDINGS.md` | The formal proofs: what each covers and assumes; what they found |
 | `fpga/README.md`, `asic/README.md` | Hardware flows, numbers, what was tried |
 
 ## Useful commands
@@ -244,6 +307,7 @@ boots into it (`ws PROGRAM` is new); `tools/test-wdoom.sh` is in `make test`.
 make                  # sasm, strata-emu, strata-rtl
 make test             # everything (about an hour)
 make conformance      # the conformance suite on interpreter / JIT / RTL
+make formal           # the SymbiYosys proofs (formal-NAME: one target)
 make boot             # StrataOS on the emulator; boot-ws: with the window server
 make show-gfx         # an example's framebuffer in a window (show-NAME)
 make forth            # Forth on bare metal; test-forth: its tests
