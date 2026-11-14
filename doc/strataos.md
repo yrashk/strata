@@ -896,7 +896,13 @@ server works on trees larger than its Local Stores through a cache of 124
 pages in far memory and three page buffers in its D-LS. A boot object
 (`proc`, `dev`, `fs`: what the boot manifest lists) cannot be written,
 renamed or deleted from inside the OS yet. `build/stdb check IMAGE` checks
-a disk from outside, `stdb dump`, `ls` and `get` read one.
+a disk from outside, `stdb dump`, `ls` and `get` read one. Inside the OS,
+`db` shows the store's trees (`db`: the trees with their roots and heights;
+`db fs/name`: a tree's records; `db -p PAGE`: one page's cells, so a tree
+can be walked by hand), and `wdb` does the same in a window, page by page
+(j/k, Enter to open a branch's child or a tree from the catalog, Backspace
+back). Both read the disk as it was last committed, with READBLK
+(`os/lib/stview.s`).
 
 **Tags instead of directories.** A file has one name, unique on the disk,
 and carries any number of tags (names of 1–255 bytes, no `/`; a file's

@@ -282,6 +282,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "  cat cp [-t] mv rm touch df   tag untag retag FILE TAG...   tags [FILE]\n" ; (continued)
          .ascii "programs:\n"           ; (continued)
          .ascii "  ps free uptime devs hexdump cores sched\n" ; (continued)
+         .ascii "  db [TREE | -p PAGE]  the trees of the store on the disk (wdb: in a window)\n" ; (continued)
          .ascii "  seq grep wc upper spin as units sh\n" ; (continued)
          .ascii "  vi FILE           the editor (vi keys; :wq writes and leaves)\n" ; (continued)
          .ascii "  examples: hello mandel parsum race ...\n" ; (continued)
@@ -290,7 +291,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "  Alt+1..4, Alt+arrows      focus a window\n" ; (continued)
          .ascii "  Alt+Q close the window    Alt+Shift+Q quit ws, back to this shell\n" ; (continued)
          .ascii "  Ctrl-C interrupts the program in the focused window\n" ; (continued)
-         .ascii "  programs for windows: term wmandel wclock\n" ; (continued)
+         .ascii "  programs for windows: term wmandel wclock wdb\n" ; (continued)
 m_help_e:                               ; end of the help text
 
         .text                           ; instruction Local Store

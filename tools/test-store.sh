@@ -9,7 +9,8 @@
 #    (-w). The image must pass `stdb check` (every page of every tree, the
 #    free space, the file system's own invariants), and `stdb dump` must show
 #    the files the session left, with the right bytes.
-# 2. The machine boots again from that image and reads the files back.
+# 2. The machine boots again from that image and reads the files back; `db`
+#    (os/progs/db.s) reads the trees from the disk and shows them.
 # 3. Power cuts. A session that only creates files is run again and again
 #    with the disk's power cut after N written blocks (--disk-cut), for N
 #    over the whole session, half of the runs with a volatile write cache
@@ -92,6 +93,9 @@ cat a
 cat twice
 tags m3
 seq 40000 > again
+db
+db fs/name
+db -p 3
 halt
 EOF
 run "$tmp/s2.txt" "$tmp/d1.img" -w "$tmp/d2.img" || fail "the second boot did not end well"
@@ -102,7 +106,20 @@ grep -q '^hello$' "$tmp/out.txt" && grep -q '^more$' "$tmp/out.txt" && grep -q '
 "$b/stdb" get "$tmp/d2.img" again >"$tmp/big2"
 cmp -s "$tmp/big1" "$tmp/big2" || fail "a file written on the second boot differs from the first's"
 [ "$(wc -l <"$tmp/big1")" -eq 40000 ] || fail "the large file does not have its lines"
-echo "test-store: read back after a second boot"
+# `db` walks the trees from the disk, below the file system: the trees are
+# listed, the names tree holds the first session's files, and a page that is
+# not a tree page is refused
+grep -q '^fs/obj  *root page [0-9]*, height [0-9]' "$tmp/out.txt" && grep -q '^catalog  *root page' "$tmp/out.txt" ||
+  { cat "$tmp/out.txt" >&2; fail "db does not list the trees"; }
+for f in a big mid twice empty m3 motd; do
+  grep -q "^\"$f\" = " "$tmp/out.txt" || fail "db fs/name does not show $f"
+done
+names=$(grep -c '^"[^"]*" = "' "$tmp/out.txt")
+files=$("$b/stdb" dump "$tmp/d1.img" | wc -l | tr -d ' ')
+[ "$names" -eq $((files + 1)) ] || fail "db fs/name shows $names names: not the first session's $files files and one more"
+grep -q '^db: not a tree page: 3' "$tmp/err.txt" "$tmp/out.txt" || fail "db -p took a page that is not a tree's"
+echo "test-store: read back after a second boot; db walks the trees"
+
 
 # ---- 3. power cuts -----------------------------------------------------------------------
 cat >"$tmp/s3.txt" <<'EOF'
