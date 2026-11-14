@@ -1,7 +1,7 @@
 \ cp.fs: copy a file (the Forth port of os/progs/cp.s)
 \   forth cp.fs SRC DST        DST gets SRC's bytes; a tag path gives it those tags
 \   forth cp.fs -t SRC DST     the same, and DST also gets SRC's tags
-\ DST must be another file (names are unique: "cp: same file: SRC DST").
+\ DST must be another path ("cp: same file: SRC DST"); a name is unique in its directory only.
 \ Errors: "cp: no such file: SRC", "cp: cannot write DST" (exit code 1); usage:
 \ exit code 2.
 [defined] sys.fs 0= [if] include /sys.fs [then]
@@ -10,13 +10,20 @@
 create tagb 4032 allot                          \ SRC's tags (-t)
 : cp-fail ( a u a2 u2 -- ) +e +e e! 1 stop ;    \ "message" "name", exit code 1
 : cp-use ( -- ) s" usage: cp [-t] SRC DST" usage ;
-: cp-tags ( -- )                                \ SRC's tags, given to DST
-  src 2@ tagb tags-of 0 max tagb swap 0 ?do dup >r dst 2@ r@ rec-name 12 fs-2path drop r> rec-next loop drop ;
+create tpath 800 allot  variable #tpath          \ DST's path once it has a tag: "/TAG/NAME"
+: >tpath ( a u -- ) tpath #tpath @ + swap dup #tpath +! move ;
+: cp-tags ( -- )                                \ SRC's tags, given to DST. After the first one DST is in
+  0 #tpath !  dst 2@                            \ that directory (and, named without one, no more where it
+  src 2@ tagb tags-of 0 max tagb swap 0 ?do     \ was): from there on it is "/TAG/NAME"   ( path u record )
+    >r 2dup r@ rec-name 12 fs-2path 0=  #tpath @ 0= and if
+      2drop  s" /" >tpath  r@ rec-name >tpath  s" /" >tpath  dst 2@ last/ >tpath  tpath #tpath @
+    then r> rec-next
+  loop drop 2drop ;
 : cp-main ( a u -- )
   0 cp-t !  arg dup 0= if cp-use then
   2dup s" -t" str= if 2drop -1 cp-t ! arg dup 0= if cp-use then then  src 2!
   arg dup 0= if cp-use then  dst 2!  arg nip if cp-use then 2drop
-  src 2@ last/ dst 2@ last/ str= if
+  src 2@ dst 2@ str= if
     s" cp: same file: " +e src 2@ +e s"  " +e dst 2@ +e e! 1 stop then
   src 2@ stat dup 0< if drop src 2@ s" cp: no such file: " cp-fail then
   drop

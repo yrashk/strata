@@ -156,6 +156,77 @@ decisions taken.
 - [x] The server no longer carries `sys.s` (it used one message and three
       buffers of it): about 5 KiB of its I-LS are free
 
+## Stage 9: the server's code in units
+- [x] Seldom used handlers are code units in the image's `.far` section,
+      paged into the I-LS by the dispatcher when entered (`fsunits.s`:
+      the rules of a unit; `fs_trap` hands a miss over with `svc` PAGE):
+      the store's calls for programs, snapshots, boot objects, QUERY /
+      TAGS2, TAG / UNTAG / RENAME / CWD, attributes. Units of 2 KiB; the
+      resident code is 25 KiB of the 32, the code cache has three slots
+- [x] `tools/check-fsunits.py` (in `make test`): no jump leaves its unit
+- [x] A boot on the RTL with the paged server compared with the emulator's
+
+## Stage 10: names per directory
+A name need only be unique within a directory. A directory is a tag, and
+every tag is a directory. A file is listed in each directory it is
+assigned to and nowhere else; a file with no tag is in the root. `ls /`
+shows the unassigned files and every directory. Tags stay intersections:
+`/src/demo` is what is in both.
+- [x] Subdirectories stay (required): `ls /src` ends with `demo/`, `cd
+      /src/demo` and `/src/demo/NAME` work, a file made in `/src/demo` is
+      in both; the root lists every directory. Tested by name
+- [x] The rules written into `doc/strata-fs-proposal.md` (a section of its
+      own) and `doc/strata-store-format.md` (the name index's new key)
+- [x] The name index: tree `dnam`, key (tag id big-endian, name) -> file,
+      an entry per directory the file is in, tag id 0 for an unassigned
+      file. A disk with the old `name` tree is refused
+- [x] Host: `tools/stdb/fsl.c` (add, lookup by path, check, dump in an
+      order that does not depend on ids), `mkdisk` (refuses two files of
+      one name in one directory, two boot objects of one name), `stdb ls
+      / get` by path, `many.c`, `test.c`
+- [x] `fs`: a path resolves as the name in its first directory, checked
+      against the others; a bare name means the current directory (at the
+      root: the unassigned files); create, delete, the index entry per
+      directory
+- [x] `fs`: TAG refuses a directory that has the name; UNTAG of the last
+      tag leaves the file in the root (refused if the root has the name)
+- [x] `fs`: RENAME is a move: with directories in the new path the file's
+      directories become exactly those; a bare new name changes only the
+      name. It replaces a file of that name only if that file is in no
+      other directory; otherwise it is refused
+- [x] `fs`: the root's listing: unassigned files (index entries under tag
+      0), and every directory as a facet (the reply's tag set with every
+      bit set); QUERY mode bit 1 lists every file
+- [x] `ls -A`: every file with its directories
+- [x] Snapshots, attributes, terms, boot objects (the manifest names them
+      without a directory: no two boot objects of one name) still right
+- [x] `proc`: `/sys/tty`, `/sys/pipe`, `/bin/sh`; fs LOADIMG reads a
+      program's path from its starter's directory (the starter's pid in
+      the mode word), then looks in `/bin` for a name without `/`
+- [x] The shell: commands without a `/` in the current directory, then
+      along a search path (default `/bin`); `rc` and `motd` by directory;
+      completion of commands from the search path
+- [x] `mkdisk` arguments in the Makefile: the demo programs in `bin` too;
+      nothing the standard disk needs is left unassigned by accident
+- [x] `net` (`/etc/resolv`), `httpd` and `httpd.fs` (`/~/`: every file),
+      `ws` (the programs it starts), `guest`, `as`, `vi`
+- [x] Forth: `include` paths (`/forth/sys.fs` ...), the ports
+- [x] `wdoom`, `kira`: nothing to do (they open `/ws/...`); checked
+- [x] The C compiler (`lang/cc`, another session's) needed no change: a
+      program found in `/bin` or `/sys` is started with that path as its
+      command's first word, and a paged C program finds its units
+      (`NAME.u`) by it. The session is told the rules
+- [ ] `untag FILE A B` when the path names A: the second tag is not found
+      (the path is stale after the first); `httpd.fs` lists a first part
+      and no directories at the root
+- [x] Tests: `test-store.sh`, `test-files.sh`, `test-sh.sh` and its
+      expected output, `test-fs-progs.sh`, `test-http`, `test-ws`,
+      `test-vi`, `test-vifs`, `test-forth`, `os/demo.txt` and the RTL
+      comparison; new cases: one name in two directories, a refused TAG,
+      a move, a bare name in the root and in a directory
+- [x] `doc/strataos.md`, the manual (`ch-os`), `HANDOFF.md`, the shell's
+      help
+
 ## Later
 - [ ] Browser persistence (IndexedDB, download)
 - [x] `fsck` in the OS (`os/progs/fsck.s`): the meta block, every tree

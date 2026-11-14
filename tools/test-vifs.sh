@@ -98,7 +98,7 @@ VI="forth vi.fs"
   printf 'cat n1; cat w1\n'
   # highlighting: assembly, Forth, a ( comment over two lines
   printf '%s /src/hello.s\n45G:q\n' "$VI"
-  printf '%s gfx.fs\n:q\n' "$VI"
+  printf '%s /forth/gfx.fs\n:q\n' "$VI"
   printf '%s m.fs\n' "$VI"
   printf 'i( open\nstill ) : w ;%s:wq\n' "$E"
   printf 'rm f2 w1 n1 p1 big m.fs\n'

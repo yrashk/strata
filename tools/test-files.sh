@@ -23,23 +23,23 @@ has() { grep -q "$2" $T/$1.txt || fail "$3" $1; }
 cat > $T/in1 <<'EOF2'
 echo many-count
 ls /many | wc
-cat f000
-cat f127
-cat f128
-cat f299
+cat /many/f000
+cat /many/f127
+cat /many/f128
+cat /many/f299
 df
 echo hello-new > n1
 cat n1
 echo 2 > n2
 echo 3 > n3
 echo 4 > n4
-rm f150
-cat f150
-mv f298 g298
-cat g298
-tag f299 extra
+rm /many/f150
+cat /many/f150
+mv /many/f298 g298
+cat /many/g298
+tag /many/f299 extra
 ls /extra
-tags f299
+tags /many/f299
 echo after-count
 ls /many | wc
 echo all-count

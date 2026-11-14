@@ -994,34 +994,61 @@ then a branch's child, Backspace goes back (to the list from a root), j/k
 move, t returns to the list. Both read the disk as it was last committed, with READBLK
 (`os/lib/stview.s`).
 
-**Tags instead of directories.** A file has one name, unique on the disk,
-and carries any number of tags (names of 1–255 bytes, no `/`; a file's
-record, a quarter page at most, holds some 200 of them). A "directory" is a set of tags, so one file shows up in several
-directories at once, without copies or links. Every name `fs` takes is a
-*path*: components separated by `/` (empty ones are skipped). The last
-component is the file's name; the ones before it are tags the file must
-carry. So `motd`, `/motd` and `/doc/motd` all open motd when it carries
-`doc`, and `/bin/motd` is "no such file" (-4). Opening for writing (or
-appending) gives the file the path's tags, creating tags that do not exist
-yet: `echo hi > /notes/todo` makes `todo` tagged `notes`; a file replaced by
-a write keeps its tags. DIR takes a path of tags and lists the files that
-carry all of them (`/` or nothing: every file); when its last component is
-not a tag but names a file carrying the others, it lists that file. UNLINK
-through a path deletes the file (to take it out of a directory, untag it).
-A tag that no file carries any more disappears. A component `-tag` (before
-the name; in DIR also last) *excludes*: the file must not carry that tag, so
-`ls /src/-demo` lists the sources that are not demos and `ls /-bin` every
-file not tagged bin (excluding a tag that does not exist excludes nothing).
-A path that creates (opening for writing, RENAME's new path) cannot exclude
-(-1), and a tag name cannot start with `-`.
+**Tags are directories.** A file has a name and carries any number of tags
+(names of 1–255 bytes, no `/`; a file's record, a quarter page at most,
+holds some 200 of them). Every tag is a directory, and a file is *in* each
+directory it is tagged with, and nowhere else: one file shows up in several
+directories at once, without copies or links. A file with no tag is in the
+root. **A name is unique within a directory**, not on the disk: `/doc/notes`
+and `/src/notes` are two files, and a third `notes` may be in the root. A
+file in two directories needs its name free in both, so `/src/x` and
+`/src/demo/x` are always the same file (it is in `src` either way).
+Every name `fs` takes is a *path*: components separated by `/` (empty ones
+are skipped). The last component is the file's name; the ones before it are
+directories the file must be in. `/doc/motd` opens the motd of `doc`,
+`/doc/etc/motd` only if it is in `etc` too, and `motd` alone means the
+current directory: at the root, a file in no directory (-4 if there is
+none; it does not find `/doc/motd`). Opening for writing (or appending)
+puts the file into the path's directories, creating tags that do not exist
+yet: `echo hi > /notes/todo` makes `todo` in `notes`; when a file of that
+name is in one of the path's directories already, it is that file that is
+written, and it joins the others (-1 if one of them has another file of the
+name); a file replaced by a write keeps its tags. QUERY takes a path of
+tags and lists the files that are in all of them; with no tag it lists the
+root's files; when its last component is not a tag but names a file in the
+others, it lists that file. UNLINK through a path deletes the file (to take
+it out of a directory, untag it). TAG puts a file into one more directory
+and is refused (-1) when that directory has the name; UNTAG takes it out of
+one, and out of its last one into the root (refused when the root has the
+name). RENAME is a move: the file gets the new path's name and is then in
+exactly the new path's directories (none: the root); a new path without
+any `/` changes only the name and leaves the file where it is. A file of
+that name in a directory the file goes to is replaced if it is in no other
+directory; if it is, the move is refused and nothing changes. A tag that no
+file carries any more disappears. A component `-tag` (before the name; in
+QUERY also last) *excludes*: the file must not carry that tag, so `ls
+/src/-demo` lists the sources that are not demos (excluding a tag that does
+not exist excludes nothing). A path that creates (opening for writing,
+RENAME's new path) cannot exclude (-1), and a tag name cannot start with
+`-`.
+
+**Programs** are files like any other. `proc` passes the pid of the
+process that starts a program to `fs` (LOADIMG, in the mode word's upper
+half), and `fs` reads the program's path from that process's directory; a
+name without `/` that is not there is looked for in `/bin`, then in `/sys`.
+So `ls` runs `/bin/ls` from anywhere, a program made in the current
+directory runs by its name there, and `/demo/hello` names one exactly. A
+process is called by the last component of its path. The Forth system
+looks for a file named without a directory (`forth ls.fs`, `include
+/sys.fs`) where it is asked first and then in `/forth`.
 
 **The current tag path** is the tag-system analogue of a working
 directory. `fs` keeps one per process (a table of 64 entries of at most 120
 bytes, one per live process that is not at `/`) and reads every path that
 does not start with `/` under it: the requester's path (from the sender pid
 the kernel stamps), a `/`, then the path. So in `/src/demo`, `cat hello.s`
-opens `/src/demo/hello.s` (hello.s must carry src and demo), `ls` (DIR with
-no path) lists the files carrying both and their facets, `ls x/` narrows to
+opens `/src/demo/hello.s` (hello.s must be in src and demo), `ls` (QUERY with
+no path) lists the files in both and their facets, `ls x/` narrows to
 `/src/demo/x`, and `echo hi > notes` creates notes tagged src and demo.
 Every path is then normalized: `.` components go and `..` takes the one
 before it away (never above `/`), so `cat ../f` works too. When creating,
@@ -1035,20 +1062,21 @@ process in an empty view (-4). If the tags of a current path go away later
 until the process changes it; `/` always works. **Inheritance**: `proc`
 sends CWD mode 2 (parent, child) while it spawns, after LOADIMG and before
 CREATE, so a child starts where its parent is before it can send anything;
-CLEANUP (the process ended, or CREATE failed) frees the entry. `proc` itself
-is at `/`, so program images (LOADIMG) are always found from the root.
+CLEANUP (the process ended, or CREATE failed) frees the entry.
 Every client gets this without doing anything: the programs on the
 library, Forth's file words and `include` (its platform layer talks to `fs`
-directly), servers such as `httpd`. Names a program got from a listing are
-unique on the disk, so such a program asks with `/NAME` (`ls -t`, the
-shell's completion of programs).
+directly), servers such as `httpd`. A name a program got from a listing is
+unique in that directory only, so such a program asks with the listing's
+path in front of it (the shell's completion of programs: `/bin/NAME`).
 
-**Subdirectories are facets.** DIR also answers the other tags that at least
-one matching file carries: the OR of their tag sets, without the path's own
-tags (one loop over the 128 sets; nothing on the disk changes). These are
-the ways to narrow the listing further, as subdirectories would be: `ls /src`
-shows the files tagged src, then `demo/`; `ls /src/demo` narrows to both;
-`ls /` shows every file, then every tag in use. A path naming one file has
+**Subdirectories are facets.** QUERY also answers the other tags that at least
+one listed file carries, without the path's own tags. These are the
+subdirectories: `ls /src` shows the files in src, then `demo/`; `ls
+/src/demo` narrows to the files in both, `cd /src/demo` works there, and a
+file made there is in both (it shows in `/src` and in `/demo` too: a
+subdirectory is a narrower view of its directory, not a separate place).
+`ls /` shows the root's files, then every directory (the reply's tag set
+has every bit set). A path naming one file has
 no facets. The shell's Tab completes facets in a path like folders (`cat
 /sr` Tab gives `/src/`, with no space after it).
 
@@ -1068,11 +1096,12 @@ source, `/src/cc.c`, are on the disk too, beside the C examples (`hi.c`,
 compiler on the machine.
 
 Utilities: `ls [-t] [PATH]` (files, then facets as `tag/`; `-t` adds each
-file's tags; no PATH: the current tag path), `cat`, `cp [-t] SRC DST` (a copy; DST's path gives it tags,
-`-t` also copies SRC's; names are unique, so DST must name another file),
-`mv SRC DST` (RENAME; `mv notes /todo/notes` or `mv notes /todo/` keeps the
-name and adds the tag), `rm FILE...`, `touch FILE...` (creates empty files;
-an existing file the path does not name gets the path's tags), `tag FILE
+file's tags; no PATH: the current tag path), `cat`, `cp [-t] SRC DST` (a copy; DST's path says where it is,
+`-t` also puts it where SRC is; DST must be another path),
+`mv SRC DST` (RENAME, a move: `mv /notes/a /todo/a` or `mv /notes/a /todo/`
+takes it from notes to todo, `mv /notes/a b` renames it where it is),
+`rm FILE...`, `touch FILE...` (creates empty files;
+a file of the name in one of the path's directories joins the others), `tag FILE
 TAG...`, `untag FILE TAG...`, `retag FILE [TAG...]` (exactly these tags),
 `tags [FILE...]`, `df`; the shell completes file names and facets behind a
 tag path (`cat /doc/mo` Tab).

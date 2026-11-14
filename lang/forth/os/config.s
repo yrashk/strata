@@ -80,6 +80,7 @@ plat_handles:                           ; KVAR 38: the standard handles, pl_hreg
 pl_hreg:  .dword 0, 0, 0                ; handles 0..2: the server's endpoint register (2 fs, 3 tty, 4 pipe; 0 closed)
 pl_hid:   .dword 0, 0, 0                ; handles 0..2: the server's id for the handle
 pl_inc:   .ascii "include "             ; put in front of a file name on the command line
+pl_fdir:  .ascii "/forth/"              ; where a file named without a directory is looked for next
 pl_ftools: .ascii "/tools.fs"           ; the file of tools 1 below (by "/NAME": from
 pl_fsee:  .ascii "/see.fs"              ; the file of tools 2      the root, whatever the
 pl_fnet:  .ascii "/net.fs"              ; the file of tools 3      current tag path)

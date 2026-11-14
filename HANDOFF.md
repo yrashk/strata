@@ -257,6 +257,18 @@ built from. The kernel boots from a boot manifest (`u_disk` in
   and one start-up message); about 5 KiB of its I-LS and 1 KiB of its D-LS
   are free. Its small data must stay below 32 KiB (loads use absolute
   16-bit addresses), so the large buffers are declared last.
+- Names are per directory (2026-11): a tag is a directory, a file is in
+  each one it is tagged with and nowhere else, one with no tag is in the
+  root, and a name is unique within a directory (`dnam`: tag id, name).
+  A bare name means the current directory, so nothing finds `/doc/motd`
+  as `motd` from the root. Programs are looked for where the starter is,
+  then in `/bin`, then `/sys` (fs LOADIMG; `proc` passes the starter).
+  `mv` is a move; `tag` is refused where the name is taken. A program
+  that applies several tags to a file follows it into its new directory
+  after the first (`tag`, `cp -t`): the old path may not name it any more.
+- The server's seldom used handlers are code units (`fsunits.s`, its rules
+  at the top): one unit is at work at a time, handlers are units, what
+  they share is resident. `tools/check-fsunits.py` checks the jumps.
 - Not done (the plan has the list): private namespaces and
   transactions over several requests for other programs, terms answered
   from the index, facets beyond 64 tags (the reply's tag set;

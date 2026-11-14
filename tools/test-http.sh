@@ -76,8 +76,8 @@ grep HTTP/ < r13
 echo GET /~ps HTTP/1.0 | nc 127.0.0.1 80 > r11
 grep "<h2>" < r11
 echo GET /src/sh.s HTTP/1.0 | nc 127.0.0.1 80 | wc
-cat sh.s | wc
-rm index.html
+cat /src/sh.s | wc
+rm /www/index.html
 echo GET / HTTP/1.0 | nc 127.0.0.1 80 > r12
 grep title < r12
 rm r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15

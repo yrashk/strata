@@ -4,8 +4,10 @@
  *   stdb dump IMAGE           every file (name, size, sum, tags, attributes)
  *                             and every other namespace's records, in a form
  *                             that does not depend on where things lie
- *   stdb ls IMAGE [TAG]       names, sizes and tags
- *   stdb get IMAGE NAME [OUT] a file's contents (to the standard output)
+ *   stdb ls IMAGE [DIR]       names, sizes and tags (in id order; DIR: the files in
+ *                             that directory, "/": those in none)
+ *   stdb get IMAGE PATH [OUT] a file's contents (to the standard output): DIR/NAME,
+ *                             or a name alone if only one file has it
  *   stdb info IMAGE           sizes and counts
  *   stdb snaps IMAGE          the snapshots: name, commit
  *   stdb -s SNAP dump|ls|get|info IMAGE ...
@@ -146,11 +148,10 @@ int main(int argc, char **argv) {
   if (!havefs) { fprintf(stderr, "stdb: %s: no file system\n", argv[2]); return 1; }
   if (!strcmp(cmd, "ls")) {
     static FsRec r;
-    char name[FS_NAMEMAX + 1] = "", tn[FS_NAMEMAX + 1];
-    uint64_t oid;
-    while (fs_nextname(&fs, name, &oid)) {
+    char tn[FS_NAMEMAX + 1];
+    for (uint64_t oid = 0; fs_next(&fs, &oid);) {
       if (fs_rec(&fs, oid, &r)) continue;
-      int show = argc < 4;
+      int show = argc < 4 || (!strcmp(argv[3], "/") && !r.ntags);
       for (int i = 0; i < r.ntags && !show; i++) show = fs_tagname(&fs, r.tags[i], tn) >= 0 && !strcmp(tn, argv[3]);
       if (!show) continue;
       printf("%-26s %8llu ", r.name, (unsigned long long)r.size);
@@ -161,7 +162,8 @@ int main(int argc, char **argv) {
   }
   if (!strcmp(cmd, "get") && argc >= 4) {
     static FsRec r;
-    int64_t oid = fs_lookup(&fs, argv[3]);
+    int64_t oid = strchr(argv[3], '/') ? fs_lookup(&fs, argv[3]) : fs_find(&fs, argv[3]);
+    if (oid == -2) { fprintf(stderr, "stdb: several files are named %s: say which (DIR/%s)\n", argv[3], argv[3]); return 1; }
     if (oid < 0 || fs_rec(&fs, (uint64_t)oid, &r)) { fprintf(stderr, "stdb: no such file: %s\n", argv[3]); return 1; }
     FILE *o = argc > 4 ? fopen(argv[4], "wb") : stdout;
     if (!o) { perror(argv[4]); return 1; }

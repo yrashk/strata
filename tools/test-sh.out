@@ -157,12 +157,49 @@ sh: fg: no such job
 time: T s
 strata$ sleep x
 usage: sleep SECONDS (for example 0.5)
-[2] strata$ tags motd rc ls
-motd: doc
-rc: etc
-ls: bin
+[2] strata$ tags /doc/motd /etc/rc /bin/ls
+/doc/motd: doc
+/etc/rc: etc
+/bin/ls: bin
 strata$ echo alpha > n1; echo beta > /notes/n2; echo gamma > /notes/work/n3
-strata$ tag n1 notes
+strata$ ls -t; tag n1 notes; ls -t
+tfile                          11 
+f1                             15 
+s1                             33 
+f2                              6 
+f3                              0 
+n1                              6 
+doc/
+etc/
+sys/
+bin/
+net/
+ws/
+demo/
+src/
+forth/
+www/
+guest/
+notes/
+work/
+tfile                          11 
+f1                             15 
+s1                             33 
+f2                              6 
+f3                              0 
+doc/
+etc/
+sys/
+bin/
+net/
+ws/
+demo/
+src/
+forth/
+www/
+guest/
+notes/
+work/
 strata$ ls -t /notes
 n1                              6  notes
 n2                              5  notes
@@ -172,15 +209,17 @@ strata$ ls /notes/work; ls /work//notes/; ls /work/n3
 n3                        6
 n3                        6
 n3                        6
-strata$ tags n1 n2 n3 | upper
-N1: NOTES
-N2: NOTES
-N3: NOTES WORK
-strata$ cat /work/n3 /notes/n2 n1
+strata$ tags /notes/n1 /notes/n2 /work/n3 | upper
+/NOTES/N1: NOTES
+/NOTES/N2: NOTES
+/WORK/N3: NOTES WORK
+strata$ cat /work/n3 /notes/n2 /notes/n1 n1
 gamma
 beta
 alpha
-strata$ cat /work/n2 || cat /nosuch/n1
+cat: no such file: n1
+[exit 1]
+[1] strata$ cat /work/n2 || cat /nosuch/n1
 cat: no such file: /work/n2
 [exit 1]
 cat: no such file: /nosuch/n1
@@ -190,22 +229,22 @@ gamma
 strata$ cat /work/n
 n3      notes/
 strata$ cat /work/n^[[11D^[[K
-strata$ echo more >> /work/n1; tags n1
-n1: notes work
+strata$ echo more >> /notes/work/n1; tags /notes/n1
+/notes/n1: notes work
 strata$ cat /notes/n
 n1  n2  n3
 strata$ cat /notes/n^[[12D^[[K
 strata$ echo long > /work/a-name-of-more-than-twenty-four-bytes.txt
 strata$ cat /work/a-name-of-more-than-twenty-four-bytes.txt 
 long
-strata$ rm a-name-of-more-than-twenty-four-bytes.txt
-strata$ untag n3 work; untag n1 work; ls /work
+strata$ rm /work/a-name-of-more-than-twenty-four-bytes.txt
+strata$ untag /notes/n3 work; untag /notes/n1 work; ls /work
 ls: no such tag or file: /work
 [exit 1]
 [1] strata$ tags | grep notes
 notes             3
-strata$ tag n1 a/b; tag nosuch x; untag; tags nosuch
-tag: cannot tag n1 with a/b
+strata$ tag /notes/n1 a/b; tag nosuch x; untag; tags nosuch
+tag: cannot tag /notes/n1 with a/b
 [exit 1]
 tag: no such file: nosuch
 [exit 1]
@@ -216,10 +255,56 @@ tags: no such file: nosuch
 [1] strata$ wc < /notes/n1 > /out/w1; ls -t /out; cat /out/w1
 w1                              7  out
 2 2 11
-strata$ rm /notes/n1 /notes/n2 n3 /out/w1; ls /notes; tags | grep notes
+strata$ rm /notes/n1 /notes/n2 /notes/n3 /out/w1; ls /notes; tags | grep notes
 ls: no such tag or file: /notes
 [exit 1]
-strata$ echo one > /proj/p1; echo two > /proj/todo/p2; touch /proj/done/p3
+strata$ echo here > /da/same; echo there > /db/same; echo top > same; cat /da/same /db/same same
+here
+there
+top
+strata$ ls -t /da; ls -t /db; ls -t /da/db
+same                            5  da
+same                            6  db
+(no files)
+strata$ tag /da/same db; tag same da; untag /db/same db; cat same
+tag: cannot tag /da/same with db
+[exit 1]
+tag: cannot tag same with da
+[exit 1]
+tag: cannot tag /db/same with db
+[exit 1]
+top
+strata$ rm same; untag /db/same db; cat same; ls /db; tag same da/x; tag same db
+there
+ls: no such tag or file: /db
+[exit 1]
+tag: cannot tag same with da/x
+[exit 1]
+strata$ ls -t /db; ls -t /da; rm /da/same /db/same; ls /da
+same                            6  db
+same                            5  da
+ls: no such tag or file: /da
+[exit 1]
+[1] strata$ echo deep > /top/sub/deep; echo flat > /top/flat; ls /top; ls /top/sub; ls /sub
+deep                      5
+flat                      5
+sub/
+deep                      5
+deep                      5
+top/
+strata$ cd /top; ls; cd sub; pwd; cat deep; echo more > deeper; cd ..; ls sub; cat sub/deeper; cd /
+deep                      5
+flat                      5
+sub/
+/top/sub
+deep
+deep                      5
+deeper                    5
+more
+strata$ rm /top/deep /top/flat /top/sub/deeper; ls /top
+ls: no such tag or file: /top
+[exit 1]
+[1] strata$ echo one > /proj/p1; echo two > /proj/todo/p2; touch /proj/done/p3
 strata$ ls /proj; ls /proj/-done/-todo; ls /proj/todo/-done; ls /proj/-nosuch/p1
 p1                        4
 p2                        4
@@ -229,25 +314,10 @@ done/
 p1                        4
 p2                        4
 p1                        4
-strata$ ls -t /-proj/-bin/-src/-sys/-demo/-ws/-forth
-about                         120  doc
-motd                         1648  doc
-rc                              9  etc
-resolv                        184  etc
-forth.html                   3158  www
-index.html                   2789  www
-style.css                    1312  www
-gdemo                         312  guest
-ghostile                      968  guest
-tfile                          11 
-f1                             15 
-s1                             33 
-f2                              6 
-f3                              0 
-doc/
-etc/
-www/
-guest/
+strata$ ls -t /proj/-todo
+p1                              4  proj
+p3                              0  proj done
+done/
 strata$ cat /proj/p2
 two
 strata$ cat /proj/todo/p2 
@@ -255,58 +325,79 @@ two
 strata$ ls /proj/
 done/  p1     p2     p3     todo/
 strata$ ls /proj/^[[9D^[[K
-strata$ cp /proj/p1 /copy/p4; cp -t p2 /copy/p5; ls -t /copy; cat p4 p5
+strata$ cp /proj/p1 /copy/p4; cp -t /proj/p2 /copy/p5; ls -t /copy; cat /copy/p4 /copy/p5
 p4                              4  copy
 p5                              4  copy proj todo
 proj/
 todo/
 one
 two
-strata$ cp p1 /copy/p1; cp nosuch p6; cp p1; cp /todo/p1 p6
-cp: same file: p1 /copy/p1
-[exit 1]
+strata$ cp /proj/p1 /copy/p1; cat /copy/p1; cp nosuch p6; cp /proj/p1; cp /todo/p1 p6
+one
 cp: no such file: nosuch
 [exit 1]
 usage: cp [-t] SRC DST
 [exit 2]
 cp: no such file: /todo/p1
 [exit 1]
-[1] strata$ mv p4 /done/; echo old > p6; mv p5 p6; ls -t /done; tags p6; cat p6
+[1] strata$ mv /copy/p4 /done/; echo old > /copy/p6; mv /copy/p5 /copy/p6; ls -t /done; tags /copy/p6; cat /copy/p6
 p3                              0  proj done
-p4                              4  copy done
+p4                              4  done
 proj/
-copy/
-p6: copy proj todo
+/copy/p6: copy
 two
-strata$ mv nosuch p7; mv p6 /a/-b/p7; mv p6
+strata$ mv nosuch p7; mv /copy/p6 /a/-b/p7; mv /copy/p6
 mv: no such file: nosuch
 [exit 1]
-mv: cannot rename p6 to /a/-b/p7
+mv: cannot rename /copy/p6 to /a/-b/p7
 [exit 1]
 usage: mv SRC DST
 [exit 2]
-[2] strata$ touch p1 /proj/p8 /proj/-done/p9 a_name_longer_than_24_bytes; ls -t /proj; cat p1; rm a_name_longer_than_24_bytes
+[2] strata$ mv /proj/p2 /proj/p3; mv /copy/p1 p1b; ls -t /copy; mv /copy/p1b /; ls -t
+mv: cannot rename /proj/p2 to /proj/p3
+[exit 1]
+p6                              4  copy
+p1b                             4  copy
+tfile                          11 
+f1                             15 
+s1                             33 
+f2                              6 
+f3                              0 
+p1b                             4 
+doc/
+etc/
+sys/
+bin/
+net/
+ws/
+demo/
+src/
+forth/
+www/
+guest/
+proj/
+todo/
+done/
+copy/
+strata$ touch /proj/p1 /proj/p8 /proj/-done/p9 a_name_longer_than_24_bytes; ls -t /proj; cat /proj/p1; rm a_name_longer_than_24_bytes
 touch: cannot create /proj/-done/p9
 [exit 1]
 p1                              4  proj
 p2                              4  proj todo
 p3                              0  proj done
-p6                              4  copy proj todo
 p8                              0  proj
 todo/
 done/
-copy/
 one
-strata$ touch /extra/p2; tags p2; cat p2
-p2: proj todo extra
-two
-strata$ retag p6 x y; tags p6; retag p6 y; tags p6; retag p6; tags p6; retag nosuch
-p6: y x
-p6: y
+strata$ touch /proj/extra/p8; tags /proj/p8; cat /extra/p8
+/proj/p8: proj extra
+strata$ retag /copy/p6 x y; tags /x/p6; retag /y/p6 y; tags /y/p6; retag /y/p6; tags p6; retag nosuch
+/x/p6: y x
+/y/p6: y
 p6:
 tag: no such file: nosuch
 [exit 1]
-[1] strata$ rm p1 p2 p3 p4 p6 p8; ls /proj
+[1] strata$ rm /proj/p1 /proj/p2 /proj/p3 /done/p4 p6 /proj/p8 p1b; ls /proj
 ls: no such tag or file: /proj
 [exit 1]
 [1] strata$ echo one > /cdt/c1; echo two > /cdt/sub/c2; echo five > /other/c5; pwd

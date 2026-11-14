@@ -1,10 +1,14 @@
 ; =============================================================================
-; mv.s: rename a file
+; mv.s: move or rename a file
 ; =============================================================================
 ;
-;   mv SRC DST            SRC is now called DST (a file named DST is replaced)
-;   mv SRC /TAG/DST       ... and also carries TAG (mv notes /todo/notes)
-;   mv SRC /TAG/          DST ending in "/": the same name, with those tags
+;   mv SRC /DIR/DST       SRC is now DST in DIR, and in no other directory
+;                         (mv /notes/a /todo/b; /DIR/DIR/DST: in both)
+;   mv SRC /DIR/          DST ending in "/": the same name, there
+;   mv SRC DST            DST without any "/": only the name changes, SRC
+;                         stays where it is
+; A file named DST where SRC goes is replaced if it is in no other
+; directory; if it is, the move is refused.
 ;
 ; One request to the file server (sys_rename, fs RENAME): the file keeps its
 ; blocks, its directory entry and its tags, and gains the tags of DST's path

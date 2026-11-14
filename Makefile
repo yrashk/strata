@@ -476,7 +476,7 @@ DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(DBPROGS) $(NPROGS) $(BUILD)/prog
 # `ls /src/demo` those tagged both src and demo.
 DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc %/resolv,$(OS_FILES)) \
              -t sys $(SPROGS) -t bin $(UPROGS) $(DBPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag -t bin,net $(NPROGS) -t bin,ws $(WSPROGS) \
-             -t demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units $(BUILD)/prog/vi \
+             -t bin,demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units $(BUILD)/prog/vi \
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) $(BUILD)/src/vi.s \
              -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
              lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUILD)/forth-os/vi-syntax.fs \
