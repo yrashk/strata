@@ -145,7 +145,10 @@ decisions taken.
 
 ## Later
 - [ ] Browser persistence (IndexedDB, download)
-- [ ] `fsck` in the OS
+- [x] `fsck` in the OS (`os/progs/fsck.s`): the meta block, every tree
+      page (checksum, number, level, key order), the boot manifest, every
+      page's one use, the count of free pages; not the file system's
+      records (`stdb check` on the host does those); `test-store.sh` part 9
 - [ ] Checksums of file data
 - [ ] The FPGA disk (128 KiB) is too small for the kernel's images and a
       store: `mkdisk -B ""` writes it with the kernel only (it had no

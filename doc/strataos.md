@@ -924,7 +924,8 @@ pages in far memory and three page buffers in its D-LS. A boot object
 inside the OS (`cp new-fs /sys/fs`): at its close its contents are brought
 into one run of pages and the manifest is written anew, in the same
 commit, so the next boot loads the old server or the new one. It cannot be
-renamed or deleted. `build/stdb check IMAGE` checks
+renamed or deleted. `fsck` checks the store from inside the OS (every tree page and every
+page's use; not the files' records); `build/stdb check IMAGE` checks
 a disk from outside, `stdb dump`, `ls` and `get` read one (`stdb snaps`
 lists its snapshots, `stdb -s SNAP dump|ls|get` reads it as one has it).
 **Snapshots**

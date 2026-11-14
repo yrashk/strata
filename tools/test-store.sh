@@ -28,6 +28,7 @@
 #    in a namespace of their own, beside the file system's.
 # 7. Attributes (`attr`) and the terms of a path that ask about them.
 # 8. Boot objects (the first servers' files) written inside the OS.
+# 9. `fsck`, the check of the store from inside the OS.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 b="$here/${BUILD:-build}"
@@ -400,4 +401,42 @@ printf 'cat /t/gap2 | wc\necho booted-again\nhalt\n' >"$tmp/b2.txt"
 run "$tmp/b2.txt" "$tmp/b1.img" || fail "the boot from servers written inside the OS did not end well"
 grep -q '^booted-again$' "$tmp/out.txt" || { cat "$tmp/out.txt" >&2; fail "the OS does not boot from servers written inside it"; }
 echo "test-store: boot objects written inside the OS: one run of pages each, the manifest anew, the OS boots from them"
+# ---- 9. fsck inside the OS ----------------------------------------------------------------
+# fsck agrees with `stdb check` on a disk with files written, a snapshot and
+# a program's tree (the same count of free pages); then a byte of a tree
+# page nobody reads at boot (the root of app/x) is changed on the disk, and
+# fsck says which page and ends with 1 while the files still read.
+cat >"$tmp/f1.txt" <<'EOF'
+echo one > /t/a
+seq 30000 > /t/b
+snap s1
+rm /t/b
+db put app/x k v
+fsck
+echo fsck-code $?
+db
+halt
+EOF
+run "$tmp/f1.txt" "$disk" -w "$tmp/f1.img" || fail "the session before fsck did not end well"
+grep -q '^fsck-code 0$' "$tmp/out.txt" && grep -q '^fsck: commit .*: no problems$' "$tmp/out.txt" ||
+  { cat "$tmp/out.txt" >&2; fail "fsck finds problems on a good disk"; }
+"$b/stdb" check "$tmp/f1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk fsck passed fails its check on the host"; }
+f1=$(sed -n 's/^fsck: commit .* \([0-9]*\) free, .*/\1/p' "$tmp/out.txt")
+f2=$(sed -n 's/.* \([0-9]*\) free, .*/\1/p' "$tmp/check.txt")
+[ -n "$f1" ] && [ "$f1" = "$f2" ] || fail "fsck counts $f1 free pages, stdb check $f2"
+pg=$(sed -n 's/^app\/x  *root page \([0-9]*\),.*/\1/p' "$tmp/out.txt")
+[ -n "$pg" ] || fail "db does not show the tree app/x"
+python3 - "$tmp/f1.img" "$pg" <<'EOF'
+import sys
+f = open(sys.argv[1], "r+b")
+f.seek(int(sys.argv[2]) * 4096 + 100)
+b = f.read(1)
+f.seek(-1, 1)
+f.write(bytes([b[0] ^ 0x40]))
+EOF
+printf 'fsck\necho fsck-code $?\ncat /t/a\nhalt\n' >"$tmp/f2.txt"
+run "$tmp/f2.txt" "$tmp/f1.img" || fail "the boot from the damaged disk did not end well"
+grep -q "^fsck: bad checksum in page $pg\$" "$tmp/out.txt" && grep -q '^fsck-code 1$' "$tmp/out.txt" && grep -q '^one$' "$tmp/out.txt" ||
+  { cat "$tmp/out.txt" >&2; fail "fsck does not report the damaged page"; }
+echo "test-store: fsck inside the OS: a good disk passes with the host's count of free pages; a damaged tree page is named"
 echo "test-store: OK"
