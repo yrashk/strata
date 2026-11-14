@@ -172,10 +172,10 @@ every tag is a directory. A file is listed in each directory it is
 assigned to and nowhere else; a file with no tag is in the root. `ls /`
 shows the unassigned files and every directory. Tags stay intersections:
 `/src/demo` is what is in both.
-- [ ] Subdirectories stay (required): `ls /src` ends with `demo/`, `cd
+- [x] Subdirectories stay (required): `ls /src` ends with `demo/`, `cd
       /src/demo` and `/src/demo/NAME` work, a file made in `/src/demo` is
       in both; the root lists every directory. Tested by name
-- [ ] The rules written into `doc/strata-fs-proposal.md` (a section of its
+- [x] The rules written into `doc/strata-fs-proposal.md` (a section of its
       own) and `doc/strata-store-format.md` (the name index's new key)
 - [x] The name index: tree `dnam`, key (tag id big-endian, name) -> file,
       an entry per directory the file is in, tag id 0 for an unassigned
@@ -197,29 +197,34 @@ shows the unassigned files and every directory. Tags stay intersections:
 - [x] `fs`: the root's listing: unassigned files (index entries under tag
       0), and every directory as a facet (the reply's tag set with every
       bit set); QUERY mode bit 1 lists every file
-- [ ] `ls -A`: every file with its directories
-- [ ] Snapshots, attributes, terms, boot objects (the manifest names them
+- [x] `ls -A`: every file with its directories
+- [x] Snapshots, attributes, terms, boot objects (the manifest names them
       without a directory: no two boot objects of one name) still right
 - [x] `proc`: `/sys/tty`, `/sys/pipe`, `/bin/sh`; fs LOADIMG reads a
       program's path from its starter's directory (the starter's pid in
       the mode word), then looks in `/bin` for a name without `/`
-- [ ] The shell: commands without a `/` in the current directory, then
+- [x] The shell: commands without a `/` in the current directory, then
       along a search path (default `/bin`); `rc` and `motd` by directory;
       completion of commands from the search path
-- [ ] `mkdisk` arguments in the Makefile: the demo programs in `bin` too;
+- [x] `mkdisk` arguments in the Makefile: the demo programs in `bin` too;
       nothing the standard disk needs is left unassigned by accident
-- [ ] `net` (`/etc/resolv`), `httpd` and `httpd.fs` (`/~/`: every file),
+- [x] `net` (`/etc/resolv`), `httpd` and `httpd.fs` (`/~/`: every file),
       `ws` (the programs it starts), `guest`, `as`, `vi`
-- [ ] Forth: `include` paths (`/forth/sys.fs` ...), the ports
-- [ ] `wdoom`, `kira`: nothing to do (they open `/ws/...`); checked
-- [ ] The C compiler (`lang/cc`, another session's): told the rule; its
-      files opened by directory path
-- [ ] Tests: `test-store.sh`, `test-files.sh`, `test-sh.sh` and its
+- [x] Forth: `include` paths (`/forth/sys.fs` ...), the ports
+- [x] `wdoom`, `kira`: nothing to do (they open `/ws/...`); checked
+- [x] The C compiler (`lang/cc`, another session's) needed no change: a
+      program found in `/bin` or `/sys` is started with that path as its
+      command's first word, and a paged C program finds its units
+      (`NAME.u`) by it. The session is told the rules
+- [ ] `untag FILE A B` when the path names A: the second tag is not found
+      (the path is stale after the first); `httpd.fs` lists a first part
+      and no directories at the root
+- [x] Tests: `test-store.sh`, `test-files.sh`, `test-sh.sh` and its
       expected output, `test-fs-progs.sh`, `test-http`, `test-ws`,
       `test-vi`, `test-vifs`, `test-forth`, `os/demo.txt` and the RTL
       comparison; new cases: one name in two directories, a refused TAG,
       a move, a bare name in the root and in a directory
-- [ ] `doc/strataos.md`, the manual (`ch-os`), `HANDOFF.md`, the shell's
+- [x] `doc/strataos.md`, the manual (`ch-os`), `HANDOFF.md`, the shell's
       help
 
 ## Later

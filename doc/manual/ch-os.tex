@@ -773,18 +773,25 @@ now holds these handles too), 37 CLEANUP (a process ended: drop everything it he
 per process, which is how a pipe's reader sees end of input when the last writer exits.
 
 \subsection{Tags instead of directories}\label{sec:os-tags}
-The file system has no directory tree. A file has one name, unique on the disk, and carries any number
-of the disk's 64 tags (names of 1--16 bytes without \texttt{/}); a ``directory'' is a set of tags, so
-one file shows up in several directories at once, without copies or links. Every name \texttt{fs}
-takes is a \emph{path}: components separated by \texttt{/}, empty ones skipped. The last component
-is the file's name and the ones before it are tags the file must carry: \texttt{motd},
-\texttt{/motd} and \texttt{/doc/motd} all name \texttt{motd} when it carries \texttt{doc}, and
-\texttt{/bin/motd} names nothing. Opening for writing gives the file the path's tags, creating new
-ones (\texttt{echo hi > /notes/todo}), and a file that a write replaces keeps its tags. QUERY lists the
-files that carry every tag of its path (\texttt{ls /src/demo} is an intersection); when the last
-component is not a tag but names a file that carries the others, it lists that one file. Deleting
-through a path deletes the file; UNTAG takes it out of a directory. A tag no file carries any more
-disappears. Programs that only open a file by name work unchanged, and can be given paths.
+The file system has no directory tree. A file has a name and carries any number of tags (names of
+1--255 bytes without \texttt{/}). Every tag is a directory, and a file is in each directory it is
+tagged with and nowhere else, so one file shows up in several directories at once, without copies or
+links; a file with no tag is in the root. A name is unique within a directory, not on the disk:
+\texttt{/doc/notes} and \texttt{/src/notes} are two files. Every name \texttt{fs} takes is a
+\emph{path}: components separated by \texttt{/}, empty ones skipped. The last component is the
+file's name and the ones before it are directories the file must be in: \texttt{/doc/motd} names
+the \texttt{motd} of \texttt{doc}, and \texttt{motd} alone the one of the current directory (at the
+root: a file in no directory). Opening for writing puts the file into the path's directories,
+creating new tags (\texttt{echo hi > /notes/todo}), and a file that a write replaces keeps its tags.
+QUERY lists the files that are in every directory of its path (\texttt{ls /src/demo} is an
+intersection: a subdirectory is a narrower view of its directory, and a file made in it is in
+both); with no directory it lists the root's files and names every directory; when the last
+component is not a tag but names a file that is in the others, it lists that one file. Deleting
+through a path deletes the file. TAG puts a file into one more directory (refused when that
+directory has the name), UNTAG takes it out of one (out of its last: into the root), and RENAME
+moves it: it is then in exactly the new path's directories, or keeps its place when the new path is
+a name alone. A tag no file carries any more disappears. A program is looked for where the process
+that starts it is, then in \texttt{/bin} and \texttt{/sys}.
 
 A component \texttt{-tag} excludes: the file must not carry that tag, so \texttt{ls /src/-demo} lists
 the sources that are not demos (excluding a tag that does not exist excludes nothing). A path that
@@ -1046,20 +1053,21 @@ At boot the login shell runs the script \texttt{rc} if the disk has one; the sup
 \begin{tabularx}{\linewidth}{@{}>{\ttfamily}l X@{}}
 \toprule
 \textrm{\bfseries Program} & \textbf{Action}\\\midrule
-ls [-t] [PATH] & list the files with their sizes: those of the current tag path (every file at
-  \texttt{/}), or those carrying the tags of PATH
+ls [-t] [PATH] & list the files with their sizes: those of the current directory (at
+  \texttt{/}: the files in none, and every directory), or those in the directories of PATH
   (\texttt{ls /src/demo}, \texttt{ls /src/-demo}), then its facets as \texttt{tag/};
-  \texttt{-t} adds each file's tags\\
+  \texttt{-t} adds each file's tags; \texttt{ls -A} lists every file\\
 tag FILE TAG \ldots & give a file tags; \texttt{untag FILE TAG \ldots} takes them away;
   \texttt{retag FILE [TAG \ldots]} leaves it exactly these\\
 tags [FILE \ldots] & every tag with the number of files carrying it, or the tags of each FILE\\
 cat [NAME \ldots] & copy the named files, or standard input, to standard output\\
 rm NAME \ldots & delete files\\
-cp [-t] SRC DST & copy a file; DST's path gives the copy tags, \texttt{-t} also SRC's (DST must have
-  another name: names are unique)\\
-mv SRC DST & rename (RENAME): the file keeps its tags and gains DST's; \texttt{mv f /todo/} keeps the
-  name\\
-touch FILE \ldots & create empty files; a file the path does not name yet gets the path's tags\\
+cp [-t] SRC DST & copy a file; DST's path says where the copy is, \texttt{-t} also puts it where SRC
+  is\\
+mv SRC DST & move (RENAME): the file is then DST, in DST's directories only; \texttt{mv f /todo/}
+  keeps the name; a DST without \texttt{/} only renames\\
+touch FILE \ldots & create empty files; a file of the name in one of the path's directories joins
+  the others\\
 df & disk blocks: total, used, free; the number of files\\
 hexdump BLOCK & the first 256 bytes of a raw disk block\\
 ps & the processes: pid, parent, state, core, threads, context switches, KiB moved, name\\
