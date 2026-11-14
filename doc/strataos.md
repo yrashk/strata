@@ -427,8 +427,17 @@ greater length.
   platform's T2 is smaller), accessed only with far atomics (an atomic
   takes about 7 bus cycles in T2, 23 in T3): per-core counters, the published state of each core's thread
   slots, exit events, job records for threads being created, deadlines of
-  timed waits. Commands from the system core to a worker are a job record
-  plus a doorbell.
+  timed waits. Commands from the system core to a worker (a job record, a
+  notification, a kill, a freed zombie, a guest job, halt) are the command's
+  words, then the worker's pending word (G_PEND) set, then a doorbell; a
+  dispatcher swaps its pending word to 0 on every pass and reads its
+  commands only when it was set, so a pass with nothing posted costs one
+  atomic. What a dispatcher publishes (slot states, the running pid, the
+  runnable count, free pool slots) it writes only when it differs from what
+  it wrote last (a copy in its D-LS); the switch and trap timing counters
+  only when the core goes idle. In `os/demo.txt` this took the KST's
+  atomics from 554,000 to 88,000 and the session's far-bus cycles down by
+  19%.
 - **Servers are processes** (user mode, scheduled like any other, each the
   server of one core; at most one server per core):
   - `proc` (pid 1) — the process server: spawning (loading images through
@@ -652,7 +661,9 @@ to switch to having issued the next thread's restore (`w_out` + `w_in`),
 and **cycles per trap**, from a trap's entry to the `eret` that resumes a
 thread, its idle time not counted (on the emulator `cycle` counts
 instructions). The sums and counts are published in the KST core area
-(CA_SWCYC, CA_NSWP, CA_KCYC, CA_NTRAP) with the other per-core words.
+(CA_SWCYC, CA_NSWP, CA_KCYC, CA_NTRAP) with the other per-core words,
+each time the core goes idle (a core that never goes idle shows the
+figures of the last time it did).
 
 Measured on the RTL (8 cores, `os/demo.txt`, `strata-rtl -T virtual -g
 none`), one row per step of the 2026-11 switch work: the counters alone,
