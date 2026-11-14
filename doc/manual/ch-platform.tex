@@ -48,7 +48,8 @@ register and window starts at a multiple of 8, so a capability can be cut to exa
 \hex{1000} & 320 & platform table & read-only window (\texttt{STPD})\\
 \hex{2000} & \hex{300} & block device 0 & \hex{2000} identify window (64 B); \hex{2100} submission port;
                                           \hex{2200} completion port\\
-\hex{3000} & \hex{20} & timer & \hex{3000} NOW; \hex{3008} FREQ; \hex{3010} DEADLINE; \hex{3018} WAIT\\
+\hex{3000} & \hex{30} & timer & \hex{3000} NOW; \hex{3008} FREQ; \hex{3010} DEADLINE; \hex{3018} WAIT;
+                          \hex{3020} EPOCH; \hex{3028} ZONE\\
 \hex{4000} & \hex{10} & framebuffer controller & \hex{4000} PRESENT; \hex{4008} VSYNC\\
 \hex{4100} & \hex{10} & pointer & \hex{4100} EVENT; \hex{4108} STATE\\
 \hex{4200} & \hex{20} & network interface & \hex{4200} TX; \hex{4208} RX; \hex{4210} STATUS;
@@ -174,7 +175,7 @@ The prototype publishes nine entries:
 3 & platform & 0 & 4 & --- & \hex{1000} & 320\\
 4 & block & 0 & 4 & $N$ & \hex{2000} & \hex{300}\\
 5 & framebuffer & 0 & 3 & --- & \hex{3000000} & 16 MiB\\
-6 & timer & 0 & 4 & --- & \hex{3000} & \hex{20}\\
+6 & timer & 0 & 4 & --- & \hex{3000} & \hex{30}\\
 7 & pointer & 0 & 4 & --- & \hex{4100} & \hex{10}\\
 8 & network & 0 & 4 & --- & \hex{4200} & \hex{20}\\
 \bottomrule
@@ -190,8 +191,8 @@ their own.
 
 \section{Timer}\label{sec:timer}
 
-The timer is four 8-byte registers at device offset \hex{3000}. It counts \term{ticks}; one tick is one
-microsecond.
+The timer is six 8-byte registers at device offset \hex{3000}. It counts \term{ticks}; one tick is one
+microsecond. EPOCH and ZONE tie the count to the calendar: the wall-clock time is EPOCH + NOW.
 
 \begin{table}[htbp]
 \centering\small
@@ -204,6 +205,9 @@ microsecond.
 \hex{3010} & DEADLINE & read, write & an absolute tick count; 0 at reset\\
 \hex{3018} & WAIT & read (event port) & the read completes when NOW $\ge$ DEADLINE and returns NOW as of
   its completion\\
+\hex{3020} & EPOCH & read & the wall-clock time when NOW was 0, in microseconds since 1970-01-01 00:00
+  UTC; 0 if the machine does not know the time\\
+\hex{3028} & ZONE & read & the local time zone: local time minus UTC, in seconds (signed)\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -216,7 +220,10 @@ microsecond.
   completes when NOW reaches the single DEADLINE. A system that needs many timeouts gives the timer to
   one core, which keeps a queue of deadlines in software and always programs the earliest.
 \item A WAIT read issued when NOW $\ge$ DEADLINE completes at once.
-\item Writes to NOW, FREQ and WAIT are ignored.
+\item Writes to NOW, FREQ, WAIT, EPOCH and ZONE are ignored.
+\item EPOCH and ZONE do not change while the machine runs. The local time is EPOCH + NOW + ZONE
+  $\times 10^6$ microseconds since 1970-01-01 00:00 in the local zone. A machine without a wall clock
+  (EPOCH 0) thus counts from 1970 at power-on.
 \end{itemize}
 
 Waiting for a point in time is therefore a transfer like any other event
@@ -248,6 +255,11 @@ a read-only capability for exactly those 16 bytes and keep DEADLINE and WAIT to 
 \item[RTL] A 64-bit counter of clock cycles divided by the parameter \texttt{CLK\_MHZ} (default 100).
   In simulation, \texttt{-T real} (the default) takes NOW from the host clock and \texttt{-T virtual}
   uses the cycle counter.
+\item[EPOCH and ZONE] With \texttt{-T real}, the emulator and the RTL in simulation take them from the
+  host's clock and time zone when the run starts; with \texttt{-T virtual} both are 0. The environment
+  variable \texttt{STRATA\_EPOCH=}\textit{seconds}[\texttt{,}\textit{zone-seconds}] sets them in
+  either mode (the conformance suite runs with a fixed value). In the browser they are the browser's
+  clock and time zone. The RTL outside simulation has no wall clock: both read 0.
 \end{description}
 Runs whose output is compared between machines use \texttt{-T virtual}; even then the two machines'
 clocks advance at different rates per instruction, so timer values are timing-visible

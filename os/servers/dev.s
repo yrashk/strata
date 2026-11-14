@@ -23,6 +23,11 @@
 ;  22 GETSND   -> 0; a window on the sound device's ports 0x4300..0x4317 (c6),
 ;               for any program that asks (their samples mix in the device's
 ;               queue in the order they arrive); -1 if the machine has none
+;  67 TIME     -> 1; data: one 32-byte record: the timer's EPOCH (u64: the
+;               wall clock when NOW was 0, in microseconds since 1970-01-01
+;               UTC; 0 = not known) and ZONE (s64: local time minus UTC, in
+;               seconds), then 16 bytes of 0. Programs add NOW (their clock,
+;               c7) to EPOCH: dev is asked once, not at every reading.
 ;  36/37/38    DUPS / CLEANUP / CANCEL from proc: nothing to do
 ;
 ; The framebuffer memory is the kernel's: it is a revocable region of
@@ -39,6 +44,7 @@ PLAT     = 0x1000                       ; the platform table's offset in device 
 PLATMAX  = 512                          ; its largest size
 FBCTL    = 0x4000                       ; framebuffer controller ports
 FBCTL_N  = 0x10                         ; ...
+TMR_EPOCH = 0x3020                      ; the timer's EPOCH and ZONE (OP_TIME: sys.s)
 
         .data                           ; data Local Store
         .align 8                        ; ...
@@ -48,6 +54,7 @@ n_net:  .ascii "net\0\0\0\0\0"          ; the only name GETNET serves
 netpid: .dword 0                        ; GETNET: the caller's pid
 fbpid:  .dword 0                        ; GRANT_FB: the caller's pid
 fbpark: .dword 0                        ; GRANT_FB: its parked request
+tbuf:   .space 32                       ; TIME: the record
 
         .text                           ; instruction Local Store
 _start:
@@ -94,6 +101,8 @@ loop:
         beq   t1, t2, op_con            ; ...
         li    t2, OP_GETNET             ; GETNET
         beq   t1, t2, op_net            ; ...
+        li    t2, OP_TIME               ; TIME
+        beq   t1, t2, op_time           ; ...
         li    t2, 21                    ; GETPTR
         beq   t1, t2, op_ptr            ; ...
         li    t2, 22                    ; GETSND
@@ -143,6 +152,24 @@ op_devs:
         addi  a0, t0, 32                ; ...
         call  srv_put                   ; -> the request's data
         mv    a0, s1                    ; the count
+        j     reply                     ; ...
+
+; ---- TIME ------------------------------------------------------------------------------------
+op_time:
+        li    a0, TMR_EPOCH             ; EPOCH and ZONE
+        li    a1, 16                    ; ...
+        call  window                    ; c4 = them
+        la    t0, tbuf                  ; ...
+        sd    zero, 16(t0)              ; the record's last 16 bytes are 0
+        sd    zero, 24(t0)              ; ...
+        li    t1, 16                    ; ...
+        tget  tg1, t0, c4, zero, t1     ; ...
+        twait 1 << 1                    ; ...
+        cclear c4                       ; ...
+        la    a0, tbuf                  ; the record
+        li    a1, 32                    ; ...
+        call  srv_put                   ; -> the request's data
+        li    a0, 1                     ; one record
         j     reply                     ; ...
 
 ; ---- HALT ------------------------------------------------------------------------------------

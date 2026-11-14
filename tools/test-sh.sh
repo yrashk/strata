@@ -8,7 +8,8 @@
 #   tools/test-sh.sh build/bootrom.stx build/disk.img     (-u: update the .out)
 #
 # The emulator runs the interpreter with the virtual timer (-j -T virtual),
-# so the session is deterministic. Before comparing, the output is cut to start
+# so the session is deterministic; its wall clock (the timer's EPOCH and
+# ZONE, for `date`) is fixed by STRATA_EPOCH. Before comparing, the output is cut to start
 # at the first prompt (the boot messages belong to the kernel), pids in job
 # reports and `time` results are replaced by placeholders, and control bytes
 # are shown as cat -v does (^[ is ESC).
@@ -177,13 +178,15 @@ CW=$(printf '\027'); CL=$(printf '\014'); CD=$(printf '\004')
   printf 'mv c3 sub/; ls sub/; cp -t c1 sub/c6; tags sub/c6\n'
   printf 'rm c1 sub/c2 sub/c3 c4 sub/c6 /other/c5; ls; cd; pwd\n'
   printf 'rm f1 f2 f3 s1 tfile\n'
+  # the wall clock: STRATA_EPOCH below (a leap day, a half-hour zone)
+  printf 'date\n'
   printf 'exit 3 &\n'
   printf 'wait\n'
   # Ctrl-D on an empty line ends the login shell: the machine halts
   printf 'echo bye\n%s' "$CD"
 } >"$tmp/in.txt"
 cp "$2" "$tmp/d.img"
-"$b/strata-emu" -c "$n" -j -T virtual -g none -m 2000000000 -d "$tmp/d.img" -i "$tmp/in.txt" "$1" >"$tmp/raw.out" 2>/dev/null
+STRATA_EPOCH=951782400,19800 "$b/strata-emu" -c "$n" -j -T virtual -g none -m 2000000000 -d "$tmp/d.img" -i "$tmp/in.txt" "$1" >"$tmp/raw.out" 2>/dev/null
 # from the first prompt on; job pids and times normalised; control bytes visible
 awk 'f || /^strata\$ /{f=1; print}' "$tmp/raw.out" |
   sed -E -e 's/^(\[[0-9]+\]) [0-9]+$/\1 PID/' -e 's/^(\[[0-9]+\]) [0-9]+  /\1 PID  /' \

@@ -24,6 +24,8 @@
 //
 // Timer: NOW counts microseconds, from the clock (CLK_MHZ cycles per tick)
 // or, in simulation, from the host (sim_time_us, unless it returns -1).
+// EPOCH and ZONE are the host's wall clock at NOW = 0 and its time zone
+// in simulation (sim_epoch_us, sim_zone_s, read at reset); 0 otherwise.
 // VSYNC completes once the refresh counter (one every FRAME_TICKS ticks)
 // has moved past the value it had at the requesting core's first attempt;
 // the bus tells us which master asks (`master`: core i's Transfer Unit is
@@ -207,6 +209,7 @@ module strata_dev
   logic [NCORES-1:0][63:0] vs_from;  // ... and the refresh count it waits to pass
   logic        is_wait, is_vsync, wait_ok, vsync_ok, tmr_hit;
   logic [63:0] tmr_val;
+  logic [63:0] epoch, zone;         // EPOCH and ZONE: from the host in simulation; 0 (not known) otherwise
 
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -226,6 +229,17 @@ module strata_dev
   end
 `else
   assign now = vnow;
+`endif
+`ifdef SIMULATION
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      epoch <= sim_epoch_us();
+      zone  <= sim_zone_s();
+    end
+  end
+`else
+  assign epoch = '0;
+  assign zone  = '0;
 `endif
 
   always_ff @(posedge clk) begin
@@ -287,11 +301,13 @@ module strata_dev
   end
   // timer registers other than WAIT: byte 0 reads the live value, the rest the latch
   always_comb begin
-    tmr_hit = ra >= DEV_TIMER && ra < DEV_TIMER + 64'h20;
-    case (ra[4:3])
-      2'd0:    tmr_val = ra[2:0] == 0 ? now : lat_now;
-      2'd1:    tmr_val = 64'(TMR_HZ);
-      2'd2:    tmr_val = ra[2:0] == 0 ? deadline : lat_dl;
+    tmr_hit = ra >= DEV_TIMER && ra < DEV_TIMER + 64'h30;
+    case (ra[5:3])
+      3'd0:    tmr_val = ra[2:0] == 0 ? now : lat_now;
+      3'd1:    tmr_val = 64'(TMR_HZ);
+      3'd2:    tmr_val = ra[2:0] == 0 ? deadline : lat_dl;
+      3'd4:    tmr_val = epoch;
+      3'd5:    tmr_val = zone;
       default: tmr_val = '0;                         // WAIT other than at the start of a transfer
     endcase
   end

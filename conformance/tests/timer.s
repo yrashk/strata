@@ -4,6 +4,9 @@
 ;
 ; What it checks (doc/strataos.md section 1.2; common/platform.h)
 ;   * FREQ (0x3008) reads 1000000 (1 tick = 1 us).
+;   * EPOCH (0x3020) and ZONE (0x3028) read what the host gave the machine:
+;     conformance/run.sh sets STRATA_EPOCH=1763109000,-25200, so EPOCH is
+;     1763109000 * 10^6 and ZONE is -25200 (signed, 64 bits).
 ;   * NOW (0x3000) never goes backwards; a register is LATCHED when its byte
 ;     0 is read: reading byte 0, waiting, then reading bytes 1..7 gives the
 ;     value of the moment byte 0 was read, not a torn mix.
@@ -30,6 +33,8 @@ T_NOW = 0x3000                          ; timer ports
 T_FREQ = 0x3008                         ; ticks per second
 T_DL = 0x3010                           ; DEADLINE
 T_WAIT = 0x3018                         ; WAIT
+T_EPOCH = 0x3020                        ; wall clock at NOW = 0, us since 1970
+T_ZONE = 0x3028                         ; local time minus UTC, seconds
 F_PRESENT = 0x4000                      ; framebuffer controller: PRESENT
 F_VSYNC = 0x4008                        ; VSYNC
 
@@ -52,6 +57,16 @@ main:
         li    a0, T_DL                  ; DEADLINE
         call  devrd                     ; read it
         li    a1, 0                     ; reset value 0
+        call  chk                       ; check
+
+; ---- EPOCH and ZONE: as the host set them (run.sh: STRATA_EPOCH) ---------------------------
+        li    a0, T_EPOCH               ; EPOCH
+        call  devrd                     ; read it
+        li    a1, 1763109000000000      ; 1763109000 s
+        call  chk                       ; check
+        li    a0, T_ZONE                ; ZONE
+        call  devrd                     ; read it
+        li    a1, -25200                ; UTC-7
         call  chk                       ; check
 
 ; ---- NOW is monotonic --------------------------------------------------------------------

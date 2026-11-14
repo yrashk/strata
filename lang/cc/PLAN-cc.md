@@ -22,7 +22,8 @@ each stage. Keep it current.
 - [x] Sorted into nine rungs, `ladder/MANIFEST.tsv`
 - [x] Runner: `tests/run.sh` (`ladder.py`): batches of tests per boot;
       `CC_FLAGS=-p` runs the ladder in the paged code model
-- [x] `ladder/EXPECT.tsv`: the 71 tests not expected to pass, with reasons
+- [x] `ladder/EXPECT.tsv`, `EXPECT-cc0.tsv`: the tests not expected to pass,
+      with reasons; both are empty now
 - [x] `ladder/FAST.txt`: the subset `make test` runs (52 tests)
 
 ## Design
@@ -70,19 +71,19 @@ each stage. Keep it current.
 - [x] function pointers
 - [x] `switch`, `goto` and labels
 - [x] `static` locals, `extern`, tentative definitions
-- [ ] anonymous struct and union members (C11, used by two tests)
+- [x] anonymous struct and union members (C11, used by two tests)
 
 ### Stage 4: the preprocessor
 - [x] `#include` (members of `cc.lib`, then the file system), include stack
 - [x] object-like and function-like macros, variadic macros, `#undef`, `#`
       and `##`, `__LINE__`, `__FILE__`
 - [x] `#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/`#endif`, `defined`
-- [x] `#error`; `#line` and `#pragma` are skipped
+- [x] `#error`, `#line`; `#pragma` is skipped
 - [x] backslash-newline (removed when a file is loaded, line numbers kept)
 - [x] the library's headers: `assert ctype limits stdarg stdbool stddef
-      stdint stdio stdlib string strata`
-- [ ] `__STDC__`, `__STDC_VERSION__` and the other predefined macros
-- [ ] trigraphs, `_Pragma`, `#include` with a macro as its operand
+      stdint stdio stdlib string strata`, and `math` (for `cc`)
+- [x] `__STDC__`, `__STDC_VERSION__`, `__strata__`
+- [x] trigraphs, `_Pragma`, `#include` with a macro as its operand
 
 ### Stage 5: the rest of C99
 - [x] `long long` (the same as `long`), `_Bool`, `//` comments, mixed
@@ -90,21 +91,20 @@ each stage. Keep it current.
 - [x] variadic functions (`<stdarg.h>`), more than eight arguments
 - [x] designated initialisers (nested), compound literals
 - [x] `__func__`
-- [~] bit-fields: read, write, initialise; a field starts a new storage unit
-      where the reference compilers share one with a preceding member, and an
-      unsigned field narrower than `int` stays unsigned (9 tests fail)
+- [x] bit-fields: read, write, initialise; laid out and promoted as the
+      usual ABIs do
 - [x] floating point: `double` arithmetic, comparisons and conversions by
       software (`lib/fp.s`, checked against the host on 1800 cases), decimal
       constants, `printf` of `%f %e %g` exactly rounded
-- [~] `float`: stored as 4 bytes, computed in double (results of float
-      arithmetic have type double); no hexadecimal constants; `c ? 1 : 2.5`
-      with an integer first branch is not converted; `x++` on a floating
-      lvalue is rejected; `-0.0` is true in a condition
-- [ ] variable-length arrays (the plan: DESIGN.md has none yet; frames have a
-      fixed size, so a VLA would come from the heap, freed at block exit)
-- [ ] old-style (K&R) function definitions
-- [ ] wide strings (`L"..."` is read as a plain string)
-- [ ] `qsort`, `bsearch`, `strtod`, `<math.h>` in the library
+- [x] `float`: stored as 4 bytes, its arithmetic rounded to float;
+      hexadecimal constants
+- [x] variable-length arrays (`cc-vla.s`): storage from the heap, given back
+      at the end of the block and by `return`, `break`, `continue` and `goto`
+- [x] old-style (K&R) function definitions
+- [x] wide characters (`L'x'`); wide strings only in `cc.c`
+- [x] `strtod`, `strtof`, `strtold`, `atof` in the library
+- [ ] `qsort`, `bsearch`, `<math.h>`: these are C source in the library, which
+      only `cc.c` can compile into a program (stage 6)
 
 ### Stage 6: the main compiler, in C
 `cc.s` is the bootstrap compiler (`cc0`); `cc.c` is the compiler (`cc`, and
@@ -136,8 +136,7 @@ section 6).
       a parameter list, `extern` in a block. Its code window is 1 KiB now
       (it was 2): that freed the data these needed
 - [x] variable-length arrays in `cc.s` (`cc-vla.s`): the same design as in
-      `cc.c`, except that `break` and `continue` do not give a block's
-      array back (the end of the block and `return` do)
+      `cc.c`
 - [x] found on the way, in `cc.s`: an lvalue through a pointer that a call
       left in a0 was read after a0 had been loaded with the first argument
 - [x] found on the way, fixed in `cc.s`: a register stored to the frame
@@ -157,8 +156,26 @@ section 6).
       zero converted to a narrow unsigned type gives 0
 - [x] the identifier hash and the scanner's saved state moved to the arena:
       38 KiB of the 40 KiB of D-LS are in use
-- [ ] a variable-length array left by `goto` is not given back
-- [ ] `qsort`, `bsearch`, `<math.h>` in the library
+- [x] a variable-length array left by `goto` is given back, in both
+      compilers (DESIGN.md, section 6): back to a label, by the goto itself;
+      forward, by code at the end of each scope the jump leaves.
+      `examples/vla.c` leaves every way, often enough to exhaust the heap if
+      one of them kept the storage; `tools/test-cc.sh` runs it with `cc` in
+      both code models and with `cc0`
+- [x] library functions as C source (`lib/src`, one function a file, members
+      `NAME.c` of `cc.lib`): at the end of a program `cc.c` compiles the ones
+      the program calls and nothing else defines. `qsort` and `bsearch`;
+      `<math.h>`: 29 functions, compared with the host's library on 200,000
+      random arguments each (the host compiles the same files) and, run in
+      StrataOS, bit for bit with the same files run on the host
+      (`examples/sort.c`, `examples/math.c`)
+- [x] found on the way: the library's quiet NaN had lost its top bit (0/0
+      was 1.75 at run time; the compiler's own folding was right)
+- [ ] decimal floating constants of more than 15 digits, or far from 1, can
+      be off by a unit or two in the last place (the digits are multiplied
+      out in double); hexadecimal constants are exact, and the library's
+      sources use them. The same holds for `strtod`
+- [ ] `<math.h>` is `double` only: no `sinf`, `sinl` and the like
 
 ### Stage 7: the machine from C
 - [x] intrinsics (`cc-intr.s`; in `cc.c` the same table; documented in
@@ -183,12 +200,14 @@ section 6).
       of its own; the store has no such limit)
 - [x] `help` line in the shell
 - [x] `make test-cc` (the ladder), `make test-cc-fast` (52 tests and
-      `tools/test-cc.sh`: `hi.c` and `calc.c` compiled and run in the OS),
-      the latter a prerequisite of `make test`
-- [x] `examples/hi.c`, `examples/calc.c`
-- [x] README section, `doc/strataos.md` paragraph
-- [ ] the manual (`doc/manual/ch-toolchain.tex`, `ch-os.tex`) does not
-      mention `cc` yet
+      `tools/test-cc.sh`: the examples compiled and run in the OS); in
+      `make test` as `cc-ladder`, `cc` and `cc-boot` (`tools/tests.sh`)
+- [x] `examples/`: `hi.c`, `calc.c`, `asm.c`, `sort.c`, `math.c`, `vla.c`,
+      `cmp.c`
+- [x] README section, `doc/strataos.md` paragraph, a page of the site
+      (`site/c/`)
+- [x] the manual: a section of the toolchain chapter, a paragraph of the
+      operating system's
 
 ## Scores
 
@@ -222,17 +241,19 @@ host and gives the same).
 
 ## Size
 
-`cc.c`: 5,400 lines of C. Compiled by itself: 109 KiB of code in 4 KiB
-units (`cc.u`), and an image `cc` of 47 KiB: the 8 KiB library and 38 KiB of
-data. The host program `strata-cc` is the same source and 115 lines of
-`host/host.c`.
+`cc.c`: 5,500 lines of C. Compiled by itself: 106 KiB of code in 4 KiB
+units (`cc.u`), and an image `cc` of 47 KiB: the 9 KiB library and 38 KiB of
+data (1.7 KiB of the 40 are left). The host program `strata-cc` is the same
+source and 115 lines of `host/host.c`.
 
 `cc.s` and the files it includes: 13,900 lines of assembly, of which the
 resident part is 4 KiB of code and the 30 code units 119 KiB; the D-LS
 section is the full 40 KiB (16 KiB symbols, 7 KiB types, 13 KiB variables
-and buffers). The library: 2,800 lines, 8 KiB of code and 3 KiB of data in
-every program. `cc.lib` is 25 KiB (the library, the headers, the table of
-`asm`); `cc0.lib`, with the bootstrap compiler's units, 132 KiB, `cc0` 45 KiB.
+and buffers). The library: 3,000 lines of assembly, 9 KiB of code and 3 KiB
+of data in every program, and 480 lines of C that a program gets only the
+functions it calls of. `cc.lib` is 45 KiB (the library, the headers, the
+table of `asm`: 28 KiB, which `cc` keeps in its arena; then the C sources);
+`cc0.lib`, with the bootstrap compiler's units, 143 KiB, `cc0` 44 KiB.
 
 ## Notes for whoever continues
 
@@ -253,8 +274,9 @@ every program. `cc.lib` is 25 KiB (the library, the headers, the table of
   split it with another `.align 4096`.
 - **Labels are global** across all the included files: pick a new prefix.
 - **Data.** Variables must stay below `CW` (the `.org CW` at the end of
-  `cc.s` fails otherwise): 0x3560, and `data_end` is at 0x3540 now: 32 bytes are left. Shrink a table
-  (`NSYMS`, `NTYPES`) or move one to the arena before adding variables. A unit's
+  `cc.s` fails otherwise): 0x3960, and `data_end` is at 0x3728 now: 568
+  bytes are left. Shrink a table (`NSYMS`, `NTYPES`) or move one to the
+  arena when they run out. A unit's
   `.data` must start with `.align 8` (loads and stores of misaligned words
   fault). `NSYMS`, `NTYPES`, `NCASES`, `NARGS`, `XBSZ` are the knobs.
 - **Loads and stores must be aligned** on this machine: the compiler never
@@ -266,7 +288,9 @@ every program. `cc.lib` is 25 KiB (the library, the headers, the table of
   disassembled on the host.
 - **Files added to the disk** change what `tools/test-http.sh` prints
   (listings, counts): `tools/test-http.sh -u` after looking at the diff.
-- The time of a ladder run is about a minute; the full `make test` took an
-  hour and passed through its main part with this change (examples, OS
-  sessions on emulator and RTL, the OS tests, the JIT, the debuggers, the
-  conformance suite, `test-cc-fast`).
+- **Tests.** `make test-one T=cc`, `T=cc-boot`, `T=cc-ladder` take seconds;
+  a whole ladder (`make test-cc`, `test-cc0`, `test-cc-host`) about a
+  minute; `make test` runs everything in parallel (doc/testing.md).
+- **The library in C** (`lib/src/README.md`): a file there may use only what
+  `cc.c` compiles, names of its own that begin with two underscores, and no
+  header.
