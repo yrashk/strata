@@ -17,7 +17,7 @@
 PAL_W     = 560                         ; panel width
 PAL_ROW   = 22                          ; completion row height
 PAL_MAXM  = 6                           ; completions shown
-PAL_NPROG = 12                          ; programs known
+PAL_NPROG = 14                          ; programs known
 PAL_ENT   = 48                          ; bytes per program entry: name 12, description 36
 
         .data                           ; D-LS
@@ -30,6 +30,10 @@ pal_progs:                              ; name (12 bytes), description (36), NUL
         .ascii "terminal: sh -i in a new tile\0\0\0\0\0\0\0" ; its description
         .ascii "wmandel\0\0\0\0\0"      ; name
         .ascii "mandelbrot set into a surface\0\0\0\0\0\0\0" ; its description
+        .ascii "wdoom\0\0\0\0\0\0\0"    ; name
+        .ascii "a first-person shooter\0\0\0\0\0\0\0\0\0\0\0\0\0\0" ; its description
+        .ascii "kira\0\0\0\0\0\0\0\0" ; name
+        .ascii "Princess Kira: games for a child\0\0\0\0" ; its description
         .ascii "vi\0\0\0\0\0\0\0\0\0\0" ; name
         .ascii "text editor: asm, Forth colours\0\0\0\0\0" ; its description
         .ascii "wclock\0\0\0\0\0\0"     ; name

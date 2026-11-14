@@ -362,4 +362,8 @@ module strata_tu
       end
     end
   end
+
+`ifdef FORMAL
+`include "strata_tu.svh"
+`endif
 endmodule

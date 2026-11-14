@@ -255,7 +255,7 @@ in pipes and with redirections. At the Forth prompt \texttt{include NAME.fs} def
 \end{center}
 
 They share a library, \texttt{sys.fs} (the command line, standard input by lines, standard error,
-messages to the servers; about 2.9~KiB of code). The disk's directory has room for 128 files, so
+messages to the servers; about 2.9~KiB of code). The disk's directory had room for 128 files when they were written, so
 the ports are packed into one, \texttt{progs.pk}: \texttt{included}, given a name that is no file,
 runs the word in a kernel variable instead, and that includes the pack, whose head
 (\texttt{progs.fs}) finds the port in its index and interprets that part of the pack's text. A start costs about 2.5~M instructions more

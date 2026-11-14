@@ -729,8 +729,8 @@ Kept, and why:
   cache's units);
 - its own trap handler (faults become THROWs at the prompt), so misses are
   handed over with svc PAGE rather than taken by the dispatcher directly;
-- the pack, progs.pk: the file system's directory has room for 128 files
-  and the disk has 110 without the ports, so they cannot be files of their
+- the pack, progs.pk: the file system's directory had room for 128 files
+  (1024 now) and the disk had 110 without the ports, so they cannot be files of their
   own, with tags;
 - its buffering: output is collected in the D-LS and sent a message at a
   time, input read a message at a time; it uses the servers' protocol
@@ -833,8 +833,8 @@ rest u' word u2 )`, `atoi`, `num`, `.u`, `last/`, `zlen`, `in-line ( buf max
 `digits`. Under StrataOS it is compiled after the platform has read the
 standard handles, so their servers and ids are compiled in as literals.
 
-**The pack.** The disk's directory has room for 128 files (and a DIR answer
-for 126), and the standard disk already has 110 (the test disks more), so
+**The pack.** The disk's directory had room for 128 files when the ports
+were written (1024 now; a DIR answer still holds 126), and the standard disk already had 110 (the test disks more), so
 the ports and sys.fs are not files of their own: the Makefile packs them
 into one, `progs.pk` (`tools/forth-pack.py`): `progs.fs`, Forth, with an
 index put in (a line `OFFSET LENGTH port NAME` per file; `untag.fs` and
@@ -848,8 +848,7 @@ interprets sys.fs where it lies unless it is loaded (`evaluate-far`), then
 the port, and ends the pack's text (KVAR 7's neighbours: where the far text's
 next line is and where it ends). `include`, `require sys` and an INCLUDE in
 a port all find them. A name in neither is "no such file", as before. So
-the ports take one directory entry; the http test's disk is full with it
-(128 files while that test runs). The kernel's part is 8 instructions;
+the ports take one directory entry. The kernel's part is 8 instructions;
 `(pack)` is one short word. KVAR 41 is the name `(msg)`'s register 6 looks up (`net`; `devs.fs`
 asks for `dev`).
 

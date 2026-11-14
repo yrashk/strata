@@ -1,0 +1,25 @@
+# strata_dev as a far-bus target (formal/props/strata_dev.svh), two cores,
+# a 64-word disk.
+#   prove  all properties, by induction
+#   cover  the properties are not vacuous
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+prove: depth 3
+cover: mode cover
+cover: depth 30
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -formal -sv strata.v
+chparam -set NCORES 2 -set DISK_WORDS 64 -set UART_DIV 4 strata_dev
+hierarchy -top strata_dev
+prep
+
+[files]
+formal/build/strata.v

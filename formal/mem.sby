@@ -1,0 +1,24 @@
+# strata_mem as a far-bus target (formal/props/strata_mem.svh), with 64
+# words and a start-up latency of 3 cycles.
+#   prove  all properties, by induction
+#   cover  the properties are not vacuous
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+prove: depth 3
+cover: mode cover
+cover: depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -formal -sv strata.v
+chparam -set WORDS 64 -set LAT 3 strata_mem
+prep -top strata_mem
+
+[files]
+formal/build/strata.v

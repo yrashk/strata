@@ -164,16 +164,18 @@ prototype ROM uses the fixed addresses \hex{4000} and \hex{A000} rather than rea
 
 \subsection{Disk layout}
 
-\texttt{tools/mkdisk -o disk.img -k kernel.stx [-b blocks] [file \ldots]} builds a bootable disk image
-(default 8192 blocks, 4~MiB) from the kernel image and up to 128 files:
+\texttt{tools/mkdisk -o disk.img -k kernel.stx [-b blocks] [-n entries] [file \ldots]} builds a
+bootable disk image from the kernel image and up to $N$ files, $N$ being the directory's entries
+(\texttt{-n}: a multiple of 128, at most 1024, the default; boot-header offset 56):
 
 \begin{center}\small
 \begin{tabular}{@{}l l@{}}
 \toprule
 \textbf{Blocks} & \textbf{Contents}\\\midrule
 0 & boot header\\
-1--8 & directory: 128 entries of \{ char name[24], u32 first LBA, u32 size in bytes \}\\
-9\ldots & OS code image (I-LS bytes \hex{4000}--\hex{7FFF}), then OS data image (D-LS bytes \hex{A000}--\hex{DFFF})\\
+1\ldots & directory: $N$ entries of \{ char name[24], u32 first LBA, u32 size in bytes \}, $N/16$ blocks\\
+then & the tag table: 64 tag names of 16 bytes, then $N$ 64-bit tag sets ($2 + N/64$ blocks)\\
+then & OS code image (I-LS bytes \hex{4000}--\hex{7FFF}), then OS data image (D-LS bytes \hex{A000}--\hex{DFFF})\\
 then & the far image: the kernel image's T3 section (\texttt{.far}), whose offset 0 is far address 0 of \reg{c12}\\
 then & each file given on the command line, block-aligned, under its base name\\
 rest & free space for files the OS creates\\

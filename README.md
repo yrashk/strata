@@ -69,6 +69,7 @@ a conformance suite that holds them all to the same behaviour.
 | `lang/forth/` | Strata Forth: a kernel in assembly, the language in Forth, demos and tests |
 | `lang/cc/` | `cc`, a C99 compiler that runs in StrataOS and compiles itself: `cc.c`, the bootstrap compiler in assembly, the host build (`strata-cc`), the run-time library and headers, the C test ladder |
 | `conformance/` | The architectural conformance suite and a three-way differential fuzzer |
+| `formal/` | Formal proofs of the RTL with SymbiYosys: specifications, property files, one `.sby` per target |
 | `tools/` | Test scripts (`compare.sh`, `compare-boot.sh`, `test-*.sh`), `mkdisk` (bootable disks), `mkhex` (FPGA memory images), `bench-jit.sh`, `web-code.py` |
 | `fpga/` | Synthesis script, LiteDRAM adapter, a board top, pin constraints |
 | `web/` | The WebAssembly builds for the site's play page: the emulator (`web.c`), and the RTL simulator (`web_rtl.cpp`: Verilator's C++ compiled with Emscripten, `make wasm-rtl`) |
@@ -86,6 +87,7 @@ a conformance suite that holds them all to the same behaviour.
 | the in-browser emulator and site (`make wasm`, `make web-site`) | Emscripten (`emcc`), node, python3 |
 | the manual (`make manual`) | [tectonic](https://tectonic-typesetting.github.io/) |
 | the fuzzers (`make fuzz`) | python3 |
+| the formal proofs (`make formal`) | [SymbiYosys](https://github.com/YosysHQ/sby), Yosys, sv2v, Yices 2, Bitwuzla (`brew install sby yosys sv2v yices2 bitwuzla`) |
 
 ## Quick start
 
@@ -98,6 +100,7 @@ make boot-ws        # the same, with the window server started at boot
 make forth          # a Forth prompt on the bare machine
 make ws-demo        # the window server's renderers against a simulated system
 make conformance    # the conformance suite on the interpreter, the JIT and the RTL
+make formal         # the formal proofs of the RTL (about 15 minutes; not part of make test)
 make bench          # interpreter against JIT, wall time
 make web-site       # build/web-site/: the site with the in-browser emulator
 make debug-pipeline # step an example under strata-dbg (any example: debug-NAME)
@@ -323,6 +326,39 @@ under the pointer gets clicks, drags and the wheel, and `term` scrolls back
 through its history with the wheel. `make boot-ws` boots straight into the
 window server.
 
+![wdoom: a first-person shooter in a StrataOS window](site/img/wdoom.png)
+
+`wdoom` is a first-person shooter in the manner of Doom, written in Strata
+assembly as one more client of the window server: a textured grid
+raycaster with doors, three kinds of monster, a pistol, pickups and a
+status bar, using art and sounds from [Freedoom](https://freedoom.github.io/)
+(BSD 3-clause; `os/progs/wdoom/ATTRIBUTION.md`). A core's data store has 40
+KiB for a program, less than one 320 x 168 frame, so the picture is drawn
+in ten slabs of 32 columns; textures stay in far memory and are fetched a
+column at a time. Run `wdoom` from a shell or the palette, or `make
+boot-wdoom`; it is a preset on the play page. With the sound device (an
+optional PCM output: `strata-emu -a`, on in `make boot` and in the browser)
+it has sound. [`os/progs/PLAN-wdoom.md`](os/progs/PLAN-wdoom.md) has the
+design and what a frame costs.
+
+![kira: four of its pictures: the castle from above, the party seen through Kira's eyes, the garden, a colouring page](site/img/kira.png)
+
+`kira` is Princess Kira: four gentle games for a five-year-old, written in
+Strata assembly as one more client of the window server. There are no
+enemies, no timer and no way to lose, and the mouse and the keyboard both
+do everything. In Friends, Kira walks through her castle and its garden
+and finds her seven animal friends, who follow her in a parade to a
+picnic; every game has a newly made castle and garden, seen from above
+or, at the press of a button, through Kira's eyes (wdoom's raycaster with
+a floor for every cell and a sky). In Garden she sows seeds and waters
+them into flowers that butterflies visit, and the garden is kept in a
+file. Paint has three colouring pages, and Music a xylophone, the
+friends' voices and four songs. The art is original and is drawn by a
+script (`tools/kira-art.py`); the sounds are synthesised. Run `ws kira`
+from the shell, or `kira` from the palette; it is a preset on the play
+page.
+[`os/progs/PLAN-kira.md`](os/progs/PLAN-kira.md) has the design and the sizes.
+
 
 `make ws-demo` runs the same renderers on the bare machine against a
 simulated twelve-core system (no OS needed), and the site's play page has
@@ -522,6 +558,25 @@ make fuzz SEEDS=200     # random instruction streams on all three, compared
 The discrepancies the suite found, and how each was decided, are recorded
 in [`conformance/FINDINGS.md`](conformance/FINDINGS.md).
 
+## Formal verification
+
+`formal/` proves properties of the RTL for every input sequence, with
+[SymbiYosys](https://github.com/YosysHQ/sby): the ALU and the decoder
+against written specifications, the divider and the multiplier (correct
+result, fixed number of cycles), the far bus (one owner, no beat lost,
+bounded waiting), the Transfer Unit (queue invariants, hazards, order, no
+command lost), the memory and device targets (the burst protocol), the core (x0, precise traps, privilege, capability shape and
+liveness, no duplicated write access) and the top level's inboxes and
+revocation walker. Each property file states what it assumes;
+[`formal/README.md`](formal/README.md) has the table of proofs and what is
+not covered, [`formal/FINDINGS.md`](formal/FINDINGS.md) what was found (two
+RTL bugs, both fixed, each with a program that shows it).
+
+```bash
+make formal             # every proof, then the table of results
+make formal-tu          # one target (alu decode div mul mul_lemma bus tu mem dev core top)
+```
+
 ## FPGA
 
 The RTL is synthesizable (Yosys via `sv2v`; `fpga/synth.sh xc7|ecp5`).
@@ -575,7 +630,7 @@ the main points:
   the files tagged both `src` and `demo`, `ls /src/-demo` those tagged `src`
   but not `demo`; subdirectories are facets: `ls /src` ends with `demo/`), but files are contiguous runs of
   blocks, a deleted file's space comes back only if it was the last one, and
-  a disk holds at most 128 files and 64 tags.
+  a disk holds at most 1024 files and 64 tags.
 - The shell has no globbing and no `2>`.
 - Strata Forth runs on the bare machine only, not yet as a StrataOS program.
 - With timer-driven preemption, the emulator and the RTL cannot be compared

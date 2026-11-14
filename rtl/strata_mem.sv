@@ -158,4 +158,8 @@ module strata_mem
       endcase
     end
   end
+
+`ifdef FORMAL
+`include "strata_mem.svh"
+`endif
 endmodule

@@ -209,9 +209,37 @@ console, with one waiting read:
   reported and skipped. `make boot` uses `-N nat,fwd=8080:80,fwd=8000:8000`
   (`BOOT_NET`), so a web server in the guest is http://localhost:8080/.
 
+#### Sound (0x4300)
+
+A PCM output: a queue of mono, signed 16-bit samples that the device plays
+at a set rate. It is **optional**: a machine that has it lists it in the
+platform table (type 9, a tenth entry), and software asks `dev` for it
+(GETSND) and goes without when the answer is -1. The emulator has it with
+`-a` or `-A FILE` and the play page always; the RTL does not (the sessions
+that compare the two machines run without it).
+
+- **PCM** (0x4300, write): a transfer's bytes are samples, low byte first,
+  appended to the queue (16384 samples). What does not fit is dropped and
+  counted.
+- **RATE** (0x4308, read / write): samples per second, 8000..48000
+  (clamped); 11025 at power-on.
+- **STATUS** (0x4310, read): u32 samples queued and not yet played, u32
+  samples dropped since power-on.
+- The queue empties at RATE in timer time; an empty queue is silence.
+  Software paces itself with STATUS: it keeps a fraction of a second queued
+  (so a slow frame leaves no gap) and never fills the queue. Several
+  programs may write: their samples are queued in the order they arrive.
+- `strata-emu -a`: the samples go to the host's audio (SDL, opened at
+  RATE) unless `-g none`. `-A FILE` also writes everything played from the
+  first sample on, silences included, to FILE as a WAV at exit
+  (deterministic with `-T virtual`). In the browser the worker posts the
+  samples to the page, which schedules them with WebAudio (after the first
+  key or click: browsers do not let a page sound before).
+
 ### 1.3 Platform table
 
-Four new entry types; `PLAT_ENTRIES` grows by four (to 9, 320 bytes).
+Four new entry types; `PLAT_ENTRIES` grows by four (to 9, 320 bytes). A
+machine with the sound device has a tenth entry (352 bytes).
 
 | Type | Name | space | base | size | info |
 |---|---|---|---|---|---|
@@ -219,6 +247,7 @@ Four new entry types; `PLAT_ENTRIES` grows by four (to 9, 320 bytes).
 | 6 | PT_TIMER | SP_DEV (4) | 0x3000 | 0x20 | ticks per second (1000000) |
 | 7 | PT_POINTER | SP_DEV (4) | 0x4100 | 0x10 | buttons (bits 0..7: left, right, middle) \| wheels << 8 (bit 8 y, bit 9 x): 0x0307 |
 | 8 | PT_NET | SP_DEV (4) | 0x4200 | 0x20 | the MTU (1500) |
+| 9 | PT_SOUND | SP_DEV (4) | 0x4300 | 0x18 | samples the queue holds (16384); only on a machine that has the device |
 
 All have node = 0xffff (nothing to `cgive` to). The framebuffer
 controller's ports are at the fixed device address 0x4000.
@@ -797,6 +826,7 @@ CLEANUP to the servers and completes the parent's WAIT.
 | 30 | GETDISK | (for `fs`) a window on the block device's ports (c6) and a send-only endpoint to the device's node (c7) |
 | 31 | GETCON | (for `tty`) a window on the console's ports 0x0000..0x00FF (c6) |
 | 21 | GETPTR | (for `tty`) a window on the pointer's ports 0x4100..0x410F (c6); -1 if the machine has none |
+| 22 | GETSND | (for any program) a window on the sound device's ports 0x4300..0x4317 (c6); -1 if the machine has none |
 | 59 | GETNET | (for `net`) a window on the network interface's ports 0x4200..0x421F (c6); -5 unless the caller is the process registered as "net" (WHOIS); -1 if the machine has none |
 
 The framebuffer memory is the kernel's: at boot it makes the window a
@@ -839,8 +869,11 @@ reference counts per process).
 **fs (c2)**: 3 OPEN (mode 0 read, 1 write/truncate, 2 append; data = path)
 → id; 1 READ (0 at the end of the file), 2 WRITE, 4 CLOSE (a written file is
 saved to disk when its last reference closes; files being written are held
-in a 128 KiB region); 10 DIR (data = a tag path, none = every file) → count
-+ 32-byte records (24 bytes name, u64 size; 126 at most), and in the reply's
+in a 128 KiB region); 10 DIR (data = a tag path, none = every file; handle
+= matching files to skip) → count + 32-byte records (24 bytes name, u64
+size; 126 at most: a longer listing is read in parts, skipping what came
+already, as `ls` does; `sh`'s completion and `httpd`'s listings take the
+first part only), and in the reply's
 mode word the *facets*: a tag set (bit t = tag number t) of the other tags
 the matching files carry; -4 no such tag; 11 UNLINK;
 12 TAG / 13 UNTAG (data = path, a zero byte, a tag name) → 0, -4, -6 (64
@@ -1065,7 +1098,7 @@ whole.
   (untag, retag), tags, ls, df, free, uptime, devs, cores, ps, sched, spin
   and units, with the same arguments, output, errors and exit codes. They
   share `sys.fs` and are packed into one disk file, `progs.pk` (the
-  directory has room for 128 files), which Forth's `include` looks in for a
+  directory had room for 128 files then), which Forth's `include` looks in for a
   name that is no file. A start costs about 2.5 M instructions more than the
   assembly program; long inputs about 1.1 to 1.8 times its instructions.
 - Not there: globbing, `2>`; completion
@@ -1141,7 +1174,9 @@ shell):
   alone. Ctrl-C closes the palette, or SIGNALs the focused
   window's process.
 - Redraws only damaged areas and writes PRESENT once per batch.
-- With no window it opens a `term`.
+- With no window it opens a `term`. `ws PROGRAM` starts with that program
+  in the first window instead (`ws wdoom`); when it ends, a `term` opens
+  as usual.
 
 **Look and feel: futuristic, not a desktop clone.** No title bars with
 buttons, no overlapping windows, no mouse metaphors. The screen reads as an
@@ -1230,6 +1265,39 @@ window whose process ends is removed.
   re-renders on resize, quits on close or `q` (renderer: `os/ws/wmandel.s`).
 - **`wclock`** (small): a clock window updating every second, to show
   timers + damage (renderer: `os/ws/wclock.s`).
+- **`wdoom`**: a first-person shooter in the manner of Doom (a textured
+  grid raycaster: walls, floor and ceiling, doors, three kinds of monster,
+  a pistol, pickups, a status bar), with art and sounds from Freedoom in a
+  data file, `/ws/wdoom.dat`. It draws the 320 x 200 picture in slabs of
+  32 columns (the D-LS has no room for more), scales it by the largest
+  whole factor that fits its tile, lends each group of slabs as a DAMAGE
+  rectangle narrower than the window (x, w and stride of its own), pauses
+  when it loses the focus, and mixes its sounds for the sound device when
+  the machine has one. `wdoom demo` plays a recorded run one tic a frame
+  and reports the frame rate. `os/progs/wdoom.s`, `os/progs/wdoom/`,
+  `os/progs/PLAN-wdoom.md`.
+- **`kira`**: Princess Kira, four gentle games for a small child, with no
+  enemies, no timer and no way to lose: a menu and its activities, one at
+  a time; the pointer and the keyboard both do everything (the arrows
+  move a hand that Space presses). In Friends, Kira walks through her
+  castle and garden a cell at a time (an arrow key is a step; a click on
+  a cell walks her there, by a breadth-first search over the screen's
+  cells) and finds her seven animal friends, who follow her to a picnic;
+  every game has a new world, made by the program so that every free cell
+  can be reached, and it is seen from above or through Kira's eyes (a
+  raycaster as wdoom's, with a floor per cell and a sky). In Garden seeds
+  are sown and watered into flowers; the garden is kept in the file
+  `/ws/kira.sav` (a window's client has the window server's endpoint
+  where the file server's was, so to write it the program looks `fs` up
+  into that register and `ws` again afterwards). Paint has colouring
+  pages whose regions are numbered in the data, so that filling one is a
+  store into a table; Music a xylophone and songs. It draws as `wdoom`
+  does (320 x 200 in slabs, scaled by a whole factor), but only when
+  something changed; whole pictures are run-length coded a slab at a
+  time. Its art is drawn by a script (`tools/kira-art.py`), its sounds
+  are synthesised (`tools/kira-assets.py`), and both are in a data file,
+  `/ws/kira.dat`. `kira demo N` plays recorded keys and clicks one tic a
+  frame. `os/progs/kira.s`, `os/progs/kira/`, `os/progs/PLAN-kira.md`.
 - Any program can do the same through `os/lib/wsclient.s` and
   `os/lib/gfx.s` (surfaces, display lists, spans, text).
 - `make ws-demo` runs the same renderers on the bare machine against a
@@ -1249,13 +1317,24 @@ in `os/ws/`).
 - The boot ROM loads the far image into the load area at 0xF30000 (at most
   0xD0000 bytes) and gives core 0 a read+execute share of exactly that range
   in **c12** (other cores do not get it).
-- The directory has 128 entries (8 blocks) of {name[24], u32 first block,
-  u32 size}; files are contiguous runs of blocks. Header offset 52: u32 LBA
-  of the tag table (4 blocks, right after the directory; 0 = none): 64 tag
-  names of 16 bytes (zero-padded; a zero first byte = a free slot), then 128
-  u64 tag sets, one per directory entry (bit t of set f = entry f carries
-  tag t). `mkdisk -t tag,tag...` tags the files named after it (a tag name
+- The directory has N entries of {name[24], u32 first block, u32 size}
+  from block 1 on (N / 16 blocks); files are contiguous runs of blocks.
+  N is in header offset 56 (u32): a multiple of 128, at most 1024, which is
+  what `mkdisk` makes unless told otherwise (`-n N`; 0 in the header means
+  128: a disk from before the field). Header offset 52: u32 LBA of the tag
+  table (right after the directory; 0 = none): 64 tag names of 16 bytes
+  (zero-padded; a zero first byte = a free slot), then N u64 tag sets, one
+  per directory entry (bit t of set f = entry f carries tag t): 2 + N / 64
+  blocks. `mkdisk -t tag,tag...` tags the files named after it (a tag name
   has no `/` and does not start with `-`).
+- A directory of 1024 entries is 32 KiB, with 8 KiB of tag sets: more than
+  the file server's D-LS can spare. `fs` keeps both in its I/O buffer (far
+  memory) and works on a window of 128 entries in its D-LS, written back
+  and fetched as it walks (`os/servers/fs.s`). The kernel, which loads the
+  first servers before there is a file server, reads only the directory's
+  first 8 blocks: the servers must be among the first 128 files, as they
+  are when `mkdisk` is given them first. `tools/test-files.sh` runs a disk
+  of 415 files.
 - Memory handed over by the boot ROM: c0 = [0, 15 MiB), and **c13 =
   [16 MiB, 48 MiB)**: system memory above the load area and below the
   framebuffer window; and core 0 also gets **c14 = the framebuffer window

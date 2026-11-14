@@ -691,9 +691,9 @@ module strata_core
     lt_rd    = state == S_LT && !lt_ph;
     if (state == S_EX && d.kind == K_LOAD && mok && !hz_rd_stall) begin
       da_en = 1;                                         // read; data arrives in LD
-    end else if (state == S_EX && d.kind == K_STORE && mok && !hz_wr_stall) begin
-      da_en = 1;
-      da_we = mmask;
+    end else if (state == S_EX && d.kind == K_STORE && mok && !hz_wr_stall && !held) begin
+      da_en = 1;                                         // (not a store that a stop or a reset
+      da_we = mmask;                                     // preempts: it has not executed)
     end else if (lt_rd) begin
       da_en   = 1;
       da_addr = lt_rd_a[15:3];
@@ -713,8 +713,9 @@ module strata_core
   // capability-table write: csave stores the source capability
   // save-table write: csave stores the source capability, crestore of a
   // linear entry empties the slot; S_RST empties every slot
+  // (not for an instruction that a reset request preempts: it has not executed)
   assign ct_we = state == S_RST ||
-                 (state == S_CT && !user && !ct_oor &&
+                 (state == S_CT && !user && !ct_oor && !rpend &&
                   (ct_save ? live_a && !(live_ct && !ct_entry.perms[P_D])
                            : live_ct && cd_ok && !ct_entry.perms[P_D]));
   assign ct_wd = state == S_CT && ct_save ? cs_cap : CAP_NULL;
@@ -1319,4 +1320,8 @@ module strata_core
       if (xw)  x[xa] <= xv;
     end
   end
+
+`ifdef FORMAL
+`include "strata_core.svh"
+`endif
 endmodule

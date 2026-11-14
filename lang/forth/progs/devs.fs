@@ -4,12 +4,12 @@
 \ Asks the device manager (dev: (msg)'s register 6, looked up by the name in KVAR
 \ 41, which is "net" otherwise) for DEVS: 32-byte entries of u16 type, index, space,
 \ node, u64 info, base, size. Types: 1 memory, 2 console, 3 platform, 4 block, 5 fb,
-\ 6 timer, 7 pointer, 8 net.
+\ 6 timer, 7 pointer, 8 net, 9 sound.
 [defined] sys.fs 0= [if] include /sys.fs [then]
 
 create tab 16 32 * allot
 : dev-devs ( -- n ) 41 kvar dup @ >r  $766564 swap !  0 0 0 23 6 (msg)  r> 41 kvar ! ; \ "dev", then "net" again
-: kind ( type -- a u ) dup 9 u< 0= if drop 0 then 9 * s" ?        memory   console  platform block    fb       timer    pointer  net      " drop + 9 ;
+: kind ( type -- a u ) dup 10 u< 0= if drop 0 then 9 * s" ?        memory   console  platform block    fb       timer    pointer  net      sound    " drop + 9 ;
 : hex16 ( u -- ) base @ >r hex <# 16 0 do # loop #> type r> base ! ;
 : devs-main ( a u -- )
   2drop dev-devs dup 0< if drop s" devs: no device manager" +e e! 1 stop then

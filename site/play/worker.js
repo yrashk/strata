@@ -21,6 +21,7 @@
 //     {t:"started"} | {t:"exit", code} | {t:"error", msg}
 //     {t:"out", data: Uint8Array}       console output (stderr lines wrapped in amber), transferred
 //     {t:"paint", y0, rows, w, h, data: Uint8ClampedArray}   changed framebuffer rows as RGBA, transferred
+//     {t:"audio", rate, data: Int16Array}                    samples the guest wrote to the sound device, transferred
 //     {t:"status", steps, cores, live, now, jit, ptr}        twice a second while running
 //                                       (ptr: the guest reads the pointer: hide the page's cursor)
 //     {t:"stopped", state, faulted, steps, cores, live, now, jit}
@@ -43,7 +44,9 @@ const PAINT_MS = 15;     // at most one canvas update per display frame
 const STATUS_MS = 500;
 const HOST_INQ = 4096;   // common/display.h: the guest's console input queue
 
-let M = null, inBuf = 0, running = false;
+const AUDIO_MAX = 8192;  // samples taken from the sound device at a time
+
+let M = null, inBuf = 0, audBuf = 0, running = false;
 let out = [];            // console output bytes not yet posted
 let errLine = [];        // stderr, posted a line at a time in amber
 let inPending = [];      // input bytes waiting for room in the guest's queue
@@ -84,6 +87,19 @@ function paint(now) {
   if (M._web_paint()) lastPaint = now;
 }
 
+// What the guest wrote to the sound device since the last slice, for the page.
+function audio() {
+  if (!M._web_audio) return;
+  if (!audBuf) audBuf = M._malloc(AUDIO_MAX * 2);
+  for (;;) {
+    const n = M._web_audio(audBuf, AUDIO_MAX);
+    if (n <= 0) return;
+    const data = new Int16Array(M.HEAPU8.buffer, audBuf, n).slice(); // a copy to give away
+    postMessage({ t: "audio", rate: M._web_audio_rate(), data }, [data.buffer]);
+    if (n < AUDIO_MAX) return;
+  }
+}
+
 // One slice of emulation, then whatever the page should see.
 function pump() {
   hopQueued = false;
@@ -93,6 +109,7 @@ function pump() {
   const wait = M._web_run(SLICE);
   const now = performance.now();
   flushOut();
+  audio();
   if (wait < 0) {
     running = false;
     paint(now);
