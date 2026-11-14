@@ -31,7 +31,7 @@ activities; one runs at a time and the menu switches between them:
 ## Decisions
 
 - **Movement is by whole cells**, in both views: a key or a click is one
-  step (or a quarter turn), animated over eight tics. The keyboard has no
+  step (or a quarter turn), animated over eight tics from above and sixteen through her eyes, where the whole picture moves. The keyboard has no
   key-up, so "held" keys stutter (see `PLAN-wdoom.md`); steps do not, and a
   step is easier for a small child than free movement. From above a click
   on a cell walks Kira there (a breadth-first search over the screen's

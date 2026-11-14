@@ -42,7 +42,7 @@ set -e
 BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
-KIRA_CRC="1:10875dd2:6 2:b28d0fb6:4 3:a4a6212e:4 4:3001150d:4 5:e654c81a:4 6:8ac2eeac:4 7:453116f1:4 8:bb71d3b4:40"
+KIRA_CRC="1:10875dd2:6 2:b28d0fb6:4 3:65c4b63a:4 4:e8e347e2:4 5:e654c81a:4 6:8ac2eeac:4 7:453116f1:4 8:bb71d3b4:40"
 T=$BUILD/test-kira
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W
