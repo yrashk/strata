@@ -3,7 +3,7 @@ import os, re, subprocess, sys, shutil
 
 B = os.environ.get("BUILD", "build")
 T = "lang/cc/tests"
-OUT = os.path.join(T, "out")
+OUT = os.environ.get("CC_OUT", os.path.join(T, "out"))    # where the disks and results.tsv go
 BATCH = int(os.environ.get("CC_BATCH", "24"))      # tests per boot
 SECS = int(os.environ.get("CC_TIMEOUT", "60"))     # host seconds per boot
 FLAGS = os.environ.get("CC_FLAGS", "")              # e.g. "-p": the paged code model
