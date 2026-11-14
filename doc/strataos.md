@@ -2150,7 +2150,8 @@ A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
 - `tools/test-nav.sh`: the file navigator. A scripted console session
   (`-j -T virtual`) copies a file into the other panel, answers F8's
   question n and then y, files a file in a second directory (F2) and
-  enters the facet that makes, searches for a file made deep in the tree,
+  enters the facet that makes, edits a file in `vi` through F4 (a line
+  written with `:wq`), opens the help, searches for a file made deep in the tree,
   views it as text and in hex, and finds a snapshot read-only; the screens
   and the shell's listings afterwards are checked. `-w`: nav in a `term`
   under `ws`, driven by the mouse only (a click on a file, one on the

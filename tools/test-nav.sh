@@ -10,7 +10,8 @@
 # panels as drawn, Down to motd and F5 (a copy into /etc), Tab and F8 on the
 # copy answered n (nothing happens) and then y (deleted), Tab, Up and F2 (about
 # filed in /etc too: the same file); Enter on etc/ (a subdirectory now: the
-# facet) and Backspace back; a search typed ("needl") that finds the file in
+# facet) and Backspace back; F4 on about: vi, where a line is added and
+# written (:wq); Esc 1 (F1: the help) and Esc; a search typed ("needl") that finds the file in
 # /deep/er, Enter on it (the viewer: its text), h (hex), q, Esc; Home, Enter
 # on the snapshot @before and F8 there (refused: read-only); F10. Then `ls
 # -t` of /doc and /etc and `cat` of the snapshot's motd. Checked: what the
@@ -29,12 +30,12 @@ n=${NCORES:-8}
 win=0
 if [ "${1:-}" = "-w" ]; then win=1; shift; fi
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+trap '[ -n "${KEEP:-}" ] || rm -rf "$tmp"' EXIT
 fail() { echo "test-nav: FAILED: $1"; exit 1; }
 cp "$2" "$tmp/d.img"
 E=$(printf '\033')
 UP="$E[A"; DN="$E[B"; HOME="$E[H"
-F2="$E[12~"; F5="$E[15~"; F8="$E[19~"; F10="$E[21~"
+F2="$E[12~"; F4="$E[14~"; F5="$E[15~"; F8="$E[19~"; F10="$E[21~"
 
 if [ $win = 1 ]; then
   W="$E[27;3;87~"; AF="$E[27;3;102~"; AH="$E[27;3;72~"
@@ -77,6 +78,9 @@ fi
   printf '%s' "	$UP${F2}y"                     # Tab; about; F2: also filed in /etc
   printf '\n'                                    # etc/ (a facet now, at the cursor): Enter
   printf '\177'                                  # Backspace: back to /doc
+  printf '%s' "$DN$F4"                            # about (the cursor came back on etc/): F4, vi
+  printf 'Oedited in vi\033:wq\n'                # a line above the first; written
+  printf '\0331'; printf '\033'                  # Esc 1: F1, the help; Esc leaves it
   printf 'needl'; printf '\n'                    # the search; Enter: the viewer
   printf 'hq'; printf '\033'                     # hex, back, Esc: the search ends
   printf '%s' "${HOME}"; printf '\n'             # Home: "..", Enter: up to /
@@ -84,7 +88,7 @@ fi
   printf '%s' "$DN$DN$DN$DN"; printf '\n'        # doc/ in the snapshot (bin deep demo doc)
   printf '%s' "$DN${F8}"                         # F8 on about there: refused
   printf '%s' "$F10"
-  printf 'ls -t /doc\nls -t /etc\ncat /@before/doc/motd | wc\nhalt\n'
+  printf 'ls -t /doc\nls -t /etc\ncat /@before/doc/motd | wc\ncat /doc/about | grep vi\nhalt\n'
 } > "$tmp/in.txt"
 "$b/strata-emu" -c "$n" -j -T virtual -g none -m 8000000000 -d "$tmp/d.img" -i "$tmp/in.txt" "$1" \
   > "$tmp/raw.out" 2>/dev/null || fail "the emulator exited with an error"
@@ -104,6 +108,8 @@ want = [
     ('the viewer (hex)', '00000000 66 6f 75 6e 64 0a', ' hex h: text q: back'),
     ('the snapshot', ' @before/ -SNAP- ', ' /@before/doc '),
     ('read-only', 'read-only: a snapshot', None),
+    ('vi', ' 1,1 ', None),
+    ('the help', 'Esc then a digit: that F-key', None),
 ]
 bad = 0
 for name, a, b in want:
@@ -112,7 +118,7 @@ for name, a, b in want:
             print("test-nav: missing (%s): %r" % (name, s)); bad = 1
 # what the shell says afterwards: about in doc and etc; motd only in doc
 sh = text[text.rfind('ls -t /doc'):]
-for s in ('about 120 doc etc', 'motd 1648 doc', 'rc 14 etc', '1648'):
+for s in ('about 133 doc etc', 'motd 1648 doc', 'rc 14 etc', '1648', 'edited in vi'):
     if s not in sh:
         print("test-nav: the shell's listing lacks %r" % s); bad = 1
 if 'motd 1648 etc' in sh or 'motd 1648 doc etc' in sh:
@@ -121,4 +127,4 @@ if 'fault' in raw or 'panic' in raw:
     print("test-nav: a fault"); bad = 1
 sys.exit(bad)
 PY
-echo "test-nav: ok    panels, copy, delete (n, y), also file, facets, search, viewer, hex, snapshot"
+echo "test-nav: ok    panels, copy, delete (n, y), also file, facets, vi (F4), help, search, viewer, hex, snapshot"
