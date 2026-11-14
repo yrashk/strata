@@ -153,7 +153,10 @@ typedef struct {
 /* ------------------------------------------------------------ devices */
 
 static uint8_t plat_rom[PLAT_LEN_MAX];
-static unsigned plat_len = PLAT_LEN; /* one entry longer with the sound device */
+static unsigned plat_len = PLAT_LEN; /* an entry longer with each optional device */
+static bool pmap_present; /* the machine has the written-page map (-W) */
+static uint64_t pmap[PMAP_WINDOW / 8]; /* a word per granule of T3, a bit per page: written since cleared */
+static uint64_t pmap_l, pmap_w; /* the word latched by a read, the bits a write is clearing */
 static uint8_t blk_rom[BLK_IDENT_LEN];
 static uint8_t *disk;
 static uint64_t disk_blocks = 2048;
@@ -212,6 +215,7 @@ static inline void far_wrote(uint8_t space, uint64_t addr) {
   if (dbg_on) dbg_far_written(space, addr);
   if (space != SP_T3) return;
   addr &= (T3_BYTES - 1) & ~7ull;
+  pmap[addr >> 18] |= 1ull << (addr >> 12 & 63); /* the written-page map */
   if (addr >= FB_BASE && addr < (uint64_t)FB_BASE + FB_SIZE) host_fb_touch((uint32_t)(addr - FB_BASE), 8);
 }
 
@@ -458,6 +462,12 @@ static void dev_write(uint64_t port, uint64_t i, uint8_t b, int from) {
     return;
   }
   if (port == DEV_NET + NET_TX) { net_tx_put(i, b); return; } /* the packet: sent when the transfer ends */
+  if (pmap_present && a >= DEV_PMAP && a < DEV_PMAP + PMAP_WINDOW) { /* clear the bits written as 1 */
+    unsigned j = (unsigned)(a & 7);
+    pmap_w = (pmap_w & ~(0xffull << (8 * j))) | (uint64_t)b << (8 * j);
+    if (j == 7) pmap[(a - DEV_PMAP) >> 3] &= ~pmap_w;
+    return;
+  }
   if (snd_present && port == DEV_SOUND + SND_PCM) { snd_pcm_byte(i, b, now_ticks()); return; } /* samples */
   if (snd_present && a >= DEV_SOUND + SND_RATE && a < DEV_SOUND + SND_RATE + 8) {
     snd_rate_byte((unsigned)(a & 7), b, now_ticks());
@@ -510,6 +520,11 @@ static uint8_t dev_read(uint64_t port, uint64_t i) {
     return (uint8_t)(ptr_lstate >> (8 * j));
   }
   if (a >= DEV_PLAT && a < DEV_PLAT + plat_len) return plat_rom[a - DEV_PLAT];
+  if (pmap_present && a >= DEV_PMAP && a < DEV_PMAP + PMAP_WINDOW) { /* latched at byte 0 */
+    unsigned j = (unsigned)(a & 7);
+    if (j == 0) pmap_l = pmap[(a - DEV_PMAP) >> 3];
+    return (uint8_t)(pmap_l >> (8 * j));
+  }
   if (snd_present && a >= DEV_SOUND + SND_RATE && a < DEV_SOUND + SND_WINDOW)
     return snd_read((unsigned)(a - DEV_SOUND) & ~7u, (unsigned)(a & 7), now_ticks());
   if (a >= DEV_BLK0 + BLK_IDENT && a < DEV_BLK0 + BLK_IDENT + BLK_IDENT_LEN) return blk_rom[a - DEV_BLK0];
@@ -1722,7 +1737,7 @@ static int round_idle(void) {
   "usage: strata-emu [-c ncores] [-t trace.txt] [-m max_steps] [-d disk.img] [-i input.txt]\n"       \
   "                  [-P pointer.txt] [-b steps] [-T real|virtual] [-g none] [-F frame.ppm]\n"             \
   "                  [-z scale] [-r WxH] [-S entries] [-X entries] [-L D[,I]]\n"                                 \
-  "                  [-H] [-N mode] [-a] [-A sound.wav] [-J|-j] image.stx\n"                                                                     \
+  "                  [-H] [-N mode] [-a] [-A sound.wav] [-W] [-J|-j] image.stx\n"                                                                     \
   "  -c N        cores (1..15, default 4)\n"                                                          \
   "  -t FILE     write an instruction trace\n"                                                        \
   "  -m N        stop after N steps (timeout)\n"                                                      \
@@ -1746,6 +1761,7 @@ static int round_idle(void) {
   "  -a          the machine has the sound device (common/sound.h); it plays through the host's\n" \
   "              audio when there is a window\n"                                                  \
   "  -A FILE     the same, and what it plays is written to FILE as a WAV at exit\n"               \
+  "  -W          the machine has the written-page map (common/platform.h: DEV_PMAP)\n"         \
   "  -J / -j     run with the JIT / only interpret (default: the JIT, except with -t or\n"     \
   "              -T virtual, which keep the exact one-instruction interleaving)\n"                \
   "  --debug WHERE  run under the debug engine, stopped at the first instruction: WHERE is\n"   \
@@ -1826,6 +1842,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "-N") && more) {
       if (!net_host_open(argv[++i])) return 2;
     } else if (!strcmp(argv[i], "-a")) snd_opt = true;
+    else if (!strcmp(argv[i], "-W")) pmap_present = true;
     else if (!strcmp(argv[i], "-A") && more) { snd_opt = true; snd_wav_opt = argv[++i]; }
     else if (dbg_option(argc, argv, &i)) continue;
     else if (!strcmp(argv[i], "-J")) jit_opt = 1;
@@ -1852,8 +1869,10 @@ int main(int argc, char **argv) {
                 (unsigned)(ils_size / 1024));
   if (snd_opt) { /* a machine with the sound device */
     if (!snd_host_init(snd_wav_opt)) { perror(snd_wav_opt); return 2; }
-    plat_len = plat_add_sound(plat_rom);
+    plat_len = plat_add_sound(plat_rom, plat_len);
   }
+  if (pmap_present) plat_len = plat_add_pmap(plat_rom, plat_len); /* a machine with the written-page map */
+  memset(pmap, 0xff, sizeof pmap); /* power-on: every page may hold anything */
   blk_ident(blk_rom, disk_blocks);
   t2 = img.t2;
   t3 = img.t3;

@@ -11,8 +11,9 @@
 # of it: the kernel scrubs what a new process can read. It does not scrub an
 # image's area beyond the image, so dlsgapcut (dlsgap without its last 8
 # bytes, its data section ending beyond them) must be refused, right after a
-# filler left the pattern there. Runs on the emulator with the virtual timer;
-# RTL=1 runs it on the Verilated RTL as well.
+# filler left the pattern there. Runs on the emulator with the virtual timer,
+# without and with the written-page map (-W: the kernel zeroes only the pages
+# written since it last zeroed them); RTL=1 runs it on the Verilated RTL as well.
 #
 #   tools/test-isolate.sh build/bootrom.stx build/isol-test/disk.img
 set -u
@@ -40,6 +41,9 @@ check() { # $1 = which machine, $2 = its output
 cp "$2" "$tmp/d.img"
 "$b/strata-emu" -c "$n" -T virtual -g none -m 1000000000 -d "$tmp/d.img" -i "$tmp/in.txt" "$1" >"$tmp/out" 2>/dev/null
 check emulator "$tmp/out" || exit 1
+cp "$2" "$tmp/w.img"                    # with the written-page map: only written pages are zeroed
+"$b/strata-emu" -W -c "$n" -T virtual -g none -m 1000000000 -d "$tmp/w.img" -i "$tmp/in.txt" "$1" >"$tmp/wout" 2>/dev/null
+check "emulator, -W" "$tmp/wout" || exit 1
 if [ "${RTL:-0}" = 1 ]; then
   cp "$2" "$tmp/r.img"
   "$b/strata-rtl" -T virtual -g none -m 4000000000 -d "$tmp/r.img" -i "$tmp/in.txt" "$1" >"$tmp/rout" 2>/dev/null

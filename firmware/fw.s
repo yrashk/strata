@@ -46,7 +46,8 @@
 ; Platform table layout: see common/platform.h. Entry types:
 ;   1 memory, 2 console, 3 platform table, 4 block device, 5 framebuffer
 ;   (PT_FB), 6 timer (PT_TIMER), 7 pointer (PT_POINTER), 8 network (PT_NET),
-;   9 sound (PT_SOUND; only on a machine that has it).
+;   9 sound (PT_SOUND), 10 written-page map (PT_PMAP; each only on a machine
+;   that has it).
 
 FW_DEV_PLAT   = 0x1000                  ; device-space offset of the platform table
 FW_PLAT_MAX   = 512                     ; bytes of D-LS reserved for the table
@@ -245,7 +246,8 @@ fdsc_loop:
         li    a1, 2                     ; two spaces
         call  fw_puts                   ; print
         lhu   t0, 0(s1)                 ; t0 = type
-        sltiu t1, t0, 10                ; known types are 1..9
+        sltiu t1, t0, 10                ; known types are 1..9 (10, the written-page
+                                        ;   map, prints as "?": kernel data has no room)
         bnez  t1, fdsc_known            ; keep known types
         li    t0, 0                     ; unknown types print as "?"
 fdsc_known:

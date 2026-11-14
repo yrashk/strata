@@ -54,6 +54,14 @@
  *                           is dropped), 0x4308 RATE (read / write: samples
  *                           per second), 0x4310 STATUS (read: u32 samples
  *                           queued, u32 samples dropped)
+ *   0x4400  written-page    (only on a machine that has it) one bit per 4 KiB
+ *           map             page of T3, set by every write to the page (a
+ *                           transfer, a far atomic, the block device's DMA);
+ *                           all set at power-on. 0x4400 + 8 n: the 64 pages of
+ *                           T3's 256 KiB granule n (bit i: page 64 n + i); a
+ *                           read gives them, a write clears the bits written
+ *                           as 1. Lets a kernel zero only the pages written
+ *                           since it last zeroed them
  *
  * Device registers are 8 bytes, little endian, at 8-byte-aligned ports; a
  * transfer moves one byte per beat to consecutive ports. A register is
@@ -138,6 +146,10 @@ enum { PTR_MOVE = 1, PTR_BUTTON, PTR_WHEEL, PTR_ENTER, PTR_LEAVE }; /* event kin
 #define SND_MIN_RATE 8000u
 #define SND_MAX_RATE 48000u
 
+#define DEV_PMAP 0x4400u    /* the written-page map: a word per 256 KiB granule of T3, a bit per 4 KiB page */
+#define PMAP_PAGE 4096u     /* platform info: the page size */
+#define PMAP_WINDOW (T3_BYTES / PMAP_PAGE / 8u) /* 2 KiB */
+
 #define FB_BASE 0x3000000u
 #define FB_SIZE 0x1000000u
 #define FB_DEF_WIDTH 1280u
@@ -157,10 +169,11 @@ enum { PTR_MOVE = 1, PTR_BUTTON, PTR_WHEEL, PTR_ENTER, PTR_LEAVE }; /* event kin
 #define PT_POINTER 7
 #define PT_NET 8
 #define PT_SOUND 9
+#define PT_PMAP 10
 
 #define PLAT_ENTRIES 9
 #define PLAT_LEN (32 + 32 * PLAT_ENTRIES)
-#define PLAT_LEN_MAX (PLAT_LEN + 32) /* with the sound device's entry (plat_add_sound) */
+#define PLAT_LEN_MAX (PLAT_LEN + 64) /* with the optional devices' entries (plat_add_sound, plat_add_pmap) */
 #define BLK_IDENT_LEN 64
 
 #define BLK_BLOCK 512u
@@ -255,17 +268,27 @@ static inline void plat_build_fb(uint8_t *buf, int ncores, uint64_t disk_blocks,
   plat_put(buf + 16, sum, 4);
 }
 
-/* Adds the sound device's entry to a table built by plat_build_fb in buf[PLAT_LEN_MAX]
- * (a machine that has the device: the table is one entry longer) -> its length. */
-static inline unsigned plat_add_sound(uint8_t *buf) {
-  plat_entry(buf + PLAT_LEN, PT_SOUND, 0, 4, 0xffff, DEV_SOUND, SND_WINDOW, SND_QLEN); /* info: the queue's length */
-  plat_put(buf + 8, PLAT_ENTRIES + 1, 2);
-  plat_put(buf + 12, PLAT_LEN_MAX, 4);
+/* Adds an entry to a table of len bytes in buf[PLAT_LEN_MAX] (an optional device) -> its new length. */
+static inline unsigned plat_add(uint8_t *buf, unsigned len, int type, uint64_t base, uint64_t size, uint64_t info) {
+  plat_entry(buf + len, type, 0, 4, 0xffff, base, size, info);
+  len += 32;
+  plat_put(buf + 8, (len - 32) / 32, 2);
+  plat_put(buf + 12, len, 4);
   plat_put(buf + 16, 0, 4);
   uint32_t sum = 0;
-  for (unsigned i = 0; i < PLAT_LEN_MAX; i++) sum += buf[i];
+  for (unsigned i = 0; i < len; i++) sum += buf[i];
   plat_put(buf + 16, sum, 4);
-  return PLAT_LEN_MAX;
+  return len;
+}
+
+/* The sound device's entry (a machine that has it) -> the table's new length. */
+static inline unsigned plat_add_sound(uint8_t *buf, unsigned len) {
+  return plat_add(buf, len, PT_SOUND, DEV_SOUND, SND_WINDOW, SND_QLEN); /* info: the queue's length */
+}
+
+/* The written-page map's entry (a machine that has it) -> the table's new length. */
+static inline unsigned plat_add_pmap(uint8_t *buf, unsigned len) {
+  return plat_add(buf, len, PT_PMAP, DEV_PMAP, PMAP_WINDOW, PMAP_PAGE); /* info: the page size */
 }
 
 /* Fills buf[PLAT_LEN] with the default framebuffer geometry and save table. */

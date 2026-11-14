@@ -55,6 +55,7 @@ register and window starts at a multiple of 8, so a capability can be cut to exa
 \hex{4200} & \hex{20} & network interface & \hex{4200} TX; \hex{4208} RX; \hex{4210} STATUS;
                                             \hex{4218} CANCEL\\
 \hex{4300} & \hex{18} & sound (optional) & \hex{4300} PCM; \hex{4308} RATE; \hex{4310} STATUS\\
+\hex{4400} & \hex{800} & written-page map (optional) & \hex{4400}$+8n$: the pages of T3's granule $n$\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -183,7 +184,9 @@ The prototype publishes nine entries:
 \end{center}
 
 A machine with the sound device (Section~\ref{sec:sound}) publishes a tenth entry, of type 9, at
-\hex{4300} with size \hex{18}; its table is 352 bytes long.
+\hex{4300} with size \hex{18}; its table is 352 bytes long. A machine with the written-page map
+(Section~\ref{sec:pmap}) publishes one more, of type 10, at \hex{4400} with size \hex{800} and the
+page size, 4096, as its info; with both devices the table is 384 bytes long.
 
 The framebuffer entry describes the framebuffer \emph{memory}: a region of system memory. The
 framebuffer controller's two registers are at the fixed device offset \hex{4000} and have no entry of
@@ -433,6 +436,17 @@ finds no such entry goes without sound. The reference emulator has it when start
 The queue holds 16384 samples and empties at RATE in timer time; an empty queue plays silence.
 Software paces itself with STATUS: it keeps a fraction of a second queued and writes more as the
 queue runs down. Samples written by several cores are queued in the order their transfers arrive.
+
+\section{Written-page map}\label{sec:pmap}
+
+The written-page map keeps one bit for every 4~KiB page of T3, 16384 bits in all, and sets a page's
+bit on every write to it: a transfer, a far atomic, the block device's DMA. At power-on every bit is
+set, since a page may hold anything. Word $n$, at \hex{4400}$+8n$, holds the 64 bits of T3's 256~KiB
+granule $n$ (bit $i$ for page $64n+i$). A read gives the word (latched when byte 0 is read); a write
+clears the bits written as 1, when byte 7 is written, and leaves the others. A kernel that must hand
+out memory with nothing of its earlier owner in it uses the map to zero only the pages written since
+it last zeroed them, then clears their bits. The device is optional and listed in the platform table
+(type 10). The reference emulator has it when started with \texttt{-W}; the RTL does not yet.
 
 \section{Block device}\label{sec:blkdev}
 

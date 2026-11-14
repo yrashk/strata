@@ -392,6 +392,8 @@ TG_TMR   = 11                           ; core 0: the timer WAIT
 SLICE0   = 2000                         ; the preemption time slice at boot: 2 ms (TUNE changes it)
 GIFTPOLL = 10000                        ; at most this often a busy core is stopped for a waiting gift
 TMR_PORT = 0x3000                       ; timer window
+DEV_PMAP = 0x4400                       ; the written-page map: a word per T3 granule, a bit per 4 KiB page
+PT_PMAP  = 10                           ; its platform table entry
 FB_BASE0 = 0x3000000                    ; the framebuffer window (from c14)
 CON_OUT  = 0x0000                       ; console output port (device space)
 
@@ -432,6 +434,8 @@ GU_ASLOT = 32                           ;   arena slot
 GU_FLAGS = 40                           ;   F_GUEST
 GU_SIZE  = 48                           ; ...
 NGUEST   = 4                            ; guests at once (cores are the real limit)
+K0_PMAP  = 0x68F0                       ; 1: the machine has the written-page map (u_alloc)
+K0_PMAPW = 0x68F8                       ; a word of it, read or being cleared
 K0_END   = 0x6980                       ; (cleared at boot up to here)
 ; guest start/stop scratch (core 0 only, in K0_SCR; not the kernel data image):
 g_core   = K0_SCR + 0x800                ; first core

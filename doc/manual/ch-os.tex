@@ -415,7 +415,10 @@ fills only as far as the image goes) and the unused gap above the save area as t
 reads the image area, and CREATE, told the image's length by \texttt{proc}, refuses an image whose
 sections end beyond it. The rest cannot go in software: a program reaches all of its memory through
 \reg{c0} at offsets of its own choosing, and the kernel cannot know which of it the earlier owner
-wrote. In the demo session the scrubbing is still 30\% of the far bus's cycles.
+wrote. In the demo session the scrubbing is still 30\% of the far bus's cycles. On a machine with the
+written-page map (Section~\ref{sec:pmap}) the kernel can know: it zeroes only the pages whose bit is
+set and then clears their bits, which takes the same session's scrubbing to 9\%, most of it each
+page's first use after power-on.
 
 The I-LS above a program's resident code still holds the previous program's code and code-cache units.
 Nothing can read it: loads and \insn{tget} use the D-LS, \insn{tgetx} only writes the I-LS, \insn{ltag}
