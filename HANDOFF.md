@@ -199,11 +199,10 @@ built from. The kernel boots from a boot manifest (`u_disk` in
   and one start-up message); about 5 KiB of its I-LS and 1 KiB of its D-LS
   are free. Its small data must stay below 32 KiB (loads use absolute
   16-bit addresses), so the large buffers are declared last.
-- Not done (the plan has the list): the store's calls for other programs
-  (namespaces over the endpoint, transactions), attributes and query terms
-  in paths, the shell's completion and `httpd` on the cursor
-  calls (they still use DIR and TAGS, which cut names to 24 bytes), writing
-  a boot object from inside the OS.
+- Not done (the plan has the list): private namespaces and
+  transactions over several requests for other programs, terms answered
+  from the index, the shell's completion and `httpd` on the cursor
+  calls (they still use DIR and TAGS, which cut names to 24 bytes).
 
 ## Open work
 

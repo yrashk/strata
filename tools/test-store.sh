@@ -27,6 +27,7 @@
 # 6. The store for programs (`db put`, `get`, `del`: DBBATCH, DBGET): trees
 #    in a namespace of their own, beside the file system's.
 # 7. Attributes (`attr`) and the terms of a path that ask about them.
+# 8. Boot objects (the first servers' files) written inside the OS.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 b="$here/${BUILD:-build}"
@@ -366,4 +367,30 @@ EOF
 grep -q '^a1 .* colour="green"$' "$tmp/a1.dump" && grep -q '^a3 .* year=1999$' "$tmp/a1.dump" ||
   { cat "$tmp/a1.dump" >&2; fail "the attributes on the disk are not the ones set"; }
 echo "test-store: attributes set, changed, taken away; terms in paths (=, <, >, size, PREFIX*) narrow listings and opens; the index checked"
+# ---- 8. boot objects written inside the OS -----------------------------------------------
+# The fs and dev servers' own files are written again (through copies, with
+# other files between so their pages do not come out in one run by
+# themselves): the disk passes its check (the manifest names every boot
+# object, each in one run of pages), holds the same bytes, and boots.
+cat >"$tmp/b1.txt" <<'EOF'
+seq 3000 > /t/gap1
+cp /sys/fs /t/fscopy
+seq 3000 > /t/gap2
+cp /t/fscopy /sys/fs
+cp /sys/dev /t/devcopy
+rm /t/gap1
+cp /t/devcopy /sys/dev
+mv /sys/fs /sys/fs2
+rm /sys/proc
+halt
+EOF
+run "$tmp/b1.txt" "$disk" -w "$tmp/b1.img" || fail "the session that writes boot objects did not end well"
+"$b/stdb" check "$tmp/b1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk with boot objects written again fails its check"; }
+"$b/stdb" dump "$disk" | grep -E '^(fs|dev|proc) ' >"$tmp/b0.dump"
+"$b/stdb" dump "$tmp/b1.img" | grep -E '^(fs|dev|proc) ' | cmp -s - "$tmp/b0.dump" || fail "the boot objects are not what they were (written again; rename and rm refused)"
+[ "$("$b/stdb" info "$disk" | grep '^boot manifest')" != "$("$b/stdb" info "$tmp/b1.img" | grep '^boot manifest')" ] || fail "the boot manifest was not written anew"
+printf 'cat /t/gap2 | wc\necho booted-again\nhalt\n' >"$tmp/b2.txt"
+run "$tmp/b2.txt" "$tmp/b1.img" || fail "the boot from servers written inside the OS did not end well"
+grep -q '^booted-again$' "$tmp/out.txt" || { cat "$tmp/out.txt" >&2; fail "the OS does not boot from servers written inside it"; }
+echo "test-store: boot objects written inside the OS: one run of pages each, the manifest anew, the OS boots from them"
 echo "test-store: OK"

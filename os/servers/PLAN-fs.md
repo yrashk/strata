@@ -61,8 +61,9 @@ decisions taken.
       holds the right bytes; read back after a second boot; power cuts
       over a whole session, with and without a write cache losing blocks
 - [x] Emulator against RTL: `compare-boot.sh` (console) passes on the store
-- [ ] Boot objects written from inside the OS (now refused: the manifest is
-      only written by `mkdisk`)
+- [x] Boot objects written from inside the OS: at the close, one run of
+      pages and the manifest anew (`boot_fix` in `fsops.s`), in the same
+      commit; rename and delete stay refused; `test-store.sh` part 8
 - [ ] After a failed write (disk full, a bad page) the commit under way is
       given up for every client: files being written by others are lost.
       Give up only the failing client's work

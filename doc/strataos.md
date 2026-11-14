@@ -894,8 +894,11 @@ UNTAG and RENAME are a commit each (the reply means it is on the disk), as
 is the close of a written file; a long write commits every MiB. The
 server works on trees larger than its Local Stores through a cache of 124
 pages in far memory and three page buffers in its D-LS. A boot object
-(`proc`, `dev`, `fs`: what the boot manifest lists) cannot be written,
-renamed or deleted from inside the OS yet. `build/stdb check IMAGE` checks
+(`proc`, `dev`, `fs`: what the boot manifest lists) can be written from
+inside the OS (`cp new-fs /sys/fs`): at its close its contents are brought
+into one run of pages and the manifest is written anew, in the same
+commit, so the next boot loads the old server or the new one. It cannot be
+renamed or deleted. `build/stdb check IMAGE` checks
 a disk from outside, `stdb dump`, `ls` and `get` read one. **Snapshots**
 (`snap NAME` takes one, `snap` lists them, `snap -d NAME` deletes one,
 `snap -r NAME` restores one; fs call 45 SNAP: mode 0 take, 1 delete, 3
