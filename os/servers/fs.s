@@ -115,11 +115,18 @@
 ; current tag paths, then the page cache's frames), c6 the request, c7 its
 ; attachment.
 ;
-; D-LS: the library's three 4 KiB buffers serve here too (a server has no
-; standard streams): sys_buf holds a reply's data, out_buf a request's data
-; and a meta block, in_buf the copy of a page being split.
+; The program library (os/lib/sys.s) is not part of this server: of all of
+; it, it would use one message at start (GETDISK) and three buffers. What it
+; needs is here: sys_buf holds a reply's data (srv.s uses it too), reqbuf a
+; request's data and a meta block, pgcopy the copy of a page being split.
 
 NB      = 3                             ; page buffers in the D-LS (store.s)
+SVC_WAIT = 1                            ; svc: wait for a buffer to come back
+SVC_RECV = 2                            ; svc: receive a request
+SVC_REPLY = 3                           ; svc: answer one
+SYS_MAX = 4032                          ; data bytes per message
+OP_DIR  = 10                            ; DIR
+OP_CWD  = 20                            ; CWD
 SCR     = 0                             ; I/O buffer: scratch for blocks (4 KiB)
 CWDFAR  = 0x1000                        ; I/O buffer: the current tag paths' texts
 NOPEN   = 16                            ; open files
@@ -216,21 +223,31 @@ s_dict: .ascii "dict"                   ; ...
 s_ext:  .ascii ".ext"                   ; ...
 s_snap: .ascii "snap"                   ; the tree of snapshots
 s_ndev: .ascii "dev"                    ; ...
-        .align 8                        ; ...
-bufs:   .space NB * 4096                ; the page buffers (store.s)
 
         .text                           ; instruction Local Store
 _start:
         j     main                      ; skip the marker
         .word 0x32535953                ; "SYS2": a StrataOS 0.1 program
 main:
-        call  sys_init                  ; ...
-        li    a0, 2                     ; dev (c2): the disk
-        li    a1, 30                    ; GETDISK
-        li    a2, 0                     ; ...
+        la    t0, srv_hdr               ; one message of our own: GETDISK to dev (c2)
+        li    t1, 30                    ; ...
+        sd    t1, 0(t0)                 ; ...
+        sd    zero, 8(t0)               ; ...
+        sd    zero, 16(t0)              ; ...
+        sd    zero, 24(t0)              ; ...
+        sd    zero, 32(t0)              ; ...
+        li    t1, 64                    ; the header -> our message buffer
+        tput  tg10, t0, c5, zero, t1    ; ...
+        twait 1 << 10                   ; ...
+        csend c5, c2                    ; to dev
+        cbase a1, c2                    ; (its core, for the doorbell)
+gd_wait:
+        li    a0, SVC_WAIT              ; until the buffer is back
+        li    a2, -1                    ; ...
         li    a3, 0                     ; ...
-        li    a4, 0                     ; ...
-        call  sys_msg                   ; c6 = window, c7 = endpoint
+        svc                             ; ...
+        li    a1, -1                    ; (woken early: wait on, no doorbell)
+        bnez  a0, gd_wait               ; c6 = the window, c7 = the endpoint
         cclear c1                       ; proc's endpoint is not needed
         cmov  c1, c6                    ; c1 = the device window
         cclear c2                       ; ...
@@ -2034,5 +2051,12 @@ dr_ret:
         .include "store.s"              ; the store: pages and trees,
         .include "storew.s"             ;   changing them, free space, the commit,
         .include "sblob.s"              ;   blobs
-        .include "../lib/sys.s"         ; the program library
+
+        .data                           ; the large buffers come last: what is before them
+        .align 8                        ; is within reach of a load's 16-bit address
+bufs:   .space NB * 4096                ; the page buffers (store.s)
+sys_buf: .space 4096                    ; a reply's data
+reqbuf: .space 4096                     ; a request's data; a meta block
+pgcopy: .space 4096                     ; a page being split; an old page being copied
+        .text                           ; ...
         .include "../lib/srv.s"         ; server helpers

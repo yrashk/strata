@@ -25,7 +25,7 @@
 ;
 ; Registers: every routine keeps s1.. and sp; a0.., t0.. are the caller's to
 ; save. Scratch that is static (wpath, cellbuf, bcbuf, the page copy in
-; in_buf): tree changes do not nest. Reading (st_get, st_seek) may happen
+; pgcopy): tree changes do not nest. Reading (st_get, st_seek) may happen
 ; inside a change, and has its own path.
 
 NF      = 124                           ; cache frames in far memory
