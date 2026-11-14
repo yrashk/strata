@@ -814,4 +814,8 @@ module strata_dev
       end
     end
   end
+
+`ifdef FORMAL
+`include "strata_dev.svh"
+`endif
 endmodule

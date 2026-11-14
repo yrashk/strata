@@ -22,6 +22,9 @@
 //              (strata_tu.svh). The inbox is popped only on a hit, and a
 //              revocation request names a non-empty range inside its table
 //              (strata_top.svh).
+//   table copy this core's copy of the granule table holds, for every
+//              granule written since reset, the last value the top level
+//              wrote (with strata_top.svh: it equals the master table)
 //   liveness   the core's three "live" answers equal the specification's
 //              (valid, and if revocable: the granule of its base exists and
 //              has the capability's generation), so a revoked capability is
@@ -73,6 +76,8 @@
 //     table itself is not modelled word by word)
 //   - the Transfer Unit does not accept a command it reports a hazard for
 //     (asserted in strata_tu.svh)
+//   - a granule table write is inside its table (asserted in
+//     strata_top.svh)
 //   Nothing is assumed about the bus data, gifts' timing, the revocation
 //   walker (dom_done, dom_gen, gt_we ...), stop and reset requests, or the
 //   memories' contents.
@@ -204,6 +209,27 @@
     end
     if (f_rstd && reset_flush) assert (tu_quiet);
     if (f_rstd && state != S_EX) assert (!tu_iss_valid && !am_req && !give_valid && !dom_req && !take_req);
+  end
+
+  // ================================================================ the granule table copy
+  // For one granule of each table, chosen by the solver: once the top
+  // level has written it, this core's copy holds the last value written.
+  // strata_top.svh shows the same of the master table, with the same
+  // definition, so the copy equals the master for every granule written
+  // since reset (their contents before that are not defined: FINDINGS O2).
+  (* anyconst *) logic [G3W-1:0] f_gi;
+  logic        f_g3v = 0, f_g2v = 0;
+  logic [16:0] f_g3s, f_g2s;
+  always_ff @(posedge clk) begin
+    if (f_rstd && gt_we && !gt_t2 && G3W'(gt_idx) == f_gi) begin f_g3v <= 1; f_g3s <= gt_wd; end
+    if (f_rstd && gt_we && gt_t2) begin f_g2v <= 1; f_g2s <= gt_wd; end     // (T2 is one granule)
+  end
+  always_comb begin
+    // a table write is inside its table (asserted in strata_top.svh)
+    if (gt_we) assume ((GW+1)'(gt_idx) < (gt_t2 ? (GW+1)'(NG2) : (GW+1)'(NG3)));
+    assert (f_rstd || (!f_g3v && !f_g2v));
+    if (f_rstd && f_g3v) assert (gt3[f_gi] == f_g3s);
+    if (f_rstd && f_g2v) assert (gt2[0] == f_g2s);
   end
 
   // ================================================================ the traps specified
@@ -354,9 +380,7 @@
     if (F_G2 && f_step && !f_ret && $past(state) != S_RST) begin
       assert (x[f_xi] == $past(x[f_xi]));
       assert (caps[f_ci] == $past(caps[f_ci]));
-      // (the save table: but for an instruction a reset request preempts in
-      // its second cycle; the reset empties the table. formal/FINDINGS.md O7)
-      if (!$past(rpend)) assert (!$past(ct_we));
+      assert (!$past(ct_we));
       assert (xm_v[f_mi] == $past(xm_v[f_mi]) && xm_far[f_mi] == $past(xm_far[f_mi]) &&
               xm_ils[f_mi] == $past(xm_ils[f_mi]) && xm_sp[f_mi] == $past(xm_sp[f_mi]));
       assert (s_tvec == $past(s_tvec) && u_tvec == $past(u_tvec) && sscratch == $past(sscratch));

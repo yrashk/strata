@@ -148,7 +148,7 @@ minutes, not part of `make test`), `make formal-NAME`. `formal/README.md`
 has the table of proofs, the assumptions and what is not covered;
 `formal/FINDINGS.md` what was found.
 - The RTL modules `strata_div`, `strata_mul`, `strata_bus`, `strata_tu`,
-  `strata_core` and `strata_top` each end with three lines that include
+  `strata_mem`, `strata_dev`, `strata_core` and `strata_top` each end with three lines that include
   `formal/props/MODULE.svh` under `ifdef FORMAL`. Nothing else in `rtl/`
   knows about the proofs. A change to one of these modules should be
   followed by `make formal-NAME`; the properties name internal signals, so
@@ -164,9 +164,11 @@ has the table of proofs, the assumptions and what is not covered;
 - Verified after the fix: `make lint`, `make conformance`,
   `BUILD=build NCORES=8 ./tools/compare.sh build/examples/*.stx`, the
   reproduction, and every proof. The full `make test` was not re-run.
+- Also changed in the RTL: `ct_we` has `&& !rpend` (FINDINGS O7).
+  `make test-ls` ends with `formal/repro/run.sh`.
 - Not proved: what instructions compute (the emulator comparison's ground),
-  `strata_mem` / `strata_dev` / `strata_uart`, system-wide capability
-  invariants with real cores. `formal/README.md` lists them with reasons.
+  what device ports return, `strata_uart`, the system-wide invariant that
+  write access to a byte has one holder. `formal/README.md` lists them with reasons.
 
 ## Open work
 
@@ -207,11 +209,10 @@ has the table of proofs, the assumptions and what is not covered;
   timeline's axis is rounds, which jump when an idle machine skips time.
 
 **Formal**
-- Proofs of `strata_mem` and `strata_dev` against the target-side protocol
-  the Transfer Unit proof assumes; a 4/4 KiB configuration in `make test-ls`
-  so that `formal/repro/walkreset.s` runs with the tests, and
-  `formal/repro/stopstore.s` as a conformance test (stops at every cycle of
-  an instruction, for more instructions than a store).
+- `formal/repro/stopstore.s` as a conformance test in the harness (stops
+  at every cycle of an instruction, for more instructions than a store);
+  what the device ports return and the block device's engine; the
+  system-wide invariant that no two holders have write access to a byte.
 
 **Smaller**
 - The native JIT backends do not translate code while a device read is

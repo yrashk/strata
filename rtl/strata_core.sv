@@ -713,8 +713,9 @@ module strata_core
   // capability-table write: csave stores the source capability
   // save-table write: csave stores the source capability, crestore of a
   // linear entry empties the slot; S_RST empties every slot
+  // (not for an instruction that a reset request preempts: it has not executed)
   assign ct_we = state == S_RST ||
-                 (state == S_CT && !user && !ct_oor &&
+                 (state == S_CT && !user && !ct_oor && !rpend &&
                   (ct_save ? live_a && !(live_ct && !ct_entry.perms[P_D])
                            : live_ct && cd_ok && !ct_entry.perms[P_D]));
   assign ct_wd = state == S_CT && ct_save ? cs_cap : CAP_NULL;

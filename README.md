@@ -474,7 +474,7 @@ in [`conformance/FINDINGS.md`](conformance/FINDINGS.md).
 against written specifications, the divider and the multiplier (correct
 result, fixed number of cycles), the far bus (one owner, no beat lost,
 bounded waiting), the Transfer Unit (queue invariants, hazards, order, no
-command lost), the core (x0, precise traps, privilege, capability shape and
+command lost), the memory and device targets (the burst protocol), the core (x0, precise traps, privilege, capability shape and
 liveness, no duplicated write access) and the top level's inboxes and
 revocation walker. Each property file states what it assumes;
 [`formal/README.md`](formal/README.md) has the table of proofs and what is
@@ -483,7 +483,7 @@ RTL bugs, both fixed, each with a program that shows it).
 
 ```bash
 make formal             # every proof, then the table of results
-make formal-tu          # one target (alu decode div mul mul_lemma bus tu core top)
+make formal-tu          # one target (alu decode div mul mul_lemma bus tu mem dev core top)
 ```
 
 ## FPGA

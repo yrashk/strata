@@ -151,6 +151,9 @@ test-small:
 # conformance/tests/lssize.s (which needs a 16 KiB D-LS: the harness's
 # signature buffer), and on StrataOS refusing the machine (it needs 64 KiB of
 # each; 64/32, which the kernel itself refuses, on the emulator only).
+# Last, with 4/4 KiB and two cores (build-f44/): the two programs that
+# reproduce what the formal proofs found (formal/FINDINGS.md F1, F2), emulator
+# against RTL.
 LSA := $(BUILD)/ls32
 LSB := $(BUILD)/ls16-4
 LSC := $(BUILD)/ls4-32
@@ -168,6 +171,7 @@ test-ls: os
 	BUILD=$(LSC) NCORES=$(NCORES) EMU_ARGS="-L 4,32" ./tools/compare.sh $(patsubst %,$(LSC)/examples/%.stx,$(LSC_EXAMPLES))
 	BUILD=$(LSC) NCORES=$(NCORES) EMU_ARGS="-L 4,32" ./tools/test-ls-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) EMU_ARGS="-L 64,32" RTL=none ./tools/test-ls-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	./formal/repro/run.sh
 
 run: all examples
 	@for img in $(IMAGES); do \

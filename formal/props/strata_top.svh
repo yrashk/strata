@@ -28,6 +28,9 @@
 //              then w_m was 0xffff), with heads exactly where the unit
 //              boundaries are (the range's start; for crevoke / cundom also
 //              the capability's start and end).
+//   copies     the master table holds, for every granule written since
+//              reset, the last value written; strata_core.svh shows the
+//              same of each core's copy, so the copies equal the master
 //   stale done (F_STALE = 1) done is given only to the request the walk was
 //              started for, even if the requesting core was reset and asks
 //              again while the old walk is still running.
@@ -42,8 +45,7 @@
 //   - a core that asks keeps asking until done, unless a reset request for
 //     it is pending (strata_core: dom_req = ... && !held)
 //
-// Not covered: that each core's copy of the table equals this one (the
-// cores are cut out; they receive the same writes), core control.
+// Not covered: core control.
 
   parameter bit F_STALE = 1;
 
@@ -275,6 +277,22 @@
       if (!$past(gt_we && !gt_t2 && gt_idx == f_g)) assert (f_e3 == $past(f_e3));
       if (!$past(gt_we && gt_t2)) assert (f_e2 == $past(f_e2));
     end
+
+  // the master table holds, for every granule written since reset, the last
+  // value written: the same statement, with the same definition, as
+  // strata_core.svh's of each core's copy, so the copies equal the master
+  // (gt_we, gt_t2, gt_idx and gt_wd are one set of wires to all of them)
+  logic        f_g3v = 0, f_g2v = 0;
+  logic [16:0] f_g3s, f_g2s;
+  always_ff @(posedge clk) begin
+    if (f_rstd && gt_we && !gt_t2 && G3W'(gt_idx) == G3W'(f_g)) begin f_g3v <= 1; f_g3s <= gt_wd; end
+    if (f_rstd && gt_we && gt_t2) begin f_g2v <= 1; f_g2s <= gt_wd; end     // (T2 is one granule; gt_idx is inside the table: above)
+  end
+  always_comb begin
+    assert (f_rstd || (!f_g3v && !f_g2v));
+    if (f_rstd && f_g3v) assert (f_e3 == f_g3s);
+    if (f_rstd && f_g2v) assert (f_e2 == f_g2s);
+  end
 
   always_comb begin
     cover (f_rstd && ws == W_DONE && w_op == 2'd0 && !w_t2 && w_b - w_a == GW'(3));

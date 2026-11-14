@@ -8,7 +8,7 @@ assumptions each one states.
 
 ```
 make formal            # every proof; prints the table of results
-make formal-NAME       # one target: alu decode div mul mul_lemma bus tu core top
+make formal-NAME       # one target: alu decode div mul mul_lemma bus tu mem dev core top
 make formal-report     # the table again, from the last runs
 formal/repro/run.sh    # the reproductions of FINDINGS.md F1 and F2 on emulator and RTL
 ```
@@ -80,13 +80,15 @@ Bitwuzla takes 5 to 8.)
 | `bus` | cover | 30 cycles | |
 | `tu` | prove | induction (k = 4) | queue and tag invariants, status outputs, hazards (both directions), Local Store writes, put data, no command lost, retire order and the rotation rule |
 | `tu` | cover | 40 cycles | every kind of transfer retires, a rotation with a full queue, a retry half way |
-| `core` | base | induction (k = 2) | x0; the shape of every capability register (in its space, aligned, never writable and copyable in memory, ...); the core's "live" equals the specification's; what `tu` and `top` assume of a core |
+| `mem` | prove, cover | induction (k = 3) | a memory target keeps to the burst: exactly `beats` beats, done with the last; read, write and far-atomic data for any word; a read is done LAT + 2 + beats cycles after start. 64 words, LAT = 3 |
+| `dev` | prove, cover | induction (k = 3) | the device space keeps to the burst on every port: at most `beats` beats, done with the last, retry only in a read before the first beat. Two cores, a 64-word disk |
+| `core` | base | induction (k = 2) | x0; the shape of every capability register (in its space, aligned, never writable and copyable in memory, ...); the core's "live" equals the specification's; what `tu` and `top` assume of a core; the core's granule table copy holds what the top level wrote |
 | `core` | traps | induction (k = 2) | the listed traps are delivered as the emulator's `trap()`: bank, epc, cause, tval, mode, next pc or halt |
 | `core` | prec | induction (k = 2) | a cycle that retires nothing changes no architectural state and takes nothing from the rest of the machine |
 | `core` | priv | induction (k = 2) | in user mode every supervisor-only instruction traps; supervisor state changes only by a trap to the supervisor |
 | `core` | lin | induction (k = 2) | write access to a byte of far memory is never in more registers after an instruction than before (but for the instructions that bring a capability in); a gift given empties a linear source, a gift taken lands in cd; csave / crestore move, not copy |
 | `core` | cover | 6 cycles, from any state | traps of several causes to both handlers and to the double-fault halt, instructions retiring, a gift given and one taken; from any state, see below |
-| `top` | prove | induction (k = 3) | inboxes: arbitration, no overflow, a gift comes out once, unchanged, in order; the walker: one walk, at most 774 cycles, the range rewritten with a new highest generation, heads at unit boundaries, done only for the request that started it |
+| `top` | prove | induction (k = 3) | inboxes: arbitration, no overflow, a gift comes out once, unchanged, in order; the walker: one walk, at most 774 cycles, the range rewritten with a new highest generation, heads at unit boundaries, done only for the request that started it; the master table holds what was written (so each core's copy equals it) |
 | `top` | cover | 40 cycles | |
 
 Results and run times of the last run: `make formal-report`.
@@ -119,12 +121,16 @@ short:
   real core (task `base`); the bus's side (a grant only to a request,
   answers only to a granted transaction), which `bus` proves; the targets'
   side (no beat beyond the burst, done with or after the last beat, retry
-  only to a device read with bytes to come), which is **not proved** of
-  `strata_mem` / `strata_dev`; and that a Local Store read returns the word
-  read.
+  only to a device read with bytes to come), which `mem` and `dev` **prove**
+  of `strata_mem` and `strata_dev`; and that a Local Store read returns the
+  word read.
+- **`mem`, `dev`:** a transaction is started only when none is under way
+  (which `bus` proves).
 - **`core`:** a capability taken from the inbox is well-formed; the save
   table returns a well-formed capability (every write to it is proved
-  well-formed; the table is not modelled word by word). The Local Stores,
+  well-formed; the table is not modelled word by word); a granule table
+  write is inside its table and the Transfer Unit does not accept a command
+  it reports a hazard for (proved in `top` and `tu`). The Local Stores,
   the multiplier, the divider and the Transfer Unit are cut out, so nothing
   depends on what they answer.
 - **`top`:** a core pops its inbox only on a hit, and a revocation request
@@ -142,12 +148,14 @@ short:
   comparison covers it by simulation. The core proofs are about the things
   simulation cannot exhaust: traps, privilege, linearity, liveness of
   capabilities, precision.
-- **The full system with real cores.** `top` cuts the cores out. That each
-  core's copy of the granule table equals the master, and that capabilities
-  in inboxes, save tables and other cores do not overlap a writable one, are
-  system-wide invariants that were not attempted.
-- **`strata_mem`, `strata_dev`, `strata_uart`, `strata_ram`:** no proofs.
-  The Transfer Unit's assumptions about targets rest on reading them.
+- **The full system with real cores.** `top` cuts the cores out; the
+  pieces are joined by the assumptions each proves of the other (the
+  granule table copies are shown equal to the master that way). That
+  capabilities in inboxes, save tables and other cores do not overlap a
+  writable one is a system-wide invariant that was not attempted.
+- **What the devices do:** `dev` proves the bus protocol only, not what a
+  port returns, nor the block device's command engine and DMA master.
+  `strata_uart` and `strata_ram` have no proofs.
 - **Liveness** beyond the bus's bound (a transfer completes, an instruction
   finishes): depends on devices that may wait forever by design.
 - **capop and pend traps, the tag lookup sequencer, the overlay map's

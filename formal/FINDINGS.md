@@ -67,9 +67,8 @@ its own when the walker is idle again. After the fix: `make formal-top`
 passes, the reproduction prints `ok` on both, and `make lint`,
 `make conformance` and `tools/compare.sh` on the examples pass.
 
-**Not done:** the conformance suite has no configuration with 4 KiB Local
-Stores on both sides (`make test-ls` runs 32/32, 16/4 and 4/32), so the
-reproduction is not part of `make test`.
+`make test-ls` (part of `make test`) now ends with `formal/repro/run.sh`,
+which runs this reproduction and F2's with 4/4 KiB Local Stores.
 
 ## F2. A store preempted by a stop had already written the Local Store (RTL bug, fixed)
 
@@ -170,9 +169,18 @@ handled explicitly: `rpend <= reset_req` when the reset is taken.) Recorded
 because a supervisor must not count stop traps to count stop requests.
 
 **O7. A save-table instruction preempted by a reset request in its second
-cycle still writes its slot.** `ct_we` (like the store's write enable before
+cycle still wrote its slot.** `ct_we` (like the store's write enable before
 F2) does not look at `held`; in S_CT only a reset request can preempt
 (S_CT is supervisor-only, a stop is not taken there), and the reset
 sequencer then empties the whole table, so the write cannot be seen. The
-precision property excepts exactly this case. Gating `ct_we` with `!rpend`
-would remove the exception.
+precision property excepted exactly this case. **Changed since:** `ct_we`
+now has `&& !rpend`, and the property has no exception.
+
+**O8. A device read answers retry only before its first byte.** The far
+bus's rule ("retry, one cycle, before any data") holds for every port of
+`strata_dev` (proved: `make formal-dev`), with one way around it that the
+machine does not take: a core reset under its own transaction (the break
+port's release flag is cleared by the reset). `strata_core` is reset only
+when its Transfer Unit is quiet, so no transaction of its own is under way.
+The Transfer Unit would cope anyway (it asks again for the rest), but the
+rest would be asked of port + bytes moved, which is another port.
