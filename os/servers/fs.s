@@ -99,6 +99,9 @@
 ;             arena as attachment -> size (the whole file is copied in)
 ;  35 WRITEALL handle = id (write), mode = arena offset, length = bytes; the
 ;             arena as attachment -> bytes (appended to the file)
+;  40 QUERY   DIR without its limits: a cursor, whole names, each file's
+;             tags (fsops.s)
+;  41 TAGS2   TAGS without its limits (fsops.s)
 ;  36 DUPS / 37 CLEANUP / 38 CANCEL from proc (see srv.s)
 ; Every call answers -5 when the disk cannot be read as a store, or a page
 ; of it fails its checksum.
@@ -287,6 +290,10 @@ loop:
         beq   t1, t2, op_readall        ; ...
         li    t2, 35                    ; WRITEALL
         beq   t1, t2, op_writeall       ; ...
+        li    t2, 40                    ; QUERY
+        beq   t1, t2, op_query          ; ...
+        li    t2, 41                    ; TAGS2
+        beq   t1, t2, op_tags2          ; ...
 bad:
         li    a0, -1                    ; unknown, or refused
 reply:
