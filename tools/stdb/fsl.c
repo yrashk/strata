@@ -18,7 +18,7 @@ static uint64_t gbe64(const uint8_t *p) { return (uint64_t)gbe32(p) << 32 | gbe3
 static void trees(Fs *fs, int create) {
   fs->obj = st_tree(fs->st, fs->ns, "obj", create);
   fs->data = st_tree(fs->st, fs->ns, "data", create);
-  fs->name = st_tree(fs->st, fs->ns, "names", create);
+  fs->name = st_tree(fs->st, fs->ns, "dnam", create);
   fs->attr = st_tree(fs->st, fs->ns, "attr", create);
   fs->dict = st_tree(fs->st, fs->ns, "dict", create);
 }
@@ -317,7 +317,11 @@ int64_t fs_add(Fs *fs, const char *name, const uint8_t *data, uint64_t len,
     pbe32(v, (uint32_t)id);
     idx(fs, 1, FS_A_TAG, v, 4, r.oid);
   }
-  if (!r.ntags && name_get(fs, 0, name, nl) >= 0) { snprintf(fs->msg, sizeof fs->msg, "two files named %s in the root", name); return -1; }
+  if (!r.ntags) { /* in no directory: in the root, and indexed under tag 0 */
+    if (name_get(fs, 0, name, nl) >= 0) { snprintf(fs->msg, sizeof fs->msg, "two files named %s in the root", name); return -1; }
+    pbe32(v, 0);
+    idx(fs, 1, FS_A_TAG, v, 4, r.oid);
+  }
   pbe64(k, r.oid);
   if (len || boot) st_bwrite(fs->st, fs->ns, fs->data, k, 8, 0, data, len, boot);
   p64(v, r.oid);
@@ -427,6 +431,7 @@ int fs_check(Fs *fs, FILE *out) {
     if (!has(fs, FS_A_MOD, b, 8, oid)) BAD("%s: modification not indexed", r.name);
     nidx += 2;
     if (r.flags & FS_BOOT) { nidx++; nboot++; if (!has(fs, FS_A_BOOT, b, 0, oid)) BAD("%s: boot flag not indexed", r.name); }
+    if (!r.ntags) { pbe32(b, 0); nidx++; if (!has(fs, FS_A_TAG, b, 4, oid)) BAD("%s: in no directory, and not indexed in the root", r.name); }
     for (int i = 0; i < r.ntags; i++, nidx++) {
       pbe32(b, r.tags[i]);
       if (r.tags[i] >= fs->nexttag) { BAD("%s: tag id beyond the next", r.name); continue; }

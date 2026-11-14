@@ -181,7 +181,7 @@ w_c:     .ascii "-c"                    ; option: pin to a core / one command li
 w_m:     .ascii "-m"                    ; option: the arena's size in MiB
 w_l:     .ascii "-l"                    ; option: login shell
 w_i:     .ascii "-i"                    ; option: interactive
-w_rc:    .ascii "rc"                    ; the login script
+w_rc:    .ascii "/etc/rc"               ; the login script
 w_shc:   .ascii "sh -c "                ; a builtin run by a child shell
 w_dollar: .ascii "$"                    ; a plain $
 bi_names: .ascii "help    echo    set     unset   history jobs    fg      wait    " ; builtins 1..8, 8 characters each
@@ -411,11 +411,11 @@ mn_rc:
         ld    t0, 0(t0)                 ; ...
         beqz  t0, lp_loop               ; not a login shell
         la    a0, w_rc                  ; does rc exist?
-        li    a1, 2                     ; ...
+        li    a1, 7                     ; ...
         call  sys_stat                  ; a0 = size or < 0
         bltz  a0, lp_loop               ; no
         la    a0, w_rc                  ; run it
-        li    a1, 2                     ; ...
+        li    a1, 7                     ; ...
         call  run_file                  ; ...
 lp_loop:
         call  poll_jobs                 ; report finished background jobs

@@ -172,6 +172,9 @@ every tag is a directory. A file is listed in each directory it is
 assigned to and nowhere else; a file with no tag is in the root. `ls /`
 shows the unassigned files and every directory. Tags stay intersections:
 `/src/demo` is what is in both.
+- [ ] Subdirectories stay (required): `ls /src` ends with `demo/`, `cd
+      /src/demo` and `/src/demo/NAME` work, a file made in `/src/demo` is
+      in both; the root lists every directory. Tested by name
 - [ ] The rules written into `doc/strata-fs-proposal.md` (a section of its
       own) and `doc/strata-store-format.md` (the name index's new key)
 - [ ] The name index: tree `names`, key (tag id big-endian, name) -> file,
