@@ -372,6 +372,11 @@ $(BUILD)/prog/vi: os/progs/vi.s os/lib/sys.s $(BUILD)/vi-syntax.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -I $(BUILD) -o $@ $<
 
+# nav, the file navigator
+$(BUILD)/prog/nav: os/progs/nav.s os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
+
 $(BUILD)/prog/units: os/progs/units.s examples/lib/print.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
@@ -471,14 +476,14 @@ FORTH_DISK += $(BUILD)/forth-os/progs.pk
 CC_DISK := $(BUILD)/prog/cc $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib $(BUILD)/prog/cc0 $(BUILD)/cc/cc0.lib
 CC_SRCS := lang/cc/cc.c $(sort $(wildcard lang/cc/examples/*.c))
 DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(DBPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as $(CC_DISK) $(CC_SRCS) \
-              $(BUILD)/prog/units $(BUILD)/prog/vi $(SRCS) $(USRCS) $(BUILD)/src/vi.s $(FORTH_DISK)
+              $(BUILD)/prog/units $(BUILD)/prog/vi $(BUILD)/prog/nav $(SRCS) $(USRCS) $(BUILD)/src/vi.s $(FORTH_DISK)
 
 # The same files with their tags (mkdisk -t TAGS applies to the files after it).
 # The file system has no directories: `ls /bin` lists the files tagged bin,
 # `ls /src/demo` those tagged both src and demo.
 DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc %/resolv,$(OS_FILES)) \
              -t sys $(SPROGS) -t bin $(UPROGS) $(DBPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag -t bin,net $(NPROGS) -t bin,ws $(WSPROGS) \
-             -t bin,demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units $(BUILD)/prog/vi \
+             -t bin,demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units $(BUILD)/prog/vi $(BUILD)/prog/nav \
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) $(BUILD)/src/vi.s \
              -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
              lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUILD)/forth-os/vi-syntax.fs \
