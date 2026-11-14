@@ -26,6 +26,7 @@
 #    what they were, and the pages are accounted for.
 # 6. The store for programs (`db put`, `get`, `del`: DBBATCH, DBGET): trees
 #    in a namespace of their own, beside the file system's.
+# 7. Attributes (`attr`) and the terms of a path that ask about them.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 b="$here/${BUILD:-build}"
@@ -309,4 +310,54 @@ printf 'db get app/log 0002\ndb app/conf\nhalt\n' >"$tmp/k2.txt"
 run "$tmp/k2.txt" "$tmp/k1.img" || fail "the boot from a disk with a program's namespace did not end well"
 grep -q '^again$' "$tmp/out.txt" && grep -q '^"size" = "43"$' "$tmp/out.txt" || fail "a program's namespace after a second boot"
 echo "test-store: a namespace of a program's own: put, get, del, on the disk as put, read after a boot; fs refused"
+# ---- 7. attributes and terms -------------------------------------------------------------
+cat >"$tmp/a1.txt" <<'EOF'
+echo x > /t/a1
+echo yy > /t/a2
+echo zzz > /t/a3
+attr a1 colour red
+attr a1 year 1984
+attr a2 colour blue
+attr a2 year 2001
+attr a3 year 1999
+attr a1 colour green
+attr -d a1 year
+attr a1
+attr a1 size 5
+echo --blue; ls /t/colour=blue
+echo --old; ls '/t/year<2000'
+echo --new; ls '/t/year>1999'
+echo --big; ls '/t/size>2'
+echo --pre; ls /bin/ca*
+echo --open; cat /t/colour=blue/a2; cat /t/colour=blue/a1
+rm a2
+echo --gone; ls /t/colour=blue
+halt
+EOF
+run "$tmp/a1.txt" "$disk" -w "$tmp/a1.img" || fail "the attribute session did not end well"
+python3 - "$tmp/out.txt" <<'EOF' || { cat "$tmp/out.txt" >&2; exit 1; }
+import sys
+t = open(sys.argv[1], errors="replace").read()
+def sect(mark):
+    i = t.rindex("\n--" + mark + "\n") + len(mark) + 4
+    out = []
+    for l in t[i:].split("\n"):
+        if l.startswith("--") or "strata$" in l: break
+        out.append(l.split()[0] if l.split() else "")
+    return [x for x in out if x]
+assert "colour = green" in t and "year = 1984" not in t.split("strata$ attr a1\n")[-1].split("strata$")[0], "attr lists what was set last"
+assert "attr: cannot set size" in t, "size is not an attribute to set"
+assert sect("blue") == ["a2"], sect("blue")
+assert sect("old") == ["a3"], sect("old")
+assert sect("new") == ["a2"], sect("new")
+assert sect("big") == ["a2", "a3"], sect("big")
+assert sect("pre") == ["cat"], sect("pre")
+assert sect("open")[:1] == ["yy"] and "no such file: /t/colour=blue/a1" in t, "a term in a path that opens"
+assert sect("gone") == ["(no"], sect("gone")
+EOF
+"$b/stdb" check "$tmp/a1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk with attributes fails its check (records and index)"; }
+"$b/stdb" dump "$tmp/a1.img" | grep '^a[13] ' >"$tmp/a1.dump"
+grep -q '^a1 .* colour="green"$' "$tmp/a1.dump" && grep -q '^a3 .* year=1999$' "$tmp/a1.dump" ||
+  { cat "$tmp/a1.dump" >&2; fail "the attributes on the disk are not the ones set"; }
+echo "test-store: attributes set, changed, taken away; terms in paths (=, <, >, size, PREFIX*) narrow listings and opens; the index checked"
 echo "test-store: OK"

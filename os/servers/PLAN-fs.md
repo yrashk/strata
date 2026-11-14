@@ -105,10 +105,12 @@ decisions taken.
 - [ ] Transactions over several requests (BEGIN / COMMIT / ABORT, other
       writers parked); conditions in a batch (REQUIRE-ABSENT ...)
 - [ ] Wrappers in `sys.s`; Forth words
-- [ ] Attributes: SETATTR, GETATTR, `attr`; query terms in paths (prefix,
-      range, attribute comparisons). The host side has attributes
-      (`mkdisk -a`, `stdb dump`); the server keeps them in records it
-      rewrites but offers no call to set or ask for them
+- [x] Attributes: SETATTR (42), GETATTR (43), `attr` (`fsattr.s`); terms
+      in paths: `NAME=VALUE`, `<`, `>` over attributes, `size`,
+      `modified`; `PREFIX*` last in a listing; `test-store.sh` part 7
+- [ ] Terms are checked against each record of what the tags give; walking
+      the index for a term (a range of values, a prefix of names) is not
+      done, so a term alone still reads every record
 
 ## Stage 8: snapshots
 - [x] Births in pages and extents (in the format from stage 1)

@@ -915,7 +915,22 @@ snapshot shows, in one commit: its trees take the snapshot's roots, the
 pages only the state given up used are freed (or kept, where a later
 snapshot shows them), and the snapshot's pages that had gone to dead lists
 are in use again. The snapshots stay, the restored one too; it is refused
-(-1) while a file is open for writing. **The store for
+(-1) while a file is open for writing. **Attributes and terms.** A file carries
+attributes besides its tags: a name and a value each, a number (given in
+digits) or a string of up to 255 bytes (`attr FILE NAME VALUE`, `attr
+FILE`, `attr -d FILE NAME`; fs calls 42 SETATTR: data = path, 0, name, 0,
+value, an empty value takes the attribute away; 43 GETATTR: data = path →
+records {u16 record bytes, u16 name length, u8 type, u8 value length, u16
+0, name, value}). They are in the file's record and in the index. A
+component of a path that holds `=`, `<` or `>` is a *term*, a condition
+instead of a tag: `NAME=VALUE`, `NAME<VALUE`, `NAME>VALUE` over an
+attribute, over `size` or over `modified` (the commit that changed the
+file last); a value in digits is compared as a number, any other as bytes;
+a file without the attribute matches none. In a listing the last component
+may be `PREFIX*`. So `ls /src/lang=asm`, `ls '/src/size>100000'` (quoted
+for the shell), `ls /bin/ca*`, `cat /t/colour=blue/a2`. A path that
+creates cannot hold a term. Terms narrow what the tags give by looking at
+each file's record: the index is not yet walked for them. **The store for
 programs.** A program can keep data of its own in the store, beside the
 file system: in a namespace of its own, in named trees of keys and values
 (bytes, in key order; a key up to 480 bytes, a value up to about 1,000,
