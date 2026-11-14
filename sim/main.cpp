@@ -145,6 +145,9 @@ extern "C" long long sim_ptr_state(int touch) {
 }
 
 extern "C" long long sim_time_us() { return virtual_time ? -1 : (long long)host_us(); }
+// the timer's EPOCH and ZONE (common/display.h host_wall_start)
+extern "C" long long sim_epoch_us() { return (long long)host_epoch_us; }
+extern "C" long long sim_zone_s() { return (long long)host_zone_s; }
 
 // The display's copy of the scanned-out framebuffer, read out of the
 // system-memory model: the byte range [lo, hi) of it.
@@ -276,6 +279,7 @@ int main(int argc, char **argv) {
   plat_build_fb(plat, NCORES, DISK_WORDS / 64, fb_w, fb_h, CTAB_DEF, NXMAP, DLS_KIB, ILS_KIB); /* rtl/strata_pkg.sv CTAB */
   if (!host_input_open(in_path)) { perror("input"); return 2; }
   host_clock_start();
+  host_wall_start(!virtual_time);
   host_display_init(gfx, scale, ppm, fb_w, fb_h);
   host_scan = scan_fb;
   host_scan_fetch = scan_fetch;

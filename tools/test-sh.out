@@ -453,6 +453,8 @@ ls: no such tag or file: /cdt
 [exit 1]
 /
 strata$ rm f1 f2 f3 s1 tfile
+strata$ date
+2000-02-29 05:30:01 +05:30
 strata$ exit 3 &
 [1] PID
 strata$ wait

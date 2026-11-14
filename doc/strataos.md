@@ -25,7 +25,7 @@ them apart.
 | 0x0000 | console | 0x00 output, 0x08 input, 0x10 break, 0x18 release (unchanged) |
 | 0x1000 | platform table | read-only (unchanged) |
 | 0x2000 | block device 0 | unchanged |
-| 0x3000 | **timer** | 0x00 NOW, 0x08 FREQ, 0x10 DEADLINE, 0x18 WAIT |
+| 0x3000 | **timer** | 0x00 NOW, 0x08 FREQ, 0x10 DEADLINE, 0x18 WAIT, 0x20 EPOCH, 0x28 ZONE |
 | 0x4000 | **framebuffer controller** | 0x00 PRESENT, 0x08 VSYNC |
 | 0x4100 | **pointer** | 0x00 EVENT, 0x08 STATE |
 | 0x4200 | **network interface** | 0x00 TX, 0x08 RX, 0x10 STATUS, 0x18 CANCEL |
@@ -78,6 +78,14 @@ tests `brkrel`, `pendxfer`, `haltdrain`):
   (RTL), like the break port. Writing DEADLINE re-evaluates pending waits;
   writing 0 completes them at once. Several cores may wait at once; each
   sees the single DEADLINE.
+- **EPOCH** (0x3020, read): the wall-clock time when NOW was 0, in µs
+  since 1970-01-01 00:00 UTC; 0 when the machine does not know the time.
+- **ZONE** (0x3028, read): the local time zone, local time minus UTC in
+  seconds (signed). Local time = EPOCH + NOW + ZONE × 10⁶ µs. Both are
+  fixed for the run: from the host's clock and zone under `-T real`, 0 and
+  0 under `-T virtual`; `STRATA_EPOCH=SECONDS[,ZONE]` in the environment sets
+  them in either mode (the conformance suite does). The RTL outside
+  simulation reads 0 for both.
 
 Time base:
 - Emulator: `-T real` (default) = host wall-clock µs since start;
@@ -827,6 +835,7 @@ CLEANUP to the servers and completes the parent's WAIT.
 | 31 | GETCON | (for `tty`) a window on the console's ports 0x0000..0x00FF (c6) |
 | 21 | GETPTR | (for `tty`) a window on the pointer's ports 0x4100..0x410F (c6); -1 if the machine has none |
 | 22 | GETSND | (for any program) a window on the sound device's ports 0x4300..0x4317 (c6); -1 if the machine has none |
+| 67 | TIME | 1; data: one 32-byte record, the timer's EPOCH (u64) and ZONE (s64), then 16 bytes of 0. Programs add their clock's NOW (c7, which covers only NOW and FREQ); `sys_time` asks once and caches it |
 | 59 | GETNET | (for `net`) a window on the network interface's ports 0x4200..0x421F (c6); -5 unless the caller is the process registered as "net" (WHOIS); -1 if the machine has none |
 
 The framebuffer memory is the kernel's: at boot it makes the window a
@@ -1211,7 +1220,8 @@ whole.
   not change the shell's own path.
   A builtin in a pipeline or in the background runs in a child shell.
 - Programs on disk: ls, cat, cp, mv, rm, touch, df, tag, untag, retag,
-  tags, ps, free, uptime,
+  tags, ps, free, uptime, date (the local date and time: the timer's
+  EPOCH and ZONE, through `dev`'s TIME),
   devs, hexdump, cores,
   sched (`sched` shows the slice and switch rates; `sched 500us` / `sched 5ms`
   sets it; `rc` may set it at boot),
@@ -1343,7 +1353,8 @@ visible:
   system core marked `K` and server cores with a corner mark; a context
   switch on a core makes its cell **pulse** briefly. Then the window list
   (the focused one in amber), uptime, process count, context switches per
-  second and the clock. It is the machine's heartbeat, the explicit cost of
+  second and the clock (the local time of day: the timer's EPOCH and ZONE,
+  asked of `dev` once at start). It is the machine's heartbeat, the explicit cost of
   multitasking made visible.
 - **A switch-cost readout**: a second tag at the right end of each tile's
   top edge (`CTX · 148.2 KIB`): KiB moved by context switches for that
@@ -1408,8 +1419,8 @@ window whose process ends is removed.
   -2 and the events are fetched without blocking. Nothing is polled.
 - **`wmandel`**: renders the Mandelbrot set, DAMAGEs rows as they finish,
   re-renders on resize, quits on close or `q` (renderer: `os/ws/wmandel.s`).
-- **`wclock`** (small): a clock window updating every second, to show
-  timers + damage (renderer: `os/ws/wclock.s`).
+- **`wclock`** (small): a clock window showing the local time of day,
+  updating every second, to show timers + damage (renderer: `os/ws/wclock.s`).
 - **`wdoom`**: a first-person shooter in the manner of Doom (a textured
   grid raycaster: walls, floor and ceiling, doors, three kinds of monster,
   a pistol, pickups, a status bar), with art and sounds from Freedoom in a
