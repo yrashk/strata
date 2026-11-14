@@ -25,6 +25,8 @@ strata$ cc nosuch.c; echo status $?
 cannot open nosuch.c
 [exit 1]
 status 1
-strata$ rm hi calc2 bad.c
+strata$ cc -p -o calc3 /src/calc.c && calc3 (7 - 1) * 7
+7 1 - 7 * = 42  (5 nodes)
+strata$ rm hi calc2 calc3 bad.c
 strata$ halt
 StrataOS: all cores halted

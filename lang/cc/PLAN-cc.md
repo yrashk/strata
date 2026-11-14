@@ -110,7 +110,12 @@ each stage. Keep it current.
 `cc.s` is the bootstrap compiler; `cc.c` is to be the main one and need not
 emit the same bytes (DESIGN.md, section 6).
 - [x] paged code model (`-p`): functions placed in 4 KiB units; the whole
-      ladder passes with `CC_FLAGS=-p` exactly as without
+      ladder passes with `CC_FLAGS=-p` exactly as without; a generated
+      program of 150 functions and 100 KiB of code (three times the
+      instruction store) runs and prints what the host prints
+- [ ] the symbol table (1000 records, 5 per function with a prototype) is
+      too small for a program of the compiler's own size: prototype
+      parameters need a cheaper form, or the table a place in the arena
 - [ ] `cc.c`, compiled by `cc.s`
 - [ ] fixed point: `cc2 = cc1(cc.c)`, `cc3 = cc2(cc.c)`, identical bytes
 - [ ] programs whose image exceeds 128 KiB: code units in a second file,
@@ -193,7 +198,8 @@ every program. `cc.lib` is 128 KiB, `cc` 45 KiB.
   split it with another `.align 4096`.
 - **Labels are global** across all the included files: pick a new prefix.
 - **Data.** Variables must stay below `CW` (the `.org CW` at the end of
-  `cc.s` fails otherwise): 0x3560, and `data_end` is at 0x34E0 now. A unit's
+  `cc.s` fails otherwise): 0x3560, and `data_end` is at 0x3540 now: 32 bytes are left. Shrink a table
+  (`NSYMS`, `NTYPES`) or move one to the arena before adding variables. A unit's
   `.data` must start with `.align 8` (loads and stores of misaligned words
   fault). `NSYMS`, `NTYPES`, `NCASES`, `NARGS`, `XBSZ` are the knobs.
 - **Loads and stores must be aligned** on this machine: the compiler never
