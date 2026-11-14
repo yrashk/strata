@@ -907,7 +907,14 @@ bytes, its mode word the *facets*: a tag set (bit t = tag id t, ids below
 64) of the other tags the files of this part carry; with mode 1 no records
 come, the count is of every file and the facets are of them all; data: u64 n and n u32 ids of the path's own tags, then per file {u16
 record bytes, u16 name length, u32 tags, u64 size, the name, the file's tag
-ids}, each part padded to 8 bytes); 41 TAGS2 (data = a path, none = every tag;
+ids}, each part padded to 8 bytes); 46 FIND (names across the whole file
+system: data = a text, handle = a cursor; mode 0: the files whose names
+begin with the text, by one seek per directory in the names' tree (tag
+id, name); mode 1: those whose names hold it, in any case, by reading the
+records in object order, 384 at most per part, so that a part may come back
+empty with a cursor and the asker can stop between parts; records as
+QUERY's, each file once though it is in several directories; `nav`'s
+search); 41 TAGS2 (data = a path, none = every tag;
 handle = a cursor; records {u16 record bytes, u16 name length, u32 id, u64
 files carrying it, the name}: every tag, or the tags of that file). The
 older DIR (10) and TAGS (14), with names cut to 24 and 16 bytes and 126
@@ -1227,7 +1234,8 @@ whole.
   devs, hexdump, cores,
   sched (`sched` shows the slice and switch rates; `sched 500us` / `sched 5ms`
   sets it; `rc` may set it at boot),
-  seq, grep, wc, upper, spin, as, units, vi (the editor, 2.12), and the
+  seq, grep, wc, upper, spin, as, units, vi (the editor, 2.12), nav (the
+  file navigator, 2.12), and the
   examples (all but `clock` and `gfx`, which need the device root that only
   `dev` holds).
 - **In Forth.** Most of these also exist as Strata Forth programs,
@@ -1692,7 +1700,7 @@ host opens `http://localhost:8080/`.
   4 KiB buffer shared by DIR records, file chunks and PS records, the tag
   tables, 3 KiB of requests); code: 12.3 KiB of the 32 KiB I-LS.
 
-### 2.12 The editor (`vi`)
+### 2.12 The editor (`vi`) and the file navigator (`nav`)
 
 `vi [FILE]` (`os/progs/vi.s`) edits a file in the manner of vi, on the
 console (an ANSI terminal: `make boot`, the browser's terminal) and in a
@@ -1790,6 +1798,63 @@ messages and the `:` and `/` lines take its place.
   (`tools/vi-syntax.py` -> `vi-syntax.fs`). Every start compiles it (about
   6 M instructions); a 333 KiB file takes about 1.3 times vi's instructions
   to open, a key in normal mode about the same.
+
+#### The file navigator (`nav`)
+
+`nav [-e EDITOR] [-s TEXT] [LEFT [RIGHT]]` (`os/progs/nav.s`, plan and
+measurements in `os/progs/PLAN-nav.md`) is a two-panel file navigator in
+the manner of the Norton and Midnight Commanders, for the tag file system,
+with a search across the whole disk as one types. Like `vi` it is a
+full-screen text program: it runs on the console, in a `term` window and in
+the browser's terminal, and asks the terminal its size the same way.
+
+- **Panels.** Each shows a directory, a tag path (LEFT defaults to the
+  current one, RIGHT to `/`): `..`, the subdirectories (the other tags its
+  files carry; at a root every tag), the files with their sizes and, in a
+  third column, the other directories each file is in (a file is in every
+  directory it is tagged with), and at `/` the snapshots as `@NAME`
+  directories, read-only. The bottom line of a panel names the path of the
+  entry at the cursor.
+- **Keys.** The arrows, PgUp, PgDn, Home, End; Tab the other panel; Enter
+  into a directory (a file: the viewer); Backspace up; Insert or Ctrl-T
+  marks a file. F1 help; F2 files the marked files (or the cursor's) in
+  the other panel's directory as well (TAG: the same file, in both); F3 the
+  viewer (text or hex: `h`); F4 runs `vi` on the file (`-e` names another
+  editor) and lists both panels again when it ends; F5 copies into the
+  other panel's directory (a new file; the question offers `a`, filing it
+  there instead, so that the choice is in view); F6 moves or renames
+  (RENAME to a path typed, the other panel's directory at first); F7 makes
+  a directory: a tag given to the files (a directory exists while a file
+  is in it); F8 deletes after a question, and for a panel that is a
+  directory offers `t`, taking the files out of that directory only
+  (UNTAG); F9 or Ctrl-Q shows the cursor's file in the other panel (its
+  path, size, directories and first lines, or hex); F10 quits. Esc and then
+  a digit is that F-key. The mouse: a click puts the cursor on an entry (a
+  second click opens it), the wheel moves it, a click on the bar is that
+  key (SGR mouse reports, ESC [ ? 1000 h and 1006 h, which xterm.js sends
+  and `term` sends for programs that ask).
+- **The search.** Any other printable key starts it, in the active panel,
+  which then lists what was found and works as a listing (Enter, F3, F4,
+  F5 ...; the third column names each file's directories, the first one
+  being where Enter and the operations find it). Plain text asks FIND for
+  the names that begin with it (one seek per directory, shown at once),
+  then adds the directories whose names hold it and the files whose names
+  hold it anywhere (FIND part by part; a key typed meanwhile ends that and
+  starts the search again). Text with `/`, `=`, `<` or `>` is a path with
+  terms, QUERY over every file: `lang=asm`, `size>9000`, `/src/ls*`.
+  Ranked: the name itself, then directories and files that begin with the
+  text, then the others, shorter names first. The command line shows how
+  many were found and how long the first results and all of them took. Esc
+  or an emptied text ends it. `-s TEXT` starts with one (run to its end).
+- **Measured** on a disk of 10,140 files in 41 directories (machine time,
+  `-T virtual`): a name that begins with the text, 4 to 14 ms to the first
+  results; the full scan for names that hold the text, 215 to 270 ms (it
+  reads every record: there is no index of parts of names), in parts of
+  about 8 ms between which keys are read. Under the JIT on the host's time
+  the same search for `kernel` (693 found) takes 0.9 ms and 47 ms.
+- **Limits.** 1024 entries a panel (a listing or a search that finds more
+  says so), names shown up to 200 bytes, the viewer's first 256 KiB of a
+  file, eight of a file's directories in its third column.
 
 ### 2.13 Guests: co-existing OSes at whole-core granularity
 
@@ -2082,6 +2147,14 @@ A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
   takes pictures of vi in the window server's terminal:
   `build/vi-shots/asm.png`, `forth.png` (`-f`: of `forth vi.fs`,
   `fs-asm.png`, `fs-forth.png`).
+- `tools/test-nav.sh`: the file navigator. A scripted console session
+  (`-j -T virtual`) copies a file into the other panel, answers F8's
+  question n and then y, files a file in a second directory (F2) and
+  enters the facet that makes, searches for a file made deep in the tree,
+  views it as text and in hex, and finds a snapshot read-only; the screens
+  and the shell's listings afterwards are checked. `-w`: nav in a `term`
+  under `ws`, driven by the mouse only (a click on a file, one on the
+  bar's Delete), the disk written back and read with `stdb`.
 - `tools/test-vifs.sh`: the Forth editor (`forth vi.fs`) with the keys of
   `tools/test-vi.sh`; the files it writes are compared with
   `tools/test-vifs.out` and with `tools/test-vi.out` (the assembly vi's:

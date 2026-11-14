@@ -292,6 +292,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "  seq grep wc upper spin as units sh\n" ; (continued)
          .ascii "  cc FILE.c         the C compiler: writes the program FILE (cc -o OUT)\n" ; (continued)
          .ascii "  vi FILE           the editor (vi keys; :wq writes and leaves)\n" ; (continued)
+         .ascii "  nav [DIR [DIR]]   two panels of files; type to search the whole disk; F10 quits\n" ; (continued)
          .ascii "  examples: hello mandel parsum race ...\n" ; (continued)
          .ascii "windows: ws starts the window server; its keys, in the screen:\n" ; (continued)
          .ascii "  Alt+Enter new terminal    Alt+P or Alt+Space launch a program\n" ; (continued)

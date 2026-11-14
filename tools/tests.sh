@@ -44,6 +44,8 @@ t boot-guests  full build-main "emu rtl os stdb" "tools/compare-boot.sh $OS os/g
 t break        full build-main "emu rtl os" "tools/test-break.sh $OS"
 t sh           fast build-main "emu os" "tools/test-sh.sh $OS"
 t vi           fast build-main "emu os" "tools/test-vi.sh $OS"
+t nav          fast build-main "emu os" "tools/test-nav.sh $OS"
+t nav-ws       mid  build-main "emu os" "tools/test-nav.sh -w $OS"
 t vifs         mid  build-main "emu os" "tools/test-vifs.sh $OS"
 t fs-progs     mid  build-main "emu os" "tools/test-fs-progs.sh $OS"
 t store        mid  build-main "emu os stdb" "tools/test-store.sh $OS"

@@ -45,6 +45,13 @@ const PRESETS = {
     type: "ws kira\n",
     about: "Princess Kira: gentle games for a small child, written in Strata assembly as a client of the StrataOS window server (the page types ws kira at the shell's first prompt). No enemies, no timer, no way to lose. Click the screen and press a key to dismiss the key help. The mouse does everything; so do the keys: the arrows walk Kira or move a hand that Space presses, 1 to 4 choose a game, M goes back to the menu. Friends: find Kira's seven animal friends in a castle and garden that are new every game, and walk them to the picnic; Space looks through Kira's eyes. Garden: sow seeds and water them into flowers. Paint: three colouring pages. Music: a xylophone, the friends' voices and four songs. The page plays the sound once you have clicked or pressed a key.",
   },
+  nav: {
+    files: ["bootrom.stx", "disk.img"],
+    args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
+    fitScreen: true,
+    type: "nav /src /bin\n",
+    about: "nav, the file navigator: two panels in the manner of the Norton and Midnight Commanders, for StrataOS's tag file system (the page types nav /src /bin at the shell's first prompt). The arrows move, Tab switches panels, Enter goes into a directory, Backspace up; F3 views a file, F4 edits it in vi, F5 copies it to the other panel's directory, F2 files the same file there too, F8 deletes, F9 or Ctrl-Q shows it in the other panel, F10 quits (Esc and a digit is that F-key). A file is in every directory it is tagged with: the third column lists the others. Type anything to search the whole disk as you type: try sh, vi, or lang=asm.",
+  },
   cc: {
     files: ["bootrom.stx", "disk.img"],
     args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
