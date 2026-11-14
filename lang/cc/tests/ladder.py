@@ -10,7 +10,7 @@ FLAGS = os.environ.get("CC_FLAGS", "")              # e.g. "-p": the paged code 
 if FLAGS: FLAGS += " "
 HOST = os.environ.get("CC_HOST", "")               # e.g. build/strata-cc: compile on this machine, only run in the OS
 CC = os.environ.get("CC_NAME", "cc")                # the compiler in the OS: cc, or cc0, the bootstrap compiler
-PROMPT = "strata$ "
+PROMPT = "strata:/test$ "                           # the session works in /test
 BASE = ["-t", "sys"] + [B + "/prog/" + p for p in ("proc", "dev", "fs", "tty", "pipe")] + \
        ["-t", "bin", B + "/prog/sh", B + "/prog/rm", B + "/prog/cc", B + "/prog/cc.u", B + "/cc/cc.lib"] + \
        ([B + "/prog/" + CC, B + "/cc/" + CC + ".lib"] if CC != "cc" else [])
@@ -38,7 +38,7 @@ def boot(batch, tag):
     """one boot compiling and running the batch -> the console output (None: no output at all)"""
     d = os.path.join(OUT, "disk-" + tag)
     shutil.rmtree(d, ignore_errors=True); os.makedirs(d)
-    files, script = [], []
+    files, script = [], ["cd /test"]       # the tests, their headers and what they write are in /test
     hres = {}
     for i, (rung, path) in enumerate(batch):
         n = "t%02d.c" % i
