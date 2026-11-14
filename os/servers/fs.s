@@ -107,6 +107,9 @@
 ;             shows). A snapshot is the whole disk as of a commit;
 ;             a path whose first component is "@NAME" reads it: OPEN for
 ;             reading, STAT, LOADIMG, QUERY, TAGS2
+;  46 FIND    names across the whole file system: mode 0 the files whose
+;             names begin with the data's text, mode 1 those whose names
+;             hold it; records as QUERY's, with a cursor (fsunits.s, uf)
 ;  64 DBGET / 65 DBSCAN / 66 DBBATCH   the store for programs: trees of keys
 ;             and values in namespaces of their own (fsops.s)
 ;  36 DUPS / 37 CLEANUP / 38 CANCEL from proc (see srv.s)
@@ -352,6 +355,8 @@ loop:
         beq   t1, t2, op_getattr        ; ...
         li    t2, 45                    ; SNAP
         beq   t1, t2, op_snap           ; ...
+        li    t2, 46                    ; FIND
+        beq   t1, t2, op_find           ; ...
         li    t2, 64                    ; DBGET
         beq   t1, t2, op_dbget          ; ...
         li    t2, 65                    ; DBSCAN
