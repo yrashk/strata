@@ -1793,9 +1793,9 @@ messages and the `:` and `/` lines take its place.
 - **In Forth.** `forth vi.fs FILE` (or `include vi.fs` at the Forth prompt,
   then `vi FILE`) is the same editor written in Strata Forth
   (`lang/forth/vi.fs`, with `vi-text.fs` and `vi-edit.fs`; the README there
-  has the details): the same keys, modes, highlighting (C aside: only the
-  assembly vi colours it) and screen; given the same keys it writes the
-  same files. Its code (about 60 KiB) is several
+  has the details): the same keys, modes, highlighting (C too) and
+  screen; given the same keys it writes the same files, and it draws the
+  same C frames (`tools/test-vic.sh -f`). Its code (about 68 KiB) is several
   times a program's I-LS: like everything Forth compiles, it is in code
   units the dispatcher pages into Forth's code cache (the units above, and
   the README's "Code paging"). Its text is in Forth's far heap:
@@ -2105,7 +2105,9 @@ A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
   output is played into an 80 × 24 grid, and its last frame, with the
   colour of each run of cells, is compared with `tools/test-vic.out`; an
   SGR that changes nothing (the colour in effect, or another SGR before
-  any non-blank byte) fails it.
+  any non-blank byte) fails it. `tools/test-vic.sh -f` runs the same
+  sessions with the Forth editor (`forth vi.fs`) and compares its frames
+  with the same file.
 - `tools/test-vifs.sh`: the Forth editor (`forth vi.fs`) with the keys of
   `tools/test-vi.sh`; the files it writes are compared with
   `tools/test-vifs.out` and with `tools/test-vi.out` (the assembly vi's:

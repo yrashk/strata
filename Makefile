@@ -359,7 +359,8 @@ $(BUILD)/vi-syntax.s: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth
 	python3 tools/vi-syntax.py $@
 
 # the same tables for the Forth port, lang/forth/vi.fs, as Forth source (a disk file next to it)
-$(BUILD)/forth-os/vi-syntax.fs: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth/README.md site/hl.js os/progs/vi.s
+$(BUILD)/forth-os/vi-syntax.fs: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth/README.md site/hl.js os/progs/vi.s \
+                                lang/cc/cc.c $(wildcard lang/cc/lib/include/*.h)
 	@mkdir -p $(BUILD)/forth-os
 	python3 tools/vi-syntax.py $@
 

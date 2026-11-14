@@ -11,6 +11,11 @@
 # :syntax off, and a .h file.
 #
 #   tools/test-vic.sh build/bootrom.stx build/disk.img     (-u: update the .out)
+#   tools/test-vic.sh -f build/bootrom.stx build/disk.img  (the Forth port)
+#
+# With -f the sessions run the Forth port, lang/forth/vi.fs (`forth vi.fs
+# FILE`), with the same keys: its frames must be the same, so they are
+# compared with the same tools/test-vic.out.
 #
 # Each vi session's output (from its size question to the clear at its end)
 # is played into an 80 x 24 grid, as a terminal would, and the last frame
@@ -27,14 +32,15 @@ set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 b="$here/${BUILD:-build}"
 n=${NCORES:-8}
-upd=0
+upd=0; VI=vi; name=vic
 if [ "${1:-}" = "-u" ]; then upd=1; shift; fi
+if [ "${1:-}" = "-f" ]; then VI="forth vi.fs"; name=vicfs; shift; fi
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 E=$(printf '\033'); CB=$(printf '\002')
 {
   # every kind of token, typed in
-  printf 'vi t.c\n'
+  printf '%s t.c\n' "$VI"
   printf 'i#include <stdio.h>\n'
   printf '#define N 0x1Fu /* a\n'
   printf '   comment */ int x;\n'
@@ -49,27 +55,27 @@ E=$(printf '\033'); CB=$(printf '\002')
   printf "\tchar c = '\"'; _Bool b; FILE *f; uint8_t u = 017;\n"
   printf 'out:\treturn 0;\n}%s:wq\n' "$E"
   # the comment's opener goes: the row below it is code again
-  printf 'vi t.c\n9G^2x:q!\n'
+  printf '%s t.c\n9G^2x:q!\n' "$VI"
   # cc.c, from line 9: inside its first comment (lines 1..25)
-  printf 'vi /src/cc.c\nG20G:q\n'
+  printf '%s /src/cc.c\nG20G:q\n' "$VI"
   # a comment over 100 lines: inside it; after its opener goes; from below
   printf "echo '/*' > f.c; seq 100 >> f.c; echo '*/ int' >> f.c; seq 100 >> f.c\n"
-  printf 'vi f.c\n50G:q\n'
-  printf 'vi f.c\n50GggdduG50Gggdd50G:q!\n'
-  printf 'vi f.c\n180G%s%s%s%s:q\n' "$CB" "$CB" "$CB" "$CB"
+  printf '%s f.c\n50G:q\n' "$VI"
+  printf '%s f.c\n50GggdduG50Gggdd50G:q!\n' "$VI"
+  printf '%s f.c\n180G%s%s%s%s:q\n' "$VI" "$CB" "$CB" "$CB" "$CB"
   # a comment typed in insert mode while the screen scrolls
-  printf 'vi g.c\ni/* a\n'
+  printf '%s g.c\ni/* a\n' "$VI"
   i=0; while [ $i -lt 30 ]; do printf 'line %d\n' $i; i=$((i + 1)); done
   printf 'int%s:wq\n' "$E"
   # :syntax off; a .h file
-  printf 'vi t.c\n:syntax off\n:q\n'
-  printf 'vi t.h\ni#ifndef T_H\ntypedef unsigned long size_t; /* x */\n#endif%s:wq\n' "$E"
+  printf '%s t.c\n:syntax off\n:q\n' "$VI"
+  printf '%s t.h\ni#ifndef T_H\ntypedef unsigned long size_t; /* x */\n#endif%s:wq\n' "$VI" "$E"
   printf 'rm t.c f.c g.c t.h\n'
   printf 'echo bye\n\004'
 } >"$tmp/in.txt"
 cp "$2" "$tmp/d.img"
 "$b/strata-emu" -c "$n" -j -T virtual -g none -m 4000000000 -d "$tmp/d.img" -i "$tmp/in.txt" "$1" >"$tmp/raw.out" 2>/dev/null
-fail() { printf '%-14s FAIL  %s\n' vic "$1"; exit 1; }
+fail() { printf '%-14s FAIL  %s\n' $name "$1"; exit 1; }
 grep -q 'all cores halted' "$tmp/raw.out" || fail "the session did not end"
 python3 - "$tmp/raw.out" "$tmp/out.txt" <<'PY' || fail "vi's output is wrong (above)"
 import re, sys
@@ -148,4 +154,4 @@ if [ $upd -eq 1 ]; then cp "$tmp/out.txt" "$here/tools/test-vic.out"; echo "tool
 if ! cmp -s "$tmp/out.txt" "$here/tools/test-vic.out"; then
   diff "$here/tools/test-vic.out" "$tmp/out.txt" | head -40; fail "the frames differ"
 fi
-printf '%-14s OK    C colours: tokens, comments over lines and screens, edits, :syntax off, .h\n' vic
+printf '%-14s OK    C colours: tokens, comments over lines and screens, edits, :syntax off, .h\n' $name
