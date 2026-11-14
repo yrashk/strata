@@ -99,9 +99,12 @@ Each stage ends with the ladder run and its score recorded below.
       __cperms __cvalid`, `__cmov __csplit __cjoin __cshare __crestrict
       __cclear`, `__cgive __ctake __cpoll __csend`, `__csrr __csrw`, `__svc
       __halt`, `__ltag __linst`. Supervisor-only instructions are left to `asm`
-- [ ] `asm` statements: inline Strata assembly, encoded with the instruction
-      table of `as` (`os/progs/as.s`; `asm/sasm.c` for `cc.c`), operands may
-      name C variables
+- [ ] `asm("...")`: inline Strata assembly as `as` reads it, encoded with the
+      instruction table of `as` (`os/progs/as.s`; `asm/sasm.c` for `cc.c`).
+      In a function: lines encoded in place, `{name}` is a C variable as a
+      memory operand, labels are local to the statement; t0..t6, tp, a0..a7
+      are free, s registers, sp and gp are kept. At file scope: defines
+      symbols in the code section, declared to C by a prototype
 
 ## Integration
 - [ ] `cc` and `cc.lib` in the OS image (Makefile), `help` line in the shell
