@@ -7,6 +7,7 @@ Writes gen-insns-*.tex (one per instruction chapter), gen-opmap.tex (the
 opcode map table) and gen-index.tex (the alphabetical instruction index).
 Semantics follow emu/emu.c, the reference emulator.
 """
+import importlib.util
 import os
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
@@ -1187,6 +1188,13 @@ def outputs():
         t += "\\texttt{%s} & " % b(r, 3) + " & ".join(cells) + "\\\\[2pt]\n"
     t += "\\bottomrule\n\\end{tabular}\n\\end{table}\n"
     files["gen-opmap.tex"] = t
+    # the StrataOS chapter's op tables and diagrams, from the servers' sources and the
+    # site's drawings (tools/web-os.py, which also makes the site's tables)
+    spec = importlib.util.spec_from_file_location(
+        "web_os", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tools", "web-os.py"))
+    web_os = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(web_os)
+    files.update(web_os.latex_outputs())
     return files
 
 

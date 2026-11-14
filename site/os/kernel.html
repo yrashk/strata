@@ -66,17 +66,17 @@
 <tr id="svc-1"><td class="n">1</td><td><a class="opname" href="../code/#os/kernel.s:106"><code>WAIT_REPLY</code></a></td><td>a1 doorbell core, a2 timeout (-1 none), a3 awaited base (0 = own buffer, -1 = nothing: a sleep), a4 register it arrives in</td><td>0, -2 interrupted, -8 timed out</td><td class="err"><abbr title="interrupted">-2</abbr> <abbr title="timed out">-8</abbr></td></tr>
 <tr id="svc-2"><td class="n">2</td><td><a class="opname" href="../code/#os/kernel.s:109"><code>RECEIVE</code></a></td><td>(servers) a1 tag mask, a2 timeout</td><td>a0 = token, c6 = request, c7 = its attachment; or -1 with a1 = idle tags; -8</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="timed out">-8</abbr></td></tr>
 <tr id="svc-3"><td class="n">3</td><td><a class="opname" href="../code/#os/kernel.s:111"><code>REPLY</code></a></td><td>a1 token, a2 bit2 send c4 first, bit0 send c7, bit1 (privileged) mint an endpoint for core a3 and send it; then gives c6 back (the receiver gets them in c6, c7)</td><td></td><td class="err"></td></tr>
-<tr id="svc-4"><td class="n">4</td><td><a class="opname" href="../code/#os/kernel.s:114"><code>YIELD</code></a></td><td></td><td></td><td class="err"></td></tr>
-<tr id="svc-5"><td class="n">5</td><td><a class="opname" href="../code/#os/kernel.s:114"><code>EXIT</code></a></td><td>(a1 code)</td><td></td><td class="err"></td></tr>
-<tr id="svc-6"><td class="n">6</td><td><a class="opname" href="../code/#os/kernel.s:114"><code>NOTIFY_WAIT</code></a></td><td>(a2 timeout)</td><td></td><td class="err"></td></tr>
-<tr id="svc-7"><td class="n">7</td><td><a class="opname" href="../code/#os/kernel.s:115"><code>SET_MIRROR</code></a></td><td>a1 arena offset of a far copy of the I-LS program range, a2 length: code is reloaded from it on a switch-in (JITs), and the code cache starts after it</td><td>a1 = NXMAP</td><td class="err"></td></tr>
-<tr id="svc-8"><td class="n">8</td><td><a class="opname" href="../code/#os/kernel.s:118"><code>PARK</code></a></td><td>(c6</td><td>a0 = id)</td><td class="err"></td></tr>
-<tr id="svc-9"><td class="n">9</td><td><a class="opname" href="../code/#os/kernel.s:118"><code>UNPARK</code></a></td><td>(a1 id</td><td>c6)</td><td class="err"></td></tr>
-<tr id="svc-10"><td class="n">10</td><td><a class="opname" href="../code/#os/kernel.s:118"><code>CLOCK</code></a></td><td>(c7)</td><td></td><td class="err"></td></tr>
-<tr id="svc-11"><td class="n">11</td><td><a class="opname" href="../code/#os/kernel.s:119"><code>SET_SCRATCH</code></a></td><td>a1 D-LS start, a2 length (0: none): that range of the data is neither saved nor restored on a switch (undefined after one)</td><td></td><td class="err"></td></tr>
-<tr id="svc-12"><td class="n">12</td><td><a class="opname" href="../code/#os/kernel.s:121"><code>SEND</code></a></td><td>a1 endpoint register (1..7), a5 attachment register (0..7, -1 none), a2..a4 as WAIT_REPLY: the dispatcher sends the attachment and then the buffer (c5) through the endpoint with nothing of this core in between, rings the doorbell and waits like WAIT_REPLY; -1: bad registers (nothing sent)</td><td></td><td class="err"></td></tr>
-<tr id="svc-13"><td class="n">13</td><td><a class="opname" href="../code/#os/kernel.s:126"><code>UNITS</code></a></td><td></td><td>a0 = the code units the dispatcher paged in for this thread so far (xmiss), a1 = the code cache&#x27;s slots now</td><td class="err"></td></tr>
-<tr id="svc-14"><td class="n">14</td><td><a class="opname" href="../code/#os/kernel.s:128"><code>PAGE</code></a></td><td>a1 = a missed far address (utval of an xmiss), a2 = the pc of the miss (uepc): a program that has its own trap handler (which gets its misses) hands one to the dispatcher, which pages the unit in as for its own</td><td>0, or 1 if it cannot (a fault after all)</td><td class="err"></td></tr>
+<tr id="svc-4"><td class="n">4</td><td><a class="opname" href="../code/#os/kernel.s:114"><code>YIELD</code></a></td><td>let the core&#x27;s other runnable threads run</td><td></td><td class="err"></td></tr>
+<tr id="svc-5"><td class="n">5</td><td><a class="opname" href="../code/#os/kernel.s:115"><code>EXIT</code></a></td><td>a1 = exit code (halt also exits, with the code in a0)</td><td></td><td class="err"></td></tr>
+<tr id="svc-6"><td class="n">6</td><td><a class="opname" href="../code/#os/kernel.s:116"><code>NOTIFY_WAIT</code></a></td><td>a2 timeout: block until a notification (an interrupt; a child&#x27;s exit, for proc)</td><td>its bits, -8 timed out</td><td class="err"><abbr title="timed out">-8</abbr></td></tr>
+<tr id="svc-7"><td class="n">7</td><td><a class="opname" href="../code/#os/kernel.s:118"><code>SET_MIRROR</code></a></td><td>a1 arena offset of a far copy of the I-LS program range, a2 length: code is reloaded from it on a switch-in (JITs), and the code cache starts after it</td><td>a1 = NXMAP</td><td class="err"></td></tr>
+<tr id="svc-8"><td class="n">8</td><td><a class="opname" href="../code/#os/kernel.s:121"><code>PARK</code></a></td><td>(servers) the kernel keeps the request in c6</td><td>a0 = its park id: answer it later, after UNPARK</td><td class="err"></td></tr>
+<tr id="svc-9"><td class="n">9</td><td><a class="opname" href="../code/#os/kernel.s:123"><code>UNPARK</code></a></td><td>(servers) a1 = park id: the request returns to c6</td><td></td><td class="err"></td></tr>
+<tr id="svc-10"><td class="n">10</td><td><a class="opname" href="../code/#os/kernel.s:124"><code>CLOCK</code></a></td><td>the clock capability is put in c7 again</td><td></td><td class="err"></td></tr>
+<tr id="svc-11"><td class="n">11</td><td><a class="opname" href="../code/#os/kernel.s:125"><code>SET_SCRATCH</code></a></td><td>a1 D-LS start, a2 length (0: none): that range of the data is neither saved nor restored on a switch (undefined after one)</td><td></td><td class="err"></td></tr>
+<tr id="svc-12"><td class="n">12</td><td><a class="opname" href="../code/#os/kernel.s:127"><code>SEND</code></a></td><td>a1 endpoint register (1..7), a5 attachment register (0..7, -1 none), a2..a4 as WAIT_REPLY: the dispatcher sends the attachment and then the buffer (c5) through the endpoint with nothing of this core in between, rings the doorbell and waits like WAIT_REPLY; -1: bad registers (nothing sent)</td><td></td><td class="err"></td></tr>
+<tr id="svc-13"><td class="n">13</td><td><a class="opname" href="../code/#os/kernel.s:132"><code>UNITS</code></a></td><td></td><td>a0 = the code units the dispatcher paged in for this thread so far (xmiss), a1 = the code cache&#x27;s slots now</td><td class="err"></td></tr>
+<tr id="svc-14"><td class="n">14</td><td><a class="opname" href="../code/#os/kernel.s:134"><code>PAGE</code></a></td><td>a1 = a missed far address (utval of an xmiss), a2 = the pc of the miss (uepc): a program that has its own trap handler (which gets its misses) hands one to the dispatcher, which pages the unit in as for its own</td><td>0, or 1 if it cannot (a fault after all)</td><td class="err"></td></tr>
 </tbody></table></div>
 <!-- /ops:svc -->
   <p class="note">Generated from the dispatcher's own dispatch (<code>wt_svc</code>) and the
@@ -186,8 +186,8 @@
   <text class="mc" x="372" y="80">④ tput</text>
   <text class="m" x="372" y="104">tg14, tg15</text>
   <path class="lna" d="M482,280 C420,280 410,160 362,160" marker-end="url(#cs-a)"/>
-  <text class="ma" x="384" y="226">⑥ tget</text>
-  <text class="m" x="384" y="244">tg12, tg13</text>
+  <text class="ma" x="384" y="300">⑥ tget</text>
+  <text class="m" x="384" y="318">tg12, tg13</text>
   <path class="lna" d="M482,370 H354" marker-end="url(#cs-a)"/>
   <text class="ma" x="378" y="362">⑤ tgetx</text>
   <text class="m" x="378" y="388">first</text>
