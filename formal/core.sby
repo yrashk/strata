@@ -31,9 +31,7 @@ p: depth 2
 cover: mode cover
 cover: depth 6
 reset: mode cover
-reset: depth 262
-# (nothing can be covered inside the reset sequencer: do not look there)
-reset: skip 256
+reset: depth 264
 
 [engines]
 smtbmc bitwuzla

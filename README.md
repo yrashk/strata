@@ -99,7 +99,7 @@ make boot-ws        # the same, with the window server started at boot
 make forth          # a Forth prompt on the bare machine
 make ws-demo        # the window server's renderers against a simulated system
 make conformance    # the conformance suite on the interpreter, the JIT and the RTL
-make formal         # the formal proofs of the RTL (about 25 minutes; not part of make test)
+make formal         # the formal proofs of the RTL (about 40 minutes; not part of make test)
 make bench          # interpreter against JIT, wall time
 make web-site       # build/web-site/: the site with the in-browser emulator
 make debug-pipeline # step an example under strata-dbg (any example: debug-NAME)

@@ -19,7 +19,7 @@ if [ $report = 0 ]; then
     grep -h 'DONE' formal/build/$n.log | sed 's/^SBY [0-9:]* //'
   done
 fi
-printf '\n%-10s %-7s %-6s %-6s %-8s %s\n' target task mode depth result seconds
+printf '\n%-10s %-7s %-6s %-6s %-8s %s\n' target task mode depth result cpu-s
 for n in $names; do
   for t in $(sby --dumptasks formal/$n.sby); do
     d=formal/build/${n}_$t
