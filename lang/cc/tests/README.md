@@ -117,3 +117,12 @@ compiles on the host with the cross compiler and only runs the programs in
 StrataOS (`make test-cc-host`), which is the quick way to try a change to
 `cc.c`. `../examples/cmp.c` is the file comparison that `tools/test-cc-boot.sh` uses to
 check that the compiler reproduces itself.
+
+## What the ladder does not cover
+
+The suites do not call `qsort`, `bsearch` or `<math.h>`, and do not leave
+the scope of a variable-length array by `goto`. `../examples/sort.c`,
+`math.c` and `vla.c` do; `tools/test-cc.sh` compiles and runs them at the
+StrataOS shell with the other examples (`vla.c` with both compilers) and
+compares the session with `tools/test-cc.out`. The mathematical functions
+were also compared with another library: `../lib/src/README.md`.

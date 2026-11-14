@@ -1101,7 +1101,7 @@ there, and `/bin/cc.lib` (the library, its headers, the instruction table
 of `asm("...")`). `cc` is `lang/cc/cc.c` compiled by itself. The bootstrap
 compiler in assembly, `cc0` (with `/bin/cc0.lib`), and the compiler's
 source, `/src/cc.c`, are on the disk too, beside the C examples (`hi.c`,
-`calc.c`, `asm.c`, `cmp.c`): `cc0 -p -h 0 -o cc1 /src/cc.c` compiles the
+`calc.c`, `asm.c`, `sort.c`, `math.c`, `vla.c`, `cmp.c`): `cc0 -p -h 0 -o cc1 /src/cc.c` compiles the
 compiler on the machine.
 
 Utilities: `ls [-t] [PATH]` (files, then facets as `tag/`; `-t` adds each

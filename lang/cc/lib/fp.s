@@ -91,11 +91,8 @@ __funp:
         jr    t6                        ; done
 ; __fnan: a quiet NaN
 __fnan:
-        li    a0, 0xfff                 ; 0x7FF8 << 48
-        slli  a0, a0, 51                ; ...
-        srli  a0, a0, 1                 ; ...
-        slli  a0, a0, 1                 ; (the sign bit clear)
-        srli  a0, a0, 1                 ; ...
+        li    a0, 0xfff                 ; 0x7FF8 << 48: the exponent all ones, the
+        slli  a0, a0, 51                ; first fraction bit, the sign clear
         ret                             ; done
 ; __fnorm: give both mantissas their leading bit at bit 52 (the implicit bit of
 ; a normal number; a subnormal is shifted up, its exponent going below 1).

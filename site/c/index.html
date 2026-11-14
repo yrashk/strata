@@ -46,9 +46,9 @@
   </div>
   <div class="stats">
     <div class="stat hot"><b>521 / 521</b><span>conformance tests, both compilers</span></div>
-    <div class="stat"><b>5,400</b><span>lines of C: the compiler</span></div>
+    <div class="stat"><b>5,500</b><span>lines of C: the compiler</span></div>
     <div class="stat"><b>13,900</b><span>lines of assembly: the bootstrap</span></div>
-    <div class="stat"><b>108 KiB</b><span>of its own code, paged in 4 KiB units</span></div>
+    <div class="stat"><b>106 KiB</b><span>of its own code, paged in 4 KiB units</span></div>
     <div class="stat"><b>40 KiB</b><span>of data: all a program has</span></div>
   </div>
 </header>
@@ -86,7 +86,7 @@ c2 /bin/cc: same</pre>
   <div class="chain">
     <div><code>cc0(cc.c) = cc1</code><span>The bootstrap compiler only has to be good enough to compile <code>cc.c</code>.
       It was taken further: it passes the same tests.</span></div>
-    <div><code>cc1(cc.c) = c2</code><span>From here on the compiler is its own product. Its 108 KiB of code do not fit the
+    <div><code>cc1(cc.c) = c2</code><span>From here on the compiler is its own product. Its 106 KiB of code do not fit the
       32 KiB instruction store: it pages itself.</span></div>
     <div><code>c2(cc.c) = c3 = c2</code><span>The fixed point. Any difference between these two would be a bug in the
       compiler that compiling a compiler is large enough to show.</span></div>
@@ -114,6 +114,14 @@ c2 /bin/cc: same</pre>
       <p><code>float</code> and <code>double</code> are IEEE 754 in software, round to nearest even, in the
         library. The compiler folds constants with the same routines the programs
         call.</p></div>
+    <div class="card"><h3>A library that is partly source</h3>
+      <p>What every program needs is 9 KiB of assembly in each image. <code>qsort</code>, <code>bsearch</code>
+        and <code>&lt;math.h&gt;</code> are C source inside the library file: the compiler compiles the
+        functions a program calls after the program itself, and no other program pays for them.</p></div>
+    <div class="card"><h3>Arrays sized at run time</h3>
+      <p>A frame has a fixed size here, so a variable-length array comes from the heap and is given back
+        wherever control leaves its scope: the end of the block, <code>return</code>, <code>break</code>,
+        <code>continue</code>, and <code>goto</code> in either direction.</p></div>
   </div>
 </section>
 
@@ -198,15 +206,14 @@ printf(<span class="s">"%lx, the arena is %ld KiB\n"</span>,
     </table>
   </div>
   <p class="note">The tests, their licences and the runner are in
-    <a class="srcpath" href="https://github.com/yrashk/strata/tree/main/lang/cc/tests">lang/cc/tests</a>. What the library does not have yet:
-    <code>qsort</code>, <code>bsearch</code>, <code>&lt;math.h&gt;</code>.</p>
+    <a class="srcpath" href="https://github.com/yrashk/strata/tree/main/lang/cc/tests">lang/cc/tests</a>.</p>
 </section>
 
 <section class="section" id="try">
   <h2><span class="num">06</span>Try it</h2>
   <div class="card accent">
     <p>The play page boots StrataOS in your browser and types the first command for you. Then it is your shell:
-      <code>cat /src/hi.c</code>, <code>cc -o calc /src/calc.c</code>, <code>cc /src/asm.c</code>, or write a
+      <code>cat /src/hi.c</code>, <code>cc -o calc /src/calc.c</code>, <code>cc /src/math.c</code>, <code>cc /src/asm.c</code>, or write a
       program with <code>vi</code>. The bootstrap above runs there too; give it a few minutes.</p>
     <p class="cta play-cta"><a class="btn" href="../play/?run=cc">Boot StrataOS and compile hi.c</a></p>
   </div>

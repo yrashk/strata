@@ -51,7 +51,7 @@ const PRESETS = {
     fitScreen: true,
     sound: true,
     type: "cc /src/hi.c && hi\n",
-    about: "StrataOS with its C compiler: the page types cc /src/hi.c && hi at the shell's first prompt, which compiles the program on the machine and runs it. Then try cat /src/hi.c, cc -o calc /src/calc.c, cc /src/asm.c, or write a program with vi. cc is written in C and compiles itself; cc0, the compiler in assembly that it was bootstrapped from, is on the disk too, with the source in /src/cc.c.",
+    about: "StrataOS with its C compiler: the page types cc /src/hi.c && hi at the shell's first prompt, which compiles the program on the machine and runs it. Then try cat /src/hi.c, cc -o calc /src/calc.c, cc /src/math.c, cc /src/asm.c, or write a program with vi. cc is written in C and compiles itself; cc0, the compiler in assembly that it was bootstrapped from, is on the disk too, with the source in /src/cc.c.",
   },
   wdoom: {
     files: ["bootrom.stx", "disk-wdoom.img"],

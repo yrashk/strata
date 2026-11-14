@@ -10,6 +10,10 @@
 #       libc.sym    its exported names: 24-byte records { name[20], u32 address }
 #                   for every `.global NAME` of libc.s, addresses from sasm's map
 #       NAME.h      the headers
+#       asm.tab     the instructions of asm("...") (mkasm.py)
+#       NAME.c      library functions as C source (lib/src): cc reads one from
+#                   the file when a program needs it. What comes before them
+#                   is what cc keeps in its arena, in 32 KiB.
 #       cc.units    the compiler's own code units (the T3 section of the image
 #                   sasm made of cc.s); always the last member: cc copies it to
 #                   the bottom of its arena at start-up and pages its code from
@@ -38,7 +42,7 @@ for name in re.findall(r"^\s*\.global\s+(\w+)", open(src).read(), re.M):
     assert len(name) < 20, name
     sym += name.encode().ljust(20, b"\0") + struct.pack("<I", addr[name])
 members = [("libc.text", sect[1][1]), ("libc.data", sect[2][1]), ("libc.sym", sym)]
-for h in sys.argv[5:]:
+for h in sorted(sys.argv[5:], key=lambda f: f.endswith(".c")):
     members.append((os.path.basename(h), open(h, "rb").read()))
 if ccfull:
     full = open(ccfull, "rb").read()
@@ -55,8 +59,12 @@ if ccfull:
     open(ccprog, "wb").write(b"STX2" + struct.pack("<I", len(keep)) + b"".join(keep))
 pos = 8 + 32 * (len(members) + 1)
 dirb, body = b"", b""
+insrc = False
 for name, data in members:
     assert len(name) < 24, name
+    if name.endswith(".c") and not insrc:
+        insrc = True
+        assert pos <= 0x8000, "cc.lib: the library and the headers must fit 32 KiB"
     dirb += name.encode().ljust(24, b"\0") + struct.pack("<II", pos, len(data))
     data += b"\0" * (-len(data) % 8)
     body += data; pos += len(data)

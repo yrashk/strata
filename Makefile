@@ -396,6 +396,8 @@ $(BUILD)/prog/as: os/progs/as.s $(BUILD)/sasm
 CC_SRC  := $(wildcard lang/cc/*.s) lang/cc/lib/rt.s
 CC_HDRS := $(sort $(wildcard lang/cc/lib/include/*.h))
 CC_LIBIN := $(BUILD)/cc/libc.stx $(BUILD)/cc/libc.map lang/cc/lib/libc.s $(CC_HDRS) $(BUILD)/cc/asm.tab
+# library functions in C (lang/cc/lib/src/README.md): only cc has them
+CC_LIBSRC := $(sort $(wildcard lang/cc/lib/src/*.c))
 # the instruction table of asm("..."), made from the assembler itself
 $(BUILD)/cc/asm.tab: lang/cc/lib/mkasm.py asm/sasm.c $(BUILD)/sasm
 	@mkdir -p $(BUILD)/cc
@@ -403,8 +405,8 @@ $(BUILD)/cc/asm.tab: lang/cc/lib/mkasm.py asm/sasm.c $(BUILD)/sasm
 $(BUILD)/cc/libc.stx: lang/cc/lib/libc.s lang/cc/lib/rt.s lang/cc/lib/fp.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/cc
 	$(BUILD)/sasm -T 0x8000 -I lang/cc/lib -g $(BUILD)/cc/libc.map -o $@ lang/cc/lib/libc.s
-$(BUILD)/cc/cc.lib: $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS) $(BUILD)/cc/asm.tab
-	python3 lang/cc/lib/mklib.py $@ $(CC_LIBIN)
+$(BUILD)/cc/cc.lib: $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS) $(BUILD)/cc/asm.tab $(CC_LIBSRC)
+	python3 lang/cc/lib/mklib.py $@ $(CC_LIBIN) $(CC_LIBSRC)
 $(BUILD)/strata-cc: lang/cc/cc.c lang/cc/host/host.c lang/cc/host/strata.h
 	@mkdir -p $(BUILD)
 	$(CC) -O2 -w -Ilang/cc/host -o $@ lang/cc/cc.c lang/cc/host/host.c
