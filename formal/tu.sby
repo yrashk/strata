@@ -1,0 +1,22 @@
+# strata_tu (formal/props/strata_tu.svh).
+#   prove  all properties, by induction
+#   cover  the properties are not vacuous
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+prove: depth 4
+cover: mode cover
+cover: depth 40
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -formal -sv strata.v
+prep -top strata_tu
+
+[files]
+formal/build/strata.v

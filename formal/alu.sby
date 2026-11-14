@@ -1,0 +1,20 @@
+# strata_alu against its specification (formal/spec/alu_spec.sv).
+# Combinational: one time step decides it.
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+cover: mode cover
+depth 1
+
+[engines]
+smtbmc bitwuzla
+
+[script]
+read_verilog -formal -sv strata.v
+prep -top alu_spec
+
+[files]
+formal/build/strata.v

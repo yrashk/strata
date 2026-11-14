@@ -154,6 +154,9 @@ test-small:
 # conformance/tests/lssize.s (which needs a 16 KiB D-LS: the harness's
 # signature buffer), and on StrataOS refusing the machine (it needs 64 KiB of
 # each; 64/32, which the kernel itself refuses, on the emulator only).
+# Last, with 4/4 KiB and two cores (build-f44/): the two programs that
+# reproduce what the formal proofs found (formal/FINDINGS.md F1, F2), emulator
+# against RTL.
 LSA := $(BUILD)/ls32
 LSB := $(BUILD)/ls16-4
 LSC := $(BUILD)/ls4-32
@@ -171,6 +174,7 @@ test-ls: os
 	BUILD=$(LSC) NCORES=$(NCORES) EMU_ARGS="-L 4,32" ./tools/compare.sh $(patsubst %,$(LSC)/examples/%.stx,$(LSC_EXAMPLES))
 	BUILD=$(LSC) NCORES=$(NCORES) EMU_ARGS="-L 4,32" ./tools/test-ls-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) EMU_ARGS="-L 64,32" RTL=none ./tools/test-ls-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	./formal/repro/run.sh
 
 run: all examples
 	@for img in $(IMAGES); do \
@@ -575,6 +579,24 @@ conformance: all
 
 fuzz: all
 	BUILD=$(BUILD) NCORES=$(NCORES) python3 conformance/fuzz/fuzz.py -n $(SEEDS) -s $(FIRST)
+
+# ---- formal verification (formal/): make formal, make formal-NAME --------------
+# SymbiYosys proofs of the RTL, one formal/NAME.sby per target (formal/README.md
+# says what each proves and assumes). Not part of `make test`: some are slow.
+# The RTL is converted with sv2v as for synthesis, with FORMAL defined, which
+# brings in the property files (formal/props/) and the specifications
+# (formal/spec/).
+FORMAL_TARGETS := $(patsubst formal/%.sby,%,$(wildcard formal/*.sby))
+.PHONY: formal formal-report $(addprefix formal-,$(FORMAL_TARGETS))
+formal/build/strata.v: $(RTL) $(wildcard formal/spec/*.sv formal/props/*.svh)
+	@mkdir -p formal/build
+	sv2v -DFORMAL -Iformal/props -E assert $(RTL) $(wildcard formal/spec/*.sv) > $@
+$(addprefix formal-,$(FORMAL_TARGETS)): formal-%: formal/build/strata.v
+	sby -f --prefix formal/build/$* formal/$*.sby
+formal: formal/build/strata.v
+	./formal/run.sh
+formal-report:
+	./formal/run.sh -r
 
 # ---- the JIT (emu/jit/): make test-jit, make bench ----------------------------
 .PHONY: test-jit bench
