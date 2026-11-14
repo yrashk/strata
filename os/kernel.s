@@ -111,11 +111,17 @@
 ;   a0 = 3 REPLY       a1 token, a2 bit2 send c4 first, bit0 send c7, bit1
 ;                      (privileged) mint an endpoint for core a3 and send it;
 ;                      then gives c6 back (the receiver gets them in c6, c7)
-;   a0 = 4 YIELD       a0 = 5 EXIT (a1 code)    a0 = 6 NOTIFY_WAIT (a2 timeout)
+;   a0 = 4 YIELD       let the core's other runnable threads run
+;   a0 = 5 EXIT        a1 = exit code (halt also exits, with the code in a0)
+;   a0 = 6 NOTIFY_WAIT a2 timeout: block until a notification (an interrupt; a
+;                      child's exit, for proc) -> its bits, -8 timed out
 ;   a0 = 7 SET_MIRROR  a1 arena offset of a far copy of the I-LS program range,
 ;                      a2 length: code is reloaded from it on a switch-in (JITs),
 ;                      and the code cache starts after it; -> a1 = NXMAP
-;   a0 = 8 PARK (c6 -> a0 = id)   a0 = 9 UNPARK (a1 id -> c6)   a0 = 10 CLOCK (c7)
+;   a0 = 8 PARK        (servers) the kernel keeps the request in c6 -> a0 =
+;                      its park id: answer it later, after UNPARK
+;   a0 = 9 UNPARK      (servers) a1 = park id: the request returns to c6
+;   a0 = 10 CLOCK      the clock capability is put in c7 again
 ;   a0 = 11 SET_SCRATCH a1 D-LS start, a2 length (0: none): that range of the data
 ;                      is neither saved nor restored on a switch (undefined after one)
 ;   a0 = 12 SEND       a1 endpoint register (1..7), a5 attachment register (0..7,
