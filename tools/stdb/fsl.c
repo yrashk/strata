@@ -192,35 +192,38 @@ static void tag_count(Fs *fs, uint32_t id, int d) {
 
 /* ---- files ----------------------------------------------------------------- */
 
-/* The name index: (tag id, name) -> object, an entry for every directory
- * (tag) the file is in; tag id 0 for a file in none (the root). */
-static int nkey(uint8_t *k, uint32_t tag, const char *name, int nl) {
-  pbe32(k, tag);
-  memcpy(k + 4, name, (size_t)nl);
-  return nl + 4;
+/* The name index. A file's directory is the set of its tags, and a name is
+ * unique within a directory: the key is the tag ids in ascending order (u32
+ * big-endian each), four zero bytes (no tag has id 0), the name. A file with
+ * no tag is in the root: four zero bytes, the name. One entry a file. */
+static int nkey(uint8_t *k, const uint32_t *tags, int nt, const char *name, int nl) {
+  uint32_t t[256];
+  int n = 0;
+  for (int i = 0; i < nt; i++) { /* sorted, each once */
+    int j = n;
+    while (j > 0 && t[j - 1] >= tags[i]) j--;
+    if (j < n && t[j] == tags[i]) continue;
+    memmove(t + j + 1, t + j, (size_t)(n - j) * sizeof *t);
+    t[j] = tags[i];
+    n++;
+  }
+  for (int i = 0; i < n; i++) pbe32(k + 4 * i, t[i]);
+  pbe32(k + 4 * n, 0);
+  memcpy(k + 4 * n + 4, name, (size_t)nl);
+  return 4 * n + 4 + nl;
 }
 
-static int64_t name_get(Fs *fs, uint32_t tag, const char *name, int nl) {
-  uint8_t k[4 + FS_NAMEMAX], v[8];
-  int vl;
-  if (nl < 1 || nl > FS_NAMEMAX || !st_get(fs->st, fs->name, k, nkey(k, tag, name, nl), v, &vl, NULL)) return -1;
+static int64_t name_get(Fs *fs, const uint32_t *tags, int nt, const char *name, int nl) {
+  uint8_t k[4 * 257 + FS_NAMEMAX], v[8];
+  int vl, kl;
+  if (nl < 1 || nl > FS_NAMEMAX || (kl = nkey(k, tags, nt, name, nl)) > st_maxkey(fs->st)) return -1;
+  if (!st_get(fs->st, fs->name, k, kl, v, &vl, NULL)) return -1;
   return (int64_t)g64(v);
 }
 
-static void names_set(Fs *fs, const FsRec *r, int put) {
-  uint8_t k[4 + FS_NAMEMAX], v[8];
-  p64(v, r->oid);
-  for (int i = 0; i < (r->ntags ? r->ntags : 1); i++) {
-    int kl = nkey(k, r->ntags ? r->tags[i] : 0, r->name, r->nl);
-    if (put) st_put(fs->st, fs->name, k, kl, v, 8, 0);
-    else st_del(fs->st, fs->name, k, kl);
-  }
-}
-
-/* A path: the directories (tags) a file must be in, then its name; without
- * directories, a file in the root. -1: no such file. */
+/* A path: the directory (its tags, in any order), then the file's name;
+ * without tags, a file in the root. -1: no such file. */
 int64_t fs_lookup(Fs *fs, const char *path) {
-  static FsRec r;
   uint32_t tags[64];
   int nt = 0;
   const char *p = path, *name = path;
@@ -238,15 +241,7 @@ int64_t fs_lookup(Fs *fs, const char *path) {
     tags[nt++] = (uint32_t)id;
     p = e;
   }
-  int64_t oid = name_get(fs, nt ? tags[0] : 0, name, nl);
-  if (oid < 0 || nt < 2) return oid;
-  if (fs_rec(fs, (uint64_t)oid, &r)) return -1;
-  for (int i = 1; i < nt; i++) {
-    int has = 0;
-    for (int j = 0; j < r.ntags; j++) has |= r.tags[j] == tags[i];
-    if (!has) return -1;
-  }
-  return oid;
+  return name_get(fs, tags, nt, name, nl);
 }
 
 /* Every object in id order: *oid = 0 at first. */
@@ -264,7 +259,7 @@ int fs_next(Fs *fs, uint64_t *oid) {
 int64_t fs_find(Fs *fs, const char *name) {
   static FsRec r;
   int nl = (int)strlen(name);
-  int64_t found = name_get(fs, 0, name, nl);
+  int64_t found = name_get(fs, NULL, 0, name, nl);
   if (found >= 0) return found;
   for (uint64_t oid = 0; fs_next(fs, &oid);) {
     if (fs_rec(fs, oid, &r) || r.nl != nl || memcmp(r.name, name, (size_t)nl)) continue;
@@ -311,21 +306,23 @@ int64_t fs_add(Fs *fs, const char *name, const uint8_t *data, uint64_t len,
     if (id < 0 || tags[i][0] == '-' || r.ntags == 256) { snprintf(fs->msg, sizeof fs->msg, "bad tag name: %s", tags[i]); return -1; }
     for (int j = 0; j < r.ntags; j++) dup |= r.tags[j] == (uint32_t)id;
     if (dup) continue;
-    if (name_get(fs, (uint32_t)id, name, nl) >= 0) { snprintf(fs->msg, sizeof fs->msg, "two files named %s in %s", name, tags[i]); return -1; }
     r.tags[r.ntags++] = (uint32_t)id;
     tag_count(fs, (uint32_t)id, 1);
     pbe32(v, (uint32_t)id);
     idx(fs, 1, FS_A_TAG, v, 4, r.oid);
   }
-  if (!r.ntags) { /* in no directory: in the root, and indexed under tag 0 */
-    if (name_get(fs, 0, name, nl) >= 0) { snprintf(fs->msg, sizeof fs->msg, "two files named %s in the root", name); return -1; }
-    pbe32(v, 0);
-    idx(fs, 1, FS_A_TAG, v, 4, r.oid);
+  {
+    uint8_t nk[4 * 257 + FS_NAMEMAX];
+    int nkl = nkey(nk, r.tags, r.ntags, name, nl);
+    if (nkl > st_maxkey(fs->st)) { snprintf(fs->msg, sizeof fs->msg, "too deep a directory for %s", name); return -1; }
+    if (st_get(fs->st, fs->name, nk, nkl, v, NULL, NULL)) { snprintf(fs->msg, sizeof fs->msg, "two files named %s in one directory", name); return -1; }
+    p64(v, r.oid);
+    st_put(fs->st, fs->name, nk, nkl, v, 8, 0);
   }
+  if (!r.ntags) { pbe32(v, 0); idx(fs, 1, FS_A_TAG, v, 4, r.oid); } /* in the root: indexed under tag 0 */
   pbe64(k, r.oid);
   if (len || boot) st_bwrite(fs->st, fs->ns, fs->data, k, 8, 0, data, len, boot);
   p64(v, r.oid);
-  names_set(fs, &r, 1);
   idx_int(fs, 1, FS_A_SIZE, r.size, r.oid);
   idx_int(fs, 1, FS_A_MOD, r.modified, r.oid);
   if (boot) { idx(fs, 1, FS_A_BOOT, v, 0, r.oid); fs->bootdirty = 1; }
@@ -421,8 +418,8 @@ int fs_check(Fs *fs, FILE *out) {
     nobj++;
     if (kl != 8 || fs_rec(fs, oid, &r)) { BAD("object %llu: bad record", (unsigned long long)oid); continue; }
     if (oid >= fs->nextoid) BAD("object %llu: beyond the next id", (unsigned long long)oid);
-    for (int i = 0; i < (r.ntags ? r.ntags : 1); i++, nnames++)
-      if (name_get(fs, r.ntags ? r.tags[i] : 0, r.name, r.nl) != (int64_t)oid) BAD("%s: not under its name in directory %u", r.name, r.ntags ? r.tags[i] : 0);
+    nnames++;
+    if (name_get(fs, r.tags, r.ntags, r.name, r.nl) != (int64_t)oid) BAD("%s: not under its name in its directory", r.name);
     int64_t ds = st_bsize(st, fs->data, k, 8);
     if ((ds < 0 ? 0 : (uint64_t)ds) != r.size) BAD("%s: size %llu but %lld bytes of contents", r.name, (unsigned long long)r.size, (long long)ds);
     pbe64(b, r.size);
@@ -447,7 +444,7 @@ int fs_check(Fs *fs, FILE *out) {
   if (nobj != fs->nobj) BAD("%llu objects, the count says %llu", (unsigned long long)nobj, (unsigned long long)fs->nobj);
   /* every name entry was looked for from its record: as many entries as that, and no more */
   for (kl = 0, n = 0; st_seek(st, fs->name, k, kl, ST_GT, k, &kl, v, &vl, NULL); n++)
-    if (vl != 8 || kl < 5 || fs_rec(fs, g64(v), &r) || r.nl != kl - 4 || memcmp(r.name, k + 4, (size_t)kl - 4)) BAD("a name without its object");
+    if (vl != 8 || kl < 5 || fs_rec(fs, g64(v), &r) || kl != 4 * r.ntags + 4 + r.nl || memcmp(r.name, k + kl - r.nl, (size_t)r.nl)) BAD("a name without its object");
   if (n != nnames) BAD("%llu name entries, the records account for %llu", (unsigned long long)n, (unsigned long long)nnames);
   /* every index entry was looked for from its record: as many entries as that, and no more */
   for (kl = 0, n = 0; st_seek(st, fs->attr, k, kl, ST_GT, k, &kl, NULL, NULL, NULL); n++) {}

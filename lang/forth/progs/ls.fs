@@ -44,8 +44,8 @@ variable #tagb  variable tagb?                  \ -t: every tag is in tagb (read
     hdr 0 64 5 tget 32 twait  hdr 8 + @ cursor !  hdr 24 + @ facets @ or facets !
     inb hdr 16 + @ 4032 min msg>  dup #files +!
     inb dup @ 4 * 15 + -8 and +                 \ (the path's own tags come first)
-    swap 0 ?do dup file. rec-next loop drop
+    swap 0 ?do dup rec-name nip if dup file. else -1 #files +! then rec-next loop drop \ (no name: a deeper directory's file)
   cursor @ 0= until
-  #files @ 0=  facets @ -1 <> and if ." (no files)" cr exit then \ (the root: its directories, files or not)
+  #files @ 0=  facets @ 0= and if ." (no files)" cr exit then
   facets. ;
 ' ls-main main: ls

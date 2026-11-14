@@ -281,7 +281,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "files: no directories, tags; /a/b/f is f if it carries a and b\n" ; (continued)
          .ascii "  f (no leading /) is under the current path: f there carries its tags\n" ; (continued)
          .ascii "  ls [-t] [/a/-b]  the files in a, not in b (and its subdirectories, c/); ls -A: every file\n" ; (continued)
-         .ascii "  a tag is a directory: a file is in each one it has (none: in /); a name is one per directory\n" ; (continued)
+         .ascii "  a file's tags are its directory (/a/b = /b/a; none: /); tag, untag, retag and mv move it\n" ; (continued)
          .ascii "  cat cp [-t] mv rm touch df   tag untag retag FILE TAG...   tags [FILE]\n" ; (continued)
          .ascii "programs:\n"           ; (continued)
          .ascii "  ps free uptime date devs hexdump cores sched\n" ; (continued)
@@ -1537,11 +1537,7 @@ etb_fac:
         ld    t0, 0(t0)                 ; ...
         bnez  t0, etb_fc                ; in one
         bnez  s2, etb_got               ; a command: none
-        la    t0, g_cwdl                ; an argument away from the root: the
-        ld    t0, 0(t0)                 ; current path's facets
-        li    t1, 1                     ; ...
-        bleu  t0, t1, etb_got           ; at the root: none
-etb_fc:
+etb_fc:                                 ; an argument: the current directory's (at the root: every directory)
         la    t0, g_cfac                ; ...
         ld    t0, 0(t0)                 ; ...
         beqz  t0, etb_got               ; none

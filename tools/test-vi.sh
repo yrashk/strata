@@ -93,7 +93,7 @@ CB=$(printf '\002'); CC=$(printf '\003'); CG=$(printf '\007')
   printf 'x:e w1\n:e! w1\nx:x\n'
   printf 'cat n1; cat w1\n'
   # highlighting: assembly, Forth, a ( comment over two lines
-  printf 'vi /src/hello.s\n45G:q\n'
+  printf 'vi /src/demo/hello.s\n45G:q\n'
   printf 'vi /forth/gfx.fs\n:q\n'
   printf 'vi m.fs\n'
   printf 'i( open\nstill ) : w ;%s:wq\n' "$E"

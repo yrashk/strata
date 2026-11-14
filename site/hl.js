@@ -9,7 +9,8 @@
 // source browser, from its manifest via StrataHL.init(). Without them the
 // scanners still colour comments, labels, numbers, strings and c/tg registers.
 //
-// On load, every <pre><code class="language-strata-asm"> and
+// On load, every <pre><code class="language-strata-asm">,
+// <pre><code class="language-c"> and
 // <pre><code class="language-forth"> is coloured. A Forth block with
 // data-session is a transcript: a trailing "ok" is the prompt, and indented
 // "addr:  insn" lines (the output of see) are coloured as assembly.
@@ -162,6 +163,55 @@
     });
   }
 
+  // -------------------------------------------------------------- C
+  // (the compiler lang/cc and its programs). A comment may run over lines;
+  // the intrinsics and asm are coloured as what they are: the machine.
+  const C_CTL = new Set("if else for while do switch case default break continue return goto sizeof".split(" "));
+  const C_TYPE = new Set(("void char short int long float double signed unsigned _Bool struct union enum typedef " +
+    "static extern const volatile register auto inline restrict size_t ptrdiff_t wchar_t va_list FILE " +
+    "int8_t int16_t int32_t int64_t uint8_t uint16_t uint32_t uint64_t intptr_t uintptr_t bool").split(" "));
+  const RE_C = /\/\*|\/\/.*$|L?"(?:[^"\\]|\\.)*"?|L?'(?:\\.|[^'\\])*'?|\b(?:0[xX][0-9a-fA-F.]+(?:[pP][+-]?\d+)?|\d[\d.]*(?:[eE][+-]?\d+)?)[uUlLfF]*\b|[A-Za-z_]\w*/g;
+  const RE_CPP = /^(\s*#\s*[a-z_]*)(.*)$/;
+
+  function cLines(lines) {
+    let inCom = false;
+    return lines.map((s) => {
+      let o = "", p = 0;
+      if (inCom) {
+        const e = s.indexOf("*/");
+        if (e < 0) return sp("c", s);
+        o = sp("c", s.slice(0, e + 2)); p = e + 2; inCom = false;
+      } else {
+        const m = RE_CPP.exec(s);
+        if (m) {                  // a directive; what follows is scanned as C (an include's <name> is a string)
+          o = sp("d", m[1]); p = m[1].length;
+          const inc = /^(\s*)(<[^>]*>)/.exec(m[2]);
+          if (/include\s*$/.test(m[1]) && inc) { o += esc(inc[1]) + sp("s", inc[2]); p += inc[0].length; }
+        }
+      }
+      RE_C.lastIndex = p;
+      let m, last = p;
+      while ((m = RE_C.exec(s))) {
+        o += esc(s.slice(last, m.index));
+        const t = m[0];
+        last = m.index + t.length;
+        if (t === "/*") {
+          const e = s.indexOf("*/", last);
+          if (e < 0) { o += sp("c", s.slice(m.index)); inCom = true; last = s.length; break; }
+          o += sp("c", s.slice(m.index, e + 2)); last = RE_C.lastIndex = e + 2;
+        } else if (t.startsWith("//")) o += sp("c", t);
+        else if (t[0] === '"' || t[0] === "'" || ((t[0] === "L") && (t[1] === '"' || t[1] === "'"))) o += sp("s", t);
+        else if (/^\d/.test(t)) o += sp("n", t);
+        else if (C_CTL.has(t)) o += sp("f-ctl", t);
+        else if (C_TYPE.has(t)) o += sp("d", t);
+        else if (t === "asm" || t === "__asm__" || /^__[a-z]/.test(t)) o += sp("k-xfer", t);
+        else if (RE_CAPS.test(t)) o += sp("kc", t);
+        else o += esc(t);
+      }
+      return o + esc(s.slice(last));
+    });
+  }
+
   // A Forth transcript: input lines answered by "ok", and see's disassembly.
   const RE_DIS = /^(\s+)([0-9a-f]+:)(.*)$/;
   const RE_OK = /^(.*?)(\s+)(ok)(\s*)$/;
@@ -181,13 +231,14 @@
     const text = el.textContent.replace(/\n$/, "");
     const lines = text.split("\n");
     const forth = el.classList.contains("language-forth");
-    const out = forth ? ("session" in el.dataset ? sessionLines(lines) : forthLines(lines)) : asmLines(lines);
+    const out = el.classList.contains("language-c") ? cLines(lines)
+      : forth ? ("session" in el.dataset ? sessionLines(lines) : forthLines(lines)) : asmLines(lines);
     el.innerHTML = out.join("\n");
     el.dataset.hl = "done";
     el.classList.add("hl");
   }
   function highlightAll(root) {
-    for (const el of (root || document).querySelectorAll("code.language-strata-asm, code.language-forth")) colour(el);
+    for (const el of (root || document).querySelectorAll("code.language-strata-asm, code.language-forth, code.language-c")) colour(el);
   }
 
   // -------------------------------------------------------------- hover help
@@ -249,7 +300,7 @@
   });
   addEventListener("scroll", () => { if (tip) tip.hidden = true; }, { passive: true, capture: true });
 
-  window.StrataHL = { init, asmLines, forthLines, sessionLines, highlightAll, colour };
+  window.StrataHL = { init, asmLines, forthLines, cLines, sessionLines, highlightAll, colour };
   if (window.STRATA_SYNTAX) init(window.STRATA_SYNTAX);
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => highlightAll());
   else highlightAll();
