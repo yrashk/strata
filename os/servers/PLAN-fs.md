@@ -156,6 +156,67 @@ decisions taken.
 - [x] The server no longer carries `sys.s` (it used one message and three
       buffers of it): about 5 KiB of its I-LS are free
 
+## Stage 9: the server's code in units
+- [x] Seldom used handlers are code units in the image's `.far` section,
+      paged into the I-LS by the dispatcher when entered (`fsunits.s`:
+      the rules of a unit; `fs_trap` hands a miss over with `svc` PAGE):
+      the store's calls for programs, snapshots, boot objects, QUERY /
+      TAGS2, TAG / UNTAG / RENAME / CWD, attributes. Units of 2 KiB; the
+      resident code is 25 KiB of the 32, the code cache has three slots
+- [x] `tools/check-fsunits.py` (in `make test`): no jump leaves its unit
+- [ ] A boot on the RTL with the paged server compared with the emulator's
+
+## Stage 10: names per directory
+A name need only be unique within a directory. A directory is a tag, and
+every tag is a directory. A file is listed in each directory it is
+assigned to and nowhere else; a file with no tag is in the root. `ls /`
+shows the unassigned files and every directory. Tags stay intersections:
+`/src/demo` is what is in both.
+- [ ] The rules written into `doc/strata-fs-proposal.md` (a section of its
+      own) and `doc/strata-store-format.md` (the name index's new key)
+- [ ] The name index: tree `names`, key (tag id big-endian, name) -> file,
+      an entry per directory the file is in, tag id 0 for an unassigned
+      file. A disk with the old `name` tree is refused
+- [ ] Host: `tools/stdb/fsl.c` (add, lookup by path, check, dump in an
+      order that does not depend on ids), `mkdisk` (refuses two files of
+      one name in one directory, two boot objects of one name), `stdb ls
+      / get` by path, `many.c`, `test.c`
+- [ ] `fs`: a path resolves as the name in its first directory, checked
+      against the others; a bare name means the current directory (at the
+      root: the unassigned files); create, delete, the index entry per
+      directory
+- [ ] `fs`: TAG refuses a directory that has the name; UNTAG of the last
+      tag leaves the file in the root (refused if the root has the name)
+- [ ] `fs`: RENAME is a move: with directories in the new path the file's
+      directories become exactly those; a bare new name changes only the
+      name. It replaces a file of that name only if that file is in no
+      other directory; otherwise it is refused
+- [ ] `fs`: the root's listing: unassigned files, and every directory as a
+      facet; a way to list every file with its directories (`ls -A`)
+- [ ] Snapshots, attributes, terms, boot objects (the manifest names them
+      without a directory: no two boot objects of one name) still right
+- [ ] `proc`: the servers it starts by name (`tty`, `pipe`, `net`) by
+      their directory; SPAWN takes the path as given, relative to the
+      requester's directory
+- [ ] The shell: commands without a `/` in the current directory, then
+      along a search path (default `/bin`); `rc` and `motd` by directory;
+      completion of commands from the search path
+- [ ] `mkdisk` arguments in the Makefile: the demo programs in `bin` too;
+      nothing the standard disk needs is left unassigned by accident
+- [ ] `net` (`/etc/resolv`), `httpd` and `httpd.fs` (`/~/`: every file),
+      `ws` (the programs it starts), `guest`, `as`, `vi`
+- [ ] Forth: `include` paths (`/forth/sys.fs` ...), the ports
+- [ ] `wdoom`, `kira`: nothing to do (they open `/ws/...`); checked
+- [ ] The C compiler (`lang/cc`, another session's): told the rule; its
+      files opened by directory path
+- [ ] Tests: `test-store.sh`, `test-files.sh`, `test-sh.sh` and its
+      expected output, `test-fs-progs.sh`, `test-http`, `test-ws`,
+      `test-vi`, `test-vifs`, `test-forth`, `os/demo.txt` and the RTL
+      comparison; new cases: one name in two directories, a refused TAG,
+      a move, a bare name in the root and in a directory
+- [ ] `doc/strataos.md`, the manual (`ch-os`), `HANDOFF.md`, the shell's
+      help
+
 ## Later
 - [ ] Browser persistence (IndexedDB, download)
 - [x] `fsck` in the OS (`os/progs/fsck.s`): the meta block, every tree
