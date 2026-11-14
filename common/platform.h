@@ -18,7 +18,12 @@
  *   0x3000  timer           0x3000 NOW (ticks since power-on, 1 tick = 1 us),
  *                           0x3008 FREQ (1000000), 0x3010 DEADLINE (read/
  *                           write, absolute ticks), 0x3018 WAIT (a read
- *                           completes once NOW >= DEADLINE, returning NOW)
+ *                           completes once NOW >= DEADLINE, returning NOW),
+ *                           0x3020 EPOCH (read-only: the host's wall-clock
+ *                           time when NOW was 0, in microseconds since
+ *                           1970-01-01 00:00 UTC; 0 = not known), 0x3028
+ *                           ZONE (read-only, signed: the host's local time
+ *                           minus UTC, in seconds)
  *   0x4000  framebuffer     0x4000 PRESENT (write: show the framebuffer
  *           controller      region), 0x4008 VSYNC (a read completes at the
  *                           next 60 Hz refresh, every 16667 ticks, returning
@@ -99,7 +104,9 @@
 #define TMR_FREQ 0x08u
 #define TMR_DEADLINE 0x10u
 #define TMR_WAIT 0x18u
-#define TMR_WINDOW 0x20u
+#define TMR_EPOCH 0x20u     /* wall-clock microseconds since 1970 (UTC) at NOW = 0; 0: not known */
+#define TMR_ZONE 0x28u      /* local time minus UTC, seconds (signed) */
+#define TMR_WINDOW 0x30u
 #define TMR_HZ 1000000u     /* ticks per second */
 #define DEV_FBCTL 0x4000u
 #define FBC_PRESENT 0x00u

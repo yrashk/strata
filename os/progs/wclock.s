@@ -8,8 +8,9 @@
 ; damage: once a second it draws the digits, the second ticks and the small
 ; line (os/ws/wclock.s) into its band and lends the band to the server, then
 ; waits in EVENT with a timeout that ends at the next second. A resize draws
-; again at the new size; `q` or a close event ends the program. StrataOS has
-; no calendar: the time shown is the time since boot.
+; again at the new size; `q` or a close event ends the program. The time
+; shown is the local time of day (sys_time: the timer's EPOCH and ZONE from
+; the host); on a machine that does not know the time, the time since boot.
 
         .text                           ; instruction Local Store
 _start: j     main                      ; skip the marker
@@ -33,6 +34,7 @@ wk_nows_e:                              ; (its end)
 
 main:
         call  sys_init                  ; handles
+        call  sys_time                  ; asks dev once (in c6: before the window has one)
         la    a0, wk_title              ; our window
         li    a1, 0                     ; ...
         call  wc_open                   ; ...
@@ -47,7 +49,12 @@ wk_go:  la    t0, wk_ck                 ; the renderer draws through the band
         sd    t1, CK_SURF(t0)           ; ...
 wk_loop:
         call  sys_now                   ; the time since boot
-        mv    s0, a0                    ; s0 = microseconds
+        li    t0, 1000000               ; ...
+        divu  s3, a0, t0                ; s3 = uptime, seconds
+        call  sys_time                  ; the wall clock
+        li    t0, 1000000               ; ...
+        mul   a1, a1, t0                ; + the time zone
+        add   s0, a0, a1                ; s0 = local microseconds
         la    t0, wc_surf               ; the rows that change: from 2 above the digits
         ld    t1, S_H(t0)               ;   to under the small line (as ck_draw places
         addi  s1, t1, -CK_DH            ;   them: digits at (H - DH) / 2 - 18)
@@ -62,16 +69,17 @@ wk_2:   mv    a0, s1                    ; the band holds those rows
         call  wc_band                   ; ...
         la    a0, wk_ck                 ; draw them
         li    t0, 1000000               ; seconds
-        divu  a2, s0, t0                ; (uptime)
+        divu  a1, s0, t0                ; ...
         li    t0, 86400                 ; ...
-        remu  a1, a2, t0                ; (of the day)
+        remu  a1, a1, t0                ; (of the day)
+        mv    a2, s3                    ; uptime
         li    a3, 0                     ; the changing band only: the server filled the rest
         call  ck_draw                   ; ...
         mv    a0, s1                    ; lend them
         sub   a1, s2, s1                ; ...
         call  wc_damage                 ; ...
         bltz  a0, wk_end                ; the window is gone
-        call  sys_now                   ; wait until the next second begins
+        call  sys_time                  ; wait until the next second begins
         li    t0, 1000000               ; ...
         remu  t1, a0, t0                ; ...
         sub   a1, t0, t1                ; ...

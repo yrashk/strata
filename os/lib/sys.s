@@ -77,7 +77,8 @@
 ;                file's), sys_facets() after sys_count or sys_list,
 ;                sys_tag(name, len, tag, len), sys_untag(name, len, tag, len)
 ;   devices      sys_devs(buf) -> n, sys_halt, sys_grantfb() (ws only: c6 memory, c7 ports)
-;   time         sys_now -> ticks (1 us), sys_sleep(ticks) -> -8 / -2,
+;   time         sys_now -> ticks (1 us), sys_time -> a0 = us since 1970 (UTC),
+;                a1 = time zone (s), sys_sleep(ticks) -> -8 / -2,
 ;                sys_notify_wait(timeout) -> bits / -8, sys_yield, sys_clock,
 ;                sys_mirror(offset, len) (programs that generate code),
 ;                sys_scratch(start, len) (D-LS not kept across switches)
@@ -107,6 +108,7 @@ OP_UNLINK  = 11                         ; fs: delete a file
 OP_TAG     = 12                         ; fs: give a file a tag
 OP_UNTAG   = 13                         ; fs: take a tag from a file
 OP_INFO    = 16                         ; proc: system summary
+OP_TIME    = 67                         ; dev: the wall clock (EPOCH, ZONE)
 OP_SIGNAL  = 17                         ; proc: interrupt a process
 OP_SETFG   = 18                         ; tty: the foreground process
 OP_CONMODE = 19                         ; tty: cooked / raw
@@ -162,6 +164,8 @@ in_buf:    .space 4096                  ; buffered standard input
 in_pos:    .dword 0                     ; next byte to hand out
 in_len:    .dword 0                     ; bytes in in_buf
 in_eof:    .dword 0                     ; standard input has ended
+sys_tbuf:  .space 32                    ; sys_time: dev's TIME record (EPOCH, ZONE)
+sys_tgot:  .dword 0                     ; ... 1 once asked
 sys_num:   .space 24                    ; digits for out_dec / out_hex
 sys_num_end:                            ; one past them
 sys_nl:    .ascii "\n"                  ; a newline
@@ -1137,6 +1141,37 @@ sys_now:
         li    t1, 8                     ; NOW is an 8-byte register at port 0 of c7
         tget  tg10, t0, c7, zero, t1    ; read it (latched at byte 0)
         ld    a0, 0(t0)                 ; (waits for the read)
+        ret                             ; done
+
+; sys_time() -> a0 = the wall clock in microseconds since 1970-01-01 UTC,
+; a1 = the local time zone (local time minus UTC, seconds). The timer's
+; EPOCH (the wall clock when NOW was 0) plus NOW; dev is asked for EPOCH and
+; ZONE at the first call only (which uses c6: call it once at start in a
+; program that keeps something there). A machine that does not know the
+; time (EPOCH 0, or no dev) gives the time since power-on, zone 0.
+sys_time:
+        addi  sp, sp, -16               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        la    t0, sys_tgot              ; asked already?
+        ld    t1, 0(t0)                 ; ...
+        bnez  t1, stm_now               ; yes
+        li    t1, 1                     ; (once, whatever the answer)
+        sd    t1, 0(t0)                 ; ...
+        la    t0, sys_tbuf              ; 0 and 0 unless dev answers
+        sd    zero, 0(t0)               ; ...
+        sd    zero, 8(t0)               ; ...
+        li    a0, OP_TIME               ; the request
+        la    a1, sys_tbuf              ; one 32-byte record
+        li    a2, 0                     ; ...
+        call  sys_dev                   ; ...
+stm_now:
+        call  sys_now                   ; NOW
+        la    t0, sys_tbuf              ; + EPOCH
+        ld    t1, 0(t0)                 ; ...
+        add   a0, a0, t1                ; ...
+        ld    a1, 8(t0)                 ; ZONE
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 16                ; release the frame
         ret                             ; done
 
 ; sys_sleep(a0 = ticks) -> a0 = -8 when the time is up, -2 if interrupted

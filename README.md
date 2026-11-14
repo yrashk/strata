@@ -268,7 +268,7 @@ strata$ ws                          # the window server takes the screen
   there inherit it, and the prompt shows it (`strata:/src/demo$ `). Type
   `help`.
 - **Utilities**: `ls cat cp mv rm touch df tag untag retag tags ps free
-  uptime devs hexdump cores sched seq grep wc upper spin`, `units` (a program
+  uptime date devs hexdump cores sched seq grep wc upper spin`, `units` (a program
   that pages its own code), `as`, and `cc`, a C compiler.
 - **The editor** (`vi FILE`): vi keys (motions, counts, `d c y` operators,
   put, many-level undo and redo, `.`, search, `:w :q :e :set nu`) on the

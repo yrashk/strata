@@ -654,6 +654,8 @@ handles (CLEANUP) and completes the parent's WAIT.
 30 & GETDISK & for \texttt{fs}: a device capability for the block device's window and a send-only
   endpoint to its node\\
 31 & GETCON & for \texttt{tty}: a device capability for the console's ports\\
+67 & TIME & the wall clock: one 32-byte record, the timer's EPOCH and ZONE; a program adds
+  NOW from its clock capability (\texttt{sys\_time})\\
 59 & GETNET & for \texttt{net}: a device capability for the network interface's ports. $-5$ unless
   the caller is the process registered as \texttt{net}\\
 \bottomrule
@@ -1075,6 +1077,7 @@ cores & what every core is doing: the running process, runnable and resident cou
   KiB moved\\
 free & total and free memory, and the number of processes\\
 uptime & time since power-on, processes, context switches and KiB moved, kernel units paged in\\
+date & the local date and time and the time zone (the timer's EPOCH and ZONE plus NOW)\\
 sched [TIME] & show the time slice and the switch rates, or set the slice
   (\texttt{500us}, \texttt{5ms}, or a number of microseconds)\\
 devs & the platform table\\
@@ -1204,7 +1207,7 @@ The screen reads as an instrument panel of the machine and makes its explicitnes
 \item \textbf{The core lattice.} The 28-pixel status strip has one cell per core, lit in the colour of
   the process running on it and dark when idle; the system core and server cores are marked. A context
   switch on a core makes its cell pulse. Beside it are the window list, uptime, the process count,
-  context switches per second and the clock.
+  context switches per second and the clock (the local time of day, from the timer's EPOCH and ZONE).
 \item \textbf{Keys} (Alt+key as the window's keyboard sends it, \texttt{ESC [ 27 ; 3 ;} \textit{code}
   \texttt{\textasciitilde}; Alt+arrows \texttt{ESC [ 1 ; 3} \textit{X}). Alt+Enter opens a terminal; Alt+Space opens the
   command palette, a \texttt{launch} line with completion of program names; Alt+1--4 and Alt+arrows move
@@ -1273,7 +1276,7 @@ asking its client.
   forwards Ctrl-C as SIGNAL, and scrolls back through its history with the wheel.
 \item[\texttt{wmandel}] renders the Mandelbrot set into its band, damaging rows as they finish, and
   renders again on a resize.
-\item[\texttt{wclock}] a clock that redraws only the band that changes each second.
+\item[\texttt{wclock}] a clock showing the local time of day; it redraws only the band that changes each second.
 \end{description}
 \texttt{os/lib/gfx.s} is the drawing library both the server and its clients use: surfaces, the strip
 renderer, spans with alpha blending, the standard items and text. \texttt{make ws-demo} runs the
