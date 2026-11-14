@@ -37,7 +37,9 @@ Unit, with capabilities for authority. The tree has:
   reproduces itself. `build/strata-cc` is `cc.c` built for the host, a cross
   compiler, and what the Makefile makes the disk's `cc` with. Also here: the
   run-time library and headers, and a ladder of 521 C test programs (`make
-  test-cc`). State and open items: `lang/cc/PLAN-cc.md`.
+  test-cc`: all pass). `asm("...")` and intrinsics reach the machine from
+  C. `make boot` starts a disk that also has `cc0` and `cc.c`. State and
+  open items: `lang/cc/PLAN-cc.md`.
 - `dbg/` and `site/debug/`: the text debugger `strata-dbg` and the web
   debugger, both on the engine's JSON-lines protocol (`doc/debug-protocol.md`).
 - `conformance/`: 32 self-checking tests run on the interpreter, the JIT and

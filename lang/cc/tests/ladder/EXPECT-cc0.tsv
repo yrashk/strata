@@ -1,7 +1,6 @@
 # rung/test	why it is not expected to pass (the runner reports these apart; a test that passes anyway is flagged)
 03-pointers-arrays/lacc-declarator-parens.c	old-style (K&R) function definitions are not implemented
 03-pointers-arrays/lacc-string-conversion.c	not analysed yet: status 130, expected 6
-03-pointers-arrays/scc-0062-include.c	needs a header file of its suite, which is not kept here
 03-pointers-arrays/scc-0259-multichar.c	wide and multi-character constants
 03-pointers-arrays/scc-0265-wchar.c	wide and multi-character constants
 04-structs/lacc-prototype-scope-enum.c	not analysed yet: redefined: FOO
@@ -66,7 +65,6 @@
 09-float/lacc-designator-union.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
 09-float/lacc-float-arithmetic.c	float kept as 4 bytes but computed in double: results differ in the last place, or a conversion is missing
 09-float/lacc-macro-keyword-define.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-09-float/lacc-nan-inf.c	strtof is not in the library
 09-float/lacc-stringify.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
 09-float/lacc-vla-sizeof.c	variable-length arrays are not implemented
 09-float/lacc-vla-ternary-length.c	variable-length arrays are not implemented

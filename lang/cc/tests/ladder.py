@@ -15,13 +15,17 @@ BASE = ["-t", "sys"] + [B + "/prog/" + p for p in ("proc", "dev", "fs", "tty", "
        ["-t", "bin", B + "/prog/sh", B + "/prog/rm", B + "/prog/cc", B + "/prog/cc.u", B + "/cc/cc.lib"] + \
        ([B + "/prog/" + CC, B + "/cc/" + CC + ".lib"] if CC != "cc" else [])
 EXPECT = "/ladder/EXPECT.tsv" if CC == "cc" else "/ladder/EXPECT-%s.tsv" % CC
+# what a few tests include: files of their suites (ladder/include); the one in a directory gets a tag
+INC = T + "/ladder/include"
+INCS = ["-t", "test"] + sorted(INC + "/" + f for f in os.listdir(INC) if os.path.isfile(INC + "/" + f)) + \
+       ["-t", "test,include"] + sorted(INC + "/include/" + f for f in os.listdir(INC + "/include"))
 
 def tests(args, fast):
     """the tests to run: (rung, path) in ladder order"""
     all_ = []
     for rung in sorted(os.listdir(T + "/ladder")):
         d = T + "/ladder/" + rung
-        if os.path.isdir(d):
+        if os.path.isdir(d) and rung[:2].isdigit():
             all_ += [(rung, d + "/" + f) for f in sorted(os.listdir(d)) if f.endswith(".c")]
     if fast:
         want = set(open(fast).read().split())
@@ -40,8 +44,9 @@ def boot(batch, tag):
         n = "t%02d.c" % i
         if HOST:
             exe = d + "/t%02d" % i
-            c = subprocess.run([HOST] + FLAGS.split() + ["-o", exe, path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               env=dict(os.environ, CC_LIB=os.environ.get("CC_LIB", B + "/cc/cc.lib")))
+            c = subprocess.run([os.path.abspath(HOST)] + FLAGS.split() + ["-o", os.path.abspath(exe), os.path.abspath(path)],
+                               cwd=INC, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               env=dict(os.environ, CC_LIB=os.path.abspath(os.environ.get("CC_LIB", B + "/cc/cc.lib"))))
             hres[i] = (c.stdout.decode("latin-1"), c.returncode)
             if c.returncode == 0:
                 files.append(exe)
@@ -55,7 +60,7 @@ def boot(batch, tag):
     open(d + "/in.txt", "w").write("\n".join(script) + "\n")
     open(d + "/rc", "w").write("")
     subprocess.run([B + "/mkdisk", "-o", d + "/disk.img", "-k", B + "/kernel.stx", "-t", "etc", d + "/rc"] + BASE +
-                   ["-t", "test"] + files, check=True, stdout=subprocess.DEVNULL)
+                   ["-t", "test"] + files + ([] if HOST else INCS), check=True, stdout=subprocess.DEVNULL)
     try:
         p = subprocess.run([B + "/strata-emu", "-c", "8", "-g", "none", "-d", d + "/disk.img", "-i", d + "/in.txt",
                             B + "/bootrom.stx"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=SECS)

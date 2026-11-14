@@ -344,11 +344,15 @@ $(BUILD)/prog/as: os/progs/as.s $(BUILD)/sasm
 #               compiling cc.c again, gives prog/cc byte for byte
 CC_SRC  := $(wildcard lang/cc/*.s) lang/cc/lib/rt.s
 CC_HDRS := $(sort $(wildcard lang/cc/lib/include/*.h))
-CC_LIBIN := $(BUILD)/cc/libc.stx $(BUILD)/cc/libc.map lang/cc/lib/libc.s $(CC_HDRS)
+CC_LIBIN := $(BUILD)/cc/libc.stx $(BUILD)/cc/libc.map lang/cc/lib/libc.s $(CC_HDRS) $(BUILD)/cc/asm.tab
+# the instruction table of asm("..."), made from the assembler itself
+$(BUILD)/cc/asm.tab: lang/cc/lib/mkasm.py asm/sasm.c $(BUILD)/sasm
+	@mkdir -p $(BUILD)/cc
+	python3 lang/cc/lib/mkasm.py $(BUILD)/sasm asm/sasm.c $@
 $(BUILD)/cc/libc.stx: lang/cc/lib/libc.s lang/cc/lib/rt.s lang/cc/lib/fp.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/cc
 	$(BUILD)/sasm -T 0x8000 -I lang/cc/lib -g $(BUILD)/cc/libc.map -o $@ lang/cc/lib/libc.s
-$(BUILD)/cc/cc.lib: $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS)
+$(BUILD)/cc/cc.lib: $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS) $(BUILD)/cc/asm.tab
 	python3 lang/cc/lib/mklib.py $@ $(CC_LIBIN)
 $(BUILD)/strata-cc: lang/cc/cc.c lang/cc/host/host.c lang/cc/host/strata.h
 	@mkdir -p $(BUILD)
@@ -374,9 +378,43 @@ $(BUILD)/cc/cc-full.stx: $(CC_SRC) $(BUILD)/sasm lang/cc/tests/check-units.py
 	python3 lang/cc/tests/check-units.py $@
 $(BUILD)/prog/cc0: $(BUILD)/cc/cc0.lib
 	@touch $@
-$(BUILD)/cc/cc0.lib: $(BUILD)/cc/cc-full.stx $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS)
+$(BUILD)/cc/cc0.lib: $(BUILD)/cc/cc-full.stx $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS) $(BUILD)/cc/asm.tab
 	python3 lang/cc/lib/mklib.py --cc $(BUILD)/cc/cc-full.stx $(BUILD)/prog/cc0 $@ $(CC_LIBIN)
 
+# Every source on the disk carries a copy of the library after the program.
+$(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s
+	@mkdir -p $(BUILD)/src
+	grep -v '^[[:space:]]*\.include' $< > $@
+	cat os/lib/sys.s >> $@
+
+# vi's source: its two includes (at the top: their labels come first) in place
+$(BUILD)/src/vi.s: os/progs/vi.s os/lib/sys.s $(BUILD)/vi-syntax.s
+	@mkdir -p $(BUILD)/src
+	awk '/^[[:space:]]*\.include "\.\.\/lib\/sys\.s"/ { system("cat os/lib/sys.s"); next } \
+	     /^[[:space:]]*\.include "vi-syntax\.s"/ { system("cat $(BUILD)/vi-syntax.s"); next } { print }' $< > $@
+
+$(BUILD)/src/units.s: os/progs/units.s examples/lib/print.s
+	@mkdir -p $(BUILD)/src
+	grep -v '^[[:space:]]*\.include' $< > $@
+	cat examples/lib/print.s >> $@
+
+$(BUILD)/src/%.s: examples/%.s examples/lib/print.s
+	@mkdir -p $(BUILD)/src
+	grep -v '^[[:space:]]*\.include' $< > $@
+	cat examples/lib/print.s >> $@
+
+$(BUILD)/src/as.s: os/progs/as.s
+	@mkdir -p $(BUILD)/src
+	cp $< $@
+
+# Strata Forth as a StrataOS program (its rules are in the Forth section below):
+# `forth`, the files it loads on demand (tools.fs, see.fs), core.fs to read, the demos
+FORTH_DISK := $(BUILD)/prog/forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
+              $(wildcard lang/forth/demos/*.fs)
+# the network words (loaded on demand, like tools.fs) and the web server built on them
+FORTH_DISK += lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd.fs lang/forth/httpd-ps.fs
+# the editor, with its keyword tables
+FORTH_DISK += lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUILD)/forth-os/vi-syntax.fs
 # the ports of os/progs, with their library and loader: one file
 FORTH_DISK += $(BUILD)/forth-os/progs.pk
 
@@ -512,10 +550,10 @@ test-cc0: $(CC_TEST_DEPS) $(BUILD)/prog/cc0
 	BUILD=$(BUILD) CC_NAME=cc0 lang/cc/tests/run.sh
 test-cc-host: $(CC_TEST_DEPS) $(BUILD)/strata-cc
 	BUILD=$(BUILD) CC_HOST=$(BUILD)/strata-cc lang/cc/tests/run.sh
-# the disk of tools/test-cc.sh: the standard one plus the larger example
-$(BUILD)/cc-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) lang/cc/examples/calc.c
+# the disk of tools/test-cc.sh: the standard one plus the other examples
+$(BUILD)/cc-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) lang/cc/examples/calc.c lang/cc/examples/asm.c
 	@mkdir -p $(BUILD)/cc-test
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t src lang/cc/examples/calc.c
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t src lang/cc/examples/calc.c lang/cc/examples/asm.c
 # the disk of tools/test-cc-boot.sh: the system, both compilers, cc.c
 $(BUILD)/cc-boot/disk.img: $(CC_TEST_DEPS) $(BUILD)/prog/cc0 lang/cc/cc.c lang/cc/tests/cmp.c
 	@mkdir -p $(BUILD)/cc-boot

@@ -34,7 +34,10 @@ void _exit(int code);
    __csrr(CSR) __csrw(CSR, v)     e.g. CSR_CYCLE, CSR_COREID below
    __svc(fn, a1, a2, a3, a4, a5)  the supervisor call (StrataOS: doc/strataos.md)
    __halt(code)                   end the thread
-   __ltag(addr) __linst(addr)     the software cache's tag table              */
+   __ltag(addr) __linst(addr)     the software cache's tag table
+
+   Any other instruction: asm("...") (cc only, not the bootstrap compiler):
+   Strata assembly, one instruction a line, {name} for a C object.           */
 #define CSR_CYCLE 0
 #define CSR_INSTRET 1
 #define CSR_COREID 7

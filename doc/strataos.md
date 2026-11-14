@@ -928,11 +928,14 @@ writes a StrataOS program image (an STX2 file with the `"SYS2"` marker, the
 run-time library at the start of both Local Store sections, the heap inside
 the data section so that a context switch keeps it) and exits with status 1
 after printing `file:line: message` for the first error; `-p` pages the
-program's code in 4 KiB units. It needs `/bin/cc.lib` (the library and its
-headers) and its own code units, `/bin/cc.u`, which its start-up code loads
-into the arena and the dispatcher pages from there. `cc` is `lang/cc/cc.c`
-compiled by itself; the bootstrap compiler in assembly, `cc0`, is not on
-the standard disk.
+program's code in 4 KiB units. It needs its own code units, `/bin/cc.u`,
+which its start-up code loads into the arena and the dispatcher pages from
+there, and `cc.lib` (the library, its headers, the instruction table of
+`asm("...")`): the file `/bin/cc.lib`, or, as on the standard disk, the
+same bytes behind the units in `cc.u`. `cc` is `lang/cc/cc.c` compiled by
+itself; the bootstrap compiler in assembly, `cc0`, and `cc.c` are on the
+disk that `make boot` starts, not on the one the tests use (whose directory
+is full).
 
 Utilities: `ls [-t] [PATH]` (files, then facets as `tag/`; `-t` adds each
 file's tags; no PATH: the current tag path), `cat`, `cp [-t] SRC DST` (a copy; DST's path gives it tags,

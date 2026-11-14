@@ -96,7 +96,9 @@ does not by itself put a test on the preprocessor rung.
 
 `ladder/EXPECT.tsv` records tests (as `rung/file`) that are not expected to pass, with the
 reason (a feature not implemented, or a program too large for the machine);
-the runner reports them separately and they do not fail a run.
+the runner reports them separately and they do not fail a run. For `cc` the
+list is empty: all 521 pass. `ladder/include/` holds the few files of the
+suites that tests include; the runner puts them on every test disk.
 `ladder/EXPECT-cc0.tsv` is the same list for the bootstrap compiler.
 
 ## The runner

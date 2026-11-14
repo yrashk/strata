@@ -369,7 +369,9 @@ strata$ cc -o calc calc.c           # -o names the output; -h KIB sizes the heap
 - **Also a cross compiler.** `make build/strata-cc` builds the same `cc.c`
   with the host's C compiler (`lang/cc/host/` stands in for StrataOS):
   `build/strata-cc -o prog prog.c` writes the image `cc` would write, byte
-  for byte. The `cc` on the disk is made this way.
+  for byte. The `cc` on the disk is made this way. `make boot` starts a
+  disk that also carries `cc0` and `cc.c`: `cc0 -p -h 0 -o cc1 /src/cc.c`
+  bootstraps the compiler there by hand.
 - **No assembler pass, no linker.** `cc` emits the image itself: compiler
   output has more labels and address loads than `as` holds in its 40 KiB of
   tables. The run-time library is assembled once at fixed addresses and copied
@@ -389,8 +391,14 @@ strata$ cc -o calc calc.c           # -o names the output; -h KIB sizes the heap
 - **Tested against existing C tests.** `lang/cc/tests/` holds 521 programs
   from the test suites of scc (ISC) and lacc (MIT), sorted into a ladder by
   the features they need; `make test-cc` compiles and runs each one inside
-  StrataOS and prints the score per rung (471 pass; with the bootstrap
-  compiler, `make test-cc0`, 450).
+  StrataOS and prints the score per rung (all 521 pass; with the bootstrap
+  compiler, `make test-cc0`, 452).
+- **Assembly inside C.** `asm("ld t0, {x}\n addi t0, t0, 1\n sd t0, {x}");`
+  is Strata assembly encoded in place, with `{name}` for C objects; at file
+  scope its labels are functions. The instruction table is made from the
+  assembler itself. The instructions only Strata has (transfers,
+  capabilities, CSRs) are also intrinsics: `__tget(...)`, `__clen(0)`.
+  [`lang/cc/examples/asm.c`](lang/cc/examples/asm.c) shows both.
 
 What is implemented and what is not is listed in
 [`lang/cc/PLAN-cc.md`](lang/cc/PLAN-cc.md); the design is in

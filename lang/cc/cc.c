@@ -33,8 +33,8 @@
 #define A_FIX    0x03000        /* fixups, 16 bytes each */
 #define A_FIXEND 0x10000
 #define A_LIB    0x50000        /* cc.lib, up to its member cc.units */
-#define A_LIBEND 0x56000
-#define A_ID     0x56000        /* identifier records */
+#define A_LIBEND 0x58000
+#define A_ID     0x58000        /* identifier records */
 #define A_IDEND  0x62000
 #define A_MAC    0x62000        /* macro records and bodies */
 #define A_MACEND 0x66000
@@ -357,7 +357,7 @@ int nlabels;
 int ds_class, d_name, in_params;
 int ini_static, ini_dry, ini_pend, ini_comma, ini_desig;
 long ini_cnt;
-int id_main, id_func;
+int id_main, id_func, id_asm, id_asm2;
 long mem_off;
 long ini_base;
 char *out_name, *src_name;
@@ -921,45 +921,6 @@ void pp_skip(void)
     pp_eol();
 }
 
-void pp_include(void)
-{
-    int c = pp_blank(), q, n = 0;
-    long s, e, mark = src_top;
-    char *f;
-    if (c == '"') q = c;
-    else if (c == '<') q = '>';
-    else err("cannot include ", tb);
-    for (;;) {
-        c = nextc();
-        if (c == q) break;
-        if (c < 32 || n > 29) err("cannot include ", tb);
-        tb[n++] = c;
-    }
-    tb[n] = 0;
-    pp_eol();
-    s = 0;
-    if (q == '"') {
-        e = m_load(tb, src_top, A_INCEND - src_top, 0);
-        if (e >= 0) {
-            s = src_top;
-            e = s + splice(s, e);
-            src_top = (e + 8) & ~7;
-        }
-    }
-    if (!s) {
-        s = lib_find(tb);
-        if (!s) err("cannot include ", tb);
-        e = s + lib_sz;
-    }
-    in_push(s, e, 1, line, mark);
-    if (fname + 32 >= fnames + 256) err("includes or macros nested too deeply", 0);
-    fname = fname + 32;
-    f = fname;
-    for (n = 0; tb[n]; n++) f[n] = tb[n];
-    f[n] = 0;
-    line = 1;
-    bol = 1;
-}
 
 /* macro record: byte 0 kind (0 object-like, 1 function-like, 2 __LINE__,
    3 __FILE__), 1 busy, 2 parameters, 3 variadic, int 1 body length; the body
@@ -1081,6 +1042,20 @@ int pp_collect(int base)
     for (;;) {
         c = nextc();
         if (c < 0) err("unexpected end of file", 0);
+        if (c == '/') {                 /* a comment is a blank */
+            q = nextc();
+            if (q == '/') {
+                do c = nextc(); while (c >= 0 && c != 10);
+            } else if (q == '*') {
+                for (i = 0;; i = c) {
+                    c = nextc();
+                    if (c < 0) err("unexpected end of file", 0);
+                    if (c == 10 && in_kind == 1) line++;
+                    if (c == '/' && i == '*') break;
+                }
+                c = ' ';
+            } else unget(q);
+        }
         if (c == 10) { if (in_kind == 1) line++; c = ' '; }
         else if (c == '(') depth++;
         else if (c == ')') { if (depth == 0) break; depth--; }
@@ -1305,6 +1280,69 @@ int pp_expand(void)
     far_write(m, fw, 8);
     in_push(s, e, 2, m, mark);
     return 1;
+}
+
+/* #include "FILE", <FILE>, or macros that expand to one of them */
+void pp_include(void)
+{
+    int c = pp_blank(), q = 0, n = 0, k = args_top;
+    long s, e, mark = src_top, xm = xh_top, p = 0;
+    char *f;
+    if (c != '"' && c != '<') {         /* not a name: the line's macros are expanded first */
+        pp_unget(c);
+        if (k >= 39) err("macro expansion too long", 0);
+        args[k * 4] = xh_top;
+        wb_open(xh_top);
+        for (;;) {
+            c = pp_c();
+            if (c < 0 || c == 10) break;
+            wb_put(c);
+        }
+        args[k * 4 + 1] = wb_close();
+        xh_room(args[k * 4 + 1]);
+        args_top = k + 1;
+        pp_arg(k);
+        args_top = k;
+        for (p = args[k * 4 + 2]; p < args[k * 4 + 3]; p++) {
+            c = rb_get(p);
+            if (c != ' ' && c != 1) break;
+        }
+        p++;
+    }
+    if (c == '"') q = c;
+    else if (c == '<') q = '>';
+    else err("cannot include ", tb);
+    for (;;) {
+        c = !p ? nextc() : p < args[k * 4 + 3] ? rb_get(p++) : -1;
+        if (c == q) break;
+        if (c < 32 || n > 29) err("cannot include ", tb);
+        tb[n++] = c;
+    }
+    tb[n] = 0;
+    xh_top = xm;
+    pp_eol();
+    s = 0;
+    if (q == '"') {
+        e = m_load(tb, src_top, A_INCEND - src_top, 0);
+        if (e >= 0) {
+            s = src_top;
+            e = s + splice(s, e);
+            src_top = (e + 8) & ~7;
+        }
+    }
+    if (!s) {
+        s = lib_find(tb);
+        if (!s) err("cannot include ", tb);
+        e = s + lib_sz;
+    }
+    in_push(s, e, 1, line, mark);
+    if (fname + 32 >= fnames + 256) err("includes or macros nested too deeply", 0);
+    fname = fname + 32;
+    f = fname;
+    for (n = 0; tb[n]; n++) f[n] = tb[n];
+    f[n] = 0;
+    line = 1;
+    bol = 1;
 }
 
 /* #line N "FILE", or # N "FILE": the operands are macro-expanded */
@@ -2613,7 +2651,11 @@ void f_cfold(int from, int to)
     if (tk(to) == TK_DOUBLE) v = d;
     else if (tk(to) == TK_FLOAT) v = __d2f(d);
     else if (ty[to].size == 8 && is_uns(to)) v = __ftou(d);
-    else v = cwrap(__ftoi(d), to);
+    else {
+        v = __ftoi(d);
+        if (v < 0 && is_uns(to) && ty[to].size < 4) v = 0;
+        v = cwrap(v, to);
+    }
     vp->val = v;
     vp->type = to;
 }
@@ -2632,6 +2674,12 @@ void f_cast(int to)
     if (kt == TK_DOUBLE) return;
     if (kt == TK_FLOAT) { fp_call(F_D2F, 1, to); return; }
     fp_call(ty[to].size == 8 && is_uns(to) ? F_FTOU : F_FTOI, 1, Y_LONG);
+    if (is_uns(to) && ty[to].size < 4) {        /* below zero there is no value: 0 */
+        kf = ereg[gv(vp)];
+        e_i(OP_SRAI, X_TP, kf, 63);
+        e_i(OP_ADDI, X_TP, X_TP, 1);
+        e_r(A_MUL, kf, kf, X_TP);
+    }
     icast(vp, to);
 }
 
@@ -4381,6 +4429,293 @@ void local_decl(void)
     skip(';');
 }
 
+/* ================= asm("...") ================= */
+
+/* Strata assembly as `as` reads it, one instruction a line (a ; starts a
+   comment), encoded in place with the table asm.tab of cc.lib, which
+   lib/mkasm.py makes from the assembler. In a function, a label is a label
+   of the function, and {name} is a C object: as a memory operand, as the
+   address la loads, or, for an enumeration constant, as a number; call
+   {name} calls a C function. t0-t6, tp and a0-a7 are free between two
+   statements; the other registers must be left as they were. At file scope
+   the labels are functions, called from C once declared there. */
+int lab_find(int id);
+char *ap;                       /* the text being read */
+long ab[4];                     /* an instruction's record */
+long as_tab;
+int as_n;
+char as_abi[] = "zero ra   sp   gp   tp   t0   t1   t2   s0   s1   a0   a1   a2   a3   a4   a5   "
+                "a6   a7   s2   s3   s4   s5   s6   s7   s8   s9   s10  s11  t3   t4   t5   t6   ";
+
+void as_err(char *m)
+{
+    char *e = ap;
+    while (*e && *e != 10) e++;
+    *e = 0;
+    err(m, ap);
+}
+
+void as_blank(void) { while (*ap == ' ' || *ap == 9) ap++; }
+
+/* the name at ap -> tb; its length */
+int as_word(void)
+{
+    int n = 0;
+    as_blank();
+    while (*ap > 0 && (isid(*ap) || *ap == '.')) {
+        if (n < 30) tb[n++] = *ap;
+        ap++;
+    }
+    tb[n] = 0;
+    return n;
+}
+
+void as_comma(void)
+{
+    as_blank();
+    if (*ap != ',') as_err("asm: a comma expected: ");
+    ap++;
+}
+
+/* a register of kind x, c or g (transfer tag) */
+int as_reg(int kind)
+{
+    char *s = tb, *a;
+    int i, n = -1, j;
+    if (!as_word()) as_err("asm: a register expected: ");
+    if (kind == 'x')
+        for (i = 0; i < 32 && n < 0; i++) {
+            a = as_abi + 5 * i;
+            for (j = 0; s[j] && s[j] == a[j]; j++) ;
+            if (!s[j] && a[j] == ' ') n = i;
+        }
+    if (n < 0) {
+        if (*s != (kind == 'g' ? 't' : kind)) err("asm: not a register: ", tb);
+        s = s + 1 + (kind == 'g');
+        if (kind == 'g' && s[-1] != 'g') err("asm: not a register: ", tb);
+        for (n = 0; isdig(*s); s++) n = n * 10 + *s - '0';
+        if (*s || s[-1] == tb[0] || n > (kind == 'x' ? 31 : 15)) err("asm: not a register: ", tb);
+    }
+    return n;
+}
+
+/* {name}: the C symbol */
+int as_sym(void)
+{
+    ap++;
+    intern(tb, as_word());
+    as_blank();
+    if (*ap != '}' || !IDR->sym) err("asm: not declared: ", tb);
+    ap++;
+    return IDR->sym;
+}
+
+/* a number: decimal, 0x..., 'c', or {an enumeration constant} */
+long as_num(void)
+{
+    long v = 0;
+    int neg = 0, s, d;
+    as_blank();
+    if (*ap == '-') { neg = 1; ap++; }
+    if (*ap == '{') {
+        s = as_sym();
+        if (sy[s].cls != SC_ENUM) err("asm: not a constant: ", tb);
+        v = sy[s].val;
+    } else if (*ap == 39) { v = ap[1]; ap = ap + 3; }
+    else if (!isdig(*ap)) as_err("asm: a number expected: ");
+    else if (ap[0] == '0' && (ap[1] | 32) == 'x')
+        for (ap = ap + 2;; ap++) {
+            d = *ap | 32;
+            if (isdig(d)) d = d - '0';
+            else if (d >= 'a' && d <= 'f') d = d - 'a' + 10;
+            else break;
+            v = v << 4 | d;
+        }
+    else for (; isdig(*ap); ap++) v = v * 10 + *ap - '0';
+    return neg ? -v : v;
+}
+
+/* the label at ap, as a jump of the word w: its distance, or a link of its chain */
+int as_target(int w, int mask)
+{
+    int i;
+    if (!as_word()) as_err("asm: a label expected: ");
+    i = lab_find(intern(tb, slen(tb)));
+    if (lb_adr[i]) return w | ((lb_adr[i] - code_pc) >> 2 & mask);
+    w = w | lk(code_pc, lb_chain[i]);
+    lb_chain[i] = code_pc;
+    return w;
+}
+
+/* li, la, call and (paged) ret are not in the table: -> 1 if tb was one of them */
+int as_special(void)
+{
+    int r, s;
+    if (streq(tb, "li")) {
+        r = as_reg('x');
+        as_comma();
+        g_li(r, as_num());
+        return 1;
+    }
+    if (streq(tb, "la") || streq(tb, "call")) {
+        r = tb[0] == 'l' ? as_reg('x') : -1;
+        if (r >= 0) as_comma();
+        as_blank();
+        if (*ap != '{') {
+            if (r >= 0) as_err("asm: la takes a {name}: ");
+            emit(as_target(OP_JAL << 26 | X_RA << 21, 0x1fffff));
+            return 1;
+        }
+        s = as_sym();
+        v_sym(s);
+        if (r < 0) {
+            if (tk(vp->type) != TK_FUNC) err("asm: not a function: ", tb);
+            g_calljmp(vp, 1);
+            vp--;
+            return 1;
+        }
+        v_addr(vp);
+        g_into(vp, r);
+        vp--;
+        return 1;
+    }
+    if (paged && streq(tb, "ret")) { e_i(OP_XCALL, 0, X_RA, 16); return 1; }
+    return 0;
+}
+
+/* the operands of the instruction in ab, and the instruction */
+void as_insn(void)
+{
+    char *o = (char *)ab + 16;
+    int w = ((int *)ab)[3], k, kind, sh, r;
+    long v;
+    for (k = 0; k < 5 && o[2 * k]; k++) {
+        kind = o[2 * k];
+        sh = o[2 * k + 1];
+        if (k) as_comma();
+        switch (kind) {
+        case 'x': case 'c': case 'g':
+            w = w | as_reg(kind) << sh;
+            break;
+        case 'i':
+            w = w | (as_num() & 0xffff) << sh;
+            break;
+        case 'k':
+            w = w | (as_num() & 63) << sh;
+            break;
+        case 'b':
+            w = as_target(w, 0xffff);
+            break;
+        case 'j':
+            w = as_target(w, 0x1fffff);
+            break;
+        case 'M':
+            for (;;) {
+                w = w | 1 << as_reg('g');
+                as_blank();
+                if (*ap != ',') break;
+                ap++;
+            }
+            break;
+        case 'm':
+            as_blank();
+            if (*ap == '{') {           /* a C object, wherever it is */
+                v_sym(as_sym());
+                if (vp->kind != VK_LOC && vp->kind != VK_GLOB) err("asm: not an object in memory: ", tb);
+                g_mem(w >> 26 & 63, w >> 21 & 31, vp);
+                vp--;
+                return;
+            }
+            v = *ap == '(' ? 0 : as_num();
+            as_blank();
+            if (*ap != '(') as_err("asm: offset(register) expected: ");
+            ap++;
+            r = as_reg('x');
+            as_blank();
+            if (*ap != ')' || !fits(v)) as_err("asm: offset(register) expected: ");
+            ap++;
+            w = w | r << 16 | (v & 0xffff);
+            break;
+        }
+    }
+    emit(w);
+}
+
+/* one line of the text: labels, then an instruction */
+void as_line(void)
+{
+    int i;
+    for (;;) {
+        as_blank();
+        if (!*ap || *ap == 10 || *ap == ';') return;
+        if (!as_word()) as_err("asm: syntax error near ");
+        as_blank();
+        if (*ap != ':') break;
+        ap++;
+        i = lab_find(intern(tb, slen(tb)));
+        if (lb_adr[i]) err("asm: label defined twice: ", tb);
+        lb_adr[i] = here();
+        g_resolve(lb_chain[i], code_pc);
+        lb_chain[i] = 0;
+    }
+    if (as_special()) return;
+    for (i = 0; i < as_n; i++) {
+        far_read(as_tab + 32 * i, ab, 32);
+        if (streq((char *)ab, tb)) { as_insn(); return; }
+    }
+    err("asm: unknown instruction: ", tb);
+}
+
+void g_fn_place(void);
+
+/* asm ( "text" ) ; -- tok is the word asm */
+void asm_block(void)
+{
+    int top = !fn_live, i, s;
+    long d;
+    next();
+    skip('(');
+    if (tok != T_STR) errtok("syntax error near ");
+    str_take();
+    skip(')');
+    skip(';');
+    if (!as_tab) {
+        as_tab = lib_find("asm.tab");
+        if (!as_tab) err("cc.lib has no asm.tab", 0);
+        as_n = lib_sz / 32;
+    }
+    if (top) {                          /* at file scope: a piece of code of its own */
+        nocode = 0;
+        nlabels = 0;
+        sp_bias = 0;
+        if (paged && (code_pc & 4)) emit(0);
+        fn_start = code_pc;
+        fn_fix0 = fix_top;
+        fn_sym = 0;
+    }
+    strbuf[str_len] = 0;
+    for (ap = strbuf;; ap++) {
+        as_line();
+        as_blank();
+        if (*ap == ';') while (*ap && *ap != 10) ap++;
+        if (!*ap) break;
+        if (*ap != 10) as_err("asm: syntax error near ");
+    }
+    if (!top) return;
+    d = fn_start;
+    if (paged) g_fn_place();
+    d = fn_start - d;
+    for (i = 0; i < nlabels; i++) {     /* its labels are functions */
+        if (!lb_adr[i]) err("undefined label: ", id_name(lb_id[i]));
+        s = id_sym(lb_id[i]);
+        if (!s || sy[s].cls != SC_FUNC) s = sym_decl(lb_id[i], SC_FUNC, Y_FUNC0);
+        sy[s].val = lb_adr[i] + d;
+        sy[s].flags = sy[s].flags | SF_DEF;
+    }
+    nlabels = 0;
+    nocode = 1;
+}
+
 /* ================= statements ================= */
 
 void stmt(void);
@@ -4620,6 +4955,10 @@ void stmt(void)
         else lb_chain[i] = g_jmp(lb_chain[i]);
         break;
     case T_ID:
+        if ((tk_val == id_asm || tk_val == id_asm2) && !tk_sym && peek_ch() == '(') {
+            asm_block();
+            break;
+        }
         if (peek_ch() == ':') {
             i = lab_find(tk_val);
             next();
@@ -4668,7 +5007,7 @@ void g_fn_place(void)
     int r;
     if ((e - 4) >> 12 == s >> 12) return;
     n = e - s;
-    if (n > 4096) err("function too large for a code unit: ", id_name(sy[fn_sym].id));
+    if (n > 4096) err("function too large for a code unit: ", fn_sym ? id_name(sy[fn_sym].id) : "asm");
     cw_flush();
     n = (n + 7) & ~7;
     for (p = 0; p < n; p = p + 1024) {
@@ -4797,6 +5136,7 @@ void ext_decl(void)
 {
     int bt, t, cls, id, s;
     if (tok == ';') { next(); return; }
+    if (tok == T_ID && (tk_val == id_asm || tk_val == id_asm2) && !tk_sym) { asm_block(); return; }
     bt = decl_spec();
     cls = ds_class;
     if (bt < 0) {
@@ -5003,7 +5343,7 @@ void lib_load(void)
     lib_base = A_LIB;
     lib_len = m_load("/bin/cc.lib", A_LIB, A_LIBEND - A_LIB, 1);
     if (lib_len < 0) {                  /* no such file: the library may follow this program's own units */
-        lib_base = 0x10000 + SELF_UNITS;
+        lib_base = 0x10000 + ((SELF_UNITS + 7) & ~7);
         lib_len = 0x8000;
         far_read(lib_base, iob, 8);
         if (!SELF_UNITS || !streq((char *)iob, "CCLIB1")) err("cannot read /bin/cc.lib", 0);
@@ -5045,6 +5385,8 @@ int main(int argc, char **argv)
     ty_init();
     id_main = intern("main", 4);
     id_func = intern("__func__", 8);
+    id_asm = intern("asm", 3);
+    id_asm2 = intern("__asm__", 7);
     predef("__STDC__", "1");
     predef("__STDC_VERSION__", "199901L");
     predef("__strata__", "1");

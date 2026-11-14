@@ -124,14 +124,26 @@ section 6).
       `cc` built on the host (`make test-cc-boot`, part of `make test`)
 - [x] `cc.c` on the host: `lang/cc/host/`, `build/strata-cc`; the Makefile
       builds the `cc` of the disk with it
-- [x] `cc.c` passes the ladder: 471 of 521 (the bootstrap compiler: 450)
+- [x] `cc.c` passes the ladder: all 521 (the bootstrap compiler: 452)
 - [x] found on the way, fixed in `cc.s`: a register stored to the frame
       inside one arm of `?:`, `&&`, `||` was read back on the other path
-- [ ] `cc.c` data: 40,048 of the 40,960 bytes of D-LS are in use. The next
-      table that grows has to move to the arena (the symbol table first)
-- [ ] VLAs, K&R definitions, structure arguments of variadic functions,
-      wide strings, trigraphs, `#line`, `_Pragma`, hexadecimal floating
-      constants (see `tests/ladder/EXPECT.tsv`)
+- [x] in `cc.c` beyond the bootstrap compiler: variable-length arrays and
+      variably modified types, old-style definitions, unnamed members,
+      structure arguments through `va_arg` (`va_start` and `va_arg` are
+      builtins), wide characters and strings, universal character names,
+      hexadecimal floating constants, trigraphs, `#line`, `_Pragma`,
+      `#include` of a macro, the rule that a name found busy in an
+      expansion is never expanded later, designators that continue in the
+      designated object, bit-fields laid out and promoted as the usual ABIs
+      do
+- [x] the last seven tests: the suites' headers are kept in
+      `tests/ladder/include`; comments inside macro arguments; `strtod`,
+      `strtof`, `strtold` and `atof` in the library; a floating value below
+      zero converted to a narrow unsigned type gives 0
+- [x] the identifier hash and the scanner's saved state moved to the arena:
+      38 KiB of the 40 KiB of D-LS are in use
+- [ ] a variable-length array left by `goto` is not given back
+- [ ] `qsort`, `bsearch`, `<math.h>` in the library
 
 ### Stage 7: the machine from C
 - [x] intrinsics (`cc-intr.s`; in `cc.c` the same table; documented in
@@ -141,15 +153,17 @@ section 6).
       __cclear`, `__cgive __ctake __cpoll __csend`, `__csrr __csrw`, `__svc
       __halt`, `__ltag __linst`. Tried in StrataOS: transfers to and from
       the arena, the clock through c7, capability queries, CSRs, `svc`
-- [ ] `asm("...")`: inline Strata assembly as `as` reads it, in `cc.c`
-      only, with the instruction table of `asm/sasm.c`. In a function:
-      lines encoded in place, `{name}` is a C variable as a memory operand,
-      labels are local to the statement; t0..t6, tp, a0..a7 are free, s
-      registers, sp and gp are kept. At file scope: defines symbols in the
-      code section
+- [x] `asm("...")` in `cc.c` (DESIGN.md): every instruction of the
+      assembler, `{name}` for C objects, constants and functions, labels of
+      the function; at file scope the labels are functions. The table comes
+      from `sasm` (`lib/mkasm.py`, `asm.tab` in `cc.lib`).
+      `examples/asm.c`, run by `tools/test-cc.sh` in both code models
 
 ## Integration
-- [x] `cc`, `cc.u`, `cc.lib` and `hi.c` on the OS disk (Makefile `CC_DISK`); the
+- [x] `cc`, `cc.u` (with `cc.lib` behind the units: the directory is full)
+      and `hi.c` on the OS disk (Makefile `CC_DISK`); `make boot` starts
+      `disk-boot.img`, which adds `cc0`, `cc0.lib`, `cc.lib` and `cc.c`, so
+      that the bootstrap can be done by hand there; the
       disks of the HTTP, isolation and Forth tests are built without them
       (`DISK_ARGS_NOCC`): those tests fill the 128-entry directory
 - [x] `help` line in the shell
@@ -183,20 +197,25 @@ host and gives the same).
 | a spill before conditional branches | 32 | 12 | 88 | 31 | 53 | 71 | 17 | 97 | 49 | 450 |
 | **`cc.c`**, first run | 32 | 12 | 90 | 31 | 52 | 73 | 16 | 105 | 51 | 462 |
 | **`cc.c`**: labels, bit-field layout | 32 | 12 | 90 | 31 | 53 | 73 | 18 | 110 | 52 | 471 |
+| **`cc.c`**: the rest of the preprocessor, K&R, wide and hex constants | 32 | 12 | 92 | 31 | 56 | 74 | 18 | 121 | 54 | 490 |
+| **`cc.c`**: designators, `va_arg`, bit-field promotion | 32 | 12 | 92 | 33 | 56 | 74 | 18 | 131 | 57 | 505 |
+| **`cc.c`**: variable-length arrays | 32 | 12 | 92 | 33 | 56 | 74 | 18 | 138 | 59 | 514 |
+| **`cc.c`**: `#include` of a macro, `strtod` | 32 | 12 | 93 | 33 | 58 | 75 | 18 | 139 | 61 | 521 |
+| the bootstrap compiler now (headers kept, `strtod`) | 32 | 12 | 89 | 31 | 53 | 71 | 17 | 97 | 50 | 452 |
 
 ## Size
 
-`cc.c`: 4,600 lines of C. Compiled by itself: 89 KiB of code in 22 units
-(`cc.u`), and an image `cc` of 48 KiB: the 8 KiB library and 40 KiB of data.
-Compiled by the bootstrap compiler the same source is 98 KiB of code. The
-host program `strata-cc` is the same source and 130 lines of `host/host.c`.
+`cc.c`: 5,400 lines of C. Compiled by itself: 109 KiB of code in 4 KiB
+units (`cc.u`), and an image `cc` of 47 KiB: the 8 KiB library and 38 KiB of
+data. The host program `strata-cc` is the same source and 115 lines of
+`host/host.c`.
 
 `cc.s` and the files it includes: 12,400 lines of assembly, of which the
 resident part is 3.8 KiB of code and the 27 code units 107 KiB; the D-LS
 section is the full 40 KiB (16 KiB symbols, 7 KiB types, 13 KiB variables
 and buffers). The library: 2,800 lines, 8 KiB of code and 3 KiB of data in
-every program. `cc.lib` is 21 KiB; `cc0.lib`, with the bootstrap compiler's
-units, 128 KiB, `cc0` 45 KiB.
+every program. `cc.lib` is 25 KiB (the library, the headers, the table of
+`asm`); `cc0.lib`, with the bootstrap compiler's units, 132 KiB, `cc0` 45 KiB.
 
 ## Notes for whoever continues
 

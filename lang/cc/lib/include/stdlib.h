@@ -16,6 +16,12 @@ int atoi(const char *s);
 long atol(const char *s);
 long strtol(const char *s, char **end, int base);
 unsigned long strtoul(const char *s, char **end, int base);
+double atof(const char *s);
+double strtod(const char *s, char **end);
+long double strtold(const char *s, char **end);
+#ifdef __STRATA_CC__
+float strtof(const char *s, char **end);
+#endif
 int rand(void);
 void srand(unsigned seed);
 #endif

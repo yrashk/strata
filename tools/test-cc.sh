@@ -1,8 +1,8 @@
 #!/bin/sh
 # The C compiler inside StrataOS: boots the standard disk with a scripted
 # console that compiles the two C programs of lang/cc/examples with `cc`
-# (hi.c, on every disk under /src, and calc.c, which the Makefile adds to this
-# test's disk) and runs the results, calc.c also in the paged code model (-p),
+# (hi.c, on every disk under /src, and calc.c and asm.c, which the Makefile
+# adds to this test's disk) and runs the results, also in the paged code model (-p),
 # and compares the console output with tools/test-cc.out.
 #
 #   tools/test-cc.sh build/bootrom.stx build/cc-test/disk.img     (-u: update the .out)
@@ -31,7 +31,9 @@ trap 'rm -rf "$tmp"' EXIT
   printf 'cc bad.c; echo status $?\n'
   printf 'cc nosuch.c; echo status $?\n'
   printf 'cc -p -o calc3 /src/calc.c && calc3 (7 - 1) * 7\n'
-  printf 'rm hi calc2 calc3 bad.c\n'
+  printf 'cc /src/asm.c && asm\n'
+  printf 'cc -p -o asm2 /src/asm.c && asm2\n'
+  printf 'rm hi calc2 calc3 bad.c asm asm2\n'
   printf 'halt\n'
 } >"$tmp/in.txt"
 cp "$2" "$tmp/d.img"

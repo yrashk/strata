@@ -1,8 +1,1 @@
 # rung/test	why it is not expected to pass with cc (cc.c); the runner reports these apart and flags a test that passes anyway
-03-pointers-arrays/scc-0062-include.c	needs a header file of its suite, which is not kept here
-05-preproc/scc-0178-include.c	needs a header file of its suite, which is not kept here
-05-preproc/scc-0232-cppmacro.c	needs a header file of its suite, which is not kept here
-06-init/lacc-include.c	needs a header file of its suite, which is not kept here
-08-c99-misc/scc-0200-cpp.c	needs a header file of its suite, which is not kept here
-09-float/lacc-convert-float-int.c	a negative value converted to unsigned char: not defined by C, and this compiler gives another value than the reference
-09-float/lacc-nan-inf.c	strtof is not in the library

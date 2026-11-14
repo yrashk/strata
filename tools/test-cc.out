@@ -27,6 +27,16 @@ cannot open nosuch.c
 status 1
 strata$ cc -p -o calc3 /src/calc.c && calc3 (7 - 1) * 7
 7 1 - 7 * = 42  (5 nodes)
-strata$ rm hi calc2 calc3 bad.c
+strata$ cc /src/asm.c && asm
+3 * 4 + 40 = 52
+1 + ... + 10 = 55, total = 55
+plus100(1) = 101, twice(21) = 42, add_total(1) = 56
+through the arena: 1122334455667788, the arena is 832 KiB
+strata$ cc -p -o asm2 /src/asm.c && asm2
+3 * 4 + 40 = 52
+1 + ... + 10 = 55, total = 55
+plus100(1) = 101, twice(21) = 42, add_total(1) = 56
+through the arena: 1122334455667788, the arena is 832 KiB
+strata$ rm hi calc2 calc3 bad.c asm asm2
 strata$ halt
 StrataOS: all cores halted

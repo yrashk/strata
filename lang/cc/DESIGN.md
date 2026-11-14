@@ -294,13 +294,17 @@ path is the test above.
 
 It is the same one-pass design as `cc.s` (section 4), with these changes:
 
-- **A program of its own size.** Its code is 90 KiB in 4 KiB units, more
+- **A program of its own size.** Its code is 108 KiB in 4 KiB units, more
   than an image may hold beside its data, so the units are a second file,
   `cc.u`, which the start-up code of every paged program loads when the
-  image says so (`__uload`). Its tables fill the 40 KiB of data: symbols
-  (700), types (600), the value stack; everything else is in the arena:
-  identifiers, macros, fixups, parameter types, the cases of open `switch`
-  statements, the image being built.
+  image says so (`__uload`). Its tables take 38 of the 40 KiB of data:
+  symbols (700), types (600), the value stack; everything else is in the
+  arena: identifiers and their hash, macros, fixups, parameter types, the
+  cases of open `switch` statements, the image being built.
+- **One file less on the disk.** The disk's directory is full, so on the
+  standard disk `cc.lib` is appended to `cc.u`: the start-up code loads the
+  whole file, and `cc` looks behind its own units when `/bin/cc.lib` is not
+  a file.
 - **The source is read as the scanner goes**, through a 64 KiB window of
   the arena, so a source file may be larger than the arena has room for
   (`cc.c` itself is 130 KiB). An array whose length its initialiser gives is
@@ -320,3 +324,48 @@ It is the same one-pass design as `cc.s` (section 4), with these changes:
 - Bit-fields are laid out as the usual ABIs do (a field starts at the next
   free bit unless it would cross a unit of its type). Unnamed structure
   members (C11) are accepted.
+- **Code that is parsed but not compiled** (the arm of a constant condition
+  that is not taken, the operand of `sizeof`, a constant expression) leaves
+  the value stack entries of live code and the register mask as they were.
+
+### Variable-length arrays
+
+An array type whose size is not a constant keeps its size in a frame word,
+computed where the declarator stands; `sizeof` and pointer arithmetic read
+that word. This covers arrays of arrays and pointers to them. The storage
+of a variable-length array comes from `malloc`, its address is a frame word
+(the object is reached as a structure parameter is), and it is given back
+at the end of its block and before `return`, `break` and `continue` leave
+it; a `goto` out of the block does not give it back. Local Store has no
+second stack to take it from: `sp`-relative frames stay fixed.
+
+In a parameter list the names a dimension uses are not declared yet and no
+code can be emitted, so the text of the dimension is kept in the arena and
+read again, as an expression, when the function is entered.
+
+### `asm("...")`
+
+```
+asm("ld    t0, {a}\n"            /* {name}: a C object as a memory operand */
+    "addi  t0, t0, {BIAS}\n"     /* ... an enumeration constant as a number */
+    "loop: addi t0, t0, -1\n"    /* a label of the function */
+    "bnez  t0, loop\n"
+    "la    t1, {total}\n"        /* ... the address of an object */
+    "call  {f}\n"                /* ... a C function */
+    "sd    a0, {r}");
+```
+
+The text is Strata assembly as `as` reads it, one instruction a line, `;`
+to the end of a line a comment: every instruction and pseudo-instruction of
+the assembler, with numbers (not expressions) as operands. It is encoded in
+place. `t0`-`t6`, `tp` and `a0`-`a7` are free between two statements; the
+other registers are the compiler's. In the paged model `ret` is `xret ra`,
+and `call` of a C function is the call the compiler would make.
+
+At file scope the labels of an `asm` are functions: declared in C, they are
+called like any other (`examples/asm.c`).
+
+The instruction table is not in the compiler: `lib/mkasm.py` makes it from
+the assembler itself, by assembling each instruction with `sasm` and seeing
+which bits each operand changes, and it travels in `cc.lib` (`asm.tab`,
+110 instructions). The compiler cannot disagree with the assembler.
