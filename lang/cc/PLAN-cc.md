@@ -92,6 +92,17 @@ Each stage ends with the ladder run and its score recorded below.
 - [ ] `cc.c`, compiled by the assembly compiler
 - [ ] fixed point: `cc1 = cc(cc.c)`, `cc2 = cc1(cc.c)`, identical bytes
 
+### Stage 7: the machine from C
+- [ ] intrinsics (`<strata.h>`), one instruction each; tags, capability
+      registers and CSR numbers are constants: `__tget __tput __tgetx __twait
+      __tpoll __tany`, `__tamo_add/_swap/_cas/_and/_or`, `__cbase __clen
+      __cperms __cvalid`, `__cmov __csplit __cjoin __cshare __crestrict
+      __cclear`, `__cgive __ctake __cpoll __csend`, `__csrr __csrw`, `__svc
+      __halt`, `__ltag __linst`. Supervisor-only instructions are left to `asm`
+- [ ] `asm` statements: inline Strata assembly, encoded with the instruction
+      table of `as` (`os/progs/as.s`; `asm/sasm.c` for `cc.c`), operands may
+      name C variables
+
 ## Integration
 - [ ] `cc` and `cc.lib` in the OS image (Makefile), `help` line in the shell
 - [ ] `make test-cc`, and the fast subset in `make test`

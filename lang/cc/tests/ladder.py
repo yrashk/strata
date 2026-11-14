@@ -46,6 +46,10 @@ def boot(batch, tag):
         out = e.stdout or b""
     return out.decode("latin-1")
 
+def clean(text):
+    """a program's output without what the shell adds after a non-zero status: "[exit N]" and the prompt's "[N] " """
+    return re.sub(r"(\[(exit|fault|killed)[^\]\n]*\]\n)?\[\d+\] $", "", text)
+
 def parse(out, n):
     """-> per test: (compile output, compile status, run output, run status), None where the session did not get that far"""
     res = []
@@ -55,7 +59,7 @@ def parse(out, n):
         if not m: res.append(None); continue
         r = re.search(re.escape(PROMPT + "echo @@C%02d $?\n" % i) + r"@@C%02d \d+\n" % i + re.escape(PROMPT + "t\n") + "(.*?)" +
                       re.escape(PROMPT + "echo @@R%02d $?\n" % i) + r"@@R%02d (\d+)\n" % i, out, re.S)
-        res.append((m.group(1), int(m.group(2)), r.group(1) if r else None, int(r.group(2)) if r else None))
+        res.append((clean(m.group(1)), int(m.group(2)), clean(r.group(1)) if r else None, int(r.group(2)) if r else None))
     return res
 
 def verdict(path, r):

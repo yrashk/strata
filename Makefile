@@ -329,6 +329,21 @@ $(BUILD)/prog/as: os/progs/as.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
+# the C compiler (lang/cc/): cc, in Strata assembly, and the one file it needs,
+# cc.lib: the run-time library (assembled at fixed addresses), the table of its
+# exported names and the headers (lang/cc/lib/mklib.py packs them)
+CC_SRC  := $(wildcard lang/cc/*.s) lang/cc/lib/rt.s
+CC_HDRS := $(sort $(wildcard lang/cc/lib/include/*.h))
+$(BUILD)/prog/cc: $(CC_SRC) $(BUILD)/sasm lang/cc/tests/check-units.py
+	@mkdir -p $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -I lang/cc -g $@.map -o $@ lang/cc/cc.s
+	python3 lang/cc/tests/check-units.py $@
+$(BUILD)/cc/libc.stx: lang/cc/lib/libc.s lang/cc/lib/rt.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/cc
+	$(BUILD)/sasm -T 0x8000 -I lang/cc/lib -g $(BUILD)/cc/libc.map -o $@ lang/cc/lib/libc.s
+$(BUILD)/cc/cc.lib: $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS)
+	python3 lang/cc/lib/mklib.py $@ $(BUILD)/cc/libc.stx $(BUILD)/cc/libc.map lang/cc/lib/libc.s $(CC_HDRS)
+
 # Every source on the disk carries a copy of the library after the program.
 $(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s
 	@mkdir -p $(BUILD)/src
