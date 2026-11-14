@@ -152,9 +152,9 @@ boots into it (`ws PROGRAM` is new); `tools/test-wdoom.sh` is in `make test`.
   ask), because the RTL has none and the sessions compared with it must
   see the same platform table. Putting it into `rtl/strata_dev.sv` (a DPI
   sink, as for the pointer) and then making it unconditional is open.
-- Not verified: how it sounds (the tests check that the pistol's samples
-  reach a WAV file and, in a browser, that they are scheduled; nobody has
-  listened), and the SDL path beyond compiling.
+- Heard in a browser (the play page): the sounds are right. The tests check
+  that the pistol's samples reach a WAV file. Not verified: the SDL path
+  beyond compiling.
 
 ## Open work
 
