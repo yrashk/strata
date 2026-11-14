@@ -39,6 +39,7 @@ HALF = VH // 2
 PROJ = 160                              # pixels per cell at distance 1
 NANG = 2048                             # angle units in a circle
 NLIGHT = 4                              # light levels in the colour map
+SHADE = 0.08                            # how much darker each level is
 SND_RATE = 11025
 TRANSP = 255
 MAPW, MAPH = 64, 32                     # the world's array (40 x 20 of it are used)
@@ -54,42 +55,6 @@ PAINTS = [(230, 40, 50), (250, 140, 30), (255, 225, 50), (70, 190, 80), (110, 20
           (50, 90, 220), (150, 80, 200), (255, 150, 200), (150, 95, 50), (255, 255, 255)]
 PICTURES = ['menu', 'garden', 'music', 'paint_1', 'paint_2', 'paint_3']
 
-# ---- the world ---------------------------------------------------------------
-# Walls: # stone, W window, B banner, S shelf, H hedge, R roses. Floors: . castle,
-# : carpet, , grass, _ path, ~ water (not walked on). Things (on the floor of the
-# cell to their left): T tree, b bush, F fountain, D bed, t table, h throne,
-# c chest, P the picnic blanket (walked on), K where Kira starts. 1..7: places
-# where friend 1..7 (cat, dog, bunny, duck, pony, bird, frog) may hide; each has
-# three, and a new game picks one of them. Four screens of 20 x 10 cells: the
-# great hall, Kira's rooms, the fountain garden, the orchard with the pond.
-WORLD = [
-    "####W###B##B###W########W####SS###W#####",
-    "#......:::h:::.....##.........#.D....c.#",
-    "#..1...::::::....6.##.c.....2.#........#",
-    "W......::::::......##.........#..:::...W",
-    "#..t...::::::.....................:::..#",
-    "#......::::::......##..t......#..:::..3#",
-    "#.4....::K:::....c.##.........#.7......#",
-    "W......::::::......#S....1....#........W",
-    "#.....2::::::..3...##.........#...5....#",
-    "#######B:::B############__##############",
-    "HHHHHHH,___,HHHHHHHHHHHH__HHHHHHHHHHHHHH",
-    "H,T,,7,,___,,,b,,T,,,,T,__,,,,,,,,,,T,,H",
-    "H,,,5,,,___,,,,,,,,,,,,,__,,,~~~~~,,,,,H",
-    "R,,,,,,,___________________,~~~~~~~,,6,R",
-    "H,b,,,,,_F_,,,,,,,,,,,,,,,_,~~~~~~~4,,,H",
-    "H,,,,,,,___,,,,2,,,5,T,,,,_,,~~~~~,,,,,H",
-    "R,,3,,,,,_,,,,,,,,,,,,,,,,_,,,,7,,,,,T,R",
-    "H,,,,,T,,_,,,b,,,T,,,,,1,,____P,,,,,,,,H",
-    "H,6,,,,,,_,,,,,,,,,,,,,b,,,,,,4,,,b,,,,H",
-    "HHHHRHHHHHHHHRHHHHHHHHHHRHHHHHHHHRHHHHHH",
-]
-WALL_CH = {'#': 1, 'W': 2, 'B': 3, 'S': 4, 'H': 5, 'R': 6}
-FLOOR_CH = {'.': 0, ':': 1, ',': 2, '_': 3, '~': 4}
-DECOR_CH = {'T': 0, 'b': 1, 'F': 2, 'D': 3, 't': 4, 'h': 5, 'c': 6, 'P': 7}
-C_BLOCK = 0x80                          # a cell that is not walked on though it has no wall
-K_DECOR, K_PICNIC = 1, 2                # kinds of thing in the world's list
-
 # ---- songs: (tics before the note, note 0..7 = C D E F G A B C') ---------------
 TWINKLE = [0, 0, 4, 4, 5, 5, 4, -1, 3, 3, 2, 2, 1, 1, 0, -1,
            4, 4, 3, 3, 2, 2, 1, -1, 4, 4, 3, 3, 2, 2, 1, -1,
@@ -100,8 +65,11 @@ FANFARE = [(0, 0), (4, 2), (4, 4), (4, 7), (8, 4), (4, 7), (0, 2), (10, 0), (0, 
 # Keys: U D L R the arrows, other characters themselves. tools/test-kira.sh
 # compares the last frame of each.
 DEMOS = {
-    1: "9 1,20 L,10 L,10 L,10 L,10 L,10 L,40 .,5 @248:140,150 .",   # Friends: the duck by keys, the bunny by a click
-    2: "5 L,3 L,3 L,3 L,3 L,3 L,3 L,3 U,3 U,3 U,5  ,10 !,30 R,60 .",   # the hand presses FRIENDS; the party
+    1: "9 1,10 @152:140,160 .,5 R,10 R,60 .",     # Friends from above: a click on the dog's cell; two steps
+    2: "5 L,3 L,3 L,3 L,3 L,3 L,3 L,3 U,3 U,3 U,5  ,10 !,30 R,80 .,5 .,20 .",   # the hand presses FRIENDS; the party; a new world
+    3: "9 1,5  ,10 R,12 R,12 U,12 U,12 L,30 .",   # through her eyes: turns and steps
+    4: "9 1,5  ,10 !,30 U,60 .",                  # ... and the party seen so
+    8: "9 1," + "2 !,3 R,80 .,2 .," * 60 + "20 .",   # sixty games, each in a new world
 }
 KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '!': 0xfd}
 
@@ -354,6 +322,22 @@ def build(art, outdir, preview=None):
     for c in extra:
         if c not in colours:
             rgb.append(c)
+    # ... and, while there is room, the darker shades of the colours that the world seen
+    # through Kira's eyes is made of, so that a far wall is a shade of its own colour
+    def shade(c, lv):
+        f = 1.0 - lv * SHADE
+        return tuple(int(v * f) for v in c)
+    world = {}
+    for name in textures + flats + [s for s, _ in sprites if s.endswith(('_fp', '_fp_0', '_fp_1'))]:
+        for row in images[name][2]:
+            for r, g, b, a in row:
+                if a >= 128:
+                    world[(r, g, b)] = world.get((r, g, b), 0) + 1
+    for lv in range(1, NLIGHT):
+        for c in sorted(world, key=lambda c: (-world[c], c)):
+            d = shade(c, lv)
+            if d not in rgb and len(rgb) < 255:
+                rgb.append(d)
     assert len(rgb) <= 255, 'the art uses %d colours: 255 at most' % len(rgb)
     index = {c: i for i, c in enumerate(rgb)}
     ncol = len(rgb)
@@ -473,53 +457,8 @@ def build(art, outdir, preview=None):
         eq.append(('SN_' + name, i, ''))
     nsnd = len(snddir) // 8
 
-    # ---- the world
-    cells = bytearray(MAPW * MAPH)
-    for i in range(MAPW * MAPH):
-        cells[i] = 1                    # (outside the world: wall)
-    things = bytearray()
-    spots = {}
-    start = None
-    assert len(WORLD) == WORLDH and all(len(r) == WORLDW for r in WORLD)
-    for y, row in enumerate(WORLD):
-        floor = 0
-        for x, c in enumerate(row):
-            v = 0
-            if c in WALL_CH:
-                v = WALL_CH[c]
-            elif c in FLOOR_CH:
-                floor = FLOOR_CH[c]
-                v = floor << 4 | (C_BLOCK if c == '~' else 0)
-            else:
-                v = floor << 4
-                if c in DECOR_CH:
-                    d = DECOR_CH[c]
-                    kind = K_PICNIC if c == 'P' else K_DECOR
-                    if kind == K_DECOR:
-                        v |= C_BLOCK
-                    things += struct.pack('<BBBBHH', x, y, kind, d, spr[DECOR[d] + '_fp'], spr[DECOR[d] + '_td'])
-                elif c == 'K':
-                    start = (x, y)
-                else:
-                    assert c in '1234567', c
-                    spots.setdefault(int(c), []).append((x, y))
-            cells[y * MAPW + x] = v
-    assert start and all(len(spots[i]) == 3 for i in range(1, 8)), spots
-    nthings = len(things) // 8
-    assert nthings <= 40
-    seen = {start}                      # everything is reached from the start
-    todo = [start]
-    while todo:
-        x, y = todo.pop()
-        for xx, yy in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
-            if (xx, yy) not in seen and cells[yy * MAPW + xx] & 0x8f == 0:
-                seen.add((xx, yy))
-                todo.append((xx, yy))
-    for i in spots:
-        assert all(s in seen for s in spots[i]), 'a hiding place of friend %d is not reached' % i
-    picnic = [(things[i], things[i + 1]) for i in range(0, len(things), 8) if things[i + 2] == K_PICNIC]
-    assert len(picnic) == 1 and picnic[0] in seen
-    spotb = b''.join(bytes(c for s in spots[i] for c in s) + b'\0\0' for i in range(1, 8))
+    # ---- the world: made by the game (os/progs/kira/world.s); the things' sprites
+    decor = b''.join(struct.pack('<HH', spr[d + '_fp'], spr[d + '_td']) for d in DECOR)
     friends = b''.join(struct.pack('<HHHHHHHH', spr[a + '_fp_0'], spr[a + '_td_0'], spr[a + '_icon'],
                                    spr['word_' + a], i + 8, 0, 0, 0) for i, a in enumerate(FRIENDS))
 
@@ -558,8 +497,7 @@ def build(art, outdir, preview=None):
         rowl.append(min(NLIGHT - 1, int(d * 0.45)))
     cmap = bytearray()
     for lv in range(NLIGHT):
-        f = 1.0 - lv * 0.11
-        cmap += bytes(nearest(int(r * f), int(g * f), int(b * f)) if i < ncol else i for i, (r, g, b) in enumerate(rgb))
+        cmap += bytes(nearest(*shade(c, lv)) if i < ncol else i for i, c in enumerate(rgb))
     palb = b''.join(bytes((b, g, r, 0)) for r, g, b in rgb)
     parts = [('R_SIN', pad8(sin), 'sine of a quarter circle: %d + 1 entries, 16.16' % (NANG // 4)),
              ('R_ROWD', pad8(b''.join(rowd)), 'distance of floor row k below the horizon, 16.16'),
@@ -570,11 +508,11 @@ def build(art, outdir, preview=None):
              ('R_SPR', pad8(bytes(sprdir)), 'sprites: u32 far offset, u16 w, h, s16 ox, oy, u16 column bytes, u16 0'),
              ('R_SND', pad8(bytes(snddir)), 'sounds: u32 far offset, u32 samples'),
              ('R_PIC', bytes(picdir), 'pictures: ten slabs each: u32 far offset, u16 coded bytes, u16 0'),
-             ('R_MAP', bytes(cells), 'the world: %d x %d cells (%d x %d used): wall 1..6 in bits 0..3, '
+             ('R_MAP', bytes(MAPW * MAPH), 'the world: %d x %d cells (%d x %d used): wall 1..6 in bits 0..3, '
               'floor kind in bits 4..6, bit 7: not walked on' % (MAPW, MAPH, WORLDW, WORLDH)),
-             ('R_THINGS', pad8(bytes(things) + bytes(8)), 'things: u8 x, y, kind, which, u16 sprite '
-              '(through her eyes), u16 sprite (from above); kind 0 ends them'),
-             ('R_SPOTS', spotb, 'hiding places: per friend three (x, y), 8 bytes'),
+             ('R_THINGS', bytes(8 * 41), 'things: u8 x, y, kind, which, u16 sprite (through her eyes), '
+              'u16 sprite (from above); kind 0 ends them'),
+             ('R_DECOR', pad8(decor), 'the things\' sprites: u16 through her eyes, u16 from above, each'),
              ('R_FRIEND', friends, 'friends: u16 sprite (eyes), sprite (above), icon, word, sound; 16 bytes'),
              ('R_PAINT', pad8(bytes(index[c] for c in PAINTS)), 'the ten paint colours'),
              ('R_NREG', pad8(bytes(nreg)), 'regions of each colouring page'),
@@ -601,10 +539,6 @@ def build(art, outdir, preview=None):
     equ('NLIGHT', NLIGHT, 'light levels')
     equ('NFRIEND', len(FRIENDS), 'friends')
     equ('SND_RATE', SND_RATE, 'samples per second')
-    equ('START_X', start[0], 'where Kira starts')
-    equ('START_Y', start[1], '...')
-    equ('PICNIC_X', picnic[0][0], 'where the picnic blanket lies')
-    equ('PICNIC_Y', picnic[0][1], '...')
     equ('C_BLACK', index[(0, 0, 0)], 'palette indices: black')
     equ('C_WHITE', index[(255, 255, 255)], 'white')
     equ('C_GREY', index[(165, 155, 185)], 'a friend not yet found')
@@ -615,8 +549,8 @@ def build(art, outdir, preview=None):
     os.makedirs(outdir, exist_ok=True)
     open(os.path.join(outdir, 'kira.dat'), 'wb').write(bytes(res) + bytes(far))
     open(os.path.join(outdir, 'dat.s'), 'w').write('\n'.join(lines) + '\n')
-    print('kira.dat: resident %d + far %d = %d bytes; %d colours, %d sprites, %d sounds, %d things, regions %s' %
-          (len(res), len(far), len(res) + len(far), ncol, len(sprimgs), nsnd, nthings, nreg))
+    print('kira.dat: resident %d + far %d = %d bytes; %d colours, %d sprites, %d sounds, regions %s' %
+          (len(res), len(far), len(res) + len(far), ncol, len(sprimgs), nsnd, nreg))
     if preview:                         # the sprites as a picture, to look at
         W = 640
         x = y = rowh = 0

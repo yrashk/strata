@@ -11,16 +11,23 @@
 #    that picture on the screen. Checked: the report, and the picture
 #    itself: the 960 x 600 pixels of the game (320 x 200 at three times)
 #    must have the expected checksum.
-#      demo 1  Friends from above: the duck is found with the arrow keys,
-#              the bunny by a click on its cell (Kira walks there)
+#      demo 1  Friends from above: a click on the dog's cell: Kira walks
+#              there and the dog is found; two steps with the arrow keys
 #      demo 2  the hand is moved to FRIENDS with the arrows and pressed;
-#              all friends found; a step onto the picnic blanket: the party
+#              all friends found; a step onto the picnic blanket: the party;
+#              a key: a new game in a new world
+#      demo 3  Friends through Kira's eyes: quarter turns and steps
+#      demo 4  ... and the party seen so
+#      demo 8  sixty games one after another, each in a new world (all
+#              friends found, a step onto the blanket, a key)
+#    (A demo's random numbers start from a fixed seed, so its worlds are
+#    always the same ones.)
 # 2. `ws kira` on a machine with the sound device (-A: what it plays goes
-#    to a WAV file) and a pointer (-P): a click on FRIENDS, six steps to
-#    the duck (its quack and the chime), q ends the program; the window
-#    server then opens a terminal, where a command leaves a file;
+#    to a WAV file) and a pointer (-P): a click on FRIENDS and one on the
+#    bar's button for the other view (each pops), q ends the program; the
+#    window server then opens a terminal, where a command leaves a file;
 #    Alt+Shift+Q, and the shell shows the file. Checked: the file, and that
-#    the WAV holds the sounds.
+#    the WAV holds the pops.
 # A checksum changes with the art, the world, the demo or the drawing: when
 # one of those is changed on purpose, look at $BUILD/test-kira/frameN.ppm
 # and put the number the test prints into KIRA_CRC below.
@@ -30,7 +37,7 @@ set -e
 BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
-KIRA_CRC="1:ea2796c0 2:51905590"
+KIRA_CRC="1:1e2e8840:2 2:c3d23aec:2 3:e9feb1c4:2 4:35bb692b:2 8:ab531bf5:40"
 T=$BUILD/test-kira
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W
@@ -38,17 +45,19 @@ AQ='\033[27;3;81~' AH='\033[27;3;72~'   # Alt+Shift+Q, Alt+Shift+H
 fail() { echo "test-kira: FAILED: $1"; tail -20 $T/$2.txt; exit 1; }
 
 # ---- 1. the demos and their last frames
-for d in $KIRA_CRC; do
+for d in $KIRA_CRC; do                  # demo:checksum:seconds it is given
   n=${d%%:*}
+  crc=${d#*:}; crc=${crc%%:*}
   cp "$DISK" $T/disk.img
-  printf "ws kira demo $n\n$W$W$W$W$W$W $W${AH}" > $T/keys
+  WW=""; i=0; while [ $i -lt ${d##*:} ]; do WW="$WW$W"; i=$((i + 1)); done
+  printf "ws kira demo $n\n$W$W$W$W $W$WW${AH}" > $T/keys
   $BUILD/strata-emu -c 12 -g none -m 40000000000 -F $T/frame$n.ppm -d $T/disk.img -i $T/keys "$ROM" > $T/out$n.txt 2>&1 || {
     echo "test-kira: FAILED: the emulator exited with an error (demo $n)"; tail -5 $T/out$n.txt; exit 1; }
   grep -q '^kira: demo: [0-9]* frames in ' $T/out$n.txt || fail "demo $n did not play to its end" out$n
   grep -q 'all cores halted' $T/out$n.txt || fail "the window server did not halt the machine" out$n
   if grep -q 'fault\|panic' $T/out$n.txt; then fail "a fault was reported" out$n; fi
   [ -s $T/frame$n.ppm ] || fail "no frame was presented" out$n
-  python3 - $T/frame$n.ppm ${d##*:} $n <<'PY' || fail "the last frame of demo $n is not the expected picture" out$n
+  python3 - $T/frame$n.ppm $crc $n <<'PY' || fail "the last frame of demo $n is not the expected picture" out$n
 import sys, zlib
 b = open(sys.argv[1], 'rb').read()
 p = b.split(b'\n', 3)                      # P6, "W H", 255, pixels
@@ -64,17 +73,17 @@ done
 
 # ---- 2. the pointer, sound, q, and the window server after it
 cp "$DISK" $T/disk.img
-L='\033[D'
 START="ws kira\n$W$W$W$W $W"
-printf "$START$W$L$W$L$W$L$W$L$W$L$W$L$W$W${W}q$W$W${W}echo kira-q-ok > kmark\n$W${AQ}cat kmark\n" > $T/keys
+printf "$START$W$W$W${W}q$W$W${W}echo kira-q-ok > kmark\n$W${AQ}cat kmark\n" > $T/keys
 N=$(printf "$START" | wc -c | tr -d ' ')
-printf "k$N move 400 340\nk$N down 0\nk$N up 0\n" > $T/ptr   # FRIENDS, on the menu
+N1=$((N + 10))                          # (one Alt+Shift+W later)
+printf "k$N move 400 340\nk$N down 0\nk$N up 0\nk$N1 move 1070 670\nk$N1 down 0\nk$N1 up 0\n" > $T/ptr   # FRIENDS; the other view
 $BUILD/strata-emu -c 12 -g none -m 40000000000 -A $T/sound.wav -P $T/ptr -d $T/disk.img -i $T/keys "$ROM" > $T/outp.txt 2>&1 || {
   echo "test-kira: FAILED: the emulator exited with an error (pointer, sound)"; tail -5 $T/outp.txt; exit 1; }
 grep -q '^kira-q-ok' $T/outp.txt || fail "q did not end kira (no terminal took the command after it)" outp
 grep -q '^ws: stopped' $T/outp.txt || fail "ws did not quit to the shell" outp
 if grep -q 'fault\|panic' $T/outp.txt; then fail "a fault was reported" outp; fi
-python3 - $T/sound.wav <<'PY' || fail "the sound device did not play the duck and the chime" outp
+python3 - $T/sound.wav <<'PY' || fail "the sound device did not play the buttons' pops" outp
 import sys, wave, struct
 w = wave.open(sys.argv[1])
 d = w.readframes(w.getnframes())

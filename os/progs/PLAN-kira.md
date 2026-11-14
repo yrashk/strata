@@ -36,6 +36,21 @@ activities; one runs at a time and the menu switches between them:
   step is easier for a small child than free movement. From above a click
   on a cell walks Kira there (a breadth-first search over the screen's
   20 x 10 cells); the world is four such screens and flips between them.
+- **Every game of Friends has a new world.** `world.s` makes the castle
+  (three rooms, the walls between them and their doors at random places,
+  windows, banners, shelves, carpets, two gates) and the garden (paths, a
+  pond, trees, bushes, a fountain, the blanket), and puts Kira and the
+  friends into it. Nothing has to be checked afterwards: a thing or the
+  pond goes only where every cell around it is free, so the cells around
+  it are a ring to walk and no way is ever closed. A run's random numbers
+  start from the clock; a demo's from a fixed seed.
+- **Through her eyes the world is wdoom's raycaster** with 64-texel
+  textures and four light levels (the palette has the darker shades of the
+  world's colours, so a far wall is a shade of its own colour), a floor
+  flat per cell by the cell's kind, and sky instead of a ceiling over
+  grass, paths and water. Up is a step, Down a step back, Left and Right
+  quarter turns; a press at the left or right of the picture turns, one in
+  the middle steps.
 - **Mouse and keyboard both do everything.** Where the mouse points and
   clicks (menu, garden, paint, music) the arrow keys move a hand and Space
   presses it.
@@ -71,8 +86,8 @@ palette): there is no boot image of its own.
 - [x] Stage 1: the frame (slabs, pictures, sprites, the bar, the hand),
       the menu, **Friends from above**, sound, `kira demo`, the program on
       the disk, `ws kira`, the shell's help, `tools/test-kira.sh` in `make test`
-- [ ] Stage 2: **Friends through Kira's eyes** (the raycaster, per-cell
-      floors, the sky)
+- [x] Stage 2: **Friends through Kira's eyes** (the raycaster, per-cell
+      floors, the sky); a new world for every game
 - [ ] Stage 3: **Garden**, kept in a file
 - [ ] Stage 4: **Paint**
 - [ ] Stage 5: **Music**

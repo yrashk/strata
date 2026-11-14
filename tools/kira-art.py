@@ -865,69 +865,245 @@ def colouring_one():
     for x,y in [(18,122),(49,115),(254,119),(284,131)]:ce(im,(x,y,x+16,y+15))
     return im
 
+# These paths are sampled from cubic Beziers, without antialiasing. Geometry
+# lives on pixel edges; testing pixel centres against a radius-one stroke
+# gives a true 2px pen, including curved and diagonal portions. The castle
+# retains its original drawing primitives and therefore its exact pixels.
+def cpath(im, start, segments, closed=True):
+    points=[start]
+    for seg in segments:
+        x0,y0=points[-1]
+        if len(seg)==2:
+            points.append(seg)
+            continue
+        x1,y1,x2,y2,x3,y3=seg
+        length=sum(((bx-ax)**2+(by-ay)**2)**.5 for ax,ay,bx,by in
+                   ((x0,y0,x1,y1),(x1,y1,x2,y2),(x2,y2,x3,y3)))
+        steps=max(4,int(length*2)+1)
+        for i in range(1,steps+1):
+            t=i/steps;u=1-t
+            points.append((u*u*u*x0+3*u*u*t*x1+3*u*t*t*x2+t*t*t*x3,
+                           u*u*u*y0+3*u*u*t*y1+3*u*t*t*y2+t*t*t*y3))
+    if closed and points[-1]!=points[0]:points.append(points[0])
+    edges=list(zip(points,points[1:]))
+    if closed:
+        for y in range(max(0,int(min(p[1] for p in points))),
+                       min(im.h,int(max(p[1] for p in points))+1)):
+            scan=y+.5
+            xs=sorted(ax+(scan-ay)*(bx-ax)/(by-ay)
+                      for (ax,ay),(bx,by) in edges if (ay>scan)!=(by>scan))
+            for left,right in zip(xs[::2],xs[1::2]):
+                for x in range(max(0,int(left)),min(im.w,int(right)+1)):
+                    if left<=x+.5<right:im.put(x,y,'paper')
+    for (ax,ay),(bx,by) in edges:
+        dx,dy=bx-ax,by-ay;length2=dx*dx+dy*dy
+        for y in range(max(0,int(min(ay,by))-1),min(im.h,int(max(ay,by))+2)):
+            for x in range(max(0,int(min(ax,bx))-1),min(im.w,int(max(ax,bx))+2)):
+                t=max(0,min(1,((x+.5-ax)*dx+(y+.5-ay)*dy)/length2)) if length2 else 0
+                if (x+.5-ax-t*dx)**2+(y+.5-ay-t*dy)**2<=1:
+                    im.put(x,y,'black')
+
+
+def coval(im,x0,y0,x1,y1):
+    x,y=(x0+x1)/2,(y0+y1)/2;rx,ry=(x1-x0)/2,(y1-y0)/2;k=.55228475
+    cpath(im,(x,y0),[(x+k*rx,y0,x1,y-k*ry,x1,y),
+                     (x1,y+k*ry,x+k*rx,y1,x,y1),
+                     (x-k*rx,y1,x0,y+k*ry,x0,y),
+                     (x0,y-k*ry,x-k*rx,y0,x,y0)])
+
+
+def cpetal_flower(im,x,y):
+    # A scalloped blossom is one generous fill target; broad leaves have no
+    # tiny veins. The stem is a solid two-pixel mark, like the facial details.
+    def path(start,segs,closed=True):
+        cpath(im,(x+start[0],y+start[1]),
+              [tuple(v+(x if i%2==0 else y) for i,v in enumerate(s)) for s in segs],closed)
+    path((0,14),[(0,22,0,31,0,39)],False)
+    path((-1,34),[(-14,36,-22,29,-20,20),(-11,19,-3,23,-1,34)])
+    path((1,34),[(14,36,22,29,20,20),(11,19,3,23,1,34)])
+    path((0,-11),[(-12,-23,-23,-9,-14,0),(-26,10,-12,23,0,14),
+                      (12,23,26,10,14,0),(23,-9,12,-23,0,-11)])
+    im.ellipse(x-3,y-2,x+2,y+3,'black')
+
+
+def csoft_butterfly(im,x,y):
+    # Four rounded wings meet a solid body, with no sliver at their roots.
+    for side in (-1,1):
+        def wing(start,segs):
+            cpath(im,(x+side*start[0],y+start[1]),
+                  [tuple((x+side*v) if i%2==0 else y+v for i,v in enumerate(s)) for s in segs])
+        wing((1,2),[(9,-17,24,-16,23,-3),(23,6,12,10,1,7),(1,2)])
+        wing((1,7),[(10,7,20,5,21,13),(23,27,5,27,1,12),(1,7)])
+    im.round(x-2,y-1,x+1,y+17,1,'black')
+    cpath(im,(x-1,y),[(x-2,y-5,x-4,y-7,x-6,y-7)],False)
+    cpath(im,(x+1,y),[(x+2,y-5,x+4,y-7,x+6,y-7)],False)
+
+
+def csoft_cloud(im,x,y):
+    cpath(im,(x+7,y+24),[(x-4,y+24,x-4,y+10,x+7,y+10),
+        (x+9,y-3,x+27,y-3,x+30,y+9),(x+43,y+5,x+50,y+24,x+36,y+24),
+        (x+7,y+24)])
+
+
+def csoft_heart(im,x,y):
+    cpath(im,(x,y+5),[(x-12,y-7,x-22,y+8,x-10,y+17),
+        (x-6,y+20,x-2,y+23,x,y+25),(x+2,y+23,x+6,y+20,x+10,y+17),
+        (x+22,y+8,x+12,y-7,x,y+5)])
+
+
+def cgrass(im,x,y):
+    cpath(im,(x-12,y+8),[(x-13,y+1,x-15,y-4,x-12,y-5),
+        (x-8,y-6,x-4,y+1,x-3,y+2),(x-2,y-3,x+2,y-10,x+5,y-9),
+        (x+8,y-8,x+5,y+1,x+6,y+3),(x+9,y,x+14,y-3,x+15,y),
+        (x+16,y+2,x+12,y+6,x+11,y+8),(x-12,y+8)])
+
+
 def colouring_two():
     im=Canvas(320,168,'paper')
-    # Kira, with a single broad braid subdivided into five closed woven lobes.
-    cp(im,[(89,87),(78,110),(72,115),(67,111),(68,104),(78,80)])
-    cp(im,[(141,87),(153,105),(165,107),(169,114),(164,120),(151,118),(132,95)])
-    # Small slippers are colourable, with 12px interiors.
-    cr(im,(84,145,106,164),6);cr(im,(120,145,142,164),6)
-    cp(im,[(97,77),(129,77),(137,106),(155,144),(143,151),(83,151),(73,144),(91,106)])
-    cl(im,(94,110),(134,110));cl(im,(103,112),(94,149));cl(im,(124,112),(133,149))
-    # Puff sleeves are large enough to touch at 3x scale.
-    ce(im,(76,75,98,97));ce(im,(124,75,146,97))
-    cp(im,[(100,76),(126,76),(123,93),(104,93)])
-    ce(im,(91,31,140,79))
-    cp(im,[(90,48),(91,32),(101,23),(122,23),(139,34),(142,49),(130,43),(120,35),(111,43),(102,39),(97,49)])
-    ceye(im,102,53);ceye(im,126,53);csmile(im,115,66)
-    cp(im,[(97,27),(94,9),(107,16),(115,5),(124,16),(137,9),(133,27)])
-    # Braid outline is one connected shape; cross-lines are shared boundaries.
-    cp(im,[(137,63),(154,67),(157,79),(153,91),(157,103),(153,115),(157,128),(150,142),(139,132),(138,116),(137,100),(137,83),(130,75),(134,70)])
-    for y in (81,98,115):cl(im,(139,y),(154,y+3))
-    # Kitten: curved tail, broad head, ear triangles, bib and soft paws.
-    cp(im,[(263,118),(281,112),(288,99),(284,87),(277,89),(276,101),(270,105),(258,106)])
-    ce(im,(202,103,270,157));ce(im,(219,117,251,151))
-    cp(im,[(203,85),(200,61),(218,73),(247,73),(266,61),(264,87)])
-    ce(im,(199,76,268,121))
-    # Inner ears are solid decorative triangles, avoiding tiny fill pockets.
-    im.poly([(205,69),(207,79),(215,76)],'black');im.poly([(261,69),(259,79),(251,76)],'black')
-    ceye(im,216,92);ceye(im,246,92)
-    im.poly([(229,102),(239,102),(234,108)],'black');csmile(im,234,110)
-    for x,sg in ((206,-1),(260,1)):
-        cl(im,(x,105),(x+sg*12,102));cl(im,(x,111),(x+sg*12,114))
-    ce(im,(201,144,224,161));ce(im,(249,144,272,161))
-    cflower(im,30,43);cflower(im,36,115);cflower(im,292,119)
-    cbutterfly(im,237,23)
-    # Close diagonal joins at the fringe, crown, braid and curled tail.
-    for x,y in ((101,39),(107,15),(138,82),(275,101)):im.put(x,y,'black')
+    # A little garden with plenty of breathing room around the two friends.
+    csoft_cloud(im,22,12)
+    csoft_butterfly(im,228,27)
+    csoft_heart(im,285,22)
+    cpetal_flower(im,33,111)
+    cpetal_flower(im,294,75)
+    csoft_heart(im,40,63)
+    cgrass(im,181,151)
+
+    # Kira's soft slippers, relaxed arms and bell-shaped dress.
+    coval(im,91,140,114,161);coval(im,124,140,147,161)
+    cpath(im,(85,83),[(78,87,72,100,72,108),(72,117,82,118,85,111),
+        (88,105,91,96,95,91),(85,83)])
+    cpath(im,(149,89),[(157,91,158,96,167,98),(174,100,179,93,185,96),
+        (192,100,184,111,175,112),(159,115,151,105,149,102),(149,89)])
+    cpath(im,(103,78),[(110,74,128,74,135,79),(140,88,138,99,143,110),
+        (148,121,153,132,158,141),(146,152,91,154,77,141),
+        (82,130,89,117,94,106),(98,95,96,86,103,78)])
+    # Two long, curved skirt seams leave three large panels.
+    cpath(im,(109,108),[(109,122,102,137,99,149)],False)
+    cpath(im,(127,108),[(128,125,135,139,138,149)],False)
+    coval(im,79,77,102,98);coval(im,130,77,153,98)
+    cpath(im,(106,70),[(106,77,105,82,105,84),(112,96,126,96,132,84),
+        (130,80,130,75,130,70),(106,70)])
+    # Two generous ribbon loops; the small knot is intentionally solid ink.
+    cpath(im,(117,101),[(109,93,98,91,98,101),(97,114,110,114,117,105),(117,101)])
+    cpath(im,(119,101),[(128,93,139,91,139,101),(140,114,127,114,119,105),(119,101)])
+    im.ellipse(114,99,122,106,'black')
+
+    # Round hair cap and face, with the sprite's gently swept fringe.
+    coval(im,90,28,148,79)
+    cpath(im,(89,51),[(86,35,93,23,110,22),(129,18,149,30,149,51),
+        (142,49,140,37,131,35),(124,43,115,38,111,35),
+        (103,38,103,49,89,51)])
+    # A small three-point tiara, rounded at the tips, broad inside.
+    cpath(im,(102,28),[(101,22,99,15,101,13),(103,12,109,21,111,21),
+        (114,19,117,10,119,10),(121,10,124,19,127,21),
+        (130,20,135,13,137,13),(139,15,137,24,136,28),(102,28)])
+    im.ellipse(103,50,109,59,'black');im.ellipse(128,50,134,59,'black')
+    cpath(im,(112,67),[(115,71,121,71,125,66)],False)
+    cpath(im,(100,46),[(103,44,107,44,110,45)],False)
+    cpath(im,(127,45),[(130,43,134,44,137,46)],False)
+
+    # One long, gently scalloped braid. Alternating curved seams describe
+    # the weave, with each lobe large enough to colour independently.
+    cpath(im,(143,62),[(157,60,169,69,166,78),(173,82,174,90,170,96),
+        (176,101,177,108,172,115),(177,124,174,132,166,140),
+        (157,135,154,129,157,121),(151,116,150,108,154,101),
+        (147,96,146,88,150,82),(138,78,133,71,143,62)])
+    cpath(im,(148,80),[(156,78,160,84,172,85)],False)
+    cpath(im,(153,100),[(160,98,163,103,175,104)],False)
+    cpath(im,(154,118),[(163,115,168,121,175,122)],False)
+
+    # Kitten: curled tail, broad cheeks, pricked ears, cream bib and mittens.
+    cpath(im,(247,143),[(273,154,291,134,281,116),(277,108,271,109,270,115),
+        (273,125,269,133,252,132),(247,143)])
+    coval(im,202,115,256,157)
+    coval(im,215,122,244,157)
+    coval(im,199,143,224,160);coval(im,236,143,261,160)
+    # The ears belong to the head silhouette, so no unwanted ear-root seam.
+    cpath(im,(199,103),[(196,96,197,84,198,79),(199,76,209,82,215,87),
+        (224,83,238,83,246,87),(251,82,260,76,261,80),
+        (263,85,262,96,260,104),(268,120,251,132,230,132),
+        (209,132,192,120,199,103)])
+    cpath(im,(203,85),[(203,89,204,92,204,94)],False)
+    cpath(im,(256,85),[(256,89,255,92,255,94)],False)
+    # Tabby forehead marks and big solid eyes, matching cat_fp_0.
+    cpath(im,(223,87),[(223,90,224,93,224,95)],False)
+    cpath(im,(235,87),[(235,90,234,93,234,95)],False)
+    im.ellipse(212,101,218,110,'black');im.ellipse(242,101,248,110,'black')
+    im.ellipse(226,113,233,117,'black')
+    cpath(im,(230,117),[(229,122,224,123,221,119)],False)
+    cpath(im,(230,117),[(231,122,236,123,239,119)],False)
+    for x,side in ((204,-1),(256,1)):
+        cpath(im,(x,114),[(x+side*10,112)],False)
+        cpath(im,(x,120),[(x+side*10,122)],False)
     return im
+
 
 def colouring_three():
     im=Canvas(320,168,'paper')
-    # Pony seen in three-quarter profile, with a round muzzle and flowing mane.
-    cp(im,[(219,91),(238,82),(252,88),(259,105),(252,125),(246,142),(229,144),(236,123),(242,108),(234,102),(220,109)])
-    cl(im,(246,91),(250,108));cl(im,(250,108),(239,140))
-    for x in (144,180):
-        cp(im,[(x,112),(x+16,112),(x+14,153),(x-2,153)])
-        cl(im,(x-1,139),(x+14,139))
-    ce(im,(110,81,234,129))
-    for x in (120,199):
-        cp(im,[(x,111),(x+20,112),(x+17,158),(x-3,158)])
-        cl(im,(x-1,143),(x+17,143))
-    # Head and body overlap naturally beneath the mane.
-    cp(im,[(105,58),(102,28),(118,35),(127,53)])
-    cp(im,[(139,49),(149,25),(161,31),(159,62)])
-    ce(im,(91,52,160,103))
-    cp(im,[(109,53),(114,38),(137,35),(159,42),(173,58),(177,80),(173,101),(181,117),(164,124),(149,112),(151,91),(155,73),(145,60),(133,54),(120,65)])
-    cl(im,(151,45),(165,63));cl(im,(165,63),(166,98));cl(im,(166,98),(172,119))
-    ce(im,(85,83,139,113));ceye(im,105,70);ceye(im,138,68)
-    im.ellipse(97,92,101,95,'black');im.ellipse(123,92,127,95,'black');csmile(im,112,102)
-    # A flower ornament sits completely inside the broad mane.
-    # Two leaves and a flower make each meadow cluster easy to colour.
-    cflower(im,31,114);cflower(im,285,112)
-    cbutterfly(im,41,28);cbutterfly(im,216,27);cbutterfly(im,283,49)
-    ccloud(im,69,6,48)
-    for x,y in [(65,137),(81,150),(251,151)]:ce(im,(x,y,x+15,y+15))
+    csoft_butterfly(im,38,29)
+    csoft_butterfly(im,215,24)
+    csoft_butterfly(im,282,62)
+    csoft_cloud(im,246,9)
+    cpetal_flower(im,32,115);cpetal_flower(im,286,119)
+    cgrass(im,76,150)
+    coval(im,156,12,180,36)
+    for a,b in [((168,8),(168,5)),((168,40),(168,43)),
+                ((152,24),(149,24)),((184,24),(187,24)),
+                ((154,10),(152,8)),((182,38),(184,40))]:
+        cpath(im,a,[b],False)
+    im.ellipse(161,19,163,22,'black');im.ellipse(172,19,174,22,'black')
+    cpath(im,(163,28),[(166,31,170,31,173,28)],False)
+
+    # A side-on foal with a generous head, round rump and short, sturdy legs.
+    # The far legs sit behind the body; curved hocks and flat hooves keep
+    # all four feet readable without turning them into separate boxes.
+    cpath(im,(142,108),[(146,120,148,134,145,143),(143,148,143,154,147,155),
+        (152,157,160,156,161,153),(164,138,161,123,160,111),(142,108)])
+    cpath(im,(169,108),[(174,124,176,139,173,145),(170,149,170,154,174,155),
+        (179,157,188,156,189,153),(192,137,192,119,186,108),(169,108)])
+    cpath(im,(144,141),[(150,142,156,142,162,141)],False)
+    cpath(im,(174,141),[(180,142,185,142,191,141)],False)
+
+    # Tail: a single flowing ribbon, with a wide second colour section.
+    cpath(im,(217,87),[(238,76,262,85,260,106),(257,123,267,135,256,145),
+        (250,150,242,150,236,146),(247,139,244,126,242,116),
+        (240,108,243,99,218,102),(217,87)])
+    cpath(im,(240,87),[(257,102,242,131,248,149)],False)
+
+    # The near legs, neck and belly share one continuous outer contour.
+    cpath(im,(112,69),[(127,65,143,73,150,82),(167,81,192,76,212,82),
+        (229,86,235,100,230,113),(228,121,224,126,224,135),
+        (225,142,225,153,220,158),(213,160,201,160,199,156),
+        (198,152,201,149,204,146),(207,138,202,129,200,119),
+        (183,126,158,128,139,119),(136,130,138,144,134,155),
+        (131,160,119,160,113,157),(110,155,113,150,116,147),
+        (119,137,114,122,112,112),(103,104,103,84,112,69)])
+    cpath(im,(114,144),[(121,146,128,146,137,144)],False)
+    cpath(im,(203,145),[(211,148,220,146,224,144)],False)
+
+    # Pricked ears and a long, rounded cheek; only one eye is visible in
+    # profile. The muzzle projects to the left and has a friendly smile.
+    cpath(im,(102,51),[(94,44,91,27,96,22),(103,23,114,36,115,45),(102,51)])
+    cpath(im,(129,46),[(129,34,137,19,143,19),(150,24,148,44,141,51),(129,46)])
+    cpath(im,(111,43),[(94,42,86,55,84,68),(82,76,71,81,69,89),
+        (64,101,73,111,88,111),(104,112,121,105,130,94),
+        (140,81,145,58,132,47),(127,44,119,42,111,43)])
+
+    # Mane drapes along the neck in a rounded S, with two broad strands.
+    cpath(im,(128,41),[(149,40,160,55,157,74),(154,88,160,98,168,103),
+        (165,114,149,120,140,113),(129,104,133,92,135,81),
+        (140,65,135,56,124,54),(128,41)])
+    cpath(im,(141,48),[(155,66,139,83,146,101),(148,107,153,111,159,113)],False)
+    # Broad, swept forelock recalls the pink fringe of pony_fp_0.
+    cpath(im,(92,58),[(88,47,99,36,115,36),(128,34,142,42,142,52),
+        (141,60,132,65,122,64),(125,60,126,56,124,52),
+        (116,54,115,64,105,67),(99,68,94,64,92,58)])
+    # Muzzle boundary is a single arc, not an overlapping oval.
+    cpath(im,(76,81),[(87,77,93,83,97,90),(102,97,109,100,116,104)],False)
+    im.ellipse(100,69,107,79,'black')
+    im.ellipse(76,88,80,92,'black')
+    cpath(im,(77,100),[(83,105,91,104,94,100)],False)
     return im
 
 def solidify_stroke_pockets(im):
@@ -1097,7 +1273,7 @@ def verify():
             for x in range(im.w):
                 if x<2 or x>=318 or y<2 or y>=166:assert im.get(x,y)==C['black']
         rs=regions(im);assert 25<=len(rs)<=60,(n,'region count',len(rs))
-        assert len(rs)==(33,37,38)[i-1],(n,'changed region topology',len(rs))
+        assert len(rs)==(33,42,37)[i-1],(n,'changed region topology',len(rs))
         assert len(regions(im,diagonal=True))==len(rs),(n,'diagonal outline gap')
         tiny=[(area,b) for area,b in rs if b[2]-b[0]+1<10 or b[3]-b[1]+1<10 or area<65]
         assert not tiny,(n,'small regions',tiny)
