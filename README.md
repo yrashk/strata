@@ -322,6 +322,21 @@ under the pointer gets clicks, drags and the wheel, and `term` scrolls back
 through its history with the wheel. `make boot-ws` boots straight into the
 window server.
 
+![wdoom: a first-person shooter in a StrataOS window](site/img/wdoom.png)
+
+`wdoom` is a first-person shooter in the manner of Doom, written in Strata
+assembly as one more client of the window server: a textured grid
+raycaster with doors, three kinds of monster, a pistol, pickups and a
+status bar, using art and sounds from [Freedoom](https://freedoom.github.io/)
+(BSD 3-clause; `os/progs/wdoom/ATTRIBUTION.md`). A core's data store has 40
+KiB for a program, less than one 320 x 168 frame, so the picture is drawn
+in ten slabs of 32 columns; textures stay in far memory and are fetched a
+column at a time. Run `wdoom` from a shell or the palette, or `make
+boot-wdoom`; it is a preset on the play page. With the sound device (an
+optional PCM output: `strata-emu -a`, on in `make boot` and in the browser)
+it has sound. [`os/progs/PLAN-wdoom.md`](os/progs/PLAN-wdoom.md) has the
+design and what a frame costs.
+
 
 `make ws-demo` runs the same renderers on the bare machine against a
 simulated twelve-core system (no OS needed), and the site's play page has

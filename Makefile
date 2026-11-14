@@ -83,7 +83,7 @@ JIT_SRC := emu/jit/jit.c emu/jit/jit_arm64.c emu/jit/jit_x86_64.c
 # the debug engine (--debug): included by emu/emu.c
 DBG_ENGINE := emu/debug.h emu/debug.c emu/debug_sym.c emu/debug_tt.c emu/debug_io.c common/json.h
 
-$(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) $(DBG_ENGINE) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/net.h common/netnat.h
+$(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) $(DBG_ENGINE) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
 
@@ -120,6 +120,7 @@ test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-net.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-http.sh $(BUILD)/bootrom.stx $(BUILD)/http-test/disk.img
 	BUILD=$(BUILD) ./tools/test-ws.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) ./tools/test-wdoom.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-preempt.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-isolate.sh $(BUILD)/bootrom.stx $(BUILD)/isol-test/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-guest.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
@@ -415,8 +416,9 @@ DISK_WDOOM_ARGS := $(subst os/files/rc,os/files-wdoom/rc,$(DISK_ARGS))
 $(BUILD)/disk-wdoom.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) os/files-wdoom/rc
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WDOOM_ARGS)
 
-# the emulator boots StrataOS with 12 cores; the RTL with NCORES
-BOOT_EMU := $(BUILD)/strata-emu -c 12
+# the emulator boots StrataOS with 12 cores and the sound device (-a: the RTL
+# has none, so the sessions compared with it run without); the RTL with NCORES
+BOOT_EMU := $(BUILD)/strata-emu -c 12 -a
 # the network of the interactive boots: the real one through the emulator's
 # user-mode NAT (common/netnat.h), with the guest's web servers reachable
 # from the host: http://localhost:8080/ (httpd, port 80) and :8000 (Forth's
@@ -438,9 +440,14 @@ boot-wdoom: $(BUILD)/strata-emu $(BUILD)/bootrom.stx $(BUILD)/disk-wdoom.img
 	@cp $(BUILD)/disk-wdoom.img $(BUILD)/disk-run.img
 	@$(BOOT_EMU) $(BOOT_NET) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
 
+# test-wdoom: the game's demo (its last frame's checksum), its sound and q (part of make test)
+.PHONY: test-wdoom
+test-wdoom: $(BUILD)/strata-emu os
+	BUILD=$(BUILD) ./tools/test-wdoom.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+
 boot-demo: $(BUILD)/strata-emu os
 	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
-	@$(BOOT_EMU) -g none -d $(BUILD)/disk-run.img -i os/demo.txt $(BUILD)/bootrom.stx
+	@$(BUILD)/strata-emu -c 12 -g none -d $(BUILD)/disk-run.img -i os/demo.txt $(BUILD)/bootrom.stx
 
 boot-rtl: $(BUILD)/strata-rtl os
 	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
@@ -585,7 +592,7 @@ bench: $(BUILD)/strata-emu examples $(BUILD)/forth.stx
 #             interpreted and with the WebAssembly JIT (tools/test-wasm.sh)
 EMCC ?= emcc
 WEB := $(BUILD)/web
-WEB_IMAGES := $(BUILD)/bootrom.stx $(BUILD)/disk.img $(BUILD)/disk-ws.img $(BUILD)/forth.stx \
+WEB_IMAGES := $(BUILD)/bootrom.stx $(BUILD)/disk.img $(BUILD)/disk-ws.img $(BUILD)/disk-wdoom.img $(BUILD)/forth.stx \
               $(BUILD)/examples/gfx.stx $(BUILD)/examples/hello.stx $(BUILD)/examples/mandel.stx \
               $(BUILD)/ws/wsdemo.stx
 .PHONY: web-assets wasm web-code web-site test-wasm
@@ -597,12 +604,12 @@ test-wasm: $(WEB)/strata-emu.js $(BUILD)/strata-emu $(BUILD)/sasm examples $(BUI
 # one build for the page's worker and for node (tools/wasm-run.js, the tests)
 # (emu/jit/jit_wasm.c is the JIT: it generates WebAssembly at run time and
 # installs it in the module's function table, hence ALLOW_TABLE_GROWTH)
-$(WEB)/strata-emu.js: web/web.c emu/emu.c $(DBG_ENGINE) emu/jit/jit_wasm.c emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/net.h common/netnat.h
+$(WEB)/strata-emu.js: web/web.c emu/emu.c $(DBG_ENGINE) emu/jit/jit_wasm.c emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
 	@mkdir -p $(WEB)
 	$(EMCC) -std=gnu11 -O3 -Wall -DNO_SDL -o $@ web/web.c emu/jit/jit_wasm.c \
 	  -sMODULARIZE=1 -sEXPORT_NAME=createStrata -sENVIRONMENT=worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
 	  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=128MB -sALLOW_TABLE_GROWTH=1 \
-	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_jit_wasm_set_budget,_web_dbg,_web_dbg_run,_web_dbg_events,_web_dbg_repaint,_malloc,_free \
+	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_audio,_web_audio_rate,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_jit_wasm_set_budget,_web_dbg,_web_dbg_run,_web_dbg_events,_web_dbg_repaint,_malloc,_free \
 	  -sEXPORTED_RUNTIME_METHODS=callMain,FS,HEAPU8,wasmMemory,wasmTable,UTF8ToString,stringToNewUTF8
 
 # wasm-rtl: the RTL simulator for the browser: build/web/strata-rtl.js + .wasm.

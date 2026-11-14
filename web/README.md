@@ -25,10 +25,13 @@ see "The debugger" below.
   number of milliseconds to sleep (every core waits on a device: the next
   timer or VSYNC deadline), or < 0 (stopped). Exports: `web_input`,
   `web_break`, `web_pointer` (the canvas's mouse), `web_pointer_used`,
-  `web_paint` (changed rows as RGBA to `Module.webPaint`), `web_stop`,
-  `web_finish`, `web_stat`.
+  `web_paint` (changed rows as RGBA to `Module.webPaint`), `web_audio`
+  and `web_audio_rate` (the sound device's samples since the last call:
+  `common/sound.h`), `web_stop`, `web_finish`, `web_stat`.
 - **`site/play/worker.js`** owns the module and talks to the page with
-  postMessage: output bytes, painted rows (transferred), status one way;
+  postMessage: output bytes, painted rows (transferred), the sound device's
+  samples (the page schedules them with WebAudio once a key or a click has
+  let it make sound), status one way;
   input, Ctrl-C, pointer events the other. Idle is a `setTimeout` to the
   next deadline; busy is a MessageChannel hop (not clamped to 4 ms).
 - **`site/play/play.js`** paints and sends input only: an xterm terminal,

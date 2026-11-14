@@ -20,6 +20,9 @@
 ;               as "net" (proc's WHOIS); -1 if the machine has none
 ;  21 GETPTR   -> 0; a window on the pointer's ports 0x4100..0x410F (c6) (for
 ;               tty, which hands its events to ws); -1 if the machine has none
+;  22 GETSND   -> 0; a window on the sound device's ports 0x4300..0x4317 (c6),
+;               for any program that asks (their samples mix in the device's
+;               queue in the order they arrive); -1 if the machine has none
 ;  36/37/38    DUPS / CLEANUP / CANCEL from proc: nothing to do
 ;
 ; The framebuffer memory is the kernel's: it is a revocable region of
@@ -93,6 +96,8 @@ loop:
         beq   t1, t2, op_net            ; ...
         li    t2, 21                    ; GETPTR
         beq   t1, t2, op_ptr            ; ...
+        li    t2, 22                    ; GETSND
+        beq   t1, t2, op_snd            ; ...
         li    t2, OP_DUPS               ; nothing to count
         beq   t1, t2, ok                ; ...
         li    t2, OP_CLEANUP            ; ...
@@ -161,8 +166,12 @@ op_con:
         call  srv_reply                 ; ...
         j     loop                      ; ...
 
+op_snd:
+        li    a0, 9                     ; the sound device's entry (type 9)
+        j     op_dev                    ; ...
 op_ptr:
         li    a0, 7                     ; the pointer's entry (type 7)
+op_dev:
         call  find                      ; a0 = entry or 0
         beqz  a0, od_none               ; ...
         ld    a1, 24(a0)                ; its window

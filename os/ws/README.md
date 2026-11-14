@@ -115,12 +115,14 @@ programs get 32 KiB from 0x8000).
 | `keys.s` | the keyboard's bytes as keys: plain bytes, Esc, ESC [ sequences, and the Alt forms ESC [ 27 ; 3 ; code ~ and ESC [ 1 ; 3 X (also in the demo) |
 | `os/lib/wsclient.s` | the protocol for clients: wc_open, wc_band, wc_damage, wc_event, wc_text, wc_fill, wc_title, wc_close |
 | `os/progs/{ws,term,wmandel,wclock}.s` | the programs on the disk |
+| `os/progs/wdoom.s`, `os/progs/wdoom/` | a first-person shooter as a client: it does not use gfx.s (no D-LS to spare) but draws slabs of its picture into the band itself and lends them as DAMAGE rectangles with a stride of their own (`os/progs/PLAN-wdoom.md`) |
 
 Keys (`keys.s`; Alt+key = ESC [ 27 ; 3 ; code ~, so Esc and then a key is
 just that, and an Alt+key ws does not bind reaches the client as ESC and the
 key): Alt+Enter a terminal; Alt+P or Alt+Space the
 palette; Alt+1..4 and Alt+arrows focus; Alt+Q close; Ctrl-C interrupts
-the focused window's program; Alt+Shift+Q quit to the shell; Alt+Shift+H
+the focused window's program (`wdoom`, `wmandel` and `wclock` end);
+Alt+Shift+Q quit to the shell; Alt+Shift+H
 halt; Alt+? the key help (shown when the splash ends; any key or click
 dismisses it and goes no further); Alt+Shift+W pauses the keyboard for a
 second (scripted input: tools/test-ws.sh).

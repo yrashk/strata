@@ -42,6 +42,13 @@
  *                           bit 0 link up, u32 packets dropped), 0x4218
  *                           CANCEL (write: completes every waiting RX read
  *                           with zeros, consuming nothing)
+ *   0x4300  sound           (only on a machine that has it: common/sound.h)
+ *                           0x4300 PCM (write: a transfer's bytes are mono
+ *                           signed 16-bit samples, low byte first, appended
+ *                           to a queue of SND_QLEN samples; what does not fit
+ *                           is dropped), 0x4308 RATE (read / write: samples
+ *                           per second), 0x4310 STATUS (read: u32 samples
+ *                           queued, u32 samples dropped)
  *
  * Device registers are 8 bytes, little endian, at 8-byte-aligned ports; a
  * transfer moves one byte per beat to consecutive ports. A register is
@@ -114,6 +121,16 @@ enum { PTR_MOVE = 1, PTR_BUTTON, PTR_WHEEL, PTR_ENTER, PTR_LEAVE }; /* event kin
 #define NET_MTU 1500u       /* largest packet; platform info */
 #define NET_QLEN 16         /* received packets the device queues */
 
+#define DEV_SOUND 0x4300u   /* the sound device: a queue of mono signed 16-bit samples, played at RATE */
+#define SND_PCM 0x00u       /* write: samples for the end of the queue */
+#define SND_RATE 0x08u      /* read / write: samples per second */
+#define SND_STATUS 0x10u    /* read: samples queued | samples dropped << 32 */
+#define SND_WINDOW 0x18u
+#define SND_QLEN 16384u     /* samples the device queues; platform info */
+#define SND_DEF_RATE 11025u
+#define SND_MIN_RATE 8000u
+#define SND_MAX_RATE 48000u
+
 #define FB_BASE 0x3000000u
 #define FB_SIZE 0x1000000u
 #define FB_DEF_WIDTH 1280u
@@ -132,9 +149,11 @@ enum { PTR_MOVE = 1, PTR_BUTTON, PTR_WHEEL, PTR_ENTER, PTR_LEAVE }; /* event kin
 #define PT_TIMER 6
 #define PT_POINTER 7
 #define PT_NET 8
+#define PT_SOUND 9
 
 #define PLAT_ENTRIES 9
 #define PLAT_LEN (32 + 32 * PLAT_ENTRIES)
+#define PLAT_LEN_MAX (PLAT_LEN + 32) /* with the sound device's entry (plat_add_sound) */
 #define BLK_IDENT_LEN 64
 
 #define BLK_BLOCK 512u
@@ -227,6 +246,19 @@ static inline void plat_build_fb(uint8_t *buf, int ncores, uint64_t disk_blocks,
   uint32_t sum = 0;
   for (int i = 0; i < PLAT_LEN; i++) sum += buf[i];
   plat_put(buf + 16, sum, 4);
+}
+
+/* Adds the sound device's entry to a table built by plat_build_fb in buf[PLAT_LEN_MAX]
+ * (a machine that has the device: the table is one entry longer) -> its length. */
+static inline unsigned plat_add_sound(uint8_t *buf) {
+  plat_entry(buf + PLAT_LEN, PT_SOUND, 0, 4, 0xffff, DEV_SOUND, SND_WINDOW, SND_QLEN); /* info: the queue's length */
+  plat_put(buf + 8, PLAT_ENTRIES + 1, 2);
+  plat_put(buf + 12, PLAT_LEN_MAX, 4);
+  plat_put(buf + 16, 0, 4);
+  uint32_t sum = 0;
+  for (unsigned i = 0; i < PLAT_LEN_MAX; i++) sum += buf[i];
+  plat_put(buf + 16, sum, 4);
+  return PLAT_LEN_MAX;
 }
 
 /* Fills buf[PLAT_LEN] with the default framebuffer geometry and save table. */

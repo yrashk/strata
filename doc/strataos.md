@@ -209,9 +209,37 @@ console, with one waiting read:
   reported and skipped. `make boot` uses `-N nat,fwd=8080:80,fwd=8000:8000`
   (`BOOT_NET`), so a web server in the guest is http://localhost:8080/.
 
+#### Sound (0x4300)
+
+A PCM output: a queue of mono, signed 16-bit samples that the device plays
+at a set rate. It is **optional**: a machine that has it lists it in the
+platform table (type 9, a tenth entry), and software asks `dev` for it
+(GETSND) and goes without when the answer is -1. The emulator has it with
+`-a` or `-A FILE` and the play page always; the RTL does not (the sessions
+that compare the two machines run without it).
+
+- **PCM** (0x4300, write): a transfer's bytes are samples, low byte first,
+  appended to the queue (16384 samples). What does not fit is dropped and
+  counted.
+- **RATE** (0x4308, read / write): samples per second, 8000..48000
+  (clamped); 11025 at power-on.
+- **STATUS** (0x4310, read): u32 samples queued and not yet played, u32
+  samples dropped since power-on.
+- The queue empties at RATE in timer time; an empty queue is silence.
+  Software paces itself with STATUS: it keeps a fraction of a second queued
+  (so a slow frame leaves no gap) and never fills the queue. Several
+  programs may write: their samples are queued in the order they arrive.
+- `strata-emu -a`: the samples go to the host's audio (SDL, opened at
+  RATE) unless `-g none`. `-A FILE` also writes everything played from the
+  first sample on, silences included, to FILE as a WAV at exit
+  (deterministic with `-T virtual`). In the browser the worker posts the
+  samples to the page, which schedules them with WebAudio (after the first
+  key or click: browsers do not let a page sound before).
+
 ### 1.3 Platform table
 
-Four new entry types; `PLAT_ENTRIES` grows by four (to 9, 320 bytes).
+Four new entry types; `PLAT_ENTRIES` grows by four (to 9, 320 bytes). A
+machine with the sound device has a tenth entry (352 bytes).
 
 | Type | Name | space | base | size | info |
 |---|---|---|---|---|---|
@@ -219,6 +247,7 @@ Four new entry types; `PLAT_ENTRIES` grows by four (to 9, 320 bytes).
 | 6 | PT_TIMER | SP_DEV (4) | 0x3000 | 0x20 | ticks per second (1000000) |
 | 7 | PT_POINTER | SP_DEV (4) | 0x4100 | 0x10 | buttons (bits 0..7: left, right, middle) \| wheels << 8 (bit 8 y, bit 9 x): 0x0307 |
 | 8 | PT_NET | SP_DEV (4) | 0x4200 | 0x20 | the MTU (1500) |
+| 9 | PT_SOUND | SP_DEV (4) | 0x4300 | 0x18 | samples the queue holds (16384); only on a machine that has the device |
 
 All have node = 0xffff (nothing to `cgive` to). The framebuffer
 controller's ports are at the fixed device address 0x4000.
@@ -797,6 +826,7 @@ CLEANUP to the servers and completes the parent's WAIT.
 | 30 | GETDISK | (for `fs`) a window on the block device's ports (c6) and a send-only endpoint to the device's node (c7) |
 | 31 | GETCON | (for `tty`) a window on the console's ports 0x0000..0x00FF (c6) |
 | 21 | GETPTR | (for `tty`) a window on the pointer's ports 0x4100..0x410F (c6); -1 if the machine has none |
+| 22 | GETSND | (for any program) a window on the sound device's ports 0x4300..0x4317 (c6); -1 if the machine has none |
 | 59 | GETNET | (for `net`) a window on the network interface's ports 0x4200..0x421F (c6); -5 unless the caller is the process registered as "net" (WHOIS); -1 if the machine has none |
 
 The framebuffer memory is the kernel's: at boot it makes the window a
@@ -1126,7 +1156,9 @@ shell):
   alone. Ctrl-C closes the palette, or SIGNALs the focused
   window's process.
 - Redraws only damaged areas and writes PRESENT once per batch.
-- With no window it opens a `term`.
+- With no window it opens a `term`. `ws PROGRAM` starts with that program
+  in the first window instead (`ws wdoom`); when it ends, a `term` opens
+  as usual.
 
 **Look and feel: futuristic, not a desktop clone.** No title bars with
 buttons, no overlapping windows, no mouse metaphors. The screen reads as an
@@ -1215,6 +1247,17 @@ window whose process ends is removed.
   re-renders on resize, quits on close or `q` (renderer: `os/ws/wmandel.s`).
 - **`wclock`** (small): a clock window updating every second, to show
   timers + damage (renderer: `os/ws/wclock.s`).
+- **`wdoom`**: a first-person shooter in the manner of Doom (a textured
+  grid raycaster: walls, floor and ceiling, doors, three kinds of monster,
+  a pistol, pickups, a status bar), with art and sounds from Freedoom in a
+  data file, `/ws/wdoom.dat`. It draws the 320 x 200 picture in slabs of
+  32 columns (the D-LS has no room for more), scales it by the largest
+  whole factor that fits its tile, lends each group of slabs as a DAMAGE
+  rectangle narrower than the window (x, w and stride of its own), pauses
+  when it loses the focus, and mixes its sounds for the sound device when
+  the machine has one. `wdoom demo` plays a recorded run one tic a frame
+  and reports the frame rate. `os/progs/wdoom.s`, `os/progs/wdoom/`,
+  `os/progs/PLAN-wdoom.md`.
 - Any program can do the same through `os/lib/wsclient.s` and
   `os/lib/gfx.s` (surfaces, display lists, spans, text).
 - `make ws-demo` runs the same renderers on the bare machine against a
