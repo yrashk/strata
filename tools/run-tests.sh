@@ -189,6 +189,7 @@ if [ $changed = 1 ]; then
       web/web_rtl*) w="wasmrtl" ;;
       web/*) w="wasm" ;;
       examples/*) w="ex os" ;;
+      os/*.txt) w="" ;;              # a session's input: the tests that name it
       firmware/*|os/*) w="os" ;;
       lang/forth/tests/*) w="" ;;
       lang/forth/*) w="os forth" ;;
@@ -207,6 +208,9 @@ if [ $changed = 1 ]; then
       line=$(awk -F'\t' -v n="$n" '$1 == n' "$reg")
       inp=$(printf '%s' "$line" | cut -f5); cmd=$(printf '%s' "$line" | cut -f6)
       take=0
+      # (a disk or an example on its command line counts as the word)
+      case $cmd in *disk.img*) inp="$inp os" ;; esac
+      case $cmd in *examples/*) inp="$inp ex" ;; esac
       for w in $inp; do
         case $w in ex:*) w=ex ;; esac
         case " $hit " in *" $w "*) take=1 ;; esac
