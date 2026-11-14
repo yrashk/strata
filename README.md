@@ -68,6 +68,7 @@ a conformance suite that holds them all to the same behaviour.
 | `os/files/`, `os/demo.txt` | Files put on the disk (`motd`, `rc`); a scripted demo session |
 | `lang/forth/` | Strata Forth: a kernel in assembly, the language in Forth, demos and tests |
 | `conformance/` | The architectural conformance suite and a three-way differential fuzzer |
+| `formal/` | Formal proofs of the RTL with SymbiYosys: specifications, property files, one `.sby` per target |
 | `tools/` | Test scripts (`compare.sh`, `compare-boot.sh`, `test-*.sh`), `mkdisk` (bootable disks), `mkhex` (FPGA memory images), `bench-jit.sh`, `web-code.py` |
 | `fpga/` | Synthesis script, LiteDRAM adapter, a board top, pin constraints |
 | `web/` | The WebAssembly builds for the site's play page: the emulator (`web.c`), and the RTL simulator (`web_rtl.cpp`: Verilator's C++ compiled with Emscripten, `make wasm-rtl`) |
@@ -85,6 +86,7 @@ a conformance suite that holds them all to the same behaviour.
 | the in-browser emulator and site (`make wasm`, `make web-site`) | Emscripten (`emcc`), node, python3 |
 | the manual (`make manual`) | [tectonic](https://tectonic-typesetting.github.io/) |
 | the fuzzers (`make fuzz`) | python3 |
+| the formal proofs (`make formal`) | [SymbiYosys](https://github.com/YosysHQ/sby), Yosys, sv2v, Yices 2, Bitwuzla (`brew install sby yosys sv2v yices2 bitwuzla`) |
 
 ## Quick start
 
@@ -97,6 +99,7 @@ make boot-ws        # the same, with the window server started at boot
 make forth          # a Forth prompt on the bare machine
 make ws-demo        # the window server's renderers against a simulated system
 make conformance    # the conformance suite on the interpreter, the JIT and the RTL
+make formal         # the formal proofs of the RTL (about 15 minutes; not part of make test)
 make bench          # interpreter against JIT, wall time
 make web-site       # build/web-site/: the site with the in-browser emulator
 make debug-pipeline # step an example under strata-dbg (any example: debug-NAME)
@@ -463,6 +466,25 @@ make fuzz SEEDS=200     # random instruction streams on all three, compared
 
 The discrepancies the suite found, and how each was decided, are recorded
 in [`conformance/FINDINGS.md`](conformance/FINDINGS.md).
+
+## Formal verification
+
+`formal/` proves properties of the RTL for every input sequence, with
+[SymbiYosys](https://github.com/YosysHQ/sby): the ALU and the decoder
+against written specifications, the divider and the multiplier (correct
+result, fixed number of cycles), the far bus (one owner, no beat lost,
+bounded waiting), the Transfer Unit (queue invariants, hazards, order, no
+command lost), the memory and device targets (the burst protocol), the core (x0, precise traps, privilege, capability shape and
+liveness, no duplicated write access) and the top level's inboxes and
+revocation walker. Each property file states what it assumes;
+[`formal/README.md`](formal/README.md) has the table of proofs and what is
+not covered, [`formal/FINDINGS.md`](formal/FINDINGS.md) what was found (two
+RTL bugs, both fixed, each with a program that shows it).
+
+```bash
+make formal             # every proof, then the table of results
+make formal-tu          # one target (alu decode div mul mul_lemma bus tu mem dev core top)
+```
 
 ## FPGA
 

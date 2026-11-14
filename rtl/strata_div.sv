@@ -81,4 +81,8 @@ module strata_div (
 
   assign quo = special ? sq : neg_q ? -q : q;
   assign rem = special ? sr : neg_r ? -r[63:0] : r[63:0];
+
+`ifdef FORMAL
+`include "strata_div.svh"
+`endif
 endmodule

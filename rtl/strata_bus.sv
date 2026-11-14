@@ -158,5 +158,9 @@ module strata_bus
       m_retry[cur]  = t_retry[tgt[1:0]];
     end
   end
+
+`ifdef FORMAL
+`include "strata_bus.svh"
+`endif
 endmodule
 
