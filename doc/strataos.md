@@ -788,7 +788,7 @@ Common error results: -1 failed / invalid, -2 interrupted, -3 would block,
 |---|---|---|---|
 | 1 | CREATE | attachment: an arena from MEMORY already holding the program image at 0xD0000 (as `fs` loaded it) and the start-up block at 0x7F000. Data: u64 pid (`proc` allocates pids), thread count (0 = one time-shared thread), flags (server 2, privileged 8, device capabilities 16, alone on its core 32, give the arena to `proc` at exit 64), a core to pin to or -1, the *core numbers* of the endpoints for c1..c4 (one byte each, 255 = none; the dispatcher mints the endpoints), a0, a1, a2 | 0, data[0] = the first core; the process starts. A server's reply carries a send endpoint to its core. On failure the arena comes back as an attachment |
 | 2 | DESTROY | handle = pid | 0: stopped, its arena revoked (every capability it held, derived or lent out dies); `proc` later gets EXITED with the killed bit |
-| 3 | MEMORY | length = the size wanted (0: 1 MiB; rounded up to whole 256 KiB granules, at least 1 MiB) | 0 and a zeroed arena with a fresh capability as an attachment, data[0] = its base, data[1] = its size; -6 (no memory, or all 64 arena slots in use) |
+| 3 | MEMORY | length = the size wanted (0: 1 MiB; rounded up to whole 256 KiB granules, at least 1 MiB); mode 1: an extra arena for the process handle = pid (`proc`'s MORE): it is that process's until FREE gives it back, and when the process ends it is revoked and freed with its arena | 0 and a zeroed arena with a fresh capability as an attachment, data[0] = its base, data[1] = its size; -6 (no memory, or all 64 arena slots in use) |
 | 4 | STATS | | the process count; data: 8 words (cores, free heap, total heap, kernel units loaded, switches, KiB moved, processes, 0), then 32 bytes per core (pid running, runnable, processes, flags; switches; KiB moved), then 32 bytes per process (pid, core, state, flags; threads; switches; bytes moved) |
 | 5 | TUNE | length = the time slice in ticks (100..100000) | 0: the preemption time slice from now on; -1 out of range |
 | 6 | FREE | attachment: an arena (unused from MEMORY, or returned with EXITED) | 0 |
@@ -813,6 +813,8 @@ Common error results: -1 failed / invalid, -2 interrupted, -3 would block,
 | 30 | SCHED | handle = 0 read / 1 set (length = slice in ticks, 100..100000) | read: data u64 slice, switches per second (all cores), KiB moved per second, both since the last read; set forwards to the kernel's TUNE: 0 / -1 |
 | 31 | CORES | | count; data: 32-byte records u8 core, pid running (0 none), runnable, processes, flags (2 server, 4 alone); 3 reserved; u32 switches, u32 KiB moved |
 | 39 | WHOIS | data = name | the pid registered under it (0 for the boot servers); -4 none. `dev` asks it before GRANT_FB |
+| 43 | MORE | handle = bytes | 0 and an extra arena of at least that many bytes (whole 256 KiB granules, 1 MiB at least) as an attachment (the caller's c6), data[0] = its size; -6 no memory. Far memory beyond the arena a program is born with, asked for while it runs: the kernel keeps it as the caller's (MEMORY mode 1), so it is revoked and freed when the caller ends even if it was never given back. `sys_more` |
+| 44 | LESS | an extra arena as the attachment | 0: it is freed (`sys_less`) |
 
 Three more operations go from `proc` to every server that keeps handles:
 36 DUPS (data: owner pid, count, ids: that process now holds these handles
@@ -1846,15 +1848,36 @@ the browser's terminal, and asks the terminal its size the same way.
   text, then the others, shorter names first. The command line shows how
   many were found and how long the first results and all of them took. Esc
   or an emptied text ends it. `-s TEXT` starts with one (run to its end).
+- **The command line.** Ctrl-X switches what typing does: the search, or
+  a command line under the panels (`/src$ `), as in the Midnight
+  Commander. Enter runs the line with `sh -c` in the active panel's
+  directory (nav's own current directory is set to it first; a snapshot's
+  or a search's panel: `/`), the output stays on the screen until a key,
+  and both panels are listed again. Ctrl-F puts the cursor's path into
+  the line; Backspace on an empty line goes up a directory; Esc empties it;
+  Enter on an empty line opens the cursor's entry. Ctrl-X goes back to the
+  search.
+- **Memory.** The panels' entries (each as long as its name and its
+  directories make it), their order and the sort's other half, and the
+  tags' names are in an extra arena from `proc` (MORE), 1 MiB at first.
+  When one of these areas fills, nav asks for an arena with room for it at
+  twice its size, copies the areas across and gives the old one back
+  (LESS); so it takes memory as listings need it, and the kernel frees it
+  when nav ends. A search that matches every file of a 10,140-file disk
+  (10,002 entries) runs in it. The viewer keeps 768 KiB of the file in its
+  own arena and reads the part that is shown when it is not there (READ has
+  no seek: what comes before it is read and dropped), so a file of any size
+  can be viewed; the quick view reads the first 64 KiB.
 - **Measured** on a disk of 10,140 files in 41 directories (machine time,
   `-T virtual`): a name that begins with the text, 4 to 14 ms to the first
   results; the full scan for names that hold the text, 215 to 270 ms (it
   reads every record: there is no index of parts of names), in parts of
   about 8 ms between which keys are read. Under the JIT on the host's time
   the same search for `kernel` (693 found) takes 0.9 ms and 47 ms.
-- **Limits.** 1024 entries a panel (a listing or a search that finds more
-  says so), names shown up to 200 bytes, the viewer's first 256 KiB of a
-  file, eight of a file's directories in its third column.
+- **Limits.** Only memory: a listing or a search stops (and says `+`) when
+  `proc` has no more to give. A path's own tags are kept up to 32 (a path
+  is at most 120 bytes). The snapshots listed at `/` are the ones SNAP's
+  list answers in one message (100).
 
 ### 2.13 Guests: co-existing OSes at whole-core granularity
 

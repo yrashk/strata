@@ -285,7 +285,11 @@ strata$ ws                          # the window server takes the screen
   Typing anywhere searches the whole disk as you type: names that begin
   with the text come from the file server's index at once (about 10 ms on
   10,000 files), names that hold it follow, and `lang=asm` or `size>9000`
-  query attributes. Snapshots are read-only directories (`@NAME`).
+  query attributes. Snapshots are read-only directories (`@NAME`). Ctrl-X
+  turns typing into a command line run in the panel's directory. Its
+  memory grows as listings need it, through `proc`'s MORE and LESS (any
+  program can ask for far memory while it runs; the kernel frees it with
+  the process).
 - **Networking**: the `net` server (IPv4, ICMP, UDP, TCP, a DNS resolver)
   and `ping host nc tcpecho ifconfig netstat httpd`. `httpd &` serves the disk
   over HTTP: URLs are tag paths (`/src/demo/hello.s`, `/src/` lists the files

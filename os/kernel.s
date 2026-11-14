@@ -416,7 +416,9 @@ K0_STASHT = 0x4100                      ; 4 words: sender + 1 of stash slot i (0
 K0_AR    = 0x5000                       ; NARENA arena slots of 32 bytes:
 AR_BASE  = 0                            ;   base
 AR_SIZE  = 8                            ;   size (bytes, whole granules)
-AR_STATE = 16                           ;   0 free, 1 issued (MEMORY), 2 a process's, 3 kept, 4 with proc
+AR_STATE = 16                           ;   0 free, 1 issued (MEMORY), 2 a process's, 3 kept, 4 with proc,
+                                        ;   5 a process's extra arena (MEMORY mode 1: freed when it ends)
+AR_PID   = 24                           ;   state 5: that process
 AR_SZ    = 32                           ; ...
 K0_GMAP  = 0x6800                       ; 32 bytes: bit g: pool granule g is in an arena
 K0_GMASK = 0x6820                       ; bit c: core c is a guest's or lost (k_wake, k_ring skip them)

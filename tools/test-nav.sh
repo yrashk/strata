@@ -13,7 +13,8 @@
 # facet) and Backspace back; F4 on about: vi, where a line is added and
 # written (:wq); Esc 1 (F1: the help) and Esc; a search typed ("needl") that finds the file in
 # /deep/er, Enter on it (the viewer: its text), h (hex), q, Esc; Home, Enter
-# on the snapshot @before and F8 there (refused: read-only); F10. Then `ls
+# on the snapshot @before and F8 there (refused: read-only); Ctrl-X and a
+# command typed (its output, a key) and Ctrl-X back; F10. Then `ls
 # -t` of /doc and /etc and `cat` of the snapshot's motd. Checked: what the
 # screens and the command line said (escape sequences taken out) and what
 # the shell printed afterwards.
@@ -41,7 +42,7 @@ if [ $win = 1 ]; then
   W="$E[27;3;87~"; AF="$E[27;3;102~"; AH="$E[27;3;72~"
   pre="ws
 $W$W$W$W $AF${W}nav /doc /etc
-$W$W$W"
+$W$W$W$W$W"
   printf '%s' "$pre" > "$tmp/in.txt"
   k=$(wc -c < "$tmp/in.txt" | tr -d ' ')
   # after `y` (and a wait), F10 quits nav; then halt with the frame
@@ -87,6 +88,8 @@ fi
   printf '%s' "$E[F"; printf '\n'                # End: @before, Enter
   printf '%s' "$DN$DN$DN$DN"; printf '\n'        # doc/ in the snapshot (bin deep demo doc)
   printf '%s' "$DN${F8}"                         # F8 on about there: refused
+  printf '\030echo ran in nav\n '                # Ctrl-X: the command line; a key after it
+  printf '\030'                                  # Ctrl-X: the search again
   printf '%s' "$F10"
   printf 'ls -t /doc\nls -t /etc\ncat /@before/doc/motd | wc\ncat /doc/about | grep vi\nhalt\n'
 } > "$tmp/in.txt"
@@ -109,6 +112,8 @@ want = [
     ('the snapshot', ' @before/ -SNAP- ', ' /@before/doc '),
     ('read-only', 'read-only: a snapshot', None),
     ('vi', ' 1,1 ', None),
+    ('the command line', '/$ echo ran in nav', 'ran in nav\n'),
+    ('its pause', '[nav: press a key]', None),
     ('the help', 'Esc then a digit: that F-key', None),
 ]
 bad = 0
@@ -127,4 +132,4 @@ if 'fault' in raw or 'panic' in raw:
     print("test-nav: a fault"); bad = 1
 sys.exit(bad)
 PY
-echo "test-nav: ok    panels, copy, delete (n, y), also file, facets, vi (F4), help, search, viewer, hex, snapshot"
+echo "test-nav: ok    panels, copy, delete (n, y), also file, facets, vi (F4), help, search, viewer, hex, snapshot, command line"

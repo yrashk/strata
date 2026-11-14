@@ -1217,6 +1217,31 @@ sys_scratch:
         svc                             ; ...
         ret                             ; done
 
+; sys_more(a0 = bytes) -> a0 = 0 and an extra arena in c6 of at least that
+; many bytes (whole 256 KiB granules, 1 MiB at least; sys_word(0) = its
+; size), -6 no memory: far memory beyond the arena (c0) a program is born
+; with, for as long as it runs (proc MORE). c6 must be empty
+OP_MORE    = 43                         ; proc: an extra arena
+OP_LESS    = 44                         ; proc: give one back
+sys_more:
+        mv    a2, a0                    ; handle = bytes
+        li    a0, 1                     ; proc
+        li    a1, OP_MORE               ; ...
+        li    a3, 0                     ; ...
+        li    a4, 0                     ; ...
+        j     sys_msg                   ; (tail call)
+
+; sys_less(a0 = the register 6 or 7 that holds an extra arena) -> a0 = 0: it
+; is given back (proc LESS)
+sys_less:
+        mv    a5, a0                    ; the attachment
+        li    a0, 1                     ; proc
+        li    a1, OP_LESS               ; ...
+        li    a2, 0                     ; ...
+        li    a3, 0                     ; ...
+        li    a4, 0                     ; ...
+        j     sys_msga                  ; (tail call)
+
 ; sys_clock(): c7 = the clock again (after a reply put something else there)
 sys_clock:
         li    a0, SVC_CLOCK             ; ...

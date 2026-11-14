@@ -19,9 +19,17 @@ programs.
 
 ## Decisions
 
-- The panels hold their entries in far memory (the arena: 1024 entries of
-  256 bytes per panel); the D-LS keeps an index per panel, sorted
-  (directories first, then names), and the rows of the screen.
+- Memory grows on demand: `proc` has two new calls, MORE (an extra arena
+  for the caller, which the kernel records as that process's and frees
+  with it) and LESS (one given back). nav keeps its growing data in one
+  such arena (c6) as areas side by side, and replaces it with a bigger one
+  when an area fills (the old one is moved to c7 while the copy is made;
+  c7, the clock, is restored afterwards).
+- The command line (Ctrl-X) alternates with the search, as in the
+  Midnight Commander: typing goes to one or the other.
+- The panels hold their entries in that growing memory, each as long as
+  its name and its directories, with an index per panel ({sort key, offset})
+  sorted there too by a merge sort (directories first, then names).
 - A directory is a tag path. A panel lists the files of its path (QUERY,
   part by part) and then its subdirectories (the facets); `..` first except
   at `/`. The root lists the snapshots too, as `@NAME/`, read-only
@@ -50,19 +58,59 @@ programs.
 ## Plan
 
 - [x] FIND in the file server
-- [ ] One panel drawn from a directory; keys up/down/pgup/pgdn/home/end
-- [ ] Two panels, Tab, Enter into a directory, Backspace / `..` up
-- [ ] Function-key bar; F3 view (text, hex), F4 vi, F5 copy, F2 also file
+- [x] One panel drawn from a directory; keys up/down/pgup/pgdn/home/end
+- [x] Two panels, Tab, Enter into a directory, Backspace / `..` up
+- [x] Function-key bar; F3 view (text, hex), F4 vi, F5 copy, F2 also file
       here, F6 move/rename, F7 new directory (a tag on the marked files),
       F8 delete with confirmation, F10 quit; Insert / Ctrl-T marks
-- [ ] Search with typeahead; timing on a 10,000-file disk
-- [ ] Ctrl-Q quick view in the other panel
-- [ ] Snapshots as read-only directories
-- [ ] Mouse: SGR reports, in `term` too
-- [ ] Function keys from the emulator's window (F1..F10)
-- [ ] Tests (`tools/test-nav.sh`), README, site, `help`, `doc/strataos.md`,
-      Makefile, play page preset
+- [x] Search with typeahead; timing on a 10,000-file disk
+- [x] Ctrl-Q quick view in the other panel (also F9)
+- [x] Snapshots as read-only directories
+- [x] Mouse: SGR reports, in `term` too
+- [x] Function keys from the emulator's window (F1..F10, Insert)
+- [x] Tests (`tools/test-nav.sh`: `nav` fast, `nav-ws` mid), README, site,
+      `help`, `doc/strataos.md`, Makefile, play page preset (`?run=nav`)
+- [x] No fixed limits: entries of any length in an extra arena from `proc`
+      (new calls MORE / LESS, the kernel's MEMORY mode 1) that grows on
+      demand; the order sorted in far memory; the viewer reads the part of a
+      file it shows (any size); tag names and ids without a table size
+- [x] A command line that alternates with the search (Ctrl-X): `sh -c` in
+      the panel's directory; Ctrl-F inserts the cursor's path
+- [ ] Not done: sorting by size or time
+- [ ] Not tried: the play page in a browser (the preset types `nav /src
+      /bin`; xterm.js sends F-keys and SGR mouse reports itself)
 
 ## Measurements
 
-(filled in as they are made)
+The disk: the standard files and 10,000 generated ones (names like
+`kernel_queue59.s`) in 40 directories `p00`..`p39`, a seventh of them in
+`arch` too, and `/deep/inner/lib/proj/needle.s`: 10,140 files.
+`nav -s TEXT` runs a search to its end; machine time (`-T virtual`, the
+interpreter, 8 cores):
+
+| text | found | first results | all |
+|---|---|---|---|
+| `needle` | 1 | 4.0 ms | 215.7 ms |
+| `kernel` | 693 (357 begin with it) | 9.6 ms | 262.7 ms |
+| `k` | 698 | 9.3 ms | 270.5 ms |
+| `eta` | 691 | 13.5 ms | 231.6 ms |
+| `zzz` | 0 | 219.6 ms (none) | 219.6 ms |
+| `size>9000` | 107 | 185.7 ms | 187.9 ms |
+| `_` (every generated file) | 10,002 | 10.8 ms | 344.3 ms |
+
+The first results are what FIND mode 0 gives (names that begin with the
+text: one seek per directory, then the records of the files found). "All"
+adds FIND mode 1, which reads every record (about 21 us each): there is no
+index of parts of names. It comes in parts of 384 records (about 8 ms), and
+a key typed meanwhile stops it, so typing is not held up. Before FIND, the
+only way was QUERY over every file with `PREFIX*`: 190 ms for `needle*`.
+Under the JIT, in the host's time (the screenshot): `kernel`, 0.9 ms to the
+first results and 47 ms to all.
+
+The `_` search fills the heap past its first MiB (pools, index, the sort's
+half grow); after nav ends, `free` shows the memory back.
+
+Sizes: code 25.6 KiB of the 32 KiB I-LS; data 37.2 KiB of the 40 KiB a
+program has in the D-LS (the buffers that are indexed by label end below
+0x8000; the ones above it are reached by address only). The file server's
+new unit uf is 1,132 of its 2,048 bytes.
