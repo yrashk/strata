@@ -10,7 +10,16 @@
 #       libc.sym    its exported names: 24-byte records { name[20], u32 address }
 #                   for every `.global NAME` of libc.s, addresses from sasm's map
 #       NAME.h      the headers
+#       cc.units    the compiler's own code units (the T3 section of the image
+#                   sasm made of cc.s); always the last member: cc copies it to
+#                   the bottom of its arena at start-up and pages its code from
+#                   there. With `--cc FULL.stx PROG` the image is split: PROG gets
+#                   the Local Store sections, cc.lib this member (an image holds
+#                   at most 128 KiB, and the compiler is larger).
 import struct, sys, os, re
+ccfull = ccprog = None
+if sys.argv[1] == "--cc":
+    ccfull, ccprog = sys.argv[2:4]; del sys.argv[1:4]
 out, stx, mp, src = sys.argv[1:5]
 img = open(stx, "rb").read()
 assert img[:4] == b"STX2"
@@ -31,6 +40,19 @@ for name in re.findall(r"^\s*\.global\s+(\w+)", open(src).read(), re.M):
 members = [("libc.text", sect[1][1]), ("libc.data", sect[2][1]), ("libc.sym", sym)]
 for h in sys.argv[5:]:
     members.append((os.path.basename(h), open(h, "rb").read()))
+if ccfull:
+    full = open(ccfull, "rb").read()
+    assert full[:4] == b"STX2"
+    keep, o = [], 8
+    for _ in range(struct.unpack_from("<I", full, 4)[0]):
+        kind, base, size, _r = struct.unpack_from("<IIII", full, o)
+        if kind == 3:
+            assert base == 0, "the compiler's units must start at arena offset 0"
+            members.append(("cc.units", full[o + 16:o + 16 + size]))
+        else:
+            keep.append(full[o:o + 16 + size])
+        o += 16 + size
+    open(ccprog, "wb").write(b"STX2" + struct.pack("<I", len(keep)) + b"".join(keep))
 pos = 8 + 32 * (len(members) + 1)
 dirb, body = b"", b""
 for name, data in members:

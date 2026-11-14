@@ -334,15 +334,19 @@ $(BUILD)/prog/as: os/progs/as.s $(BUILD)/sasm
 # exported names and the headers (lang/cc/lib/mklib.py packs them)
 CC_SRC  := $(wildcard lang/cc/*.s) lang/cc/lib/rt.s
 CC_HDRS := $(sort $(wildcard lang/cc/lib/include/*.h))
-$(BUILD)/prog/cc: $(CC_SRC) $(BUILD)/sasm lang/cc/tests/check-units.py
-	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -I lang/cc -g $@.map -o $@ lang/cc/cc.s
+# sasm assembles the whole compiler into one image; mklib.py splits it: the
+# program cc keeps the Local Store sections, its code units go into cc.lib
+$(BUILD)/cc/cc-full.stx: $(CC_SRC) $(BUILD)/sasm lang/cc/tests/check-units.py
+	@mkdir -p $(BUILD)/cc $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -I lang/cc -g $(BUILD)/prog/cc.map -o $@ lang/cc/cc.s
 	python3 lang/cc/tests/check-units.py $@
 $(BUILD)/cc/libc.stx: lang/cc/lib/libc.s lang/cc/lib/rt.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/cc
 	$(BUILD)/sasm -T 0x8000 -I lang/cc/lib -g $(BUILD)/cc/libc.map -o $@ lang/cc/lib/libc.s
-$(BUILD)/cc/cc.lib: $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS)
-	python3 lang/cc/lib/mklib.py $@ $(BUILD)/cc/libc.stx $(BUILD)/cc/libc.map lang/cc/lib/libc.s $(CC_HDRS)
+$(BUILD)/prog/cc: $(BUILD)/cc/cc.lib
+	@touch $@
+$(BUILD)/cc/cc.lib: $(BUILD)/cc/cc-full.stx $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS)
+	python3 lang/cc/lib/mklib.py --cc $(BUILD)/cc/cc-full.stx $(BUILD)/prog/cc $(BUILD)/cc/cc.lib $(BUILD)/cc/libc.stx $(BUILD)/cc/libc.map lang/cc/lib/libc.s $(CC_HDRS)
 
 # Every source on the disk carries a copy of the library after the program.
 $(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s
