@@ -30,6 +30,11 @@ Unit, with capabilities for authority. The tree has:
   program (new code goes into kernel-paged code units) and as a StrataOS
   guest (`lang/forth/guest/`). `lang/forth/progs/` has 22 of the os/progs
   ported to Forth; `vi.fs` is the editor in Forth.
+- `lang/cc/`: `cc`, a C99 compiler in Strata assembly that runs in StrataOS
+  (`cc file.c` writes a program image; it needs `/bin/cc.lib`), its run-time
+  library and headers, and a ladder of 521 C test programs (`make test-cc`).
+  It is the bootstrap compiler for a compiler in C that is not written yet:
+  see `lang/cc/PLAN-cc.md`.
 - `dbg/` and `site/debug/`: the text debugger `strata-dbg` and the web
   debugger, both on the engine's JSON-lines protocol (`doc/debug-protocol.md`).
 - `conformance/`: 32 self-checking tests run on the interpreter, the JIT and
@@ -200,6 +205,7 @@ file-scope model/counters and a `sim_cycle()` for this.
 | `os/progs/PLAN-sh.md` | The shell |
 | `os/ws/README.md` | The window server |
 | `lang/forth/README.md` | Forth: bare metal, StrataOS, code paging, as a guest |
+| `lang/cc/DESIGN.md`, `lang/cc/PLAN-cc.md`, `lang/cc/tests/README.md` | The C compiler: design, state and scores, the test ladder |
 | `emu/jit/README.md` | Native JIT |
 | `web/README.md` | Browser build: worker, fast interpreter, wasm JIT, networking |
 | `conformance/README.md`, `conformance/FINDINGS.md` | Conformance suite and what it found |
