@@ -37,7 +37,16 @@ Store memories raise the RTL's speed or cut its area? The answer is
 - [ ] Its clock: place and route with `STREAM = 1` (`fpga/synth.sh` needs a `chparam` for it)
 - [ ] `fpga/README.md`'s cycle table for `STREAM = 1`, once it is synthesized
 
+## Second prototype: one single-port memory (REPORT.md section 10)
+- [x] `LS_1P` parameter in `rtl/strata_core.sv` (default 0), `rtl/strata_ram1.sv`, `get_beat` / `put_want` / `ls_gnt` in `rtl/strata_tu.sv`, `make LS_1P=1`; `make lint` covers it
+- [x] Deadlock found by the conformance suite and the OS boot (the fetch held the memory while waiting for a core-control write) and fixed; the read-ahead gives way to a waiting `tput` read
+- [x] `make BUILD=build/ls1p LS_1P=1 test`: passes (with it `test-small`, `test-ls` and `test-nostream` in single-port builds)
+- [x] `make test` with the default: passes
+- [x] Measured: StrataOS session 1.75 -> 1.84 busy cycles per instruction (+5%); streaming examples +6%, the others 1% or less
+- [ ] The core and an arriving burst sharing the memory cycle by cycle (a two-word buffer for beats, or a ready for read beats on the far bus)
+- [ ] `asic/`: a single-port `strata_ram1` replacement, one store array in the floorplan, the 1024 x 8 3.3 V macros
+- [ ] Area and clock of the change
+
 ## Not done (candidates for a next step)
-- [ ] A single-port `strata_ram` with the Transfer Unit taking refusals, run through `make test`
 - [ ] A liberty-based timing run (no PDK is installed in this checkout; `sta/sta.py` is technology-independent)
 - [ ] Macro areas from an SRAM compiler for GF180MCU (OpenRAM has a technology directory; no published macro)

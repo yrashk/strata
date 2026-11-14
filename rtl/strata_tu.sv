@@ -59,6 +59,13 @@ module strata_tu
   output logic        cc_busy,      // a core-control write in flight (the next instruction waits for it)
   output logic        quiet,        // only waiting device reads are left, and no bus transaction runs
   output logic        getx_busy,    // a tgetx is queued or under way (the I-LS is about to change)
+  // one memory for both Local Stores (strata_core LS_1P): a beat that
+  // arrives from the bus is written this cycle and the core gives way
+  // (get_beat); a tput's read of the D-LS waits for a cycle the core does
+  // not use (ls_gnt; 1 always with two dual-port stores)
+  output logic        get_beat,
+  output logic        put_want,     // a tput wants to read the D-LS this cycle
+  input  logic        ls_gnt,
 
   // hazard queries
   input  logic [LSW-1:0] hz_addr,
@@ -229,8 +236,10 @@ module strata_tu
   logic pop, pf_issue;
   assign pop      = b_wvalid && b_wready;
   // keep at most two words buffered or in flight
-  assign pf_issue = es == E_XFER && h_put && rd_off < h_len
+  assign get_beat = es == E_XFER && !h_put && b_rvalid;
+  assign put_want = es == E_XFER && h_put && rd_off < h_len
                     && ({1'b0, pf_cnt} + (pf_inflight ? 3'd1 : 3'd0) - (pop ? 3'd1 : 3'd0)) < 3'd2;
+  assign pf_issue = put_want && ls_gnt;
 
   always_comb begin
     dls_en    = 0;

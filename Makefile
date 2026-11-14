@@ -45,6 +45,8 @@ ILS_KIB ?= 64
 # the cores' stream fetch (rtl/strata_core.sv STREAM): 0 fetches every
 # instruction in two cycles of its own, the same machine in more cycles
 STREAM  ?= 1
+# 1: each core's two Local Stores in one single-port memory (rtl/strata_core.sv LS_1P)
+LS_1P   ?= 0
 
 # SDL2 for the framebuffer window, when pkg-config finds it (else -DNO_SDL:
 # no window, PRESENT only records frames for -F)
@@ -56,7 +58,7 @@ endif
 
 BUILD   := build
 RTL     := rtl/strata_pkg.sv rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv rtl/strata_mul.sv \
-           rtl/strata_ram.sv rtl/strata_uart.sv rtl/strata_tu.sv rtl/strata_bus.sv \
+           rtl/strata_ram.sv rtl/strata_ram1.sv rtl/strata_uart.sv rtl/strata_tu.sv rtl/strata_bus.sv \
            rtl/strata_mem.sv rtl/strata_dev.sv rtl/strata_core.sv rtl/strata_top.sv
 EXAMPLES := $(wildcard examples/*.s)
 IMAGES  := $(patsubst examples/%.s,$(BUILD)/examples/%.stx,$(EXAMPLES))
@@ -95,7 +97,7 @@ $(BUILD)/strata-rtl: $(RTL) sim/main.cpp common/stx.h common/platform.h common/d
 	@mkdir -p $(BUILD)
 	verilator --cc --exe --build -j 0 -O3 --x-assign fast --x-initial fast \
 	  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
-	  -DSIMULATION -GNCORES=$(NCORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) -GSTREAM=$(STREAM) --top-module strata_top \
+	  -DSIMULATION -GNCORES=$(NCORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) -GSTREAM=$(STREAM) -GLS_1P=$(LS_1P) --top-module strata_top \
 	  -Mdir $(BUILD)/obj_dir -o strata-rtl \
 	  -CFLAGS "-O2 -std=c++17 -DNCORES=$(NCORES) -DNXMAP=$(NXMAP) -DDLS_KIB=$(DLS_KIB) -DILS_KIB=$(ILS_KIB) $(SDL_CFLAGS)" \
 	  -LDFLAGS "$(SDL_LIBS)" $(RTL) sim/main.cpp
@@ -106,6 +108,8 @@ lint:
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM --top-module strata_top $(RTL)
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GDLS_KIB=8 -GILS_KIB=4 --top-module strata_top $(RTL)
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GSTREAM=0 --top-module strata_top $(RTL)
+	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GLS_1P=1 --top-module strata_top $(RTL)
+	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GLS_1P=1 -GSTREAM=0 -GDLS_KIB=8 -GILS_KIB=4 --top-module strata_top $(RTL)
 
 $(BUILD)/examples/%.stx: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/examples
@@ -618,7 +622,7 @@ $(WEB)/strata-rtl.js: $(RTL) sim/main.cpp web/web_rtl.cpp web/web_rtl_stubs.c co
 	@mkdir -p $(WEB) $(BUILD)/web-rtl
 	verilator --cc -O3 --x-assign fast --x-initial fast \
 	  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
-	  -DSIMULATION -GNCORES=$(WEB_RTL_CORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) -GSTREAM=$(STREAM) --top-module strata_top \
+	  -DSIMULATION -GNCORES=$(WEB_RTL_CORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) -GSTREAM=$(STREAM) -GLS_1P=$(LS_1P) --top-module strata_top \
 	  -Mdir $(BUILD)/web-rtl/obj $(RTL)
 	$(EMCC) -O2 -c -o $(BUILD)/web-rtl/stubs.o web/web_rtl_stubs.c
 	$(EMXX) -std=c++17 -O2 -include cstdint -DNO_SDL -DVL_IGNORE_UNKNOWN_ARCH -DNCORES=$(WEB_RTL_CORES) -DNXMAP=$(NXMAP) -DDLS_KIB=$(DLS_KIB) -DILS_KIB=$(ILS_KIB) \

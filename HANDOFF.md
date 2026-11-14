@@ -112,7 +112,13 @@ Not verified:
   without it) lets sequential code skip the two fetch cycles: the core
   keeps the I-LS word and reads the next one while it executes. The
   scripted StrataOS session runs at 1.75 cycles per instruction instead of
-  3.22. The kept FPGA and ASIC results are of the RTL before it. One core alone in generic gates: 4% more
+  3.22. The kept FPGA and ASIC results are of the RTL before it.
+- `LS_1P = 1` (same place, off by default; `make LS_1P=1`) keeps both
+  Local Stores of a core in one single-port memory (`rtl/strata_ram1.sv`),
+  which is what an ASIC's dense macros are. The StrataOS session costs 5%
+  more cycles per instruction with it (1.84 against 1.75). `make
+  BUILD=build/ls1p LS_1P=1 test` passes; the ASIC flow's `strata_ram`
+  stand-in and floorplan do not use it yet. One core alone in generic gates: 4% more
   gates, 98 more flip-flops, no new deepest path; not placed and routed
   (`research/smart-memory/REPORT.md`, section 9).
 

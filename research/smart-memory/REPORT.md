@@ -34,6 +34,8 @@ on an affordable process as the goal.
 Since this was written the first recommendation has been built
 (`STREAM` in `rtl/strata_core.sv`, since made the default) and measured:
 section 9. The StrataOS session runs at 1.75 cycles per instruction, 1.84x.
+The second has been built too (`LS_1P`, off by default): section 10. It
+costs 5% of that, more than predicted.
 
 Which numbers are measured, estimated or from the literature is stated per
 table and collected in the last section.
@@ -672,3 +674,77 @@ deepest: the new one into `ir` is as deep as the path into `state`, half
 the deepest, and the I-LS address still comes from registers. A clock
 figure needs place and route (`fpga/synth.sh` needs a `chparam` for
 `STREAM` first).
+
+## 10. The second prototype: one single-port memory, measured
+
+`rtl/strata_core.sv` has a parameter `LS_1P` (default 0; `make LS_1P=1`).
+With it both Local Stores are one single-port memory (`rtl/strata_ram1.sv`:
+the I-LS in its low words, the D-LS above), one access per cycle:
+
+1. the reset sequencer (the Transfer Unit is flushed then), the two
+   stores' words in alternate cycles;
+2. a beat arriving from the far bus (`tget`, `tgetx`): it is written at
+   once, because the bus has no way to make a read beat wait. The core
+   gives way for that cycle: a fetch, a load, a store or a tag-table
+   access stays where it is, the read-ahead is skipped;
+3. the core's data access, then its fetch in `F0`;
+4. a `tput`'s read of the D-LS (the unit asks again when refused: a new
+   input of `strata_tu`);
+5. the read-ahead.
+
+This is not `exp/ls_unified.sv`'s order in one respect: there the unit
+could always be refused. In the real machine a beat from the bus cannot,
+so it goes first.
+
+**Cycles per instruction** (profiler, busy cycles, `STREAM = 1` in both
+columns):
+
+| | two dual-port stores | one single-port memory | |
+|---|---|---|---|
+| StrataOS session | 1.75 | 1.84 | +5% |
+| `parsum` | 1.49 | 1.59 | +6% |
+| `stream_sum` | 1.50 | 1.59 | +6% |
+| `gfx` | 1.74 | 1.76 | +1% |
+| `mandel` | 2.17 | 2.19 | +1% |
+| `pipeline` | 1.69 | 1.70 | under 1% |
+| `swcache` | 1.56 | 1.56 | none |
+
+The whole StrataOS session takes 89.4 M clock cycles (86.8 M with two
+stores, 148.2 M before the stream fetch).
+
+That is more than section 3.1 and section 9 predicted (0.7% to 1.3%).
+Those counted the cycles in which the core and the unit want the memory
+together and charged one cycle each, to the unit. In the machine it is the
+core that waits, and a burst of beats arrives one per cycle: the core runs
+out of instructions it already holds and then stands still for the rest of
+the burst, so the cost is close to one core cycle per incoming beat (about
+5 M beats in the session) while the core has work. The programs that
+compute while data streams in (`parsum`, `stream_sum`) pay 6%; those that
+wait for their transfers pay nothing. A two-word buffer for arriving beats,
+or a ready signal for read beats on the far bus, would let the core and a
+burst share the memory cycle by cycle; neither is built.
+
+**A deadlock found on the way.** `F0` presents the fetch address in every
+cycle, also while it waits for a core-control write to complete; with one
+memory that held the port the write's own read of the D-LS needed, and
+the multi-core conformance test and the StrataOS boot stopped there. The
+fetch now leaves the memory alone while it waits for that write, and the
+read-ahead gives way to a waiting `tput` read so that no loop of the core
+can starve one. The lockstep examples did not show it; the conformance
+suite and the OS boot did.
+
+**Checked** with `LS_1P = 1`: every example in lockstep with the
+emulator, the conformance suite, the scripted StrataOS session, and the
+full `make BUILD=build/ls1p LS_1P=1 test`, which also runs the small
+overlay map, the smaller store sizes and the fetch without the stream as
+single-port builds; all pass. `make test` with the default passes.
+
+**What it is worth.** A dual-port macro costs 1.6x to 1.9x a single-port
+one where it exists (section 5.1), and GF180MCU has none: 5% of the cycles
+for 40% to 47% of the memory area, or for a design that can be built at
+all. `u_ils` and `u_dls` remain as two unused words each when `LS_1P = 1`
+so that the names the FPGA and ASIC scripts rely on do not depend on the
+parameter; the ASIC flow's `strata_ram` replacement, its floorplan and the
+1024 x 8 macros are the next step there (`asic/` is unchanged). Area and
+clock of the change are not measured.
+

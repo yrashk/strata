@@ -15,7 +15,7 @@ st=${1:-0}
 out=research/smart-memory/build/syn/s$st
 mkdir -p "$out"
 sv2v rtl/strata_pkg.sv rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv rtl/strata_mul.sv \
-     rtl/strata_ram.sv rtl/strata_tu.sv rtl/strata_core.sv > "$out/core.v"
+     rtl/strata_ram.sv rtl/strata_ram1.sv rtl/strata_tu.sv rtl/strata_core.sv > "$out/core.v"
 cat > "$out/map.ys" <<YS
 read_verilog $out/core.v
 chparam -set NCORES 1 -set STREAM $st strata_core
