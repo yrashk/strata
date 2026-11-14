@@ -994,43 +994,36 @@ then a branch's child, Backspace goes back (to the list from a root), j/k
 move, t returns to the list. Both read the disk as it was last committed, with READBLK
 (`os/lib/stview.s`).
 
-**Tags are directories.** A file has a name and carries any number of tags
-(names of 1–255 bytes, no `/`; a file's record, a quarter page at most,
-holds some 200 of them). Every tag is a directory, and a file is *in* each
-directory it is tagged with, and nowhere else: one file shows up in several
-directories at once, without copies or links. A file with no tag is in the
-root. **A name is unique within a directory**, not on the disk: `/doc/notes`
-and `/src/notes` are two files, and a third `notes` may be in the root. A
-file in two directories needs its name free in both, so `/src/x` and
-`/src/demo/x` are always the same file (it is in `src` either way).
+**A directory is a set of tags.** A file has a name and carries any number
+of tags (names of 1–255 bytes, no `/`). The set of a file's tags is its
+directory: a file tagged `src` and `demo` is in `/src/demo`, which is also
+`/demo/src` (the order of a path's tags does not matter), and nowhere
+else; a file with no tag is in the root. **A name is unique within a
+directory**: `/src/x`, `/src/demo/x` and a root `x` are three files.
 Every name `fs` takes is a *path*: components separated by `/` (empty ones
-are skipped). The last component is the file's name; the ones before it are
-directories the file must be in. `/doc/motd` opens the motd of `doc`,
-`/doc/etc/motd` only if it is in `etc` too, and `motd` alone means the
-current directory: at the root, a file in no directory (-4 if there is
-none; it does not find `/doc/motd`). Opening for writing (or appending)
-puts the file into the path's directories, creating tags that do not exist
-yet: `echo hi > /notes/todo` makes `todo` in `notes`; when a file of that
-name is in one of the path's directories already, it is that file that is
-written, and it joins the others (-1 if one of them has another file of the
-name); a file replaced by a write keeps its tags. QUERY takes a path of
-tags and lists the files that are in all of them; with no tag it lists the
-root's files; when its last component is not a tag but names a file in the
-others, it lists that file. UNLINK through a path deletes the file (to take
-it out of a directory, untag it). TAG puts a file into one more directory
-and is refused (-1) when that directory has the name; UNTAG takes it out of
-one, and out of its last one into the root (refused when the root has the
-name). RENAME is a move: the file gets the new path's name and is then in
-exactly the new path's directories (none: the root); a new path without
-any `/` changes only the name and leaves the file where it is. A file of
-that name in a directory the file goes to is replaced if it is in no other
-directory; if it is, the move is refused and nothing changes. A tag that no
-file carries any more disappears. A component `-tag` (before the name; in
-QUERY also last) *excludes*: the file must not carry that tag, so `ls
-/src/-demo` lists the sources that are not demos (excluding a tag that does
-not exist excludes nothing). A path that creates (opening for writing,
-RENAME's new path) cannot exclude (-1), and a tag name cannot start with
-`-`.
+are skipped). The last component is the file's name; the ones before it
+are the tags of its directory, all of them. `/doc/motd` opens the motd
+whose only tag is `doc`, and `motd` alone means the current directory: at
+the root, a file with no tag (-4 if there is none). Opening for writing
+(or appending) makes the file in that directory if it is not there,
+creating tags that do not exist yet: `echo hi > /notes/todo`; a file
+replaced by a write keeps its place. QUERY takes a path and lists the
+files of that directory; when its last component is not a tag but names a
+file of the directory the others make, it lists that file. UNLINK through
+a path deletes the file. TAG and UNTAG move a file: TAG into the directory
+of its tags and the ones given, UNTAG into the one without them, all the
+tags of a request at once (data: the path, a zero byte, the tags' names
+with a zero byte between them; a first name `/` empties the set first,
+which is `retag`); refused (-1) when that directory has a file of the
+name. RENAME moves a file to the new path's directory under the new
+path's name; a new path without any `/` changes only the name. A file
+that is there is replaced. A tag that no file carries any more
+disappears. A component `-tag` *excludes* in a listing: `ls /src/-demo`
+leaves `demo/` out of the subdirectories shown. A path that creates
+(opening for writing, RENAME's new path) cannot exclude (-1), and a tag
+name cannot start with `-`. A directory can be as deep as a key allows
+(the name index's key is the tag ids, four bytes each, and the name, 480
+bytes with 4 KiB pages), and a path names at most 16 tags.
 
 **Programs** are files like any other. `proc` passes the pid of the
 process that starts a program to `fs` (LOADIMG, in the mode word's upper
@@ -1047,8 +1040,8 @@ directory. `fs` keeps one per process (a table of 64 entries of at most 120
 bytes, one per live process that is not at `/`) and reads every path that
 does not start with `/` under it: the requester's path (from the sender pid
 the kernel stamps), a `/`, then the path. So in `/src/demo`, `cat hello.s`
-opens `/src/demo/hello.s` (hello.s must be in src and demo), `ls` (QUERY with
-no path) lists the files in both and their facets, `ls x/` narrows to
+opens `/src/demo/hello.s`, `ls` (QUERY with
+no path) lists the files of that directory and their facets, `ls x/` narrows to
 `/src/demo/x`, and `echo hi > notes` creates notes tagged src and demo.
 Every path is then normalized: `.` components go and `..` takes the one
 before it away (never above `/`), so `cat ../f` works too. When creating,
@@ -1069,14 +1062,17 @@ directly), servers such as `httpd`. A name a program got from a listing is
 unique in that directory only, so such a program asks with the listing's
 path in front of it (the shell's completion of programs: `/bin/NAME`).
 
-**Subdirectories are facets.** QUERY also answers the other tags that at least
-one listed file carries, without the path's own tags. These are the
-subdirectories: `ls /src` shows the files in src, then `demo/`; `ls
-/src/demo` narrows to the files in both, `cd /src/demo` works there, and a
-file made there is in both (it shows in `/src` and in `/demo` too: a
-subdirectory is a narrower view of its directory, not a separate place).
-`ls /` shows the root's files, then every directory (the reply's tag set
-has every bit set). A path naming one file has
+**Subdirectories.** QUERY also answers the other tags of the files in deeper
+directories: these are the subdirectories. `ls /src` shows the files of
+`/src`, then `demo/`; `ls /src/demo` shows the files of that subdirectory,
+`cd /src/demo` works there, and a file made there is in it and not in
+`/src`. A reply carries the files of deeper directories as records without
+a name (bit 31 of the count of tags set): they are not listed, their tags
+are the subdirectories (the reply's mode word has them as a tag set too,
+for the ids below 64). Since a directory is a set of tags, `/demo` shows
+`src/` as `/src` shows `demo/`: both lead to the same place. `ls /` shows
+the root's files, then every directory (the tag set has every bit set).
+A path naming one file has
 no facets. The shell's Tab completes facets in a path like folders (`cat
 /sr` Tab gives `/src/`, with no space after it).
 
@@ -1097,12 +1093,15 @@ compiler on the machine.
 
 Utilities: `ls [-t] [PATH]` (files, then facets as `tag/`; `-t` adds each
 file's tags; no PATH: the current tag path), `cat`, `cp [-t] SRC DST` (a copy; DST's path says where it is,
-`-t` also puts it where SRC is; DST must be another path),
+`-t` then moves it into the directory of its tags and SRC's; DST must be
+another path),
 `mv SRC DST` (RENAME, a move: `mv /notes/a /todo/a` or `mv /notes/a /todo/`
-takes it from notes to todo, `mv /notes/a b` renames it where it is),
-`rm FILE...`, `touch FILE...` (creates empty files;
-a file of the name in one of the path's directories joins the others), `tag FILE
-TAG...`, `untag FILE TAG...`, `retag FILE [TAG...]` (exactly these tags),
+takes it from notes to todo, `mv /notes/a b` renames it where it is; a file
+that is there is replaced),
+`rm FILE...`, `touch FILE...` (creates empty files), `tag FILE
+TAG...`, `untag FILE TAG...`, `retag FILE [TAG...]` (each moves the file
+once: into the directory with these tags too, without them, of exactly
+these),
 `tags [FILE...]`, `df`; the shell completes file names and facets behind a
 tag path (`cat /doc/mo` Tab).
 

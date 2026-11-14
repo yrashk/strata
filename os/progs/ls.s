@@ -13,8 +13,10 @@
 ;   ls -A                 every file on the disk, wherever it is, with its tags
 ;                         (its directories)
 ;
-; A directory is a tag, and a file is in each one it is tagged with (see
-; os/servers/fs.s); a name is unique within a directory. Asks the file server for the files with sys_list, part by
+; A file's directory is the set of its tags (see os/servers/fs.s); a name is
+; unique within a directory. A listing's reply also carries the files of
+; deeper directories, as records without a name: they are not listed, their
+; tags are the subdirectories. Asks the file server for the files with sys_list, part by
 ; part (a listing has no limit; each part's records hold a file's name, size
 ; and tag ids) and, with -t, for each file's tags with sys_tags2.
 ; Subdirectories are facets: after the files come the other tags they carry,

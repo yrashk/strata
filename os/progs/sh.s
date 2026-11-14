@@ -281,7 +281,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "files: no directories, tags; /a/b/f is f if it carries a and b\n" ; (continued)
          .ascii "  f (no leading /) is under the current path: f there carries its tags\n" ; (continued)
          .ascii "  ls [-t] [/a/-b]  the files in a, not in b (and its subdirectories, c/); ls -A: every file\n" ; (continued)
-         .ascii "  a tag is a directory: a file is in each one it has (none: in /); a name is one per directory\n" ; (continued)
+         .ascii "  a file's tags are its directory (/a/b = /b/a; none: /); tag, untag, retag and mv move it\n" ; (continued)
          .ascii "  cat cp [-t] mv rm touch df   tag untag retag FILE TAG...   tags [FILE]\n" ; (continued)
          .ascii "programs:\n"           ; (continued)
          .ascii "  ps free uptime devs hexdump cores sched\n" ; (continued)

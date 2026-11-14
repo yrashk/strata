@@ -38,8 +38,8 @@ cat /many/f150
 mv /many/f298 g298
 cat /many/g298
 tag /many/f299 extra
-ls /extra
-tags /many/f299
+ls /extra/many
+tags /many/extra/f299
 echo after-count
 ls /many | wc
 echo all-count
@@ -57,7 +57,7 @@ def after(mark):
     return int(m.group(1)) if m else -1
 many, left, every = after('many-count'), after('after-count'), after('all-count')
 print("ls /many: %d files, then %d; ls /: %d lines" % (many, left, every))
-ok = many == 300 and left == 300      # 299 files and the facet line "extra/"
+ok = many == 300 and left == 299      # 298 files (one removed, one moved into /many/extra) and the line "extra/"
 for want in ('f000', 'f127', 'f128', 'f299', 'hello-new', 'f298'):
     ok = ok and re.search(r'^%s$' % want, t, re.M) is not None
 ok = ok and re.search(r'^many +299', t, re.M) is not None and re.search(r'^extra +1', t, re.M) is not None

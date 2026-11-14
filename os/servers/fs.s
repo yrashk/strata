@@ -28,19 +28,21 @@
 ;
 ; Paths. A name in a request is a path: components separated by "/" (empty
 ; ones are skipped). The last component is the file's name; the ones before
-; it are tags the file must carry. "motd", "/motd" and "/doc/motd" all name
-; motd if it carries doc; "/bin/doc/motd" names nothing. Opening for writing
-; adds the path's tags to the file (creating tags that do not exist yet).
-; QUERY takes a path of tags; its last component may instead name one file. A
-; component "-tag" before the name (or last, in QUERY) is an exclusion: the
-; file must not carry that tag ("/notes/-work": tagged notes, not work;
-; excluding a tag that does not exist excludes nothing). Paths that create
-; (writing, the new name of RENAME) cannot exclude (-1), and a tag name
-; cannot start with "-".
+; it are the tags of its directory. A file's directory is the set of its
+; tags ("/src/demo" is "/demo/src"; no tag: the root), and a name is unique
+; within a directory: "/doc/motd" is the motd whose only tag is doc, and
+; "motd" the one of the current directory. Opening for writing makes the
+; file there (creating tags that do not exist yet). QUERY takes a path of
+; tags and lists that directory's files; its last component may instead
+; name one file. A component "-tag" (in QUERY) is an exclusion: files that
+; carry that tag do not count, so "/src/-demo" shows /src without its
+; subdirectory demo. Paths that create (writing, the new name of RENAME)
+; cannot exclude (-1), and a tag name cannot start with "-".
 ;
-; Subdirectories are facets: QUERY also answers, in the reply's mode word, the
-; other tags that at least one listed file carries (bit t = tag id t, for
-; the ids below 64). `ls` shows them as "tag/".
+; Subdirectories: QUERY also answers the files of deeper directories, as
+; records without a name, and in the reply's mode word the other tags they
+; carry (bit t = tag id t, for the ids below 64). `ls` shows those tags as
+; "tag/".
 ;
 ; The current tag path. Every process has one, the tag-system analogue of a
 ; working directory (none kept = "/", every file). A path that does not
