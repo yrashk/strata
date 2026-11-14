@@ -13,7 +13,6 @@
 05-preproc/scc-0273-cpp.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
 06-init/lacc-identifier.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
 06-init/lacc-include.c	needs a header file of its suite, which is not kept here
-06-init/lacc-token.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
 06-init/scc-0051-inits.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
 06-init/scc-0189-cpp.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
 07-funcptr-switch-goto/lacc-declarator-complex.c	not analysed yet: incomplete type
@@ -62,7 +61,6 @@
 09-float/lacc-bool.c	float kept as 4 bytes but computed in double: results differ in the last place, or a conversion is missing
 09-float/lacc-convert-float-int.c	float kept as 4 bytes but computed in double: results differ in the last place, or a conversion is missing
 09-float/lacc-convert-float-unsigned.c	float kept as 4 bytes but computed in double: results differ in the last place, or a conversion is missing
-09-float/lacc-convert-int-float.c	float kept as 4 bytes but computed in double: results differ in the last place, or a conversion is missing
 09-float/lacc-deref-compare-float.c	hexadecimal floating constants are not implemented
 09-float/lacc-designator-struct.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
 09-float/lacc-designator-union.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)

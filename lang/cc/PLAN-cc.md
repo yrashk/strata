@@ -22,7 +22,7 @@ each stage. Keep it current.
 - [x] Sorted into nine rungs, `ladder/MANIFEST.tsv`
 - [x] Runner: `tests/run.sh` (`ladder.py`): batches of tests per boot;
       `CC_FLAGS=-p` runs the ladder in the paged code model
-- [x] `ladder/EXPECT.tsv`: the 73 tests not expected to pass, with reasons
+- [x] `ladder/EXPECT.tsv`: the 71 tests not expected to pass, with reasons
 - [x] `ladder/FAST.txt`: the subset `make test` runs (52 tests)
 
 ## Design
@@ -166,8 +166,8 @@ emit the same bytes (DESIGN.md, section 6).
 ## Scores
 
 Tests passing per rung, in the resident code model, after each stage
-(`lang/cc/tests/run.sh`). The paged model (`CC_FLAGS=-p`) gave the same
-counts when it was last run (at 392).
+(`lang/cc/tests/run.sh`). The paged model (`CC_FLAGS=-p`) gives the same
+counts (450 at the last run).
 
 | After | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 | 09 | Total |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -179,6 +179,7 @@ counts when it was last run (at 392).
 | bit-fields, compound literals | 32 | 12 | 88 | 29 | 52 | 68 | 17 | 97 | 4 | 399 |
 | floating point | 32 | 12 | 88 | 29 | 52 | 67 | 17 | 97 | 46 | 440 |
 | typedef fix, nested designators | 32 | 12 | 88 | 31 | 53 | 70 | 17 | 97 | 48 | 448 |
+| a code-window fix (both code models) | 32 | 12 | 88 | 31 | 53 | 71 | 17 | 97 | 49 | 450 |
 
 ## Size
 
