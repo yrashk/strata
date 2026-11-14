@@ -32,7 +32,8 @@ Store memories raise the RTL's speed or cut its area? The answer is
 - [x] `make BUILD=build/stream STREAM=1 test`: passes (the browser RTL rule now takes `STREAM` too)
 - [x] Profiler follows the retired instruction under `STREAM` (`prof/build.sh 8 64 64 1`, `prof/run.sh all -stream`)
 - [x] Measured: StrataOS session 3.22 -> 1.75 busy cycles per instruction (model 1.92), examples 1.85x to 2.15x
-- [ ] Area and clock of the change: one synthesis of the core with `STREAM = 1` (`fpga/synth.sh` needs a `chparam` for it), then place and route
+- [x] Area and depth of the change, core only, generic gates (`sta/core.sh 0`, `sta/core.sh 1`): +4.0% gates, +98 flip-flops, no new deepest path
+- [ ] Its clock: place and route with `STREAM = 1` (`fpga/synth.sh` needs a `chparam` for it)
 - [ ] `fpga/README.md`'s cycle table for `STREAM = 1`, once it is synthesized
 
 ## Not done (candidates for a next step)

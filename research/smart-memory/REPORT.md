@@ -643,9 +643,30 @@ the smaller Local Store sizes, and the browser build against the native
 one. (The browser build's rule had to be given the parameter too, or it
 compares a default machine with a stream one.)
 
-**Not measured:** the area and the clock of the change. It adds two 64-bit
-registers, two flags, a 14-bit incrementer and a few multiplexers at `ir`
-and the I-LS address (section 2.1 estimated 0.5% of the logic for a
-slightly larger front end); the new paths start at registers and at I-LS
-read data. A synthesis of the core with `STREAM = 1` (`fpga/synth.sh`
-needs a `chparam` for it) is the next check, then place and route.
+**Area and depth** (measured: `sta/core.sh 0` and `sta/core.sh 1`, one
+core alone through Yosys to generic gates and `sta/sta.py`; no place and
+route):
+
+| | `STREAM = 0` | `STREAM = 1` | |
+|---|---|---|---|
+| Gates, in transistors | 730,340 | 759,286 | +4.0% |
+| Flip-flops | 11,367 | 11,465 | +98 |
+| Deepest path (overlay map -> integer register), relative | 1.00 | 1.005 | |
+| `ir` -> `pc` | 0.72 | 0.74 | |
+| `ir` -> `state` | 0.53 | 0.52 | |
+| `ir` -> `ir` (new: the successor is chosen at the retire) | none | 0.50 | |
+| `pc` -> I-LS port A address | 0.10 | 0.09 | |
+| I-LS read data -> `ir` | 0.01 | 0.06 | |
+
+The same RTL mapped twice differs by about 0.8% in gates, and the depths
+by a few percent, so only the gate count's increase and the new `ir` path
+are real differences. The increase is larger than section 2.1's estimate
+(0.5%): the successor's 32 bits are multiplexed into `ir` at every place an
+instruction retires. 98 flip-flops, not 130: the low half of the kept word
+is never read again. In the 5 V cells of the kept ASIC run that is about
+0.09 mm² (7,200 NAND2 equivalents at 10.98 µm², 98 flip-flops at 63.6
+µm²), 3% of the core's cells and 0.1% of the die. No path became the
+deepest: the new one into `ir` is as deep as the path into `state`, half
+the deepest, and the I-LS address still comes from registers. A clock
+figure needs place and route (`fpga/synth.sh` needs a `chparam` for
+`STREAM` first).

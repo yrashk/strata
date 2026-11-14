@@ -111,8 +111,9 @@ Not verified:
   STREAM=1`; off by default) lets sequential code skip the two fetch
   cycles: the core keeps the I-LS word and reads the next one while it
   executes. The scripted StrataOS session runs at 1.75 cycles per
-  instruction instead of 3.22. Not synthesized yet: its area and clock are
-  not measured (`research/smart-memory/REPORT.md`, section 9).
+  instruction instead of 3.22. One core alone in generic gates: 4% more
+  gates, 98 more flip-flops, no new deepest path; not placed and routed
+  (`research/smart-memory/REPORT.md`, section 9).
 
 **ASIC** (`asic/README.md`, `asic/results/`, site page `hardware/asic/`)
 - One core through LibreLane 3.0.17 (its arm64 Docker image, run under
