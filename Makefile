@@ -472,24 +472,25 @@ DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(DBPROGS) $(NPROGS) $(BUILD)/prog
               $(BUILD)/prog/units $(BUILD)/prog/vi $(SRCS) $(USRCS) $(BUILD)/src/vi.s $(FORTH_DISK)
 
 # The same files with their tags (mkdisk -t TAGS applies to the files after it).
-# The file system has no directories: `ls /bin` lists the files tagged bin,
-# `ls /src/demo` those tagged both src and demo.
+# A file's directory is the set of its tags: `ls /bin` lists the files tagged
+# bin and nothing else, `ls /src/demo` those tagged src and demo (a
+# subdirectory of /src). Programs are looked for in /bin.
 DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc %/resolv,$(OS_FILES)) \
-             -t sys $(SPROGS) -t bin $(UPROGS) $(DBPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag -t bin,net $(NPROGS) -t bin,ws $(WSPROGS) \
-             -t bin,demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units $(BUILD)/prog/vi \
+             -t sys $(SPROGS) -t bin $(UPROGS) $(DBPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag -t bin $(NPROGS) $(WSPROGS) \
+             $(PROGS) $(BUILD)/prog/as $(BUILD)/prog/units $(BUILD)/prog/vi \
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) $(BUILD)/src/vi.s \
-             -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
+             -t bin $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
              lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUILD)/forth-os/vi-syntax.fs \
              $(BUILD)/forth-os/progs.pk \
-             -t forth,demo $(wildcard lang/forth/demos/*.fs) \
-             -t forth,net lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd-ps.fs -t forth,net,demo lang/forth/httpd.fs
+             $(wildcard lang/forth/demos/*.fs) \
+             lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd-ps.fs lang/forth/httpd.fs
 # kira and its data (tagged ws: the program opens /ws/kira.dat)
 DISK_FILES += $(BUILD)/prog/kira $(KIRA_DAT)
-DISK_ARGS  += -t bin,ws $(BUILD)/prog/kira -t ws $(KIRA_DAT)
+DISK_ARGS  += -t bin $(BUILD)/prog/kira -t ws $(KIRA_DAT)
 
 # wdoom and its data (tagged ws: the program opens /ws/wdoom.dat)
 DISK_FILES += $(BUILD)/prog/wdoom $(WDOOM_DAT)
-DISK_ARGS  += -t bin,ws $(BUILD)/prog/wdoom -t ws $(WDOOM_DAT)
+DISK_ARGS  += -t bin $(BUILD)/prog/wdoom -t ws $(WDOOM_DAT)
 # the web site httpd serves (index.html at /, the stylesheet of every page)
 WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)
@@ -497,7 +498,7 @@ DISK_ARGS  += -t www $(WWW_FILES)
 DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS)
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST)
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) -t guest,forth $(FORTH_GUEST)
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST)
 
 os: $(BUILD)/bootrom.stx $(BUILD)/disk.img
 
@@ -636,7 +637,7 @@ $(BUILD)/isol-test/dlsgap: tools/dlsgap.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/isol-test
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
 $(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin,test $(BUILD)/isol-test/dlsgap
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap
 
 # the disk of tools/test-files.sh: the standard one plus 300 small files tagged
 # many (f000 .. f299, each holding its own name): more files than one window
@@ -651,7 +652,7 @@ $(BUILD)/files-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs) \
                               $(wildcard lang/forth/tests/http/*)
 	@mkdir -p $(BUILD)/forth-test
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t forth,test $(wildcard lang/forth/tests/*.fs) \
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t forth $(wildcard lang/forth/tests/*.fs) \
 	  -t httptest $(wildcard lang/forth/tests/http/*)
 
 forth: $(BUILD)/strata-emu $(BUILD)/forth.stx

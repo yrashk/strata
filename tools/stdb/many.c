@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
   /* a few lookups, and a tag's files through the index */
   for (uint64_t i = 0; i < n; i += n / 7 + 1) {
     char name[48];
-    snprintf(name, sizeof name, "t%llu/f%07llu", (unsigned long long)(i % 50), (unsigned long long)i);
+    snprintf(name, sizeof name, "t%llu/t%llu/f%07llu", (unsigned long long)(i % 50), (unsigned long long)((i * 7 + 3) % 50), (unsigned long long)i);
     if (fs_lookup(&fs, name) != (int64_t)i + 1) { fprintf(stderr, "stdb-many: %s is not found\n", name); return 1; }
   }
   StTree *ext = st_tree(&st, fs.ns, ".ext", 0);

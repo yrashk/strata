@@ -42,6 +42,6 @@ PY
   echo "vi-shots: $T/$1.png"
 }
 # assembly: line numbers, then a new line being typed (insert mode)
-shot ${P}asm "$VI /src/hello.s\n$W$WAIT:set nu\n30Go        addi  t1, t1, 8           ; a new line, typed"
+shot ${P}asm "$VI /src/demo/hello.s\n$W$WAIT:set nu\n30Go        addi  t1, t1, 8           ; a new line, typed"
 # Forth: the Mandelbrot demo, its inner loop (locals, control words, a ( comment)
 shot ${P}forth "$VI gfx.fs\n${W}${WAIT}40G"

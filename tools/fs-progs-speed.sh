@@ -20,7 +20,7 @@ cost() {  # the instructions of a session running $1
 }
 base=$(cost true "$2" "$1")
 printf '| %-24s | %12s | %12s | %6s |\n' command '.s (K instr)' '.fs (K instr)' ratio
-for c in "seq 1000" "cat /src/as.s" "upper < /src/hello.s" "wc < /src/sh.s" "grep ecall < /src/sh.s" \
+for c in "seq 1000" "cat /src/as.s" "upper < /src/demo/hello.s" "wc < /src/sh.s" "grep ecall < /src/sh.s" \
          "hexdump 0" "ls" "ls -t /src" "tags" "cp /src/units.s u2" "df" "devs" "ps" "cores" "uptime" \
          "free" "sched" "spin 3" "units"; do
   s=$(cost "$c" "$2" "$1")

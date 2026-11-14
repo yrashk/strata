@@ -41,14 +41,14 @@ x cat: cat /src/as.s | wc
 x cat: cat /doc/about > c1; cat c1 c1; rm c1
 x upper: upper < /doc/motd
 x upper: seq 3 | upper
-x upper: cat /src/hello.s | upper | wc
+x upper: cat /src/demo/hello.s | upper | wc
 x wc: wc < /doc/motd
 x wc: wc < /src/sh.s
 x wc: seq 5000 | wc
 x wc: wc < /doc/about
 x grep: grep the < /doc/motd
 x grep: grep < /doc/about
-x grep: grep vi /src/hello.s < /doc/motd
+x grep: grep vi /src/demo/hello.s < /doc/motd
 x grep: seq 100 | grep 7
 x grep: cat /src/sh.s | grep ecall | wc
 x grep: grep nothing-like-this < /doc/motd
@@ -65,15 +65,15 @@ X touch: touch
 X touch: ls /tt
 X touch: cat t1 t2
 X cp: cp t1 t3
-X cp: cp -t /src/hello.s h1
+X cp: cp -t /src/demo/hello.s h1
 X cp: cp /src/sh.s big; wc < big; rm big
 X cp: cp t1 /tt/t1
 X cp: cp nope z
 X cp: cp a
 X cp: cp a b c
-X cp: tags /src/h1 /demo/h1 t3 nope
-X cp: wc < /demo/h1
-X mv: mv /src/h1 /demo/
+X cp: tags /src/demo/h1 t3 nope
+X cp: wc < /src/demo/h1
+X mv: mv /src/demo/h1 /demo/
 X mv: mv /demo/h1 h2
 X mv: mv nope z
 X mv: mv a
@@ -87,12 +87,12 @@ X tag: tag t3 tg1 tg2
 X tag: tag t3 bad/tag
 X tag: tag nope tg1
 X tag: tag t3
-X tag: tags /tg1/t3
-X tag: untag /tg2/t3 tg1
+X tag: tags /tg1/tg2/t3
+X tag: untag /tg1/tg2/t3 tg1
 X tag: tags /tg2/t3
 X tag: retag /tg2/t3 tg3 tg4
-X tag: tags /tg4/t3
-X tag: retag /tg3/t3
+X tag: tags /tg4/tg3/t3
+X tag: retag /tg3/tg4/t3
 X tag: tags t3
 X tags: tags
 X rm: rm t1 t2 t3 /demo/h2 /tt/t1 nope

@@ -53,7 +53,7 @@ seq 40000 > /nums/big
 seq 300 > mid
 cp /doc/motd m2
 tag m2 x y
-mv /x/m2 /keep/m3
+mv /x/y/m2 /keep/m3
 cp /doc/about gone
 rm gone
 echo first > twice
@@ -120,7 +120,7 @@ grep -q '^hello$' "$tmp/out.txt" && grep -q '^more$' "$tmp/out.txt" && grep -q '
 cmp -s "$tmp/big1" "$tmp/big2" || fail "a file written on the second boot differs from the first's"
 [ "$(wc -l <"$tmp/big1")" -eq 40000 ] || fail "the large file does not have its lines"
 # `db` walks the trees from the disk, below the file system: the trees are
-# listed, the tree of names holds the first session's files, under each of their directories, and a page that is
+# listed, the tree of names holds the first session's files, and a page that is
 # not a tree page is refused
 grep -q '^fs/obj  *root page [0-9]*, height [0-9]' "$tmp/out.txt" && grep -q '^catalog  *root page' "$tmp/out.txt" ||
   { cat "$tmp/out.txt" >&2; fail "db does not list the trees"; }
@@ -128,8 +128,8 @@ for f in a big mid twice empty m3 motd; do
   grep -q "^\"[^\"]*$f\" = " "$tmp/out.txt" || fail "db fs/dnam does not show $f"
 done
 names=$(grep -c '^"[^"]*" = "' "$tmp/out.txt")
-# (an entry for each directory a file is in, or one for a file in none)
-files=$("$b/stdb" dump "$tmp/d1.img" | awk '{ n = 1; for (i = 2; i <= NF; i++) if ($i ~ /^tags=/) n = split($i, t, ","); s += n } END { print s }')
+# (an entry a file)
+files=$("$b/stdb" dump "$tmp/d1.img" | wc -l | tr -d ' ')
 [ "$names" -eq $((files + 1)) ] || fail "db fs/dnam shows $names names: not the first session's $files and one more"
 grep -q '^db: not a tree page: 3' "$tmp/err.txt" "$tmp/out.txt" || fail "db -p took a page that is not a tree's"
 echo "test-store: read back after a second boot; db walks the trees"
@@ -206,7 +206,7 @@ echo three > /notes/v
 tag /notes/v late
 cat /@first/notes/v
 cat /@second/notes/v
-cat /notes/v
+cat /notes/late/v
 wc < /@first/keep
 ls /@first/notes
 tags /@first/notes/v
@@ -225,7 +225,7 @@ def after(cmd, n=1):
     return t[i:].split("\n")[:n]
 assert after("cat /@first/notes/v") == ["one"], "the first snapshot's file"
 assert after("cat /@second/notes/v") == ["two"], "the second snapshot's file"
-assert after("cat /notes/v") == ["three"], "the live file"
+assert after("cat /notes/late/v") == ["three"], "the live file (moved by a tag since)"
 assert after("wc < /@first/keep")[0].split()[0] == "30000", "a file deleted since, read from its snapshot"
 assert after("tags /@first/notes/v")[0].rstrip().endswith("notes"), "a snapshot shows the tags of its time"
 assert "cannot open /@first/w" in t and "no such file: /@first/notes/v" in t, "a snapshot was written"
@@ -273,7 +273,7 @@ snap s2
 echo three > /notes/a
 snap -r s1
 cat /notes/a
-cat /@s2/notes/a
+cat /@s2/notes/later/a
 ls big
 snap -r nosuch
 halt
@@ -491,19 +491,20 @@ EOF
 [ "$("$b/stdb" get "$tmp/d1.img" a)" = "$(printf 'one\ntwo')" ] || fail "the other writer's file on the disk"
 echo "test-store: a full disk: the file that did not fit is given up and its space is back; a file another program was writing is whole"
 # ---- 11. names per directory -----------------------------------------------------------------
-# One name in two directories and in the root: three files, each read by its
-# path, on the disk as three; a directory that has the name refuses a second
-# file of it; a move leaves the old directory; subdirectories stay.
+# A file's directory is the set of its tags. One name in a directory, in its
+# subdirectory and in the root: three files, each read by its path; a
+# directory that has the name refuses a second file of it; a move frees it.
 cat >"$tmp/n1.txt" <<'EOF'
 echo in-a > /na/same
-echo in-b > /nb/same
+echo in-sub > /na/sub/same
 echo in-root > same
-tag /na/same nb
+tag /na/same sub
 echo deep > /na/sub/deep
-mv /nb/same /nc/moved
+mv /na/sub/same /nc/moved
+tag /na/same sub
 echo --ls-na; ls /na
 echo --ls-sub; ls /na/sub
-echo --cat; cat /na/same same /nc/moved /na/sub/deep /sub/deep
+echo --cat; cat /na/sub/same same /nc/moved /na/sub/deep /sub/na/deep
 cd /na/sub
 echo --cwd; cat deep
 halt
@@ -518,16 +519,16 @@ def sect(mark):
         if l.startswith("--") or "strata" in l: break
         out.append(l.split()[0] if l.split() else "")
     return [x for x in out if x]
-assert "cannot tag /na/same with nb" in t, "a directory that has the name took a second file of it"
-assert sect("ls-na") == ["same", "deep", "sub/"], "a directory's files and its subdirectory: %r" % sect("ls-na")
-assert sect("ls-sub") == ["deep"], "a subdirectory's files: %r" % sect("ls-sub")
-assert sect("cat") == ["in-a", "in-root", "in-b", "deep", "deep"], "each file by its path: %r" % sect("cat")
+assert t.count("cannot tag /na/same with sub") == 1, "a directory that has the name took a second file of it (or refused it when it was free)"
+assert sect("ls-na") == ["sub/"], "a directory with only a subdirectory: %r" % sect("ls-na")
+assert sect("ls-sub") == ["same", "deep"], "a subdirectory's files: %r" % sect("ls-sub")
+assert sect("cat") == ["in-a", "in-root", "in-sub", "deep", "deep"], "each file by its path: %r" % sect("cat")
 assert sect("cwd") == ["deep"], "a name alone in a subdirectory"
 EOF
 "$b/stdb" check "$tmp/n1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk with one name in several directories fails its check"; }
 "$b/stdb" dump "$tmp/n1.img" | grep -E '^(same|moved|deep) ' | sed 's/ sum=[0-9a-f]*//' >"$tmp/n1.dump"
-printf 'deep size=5 tags=na,sub\nmoved size=5 tags=nc\nsame size=5 tags=na\nsame size=8\n' | cmp -s - "$tmp/n1.dump" ||
-  { cat "$tmp/n1.dump" >&2; fail "the files on the disk are not the three of one name, the moved one and the one in a subdirectory"; }
-[ "$("$b/stdb" get "$tmp/n1.img" /na/same)" = in-a ] && [ "$("$b/stdb" get "$tmp/n1.img" /same)" = in-root ] || fail "stdb get by path"
-echo "test-store: names per directory: one name in two directories and the root, a refused tag, a move, a subdirectory; the disk checked"
+printf 'deep size=5 tags=na,sub\nmoved size=7 tags=nc\nsame size=5 tags=na,sub\nsame size=8\n' | cmp -s - "$tmp/n1.dump" ||
+  { cat "$tmp/n1.dump" >&2; fail "the files on the disk are not the two of one name, the moved one and the one in a subdirectory"; }
+[ "$("$b/stdb" get "$tmp/n1.img" /na/sub/same)" = in-a ] && [ "$("$b/stdb" get "$tmp/n1.img" /same)" = in-root ] || fail "stdb get by path"
+echo "test-store: names per directory: one name in a directory, its subdirectory and the root; a refused tag, a move; the disk checked"
 echo "test-store: OK"
