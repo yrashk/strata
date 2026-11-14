@@ -15,7 +15,9 @@
 #     although it arrives before nc's own input ends (net keeps the data of a
 #     socket that was only shut down, in LAST-ACK, readable). Responses go to
 #     files and are shown with cat/grep, so httpd's log lines and the
-#     responses never interleave. The console from the first prompt on is
+#     responses never interleave (the first three are removed half way: the
+#     disk's directory has 128 entries, and the disk's own files leave room
+#     for a dozen). The console from the first prompt on is
 #     compared with tools/test-http.out; `tools/test-http.sh -u ...`
 #     regenerates that file.
 #  2. Two machines over a host UDP "cable" (JIT, real time): 10.0.0.2 opens
@@ -57,6 +59,7 @@ echo HEAD /src/sh.s HTTP/1.1 | nc 127.0.0.1 80 > r6
 cat r6
 echo GET /www/nosuch.html HTTP/1.0 | nc 127.0.0.1 80 > r7
 cat r7
+rm r1 r2 r3
 echo GET /bin HTTP/1.0 | nc 127.0.0.1 80 > r8
 cat r8
 echo POST /www/ HTTP/1.0 | nc 127.0.0.1 80 > r9
@@ -80,7 +83,7 @@ cat sh.s | wc
 rm index.html
 echo GET / HTTP/1.0 | nc 127.0.0.1 80 > r12
 grep title < r12
-rm r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15
+rm r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15
 kill %1
 wait
 EOF
