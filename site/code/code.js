@@ -1,5 +1,5 @@
 // The source browser. manifest.json (written by tools/web-code.py) lists
-// every Strata assembly and Forth file, grouped by area, with the keyword
+// every Strata assembly, Forth and C file, grouped by area, with the keyword
 // lists of the real assembler (asm/sasm.c) and of Strata Forth; the files
 // themselves are under src/<path>. The highlighters are the site's shared
 // line-at-a-time scanners (../hl.js), so a 6000-line file colours in a few
@@ -22,7 +22,8 @@ const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">"
 
 // ---------------------------------------------------------------- highlighting
 // The scanners are shared with the rest of the site: ../hl.js (StrataHL).
-const { asmLines, forthLines } = window.StrataHL;
+const { asmLines, forthLines, cLines } = window.StrataHL;
+const LANG = { asm: "Strata assembly", forth: "Forth", c: "C" };
 
 // ---------------------------------------------------------------- the tree
 function buildTree() {
@@ -86,7 +87,7 @@ function overview() {
   document.title = "Strata source";
   markActive();
   $("crumb").textContent = "Source";
-  $("title").textContent = "Every program, in Strata assembly and Forth";
+  $("title").textContent = "Every program, in Strata assembly, Forth and C";
   $("meta").innerHTML = `<span>${M.files} files</span><span>${M.lines.toLocaleString("en")} lines</span><span>straight from the repository</span>`;
   $("desc").innerHTML = "The examples, the StrataOS kernel and its servers, the assembler written in its own " +
     "assembly, the firmware, Strata Forth and the conformance suite — coloured with the real assembler's " +
@@ -118,7 +119,7 @@ function header(f) {
   $("crumb").innerHTML = `<a href="#">Source</a> / ` + parts.map(esc).join(" / ");
   $("title").textContent = parts[parts.length - 1];
   $("meta").innerHTML = `<span>${f.lines.toLocaleString("en")} lines</span><span>${kib(f.bytes)}</span>` +
-    `<span>${f.lang === "forth" ? "Forth" : "Strata assembly"}</span><span>${esc(groupOf(f))}</span>`;
+    `<span>${LANG[f.lang]}</span><span>${esc(groupOf(f))}</span>`;
   $("desc").innerHTML = (f.title ? `<b>${inline(cap(f.title))}.</b> ` : "") + inline(f.desc || "");
   let a = `<a class="btn ghost" id="gh" href="${ghLink(f)}">View on GitHub</a>`;
   if (f.run) a = `<a class="btn" href="../play/${f.run}">Run in browser</a>` + a;
@@ -142,7 +143,7 @@ async function show(f, range, scroll) {
     const t0 = performance.now();
     const lines = text.split("\n");
     if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
-    const html = f.lang === "forth" ? forthLines(lines) : asmLines(lines);
+    const html = f.lang === "forth" ? forthLines(lines) : f.lang === "c" ? cLines(lines) : asmLines(lines);
     const out = new Array(html.length);
     for (let i = 0; i < html.length; i++) out[i] = `<div class="L"><i>${i + 1}</i><b>${html[i] || " "}</b></div>`;
     $("body").innerHTML = `<div class="src-code hl"><div class="src-lines" id="lines">${out.join("")}</div></div>`;
