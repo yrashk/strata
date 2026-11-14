@@ -31,6 +31,8 @@
 # 9. `fsck`, the check of the store from inside the OS.
 # 10. A full disk: only the writer that did not fit loses its work.
 # 11. Names per directory: one name in several, the root, subdirectories.
+# 12. Two files written at the same time, a byte at a time: each has its
+#     own bytes (a commit for one writer comes between the other's).
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 b="$here/${BUILD:-build}"
@@ -530,4 +532,20 @@ printf 'deep size=5 tags=na,sub\nmoved size=5 tags=nc\nsame size=5 tags=na\nsame
   { cat "$tmp/n1.dump" >&2; fail "the files on the disk are not the three of one name, the moved one and the one in a subdirectory"; }
 [ "$("$b/stdb" get "$tmp/n1.img" /na/same)" = in-a ] && [ "$("$b/stdb" get "$tmp/n1.img" /same)" = in-root ] || fail "stdb get by path"
 echo "test-store: names per directory: one name in two directories and the root, a refused tag, a move, a subdirectory; the disk checked"
+# ---- 12. two writers at once ------------------------------------------------------------------
+# Two spins on two cores write a byte at a time to two files: their writes
+# alternate, so each commits the other's bytes before it puts its own.
+cat >"$tmp/w1.txt" <<'EOF'
+spin 60 a > /t/sa &
+spin 60 b > /t/sb
+wait
+halt
+EOF
+run "$tmp/w1.txt" "$disk" -w "$tmp/w1.img" || fail "the session with two writers did not end well"
+"$b/stdb" check "$tmp/w1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk after two writers fails its check"; }
+for c in a b; do
+  [ "$("$b/stdb" get "$tmp/w1.img" /t/s$c)" = "$(printf "%060d" 0 | tr 0 $c)" ] ||
+    { "$b/stdb" get "$tmp/w1.img" /t/s$c | od -c | head -5 >&2; fail "two writers at once: /t/s$c does not hold its own 60 bytes"; }
+done
+echo "test-store: two writers at once: each file has its own bytes"
 echo "test-store: OK"

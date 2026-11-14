@@ -1,4 +1,4 @@
-strata$ forth < nettest.fs
+strata$ forth < /test/nettest.fs
 Strata Forth 0.1 (native code, 1 thread, StrataOS 0.1) N code bytes free, N data bytes free
 \ Strata Forth under StrataOS: the network words, over loopback (no link needed).  ok
 \ Fed to `forth < nettest.fs` by tests/run-os.sh; expected output: tests/net.out.  ok

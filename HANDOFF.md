@@ -325,7 +325,8 @@ built from. The kernel boots from a boot manifest (`u_disk` in
 - `conformance/FINDINGS.md` F7 and F8 (documentation) are open.
 
 **Smaller, from PLAN.md's open boxes**
-- `make test-forth` is not part of `make test`; run it on its own.
+- `make test-forth` is not part of `make test`; run it on its own. Its
+  StrataOS half is (`forth-os`, fast tier), its bare-metal half is not.
 - The emulator does not enforce one break read per core.
 - The manual's op tables (18.x) were never re-checked against the final
   kernel and servers.

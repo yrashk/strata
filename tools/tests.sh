@@ -54,6 +54,7 @@ t ws           mid  build-main "emu os" "tools/test-ws.sh $OS"
 t wdoom        mid  build-main "emu os" "tools/test-wdoom.sh $OS"
 t kira         full build-main "emu os" "tools/test-kira.sh $OS"
 t preempt      fast build-main "emu os" "tools/test-preempt.sh $OS"
+t forth-os     fast "build-main build-test-disks" "emu os \$B/forth-test/disk.img lang/forth/tests" 'lang/forth/tests/run-os.sh'
 t isolate      mid  "build-main build-test-disks" "emu" 'tools/test-isolate.sh $B/bootrom.stx $B/isol-test/disk.img'
 t guest        mid  build-main "emu os" "tools/test-guest.sh $OS"
 t procs        full build-main "emu os" "tools/test-procs.sh $OS"

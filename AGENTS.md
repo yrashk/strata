@@ -34,7 +34,7 @@ details (the tiers, the selection, the caches, how to add a test).
     suite on the RTL), then `make test-mid` (a StrataOS session on the RTL);
   - `emu/`: `make test-fast`, then `make test-mid`;
   - `os/`, `firmware/`, `lang/forth/`: `make test-fast` (shell, `vi`,
-    files, preemption), then the test of what you changed (`make test-one
+    files, preemption, the Forth under StrataOS), then the test of what you changed (`make test-one
     T=net`, `T=kira`, ...), then `make test-mid`;
   - `asm/`, `common/`, the `Makefile`, `tools/run-tests.sh`,
     `tools/tests.sh`: everything can be reached; `make test-mid`, then
@@ -43,8 +43,9 @@ details (the tiers, the selection, the caches, how to add a test).
   - `doc/`, `site/`, `*.md`: no test reads them (`make test-changed` says
     so).
 - `make test-list` lists the tests with their tiers. `make test-forth` and
-  `make formal` are not part of `make test`: run them when you change
-  `lang/forth/` or the RTL that the proofs cover.
+  `make formal` are not part of `make test` (only the StrataOS half of
+  `test-forth` is: `forth-os`): run them when you change `lang/forth/` or
+  the RTL that the proofs cover.
 - Tests run at the same time, yours and those of other checkouts. A test
   you add keeps its scratch files in its own `mktemp -d`, copies the disk
   before booting from it, and takes host ports from a range of its own. It

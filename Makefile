@@ -152,7 +152,7 @@ test-list:
 .PHONY: build-main build-test-disks build-stdb-test build-forth build-small build-ls32 build-ls16-4 build-ls4-32 build-f44 \
         build-wasm build-wasm-test build-wasm-rtl-test
 build-main: all examples os $(BUILD)/stdb
-build-test-disks: $(BUILD)/http-test/disk.img $(BUILD)/isol-test/disk.img $(BUILD)/files-test/disk.img
+build-test-disks: $(BUILD)/http-test/disk.img $(BUILD)/isol-test/disk.img $(BUILD)/files-test/disk.img $(BUILD)/forth-test/disk.img
 build-stdb-test: $(BUILD)/stdb-test $(BUILD)/stdb-many
 build-forth: $(BUILD)/forth.stx
 
