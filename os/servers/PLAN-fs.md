@@ -20,13 +20,16 @@ decisions taken.
       catalog, `st_check`
 - [x] `tools/stdb/test.c`: random operations against a model; a cut at
       every block write (`make test-stdb`)
-- [ ] Streams: inline values, extents, sparse ranges, truncate
-- [ ] Catalog and namespaces; batches and transactions
-- [ ] The fs layer: `obj`, `data`, `name`, `attr`, `dict`; queries with
-      cursors
-- [ ] `mkdisk` on the library; the boot manifest
-- [ ] `stdb check`, `dump`, `ls`, `get`, `put`, `rm`, `tag`
-- [ ] Tests of the fs layer; a million objects
+- [x] Blobs: inline values, streams of extents, sparse ranges, truncate
+- [x] Namespaces (the tree `ns`); pages for the layers above
+- [x] `tools/stdb/fsl.c`: what the tools need of the file system's trees
+      (a file with tags and attributes, the boot manifest, check, dump).
+      Queries, rename, unlink and transactions for programs are in the
+      server only
+- [x] `tools/stdb/mkdisk.c` (`build/mkdisk-stdb`; it replaces
+      `tools/mkdisk.c` when the server reads the format)
+- [x] `stdb check`, `dump`, `ls`, `get`, `info`
+- [ ] A million objects on the host
 
 ## Stage 2: persistence
 - [ ] Emulator `-w` (write back at exit and at FLUSH)

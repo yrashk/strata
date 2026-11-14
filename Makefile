@@ -733,9 +733,21 @@ clean:
 
 # The store on the host (doc/strata-fs-proposal.md): its tests against a
 # model and against power cuts.
+STDB_LIB := tools/stdb/store.c tools/stdb/fsl.c
+STDB_HDR := tools/stdb/stdb.h tools/stdb/fsl.h
+
 $(BUILD)/stdb-test: tools/stdb/store.c tools/stdb/test.c tools/stdb/stdb.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ tools/stdb/store.c tools/stdb/test.c
+
+# mkdisk for the store format, and the tool that checks and reads an image
+$(BUILD)/mkdisk-stdb: $(STDB_LIB) $(STDB_HDR) tools/stdb/mkdisk.c common/stx.h asm/isa.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ $(STDB_LIB) tools/stdb/mkdisk.c
+
+$(BUILD)/stdb: $(STDB_LIB) $(STDB_HDR) tools/stdb/stdb.c
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ $(STDB_LIB) tools/stdb/stdb.c
 
 .PHONY: test-stdb
 test-stdb: $(BUILD)/stdb-test
