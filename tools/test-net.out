@@ -24,12 +24,15 @@ strata$ tcpecho 7 2 &
 strata$ echo hello strata | nc 10.0.0.1 7
 hello strata
 strata$ cat sh.s | nc 127.0.0.1 7 | wc
+cat: no such file: sh.s
 LINES WORDS BYTES
 [1] done  tcpecho 7 2
 strata$ cat sh.s | wc
+cat: no such file: sh.s
 LINES WORDS BYTES
 strata$ netstat
 proto local                 remote                state        recv  send  rexmit  pid
+tcp   10.0.0.1:49152        10.0.0.1:7            TIME-WAIT       0     0       0   15
 tcp   127.0.0.1:49153       127.0.0.1:7           TIME-WAIT       0     0       0   17
 strata$ echo hello peer | nc -u 10.0.0.2 7
 from 10.0.0.2:7: hello peer
@@ -39,7 +42,7 @@ strata$ echo dgram one | nc -u 127.0.0.1 5003
 from 127.0.0.1:49155: dgram one
 [1] done  nc -u -l 5003
 strata$ wait
-strata$ nc 10.0.0.1 9 < motd
+strata$ nc 10.0.0.1 9 < /doc/motd
 nc: failed: -1
 [exit 1]
 [1] strata$ ifconfig 10.0.0.5

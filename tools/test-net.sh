@@ -51,7 +51,7 @@ echo hello peer | nc -u 10.0.0.2 7
 nc -u -l 5003 &
 echo dgram one | nc -u 127.0.0.1 5003
 wait
-nc 10.0.0.1 9 < motd
+nc 10.0.0.1 9 < /doc/motd
 ifconfig 10.0.0.5
 ping -c 1 10.0.0.5
 host peer.test
@@ -93,14 +93,14 @@ net 10.0.0.1 &
 tcpecho 7 1 &
 nc -l 5001
 nc -u -l 5003
-cat about | nc 10.0.0.2 5002
+cat /doc/about | nc 10.0.0.2 5002
 EOF
 cat >"$tmp/inB.txt" <<'EOF'
 net 10.0.0.2 &
 sleep 2
 ping -c 3 10.0.0.1
 echo hello over tcp | nc 10.0.0.1 7
-cat motd | nc 10.0.0.1 5001
+cat /doc/motd | nc 10.0.0.1 5001
 sleep 1
 echo hello over udp | nc -u 10.0.0.1 5003
 nc -l 5002
@@ -150,7 +150,7 @@ pidE=$!
   printf 'cat sh.s | nc 10.0.2.2 %s | wc\n' "$tp"
   printf 'cat sh.s | wc\n'
   printf 'echo dgram nat | nc -u 10.0.2.2 %s\n' "$up"
-  printf 'nc 10.0.2.2 %s < motd\n' "$cp_"
+  printf 'nc 10.0.2.2 %s < /doc/motd\n' "$cp_"
   printf 'tcpecho 80 3 &\n'
   printf 'wait\n'
   printf 'echo inbound done\n'
