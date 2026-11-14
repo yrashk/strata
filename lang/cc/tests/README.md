@@ -10,6 +10,7 @@ make test-cc                 # the whole ladder
 make test-cc-fast            # the subset `make test` runs
 lang/cc/tests/run.sh 03      # one rung (a prefix of its name)
 lang/cc/tests/run.sh -v 04   # ... listing every failure
+CC_FLAGS=-p lang/cc/tests/run.sh   # the same in the paged code model
 ```
 
 ## Suites
@@ -93,7 +94,7 @@ does not by itself put a test on the preprocessor rung.
 | 08-c99-misc | `long long`, `_Bool`, designated initialisers, compound literals, VLAs, mixed declarations, `//`, variadic functions, bit-fields | 39 | 100 |
 | 09-float | `float`, `double` | 9 | 52 |
 
-`ladder/EXPECT.tsv` records tests that are not expected to pass, with the
+`ladder/EXPECT.tsv` records tests (as `rung/file`) that are not expected to pass, with the
 reason (a feature not implemented, or a program too large for the machine);
 the runner reports them separately and they do not fail a run.
 

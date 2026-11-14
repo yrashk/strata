@@ -28,6 +28,8 @@ by the shell's `help`. It does **not** go through `as`:
   copies it into every image and places the program after it. A table of the
   library's exported names and addresses sits beside it. This is static
   linking against a library at a fixed address.
+- `cc` needs one more file, `/bin/cc.lib`: the library's code and data, its
+  export table, the headers, and the compiler's own code units (section 4).
 
 `cc hello.c` writes `hello` (the name without `.c`; `-o NAME` chooses
 another); typing `hello` runs it.
@@ -76,8 +78,10 @@ cc [-o OUT] [-p] [-h KIB] FILE.c ...
   check per access and code the 32 KiB instruction store has no room for.
   Programs that need more than the D-LS manage it themselves, like the
   assembly programs of this system do.
-- Floating point is soft: IEEE 754 double in the library (`__fadd`, ...);
-  `float` is kept as a 4-byte object and computed in double.
+- Floating point is soft: IEEE 754 double in the library (`lib/fp.s`:
+  `__fadd`, `__fmul`, ...), round to nearest even; the compiler includes the
+  same routines to fold constants. `float` is kept as a 4-byte object and
+  computed in double.
 
 ### Registers and calling convention
 
@@ -136,7 +140,11 @@ extent takes its share.
 `cc` is one program in Strata assembly, larger than the instruction store, so
 it uses the mechanism of section 3 itself: a resident part (input and output,
 the code buffer, the instruction encoders, messages) and 4 KiB code units for
-everything else.
+everything else. With its 40 KiB data section and 107 KiB of units it is also
+larger than the 128 KiB the kernel loads as one image: the units are a member
+of `cc.lib`, which the resident start-up code reads and copies to the bottom
+of the arena before the first `xcall`. StrataOS pages units from the
+program's arena, wherever their bytes came from.
 
 ### One pass, no tree
 

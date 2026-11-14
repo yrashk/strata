@@ -107,9 +107,10 @@ def main():
     for rung in sorted(set(r[0] for r in results)):
         rr = [r for r in results if r[0] == rung]
         ok = sum(1 for r in rr if r[2] == "PASS")
-        xf = sum(1 for r in rr if r[2] != "PASS" and r[1] in expect)
-        xp = [r[1] for r in rr if r[2] == "PASS" and r[1] in expect]
-        fails = [r for r in rr if r[2] != "PASS" and r[1] not in expect]
+        key = lambda r: r[0] + "/" + r[1]
+        xf = sum(1 for r in rr if r[2] != "PASS" and key(r) in expect)
+        xp = [r[1] for r in rr if r[2] == "PASS" and key(r) in expect]
+        fails = [r for r in rr if r[2] != "PASS" and key(r) not in expect]
         tot[0] += ok; tot[1] += len(rr); tot[2] += xf
         print("%-24s %3d / %3d pass%s%s" % (rung, ok, len(rr), ", %d expected to fail" % xf if xf else "",
                                            ", %d FAIL" % len(fails) if fails else ""))
