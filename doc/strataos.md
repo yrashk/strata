@@ -290,7 +290,9 @@ table: 64, 16, 64, 64); 28..31 reserved.
   - printable characters as themselves (with shift/caps applied);
   - Enter 0x0A, Backspace 0x7F, Tab 0x09, Escape 0x1B;
   - arrows ESC [ A/B/C/D (up, down, right, left); Home ESC [ H; End ESC [ F;
-    Delete ESC [ 3 ~; Page Up/Down ESC [ 5 ~ / ESC [ 6 ~;
+    Delete ESC [ 3 ~; Page Up/Down ESC [ 5 ~ / ESC [ 6 ~; Insert ESC [ 2 ~;
+    F1..F10 ESC [ 11 ~ .. ESC [ 15 ~, ESC [ 17 ~ .. ESC [ 21 ~ (as xterm sends
+    F5..F10; F1..F4 in that form too, which `nav` also takes as ESC O P..S);
   - Ctrl+letter = 1..26, **except Ctrl+C, which is the break key** (exactly
     like Ctrl-C at the terminal: it completes a pending break read);
   - Alt+key in the xterm modified-key forms: Alt+ a character is

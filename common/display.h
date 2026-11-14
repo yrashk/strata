@@ -551,6 +551,17 @@ static void host_keydown(const SDL_KeyboardEvent *k) {
   case SDLK_DELETE: seq = "\x1b[3~"; break;
   case SDLK_PAGEUP: seq = "\x1b[5~"; break;
   case SDLK_PAGEDOWN: seq = "\x1b[6~"; break;
+  case SDLK_INSERT: seq = "\x1b[2~"; break;
+  case SDLK_F1: seq = "\x1b[11~"; break; /* the function keys as ESC [ n ~ (spec 1.4) */
+  case SDLK_F2: seq = "\x1b[12~"; break;
+  case SDLK_F3: seq = "\x1b[13~"; break;
+  case SDLK_F4: seq = "\x1b[14~"; break;
+  case SDLK_F5: seq = "\x1b[15~"; break;
+  case SDLK_F6: seq = "\x1b[17~"; break;
+  case SDLK_F7: seq = "\x1b[18~"; break;
+  case SDLK_F8: seq = "\x1b[19~"; break;
+  case SDLK_F9: seq = "\x1b[20~"; break;
+  case SDLK_F10: seq = "\x1b[21~"; break;
   default: break;
   }
   if (seq) { host_key_bytes(seq, alt); return; }
