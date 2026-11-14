@@ -1,0 +1,30 @@
+strata$ cc /src/hi.c
+strata$ hi
+Hello from C on Strata!
+strata$ hi there
+Hello from C on Strata, there!
+strata$ cc -o calc2 /src/calc.c && echo compiled
+compiled
+strata$ calc2 1 + 2 * (3 - 4) - -5
+1 2 3 4 - * + 5 neg - = 4  (10 nodes)
+strata$ echo 6 * 7 | calc2
+6 7 * = 42  (3 nodes)
+strata$ calc2 10 / (5 - 5); echo status $?
+error: division by zero
+[exit 1]
+status 1
+strata$ calc2 (1 + 2
+error: missing ) at ""
+[exit 1]
+[1] strata$ echo 'int main(void) { return x; }' > bad.c
+strata$ cc bad.c; echo status $?
+bad.c:1: undeclared: x
+[exit 1]
+status 1
+strata$ cc nosuch.c; echo status $?
+cannot open nosuch.c
+[exit 1]
+status 1
+strata$ rm hi calc2 bad.c
+strata$ halt
+StrataOS: all cores halted

@@ -385,7 +385,9 @@ FORTH_DISK += lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUI
 # the ports of os/progs, with their library and loader: one file
 FORTH_DISK += $(BUILD)/forth-os/progs.pk
 
-DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as \
+# the C compiler, its library file and two C programs to try it on
+CC_DISK := $(BUILD)/prog/cc $(BUILD)/cc/cc.lib lang/cc/examples/hi.c
+DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as $(CC_DISK) \
               $(BUILD)/prog/units $(BUILD)/prog/vi $(SRCS) $(USRCS) $(BUILD)/src/vi.s $(FORTH_DISK)
 
 # The same files with their tags (mkdisk -t TAGS applies to the files after it).
@@ -404,6 +406,10 @@ DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc
 WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)
 DISK_ARGS  += -t www $(WWW_FILES)
+# The directory has 128 entries and the tests that create many files (HTTP,
+# isolation, Forth) fill it: their disks are built without the C compiler.
+DISK_ARGS_NOCC := $(DISK_ARGS)
+DISK_ARGS  += -t bin $(BUILD)/prog/cc $(BUILD)/cc/cc.lib -t src lang/cc/examples/hi.c
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) -t guest,forth $(FORTH_GUEST)
@@ -488,6 +494,22 @@ $(BUILD)/prog/forth: $(FORTH_OS_SRC) $(BUILD)/forth-os/corefs.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -I lang/forth/os -I $(BUILD)/forth-os -g $@.map -o $@ lang/forth/forth.s
 
+# the C compiler's tests (lang/cc/tests/README.md):
+#   test-cc       the whole ladder of C test programs, compiled and run inside StrataOS
+#   test-cc-fast  a few tests of every rung, and the two example programs (part of make test)
+CC_TEST_DEPS := $(BUILD)/strata-emu $(BUILD)/mkdisk $(BUILD)/bootrom.stx $(BUILD)/kernel.stx $(SPROGS) $(BUILD)/prog/sh $(BUILD)/prog/rm $(BUILD)/prog/cc $(BUILD)/cc/cc.lib
+.PHONY: test-cc test-cc-fast
+test-cc: $(CC_TEST_DEPS)
+	BUILD=$(BUILD) lang/cc/tests/run.sh
+# the disk of tools/test-cc.sh: the standard one plus the larger example
+$(BUILD)/cc-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) lang/cc/examples/calc.c
+	@mkdir -p $(BUILD)/cc-test
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t src lang/cc/examples/calc.c
+test-cc-fast: $(CC_TEST_DEPS) $(BUILD)/cc-test/disk.img
+	BUILD=$(BUILD) lang/cc/tests/run.sh -f lang/cc/tests/ladder/FAST.txt
+	BUILD=$(BUILD) ./tools/test-cc.sh $(BUILD)/bootrom.stx $(BUILD)/cc-test/disk.img
+test: test-cc-fast
+
 # the disk of tools/test-http.sh: the standard one plus two requests as a
 # browser sends them (CR LF; a 3 KB Cookie header), which the console cannot type
 $(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
@@ -495,7 +517,7 @@ $(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	printf 'GET /www/style.css HTTP/1.1\r\nHost: localhost:8080\r\nUser-Agent: Mozilla/5.0 (test)\r\nAccept: text/css,*/*;q=0.1\r\nAccept-Language: en\r\nConnection: keep-alive\r\n\r\n' >$(BUILD)/http-test/browser.req
 	{ printf 'GET /doc/about?x=1 HTTP/1.1\r\nHost: localhost:8080\r\nCookie: '; for i in $$(seq 1 80); do printf 'c%s=0123456789abcdef0123456789abcdef; ' $$i; done; \
 	  printf '\r\nAccept: */*\r\n\r\n'; } >$(BUILD)/http-test/cookie.req
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS_NOCC) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
 test: $(BUILD)/http-test/disk.img
 
 # the disk of tools/test-isolate.sh: the standard one plus dlsgap (tools/dlsgap.s),
@@ -504,14 +526,14 @@ $(BUILD)/isol-test/dlsgap: tools/dlsgap.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/isol-test
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
 $(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin,test $(BUILD)/isol-test/dlsgap
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS_NOCC) -t bin,test $(BUILD)/isol-test/dlsgap
 test: $(BUILD)/isol-test/disk.img
 
 # the disk of `make test-forth`: the standard one plus the test files
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs) \
                               $(wildcard lang/forth/tests/http/*)
 	@mkdir -p $(BUILD)/forth-test
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t forth,test $(wildcard lang/forth/tests/*.fs) \
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS_NOCC) -t forth,test $(wildcard lang/forth/tests/*.fs) \
 	  -t httptest $(wildcard lang/forth/tests/http/*)
 
 forth: $(BUILD)/strata-emu $(BUILD)/forth.stx

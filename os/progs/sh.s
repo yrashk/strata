@@ -283,6 +283,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "programs:\n"           ; (continued)
          .ascii "  ps free uptime devs hexdump cores sched\n" ; (continued)
          .ascii "  seq grep wc upper spin as units sh\n" ; (continued)
+         .ascii "  cc FILE.c         the C compiler: writes the program FILE (cc -o OUT)\n" ; (continued)
          .ascii "  vi FILE           the editor (vi keys; :wq writes and leaves)\n" ; (continued)
          .ascii "  examples: hello mandel parsum race ...\n" ; (continued)
          .ascii "windows: ws starts the window server; its keys, in the screen:\n" ; (continued)

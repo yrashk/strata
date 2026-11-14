@@ -8,7 +8,7 @@ BATCH = int(os.environ.get("CC_BATCH", "24"))      # tests per boot
 SECS = int(os.environ.get("CC_TIMEOUT", "60"))     # host seconds per boot
 PROMPT = "strata$ "
 BASE = ["-t", "sys"] + [B + "/prog/" + p for p in ("proc", "dev", "fs", "tty", "pipe")] + \
-       ["-t", "bin", B + "/prog/sh", B + "/prog/rm", B + "/prog/cc", "-t", "lib", B + "/cc/cc.lib"]
+       ["-t", "bin", B + "/prog/sh", B + "/prog/rm", B + "/prog/cc", B + "/cc/cc.lib"]
 
 def tests(args, fast):
     """the tests to run: (rung, path) in ladder order"""
