@@ -8,4 +8,5 @@ int cc_open(const char *name, int mode);
 #define open cc_open
 #define main cc_main
 #define STK_MIN 0               /* the stack is the host's */
+#define SELF_UNITS 0L            /* and cc.lib is always a file */
 #endif

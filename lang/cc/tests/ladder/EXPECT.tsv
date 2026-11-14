@@ -1,51 +1,8 @@
 # rung/test	why it is not expected to pass with cc (cc.c); the runner reports these apart and flags a test that passes anyway
 03-pointers-arrays/scc-0062-include.c	needs a header file of its suite, which is not kept here
-03-pointers-arrays/scc-0259-multichar.c	wide and multi-character constants
-03-pointers-arrays/scc-0265-wchar.c	wide and multi-character constants
-04-structs/lacc-prototype-scope-enum.c	an enumeration declared in a parameter list stays visible after it
-04-structs/scc-0047-anonexport.c	a member whose structure type is completed later in the same declaration
-05-preproc/lacc-preprocess-expression.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-05-preproc/scc-0170-line.c	#line and _Pragma are not implemented
 05-preproc/scc-0178-include.c	needs a header file of its suite, which is not kept here
 05-preproc/scc-0232-cppmacro.c	needs a header file of its suite, which is not kept here
-05-preproc/scc-0273-cpp.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
 06-init/lacc-include.c	needs a header file of its suite, which is not kept here
-06-init/scc-0189-cpp.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-08-c99-misc/lacc-_Pragma.c	#line and _Pragma are not implemented
-08-c99-misc/lacc-bitfield-immediate-assign.c	bit-fields: packing and promotion differ from the reference compiler
-08-c99-misc/lacc-bitfield-unsigned-promote.c	bit-fields: packing and promotion differ from the reference compiler
-08-c99-misc/lacc-comment.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-08-c99-misc/lacc-conditional.c	not analysed yet: output differs
-08-c99-misc/lacc-designator-array.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
-08-c99-misc/lacc-initialize-object.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
-08-c99-misc/lacc-initialize-string.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
-08-c99-misc/lacc-line-continuation.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-08-c99-misc/lacc-macro-recursive.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-08-c99-misc/lacc-macro-skip-expand.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-08-c99-misc/lacc-old-param-decay.c	old-style (K&R) function definitions are not implemented
-08-c99-misc/lacc-old-style-declaration.c	old-style (K&R) function definitions are not implemented
-08-c99-misc/lacc-old-style-definition.c	old-style (K&R) function definitions are not implemented
-08-c99-misc/lacc-trigraph.c	trigraphs are not implemented
-08-c99-misc/lacc-vararg-complex-1.c	structures and floating values through va_arg
-08-c99-misc/lacc-vararg-complex-2.c	structures and floating values through va_arg
-08-c99-misc/lacc-vararg.c	structures and floating values through va_arg
-08-c99-misc/lacc-vla-arg.c	variable-length arrays are not implemented
-08-c99-misc/lacc-vla-block-declaration.c	variable-length arrays are not implemented
-08-c99-misc/lacc-vla-compatibility.c	variable-length arrays are not implemented
-08-c99-misc/lacc-vla-old-param.c	variable-length arrays are not implemented
-08-c99-misc/lacc-vla-pointer.c	variable-length arrays are not implemented
-08-c99-misc/lacc-vla-static-pointer.c	variable-length arrays are not implemented
-08-c99-misc/lacc-vla.c	variable-length arrays are not implemented
-08-c99-misc/scc-0166-desig.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
 08-c99-misc/scc-0200-cpp.c	needs a header file of its suite, which is not kept here
-08-c99-misc/scc-0202-variadic.c	structures and floating values through va_arg
-08-c99-misc/scc-0262-macro.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-09-float/lacc-convert-float-int.c	float kept as 4 bytes but computed in double: results differ in the last place, or a conversion is missing
-09-float/lacc-deref-compare-float.c	hexadecimal floating constants are not implemented
-09-float/lacc-designator-struct.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
-09-float/lacc-designator-union.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
-09-float/lacc-macro-keyword-define.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
+09-float/lacc-convert-float-int.c	a negative value converted to unsigned char: not defined by C, and this compiler gives another value than the reference
 09-float/lacc-nan-inf.c	strtof is not in the library
-09-float/lacc-stringify.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-09-float/lacc-vla-sizeof.c	variable-length arrays are not implemented
-09-float/lacc-vla-ternary-length.c	variable-length arrays are not implemented

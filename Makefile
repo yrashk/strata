@@ -359,6 +359,12 @@ $(BUILD)/prog/cc: $(BUILD)/strata-cc $(BUILD)/cc/cc.lib lang/cc/cc.c
 	@test -f $@.u
 $(BUILD)/prog/cc.u: $(BUILD)/prog/cc
 	@touch $@
+# on the standard disk cc.lib rides behind the compiler's units in cc.u (the
+# start-up code loads the whole file; cc looks there when /bin/cc.lib is not
+# a file): the disk's directory has 128 entries and its tests need the rest
+$(BUILD)/cc/bin/cc.u: $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib
+	@mkdir -p $(BUILD)/cc/bin
+	cat $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib > $@
 # sasm assembles the whole bootstrap compiler into one image; mklib.py splits
 # it: the program cc0 keeps the Local Store sections, its code units go into
 # cc0.lib
@@ -375,7 +381,7 @@ $(BUILD)/cc/cc0.lib: $(BUILD)/cc/cc-full.stx $(BUILD)/cc/libc.stx lang/cc/lib/mk
 FORTH_DISK += $(BUILD)/forth-os/progs.pk
 
 # the C compiler, its library file and two C programs to try it on
-CC_DISK := $(BUILD)/prog/cc $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib lang/cc/examples/hi.c
+CC_DISK := $(BUILD)/prog/cc $(BUILD)/cc/bin/cc.u lang/cc/examples/hi.c
 DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as $(CC_DISK) \
               $(BUILD)/prog/units $(BUILD)/prog/vi $(SRCS) $(USRCS) $(BUILD)/src/vi.s $(FORTH_DISK)
 
@@ -398,7 +404,7 @@ DISK_ARGS  += -t www $(WWW_FILES)
 # The directory has 128 entries and the tests that create many files (HTTP,
 # isolation, Forth) fill it: their disks are built without the C compiler.
 DISK_ARGS_NOCC := $(DISK_ARGS)
-DISK_ARGS  += -t bin $(BUILD)/prog/cc $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib -t src lang/cc/examples/hi.c
+DISK_ARGS  += -t bin $(BUILD)/prog/cc $(BUILD)/cc/bin/cc.u -t src lang/cc/examples/hi.c
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) -t guest,forth $(FORTH_GUEST)
@@ -420,8 +426,15 @@ BOOT_EMU := $(BUILD)/strata-emu -c 12
 # BOOT_NET="-N peer"` for the offline test peer instead.
 BOOT_NET ?= -N nat,fwd=8080:80,fwd=8000:8000
 
-boot: $(BUILD)/strata-emu os
-	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
+# the disk make boot starts: the standard one and the C compiler's bootstrap:
+# cc0 (the compiler in assembly), cc.c, and cc.lib as a file for the
+# compilers made from it:   cc0 -p -h 0 -o cc1 /src/cc.c   (lang/cc/DESIGN.md).
+# The tests keep the standard disk: some of them need its free directory entries.
+$(BUILD)/disk-boot.img: $(BUILD)/disk.img $(BUILD)/prog/cc0 $(BUILD)/cc/cc0.lib $(BUILD)/cc/cc.lib lang/cc/cc.c
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/prog/cc0 $(BUILD)/cc/cc0.lib $(BUILD)/cc/cc.lib -t src lang/cc/cc.c
+
+boot: $(BUILD)/strata-emu os $(BUILD)/disk-boot.img
+	@cp $(BUILD)/disk-boot.img $(BUILD)/disk-run.img
 	@$(BOOT_EMU) $(BOOT_NET) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
 
 boot-net: boot

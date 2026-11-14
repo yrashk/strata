@@ -28,7 +28,9 @@
 /* ---- the arena (offsets); 0x10000..0x4FFFF hold this program's own code units ---- */
 #define A_PT     0x00000        /* the parameter types of function types, 4 bytes each */
 #define A_CS     0x01000        /* the cases of the switch statements open, 16 bytes each */
-#define A_FIX    0x02000        /* fixups, 16 bytes each */
+#define A_IDH    0x02000        /* identifier hash heads, 4 bytes each */
+#define A_SV     0x02800        /* the input stack as scan_mark found it */
+#define A_FIX    0x03000        /* fixups, 16 bytes each */
 #define A_FIXEND 0x10000
 #define A_LIB    0x50000        /* cc.lib, up to its member cc.units */
 #define A_LIBEND 0x56000
@@ -144,7 +146,13 @@ struct ty {
     unsigned short base;        /* pointed-to, element or return type */
     unsigned short aux;         /* struct: first member; function: its first parameter type */
 };                              /* kind, flags, align, x: x is 1 for a complete struct;
-                                   size: bytes (0: incomplete); function: parameters */
+                                   size: bytes (0: incomplete); function: parameters.
+                                   An array whose size is not a constant has x = 3 and
+                                   its size, computed when it was declared, in the frame
+                                   word aux; in a parameter list it waits for the
+                                   function's entry: x = 4, size = the dimension's text
+                                   kept in the arena, or x = 5, size = the count, when
+                                   only the element type is variable */
 
 /* ---- symbols: a symbol is an index into sy[]; 0 is none ---- */
 #define SC_AUTO 1
@@ -158,6 +166,7 @@ struct ty {
 #define SF_S0 2                 /* a local addressed from s0 */
 #define SF_EXT 4                /* no address yet */
 #define SF_REF 8                /* the frame word holds the object's address */
+#define SF_VLA 16               /* ... which malloc gave: a variable-length array */
 #define NSY 700
 
 struct sym {
@@ -286,7 +295,6 @@ int nsy;
 struct val vs[NVS];
 struct val *vp;                 /* the top entry */
 int rmask;                      /* evaluation registers in use */
-int idh[512];                  /* identifier hash heads */
 long idl[10];                   /* the identifier record last looked up */
 #define IDR ((struct idr *)idl)
 int ereg[8] = { 5, 6, 7, 28, 29, 30, 10, 0 };   /* t0-t5, a0, zero */
@@ -317,7 +325,7 @@ long tk_val;
 int tk_ty, tk_sym, tk_tag, tk_mac;
 char tb[264];                   /* its spelling */
 char strbuf[STRMAX + 8];
-int str_len, str_cat;
+int str_len, str_cat, str_wide; /* str_wide: 4 bytes a character (L"...") */
 
 /* ---- the image ---- */
 long cwl[CWSZ / 8];             /* code window */
@@ -334,7 +342,9 @@ long rb_base, wb_pos;
 long iob[130];                  /* file transfer buffer */
 
 /* ---- the function being compiled ---- */
-int fn_sym, fn_ret, fn_s0, fn_sret;
+int fn_sym, fn_ret, fn_s0, fn_sret, fn_va;
+int fn_live, fn_vla, fn_nsy0, brk_nsy, cnt_nsy;
+int ce_soft, ce_fail;           /* a trial reading of an expression: an unknown name is not an error */
 long fn_start, fn_pro, fn_fix0;
 int fr_cur, fr_max, fr_keep, sp_bias;
 long fn_rchain, brk_chain, cnt_chain, cnt_target;
@@ -345,7 +355,7 @@ int lb_id[32];
 long lb_adr[32], lb_chain[32];
 int nlabels;
 int ds_class, d_name, in_params;
-int ini_static, ini_dry, ini_pend, ini_comma;
+int ini_static, ini_dry, ini_pend, ini_comma, ini_desig;
 long ini_cnt;
 int id_main, id_func;
 long mem_off;
@@ -532,10 +542,31 @@ void in_pop(void)
     in_pos = p->pos; in_end = p->end; in_kind = p->kind; in_aux = p->aux; in_mark = p->mark;
 }
 
+int sf_q;                       /* question marks held back: a trigraph may follow */
+int pop_n, pop_mac;             /* expansions ended so far, and the macro of the last */
+int pp_busy;                    /* pp_expand: the macro was being expanded already */
+int noexp;                      /* the next name is not a macro: it was found busy once (byte 1 before it) */
+char tri_a[] = "=/'()!<>-", tri_b[] = "#\\^[]|{}~";
+
+/* a character of the source, after trigraphs, to the window: backslash-
+   newline pairs and carriage returns are removed; the newlines removed are
+   put back after the line's own, so that lines keep their numbers */
+void sf_char(int c)
+{
+    if (sf_st) {
+        if (c == 13 && sf_st == 1) { sf_st = 2; return; }
+        sf_st = 0;
+        if (c == 10) { sf_owed++; return; }
+        wb_put(92);
+    }
+    if (c == 13) return;
+    if (c == 92) { sf_st = 1; return; }
+    wb_put(c);
+    if (c == 10) while (sf_owed) { wb_put(10); sf_owed--; }
+}
+
 /* more of the source file into its window: what the scanner has passed
-   makes room (but not what a rewind may need: from sf_pin on). Backslash-
-   newline pairs and carriage returns are removed on the way; the newlines
-   removed are put back after the line's own, so that lines keep their numbers */
+   makes room (but not what a rewind may need: from sf_pin on) */
 void src_fill(void)
 {
     long keep = in_pos, d, p, n, sv[8], svp = wb_pos;
@@ -563,21 +594,23 @@ void src_fill(void)
         r = read(sf_fd, b, 1024);
         if (r <= 0) {
             sf_eof = 1;
+            for (; sf_q; sf_q--) sf_char('?');
             if (sf_st) wb_put(92);
             break;
         }
         for (i = 0; i < r; i++) {
             c = b[i];
-            if (sf_st) {
-                if (c == 13 && sf_st == 1) { sf_st = 2; continue; }
-                sf_st = 0;
-                if (c == 10) { sf_owed++; continue; }
-                wb_put(92);
+            if (c == '?') {
+                if (sf_q < 2) sf_q++;
+                else sf_char(c);
+                continue;
             }
-            if (c == 13) continue;
-            if (c == 92) { sf_st = 1; continue; }
-            wb_put(c);
-            if (c == 10) while (sf_owed) { wb_put(10); sf_owed--; }
+            if (sf_q == 2) {
+                for (d = 0; tri_a[d] && tri_a[d] != c; d++) ;
+                if (tri_a[d]) { c = tri_b[d]; sf_q = 0; }
+            }
+            for (; sf_q; sf_q--) sf_char('?');
+            sf_char(c);
         }
     }
     sf_top = wb_close();
@@ -610,6 +643,8 @@ int nextc(void)
                 ((char *)fw)[1] = 0;
                 far_write(in_aux, fw, 8);
             }
+            pop_n++;
+            pop_mac = in_aux;
             if (!xh_hold) xh_top = in_mark;
         } else {
             src_top = in_mark;
@@ -628,10 +663,11 @@ void unget(int c) { if (c >= 0) in_pos--; }
 /* the record of the name s of n characters (made if new); IDR holds a copy */
 int intern(char *s, int n)
 {
-    int h = 5381, i, a;
+    int h = 5381, i, a, hd;
     for (i = 0; i < n; i++) h = h * 33 + s[i];
     h = h & 511;
-    a = idh[h];
+    a = far_lw(A_IDH + 4 * h);
+    hd = a;
     while (a) {
         far_read(a, idl, 80);
         if (IDR->len == n) {
@@ -641,7 +677,7 @@ int intern(char *s, int n)
         a = IDR->next;
     }
     idl[0] = 0; idl[1] = 0;
-    IDR->next = idh[h];
+    IDR->next = hd;
     IDR->len = n;
     for (i = 0; i < n; i++) IDR->name[i] = s[i];
     IDR->name[n] = 0;
@@ -650,7 +686,7 @@ int intern(char *s, int n)
     if (a + i > A_IDEND) err("too many identifiers", 0);
     id_top = a + i;
     far_write(a, idl, i);
-    idh[h] = a;
+    far_sw(A_IDH + 4 * h, a);
     return a;
 }
 
@@ -726,18 +762,18 @@ long splice(long start, long size)
     return wb_close() - start;
 }
 
-long lib_sz, lib_len;
+long lib_sz, lib_len, lib_base;
 /* a member of cc.lib: -> its arena offset (0: none), lib_sz = its size */
 long lib_find(char *name)
 {
-    long d = A_LIB + 8;
+    long d = lib_base + 8;
     for (;;) {
         far_read(d, iob, 32);
         if (!*(char *)iob) return 0;
         if (streq((char *)iob, name)) {
             lib_sz = ((int *)iob)[7];
             if (((int *)iob)[6] + lib_sz > lib_len) err("/bin/cc.lib is too large", 0);
-            return A_LIB + ((int *)iob)[6];
+            return lib_base + ((int *)iob)[6];
         }
         d = d + 32;
     }
@@ -1095,19 +1131,24 @@ void pp_arg(int k)
     for (;;) {
         c = nextc();
         if (c < 0) break;
+        if (c == 1) { noexp = 1; continue; }
         if (isid1(c)) {
             n = 0;
+            r = pop_n;
             while (c >= 0 && isid(c)) { if (n < 63) tb[n++] = c; c = nextc(); }
             tb[n] = 0;
             unget(c);
             intern(tb, n);
-            if (IDR->mac) {
+            pp_busy = noexp;
+            if (IDR->mac && !noexp && !(pop_n != r && pop_mac == IDR->mac)) {
                 tk_mac = IDR->mac;
                 for (i = 0; i <= n; i++) sv[i] = tb[i];
                 r = pp_expand();
                 for (i = 0; i <= n; i++) tb[i] = sv[i];
                 if (r) continue;
             }
+            noexp = 0;
+            if (pp_busy) xput(1);
             for (i = 0; i < n; i++) xput(tb[i]);
             continue;
         }
@@ -1161,10 +1202,13 @@ long pp_subst(int m, int base)
         if (c < 0xC0) {
             i = (base + c - 0x80) * 4;
             if ((p - 2 >= m + 16 && rb_get(p - 2) == 0xFF) || (p < pe && rb_get(p) == 0xFF)) {
-                s = args[i]; e = args[i + 1];
-            } else {
-                s = args[i + 2]; e = args[i + 3];
+                for (s = args[i]; s < args[i + 1]; s++) {       /* pasted: as written */
+                    c = rb_get(s);
+                    if (c != 1) wb_put(c);
+                }
+                continue;
             }
+            s = args[i + 2]; e = args[i + 3];
             while (s < e) wb_put(rb_get(s++));
             continue;
         }
@@ -1173,12 +1217,24 @@ long pp_subst(int m, int base)
         lit = 0;
         for (s = args[i]; s < args[i + 1]; s++) {
             c = rb_get(s);
-            if (c == '"') {
+            if (c == 1) continue;
+            if (!lit && issp(c)) {      /* blanks: one space */
+                while (s + 1 < args[i + 1] && issp(rb_get(s + 1))) s++;
+                wb_put(' ');
+                continue;
+            }
+            if (c == 92 && lit) {       /* an escape in a literal: both characters, escaped */
+                wb_put(92);
+                wb_put(92);
+                s++;
+                c = rb_get(s);
+                if (c == '"' || c == 92) wb_put(92);
+            } else if (c == '"') {
                 wb_put(92);
                 if (!lit) lit = c; else if (lit == c) lit = 0;
             } else if (c == 39) {
                 if (!lit) lit = c; else if (lit == c) lit = 0;
-            } else if (c == 92 && lit) wb_put(92);
+            }
             wb_put(c);
         }
         wb_put('"');
@@ -1195,6 +1251,7 @@ int pp_expand(void)
     int m = tk_mac, kind, n, base, i, c;
     long mark = xh_top, s, e, v;
     far_read(m, mh, 16);
+    pp_busy = MH[1];
     if (MH[1]) return 0;
     kind = MH[0];
     if (kind >= 2) {
@@ -1250,11 +1307,36 @@ int pp_expand(void)
     return 1;
 }
 
+/* #line N "FILE", or # N "FILE": the operands are macro-expanded */
+void pp_line(void)
+{
+    int t = tok, sc = str_cat, i, n;
+    str_cat = 0;
+    pp_mode = 1;
+    next();
+    if (tok != T_NUM) err("bad #line", 0);
+    n = tk_val;
+    next();
+    if (tok == T_STR && !sc) {
+        for (i = 0; strbuf[i] && i < 31; i++) fname[i] = strbuf[i];
+        fname[i] = 0;
+    }
+    line = n - 1;
+    pp_mode = 0;
+    tok = t;
+    str_cat = sc;
+}
+
 /* a directive: the # has been read */
 void pp_direct(void)
 {
     int w, v, n;
-    if (!pp_word()) return;
+    if (!pp_word()) {
+        v = pp_blank();
+        pp_unget(v);
+        if (v >= 0 && isdig(v)) { pp_line(); pp_eol(); }
+        return;
+    }
     w = pp_which();
     if (!w) err("unknown directive: ", tb);
     if (w == 1) { pp_define(); return; }
@@ -1288,7 +1370,7 @@ void pp_direct(void)
         }
         tb[n] = 0;
         err("#error", tb);
-    }
+    } else if (w == 11) pp_line();
     pp_eol();
 }
 
@@ -1335,6 +1417,14 @@ int lex_esc(void)
     if (c == 'f') return 12;
     if (c == 'v') return 11;
     if (c == 'e') return 27;
+    if (c == 'u' || c == 'U') {
+        v = 0;
+        for (n = c == 'u' ? 4 : 8; n; n--) {
+            c = nextc() | 32;
+            v = v * 16 + (isdig(c) ? c - '0' : c - 'a' + 10);
+        }
+        return v;
+    }
     if (c == 'x') {
         v = 0;
         for (;;) {
@@ -1377,7 +1467,17 @@ void lex_float(void)
 {
     char *s = tb;
     long m = 0, d, p;
-    int e = 0, nd = 0, neg, x, k;
+    int e = 0, nd = 0, neg, x, k, hex = tb[0] == '0' && (tb[1] | 32) == 'x';
+    if (hex) {                          /* 0x H.H p N: the digits, times a power of two */
+        for (s = s + 2; *s && (*s | 32) != 'p'; s++) {
+            if (*s == '.') { nd = 1; continue; }
+            x = isdig(*s) ? *s - '0' : (*s | 32) - 'a' + 10;
+            if (m >> 56) { if (!nd) e = e + 4; continue; }
+            m = m << 4 | x;
+            if (nd) e = e - 4;
+        }
+        nd = 18;
+    }
     for (; isdig(*s); s++) {
         if (nd < 18) { m = m * 10 + *s - '0'; if (m) nd++; }
         else e++;
@@ -1385,7 +1485,7 @@ void lex_float(void)
     if (*s == '.')
         for (s++; isdig(*s); s++)
             if (nd < 18) { m = m * 10 + *s - '0'; if (m) nd++; e--; }
-    if ((*s | 32) == 'e') {
+    if ((*s | 32) == (hex ? 'p' : 'e')) {
         s++;
         neg = 0;
         if (*s == '-') { neg = 1; s++; }
@@ -1395,6 +1495,11 @@ void lex_float(void)
         e = e + (neg ? -x : x);
     }
     d = __itof(m);
+    while (hex && e) {
+        k = e < -1000 ? -1000 : e > 1000 ? 1000 : e;
+        d = __fmul(d, (long)(k + 1023) << 52);
+        e = e - k;
+    }
     while (e) {
         k = e < 0 ? -e : e;
         if (k > 18) k = 18;
@@ -1431,8 +1536,8 @@ void lex_num(int c)
         else base = 8;
     }
     if (base != 16) for (n = 0; s[n]; n++) if ((s[n] | 32) == 'e') fl = 1;
+    if (base == 16) for (n = 0; s[n]; n++) if ((s[n] | 32) == 'p') fl = 1;
     if (fl) {
-        if (base == 16) err("hexadecimal floating constants are not supported: ", tb);
         lex_float();
         return;
     }
@@ -1462,11 +1567,12 @@ void lex_num(int c)
 /* one token, unless a macro was expanded (-> 0: scan again) */
 int next1(void)
 {
-    int c, d, i, n;
+    int c, d, i, n, wide = 0;
     for (;;) {
         c = nextc();
         if (c < 0) { tok = 0; return 1; }
         if (issp(c)) continue;
+        if (c == 1) { noexp = 1; continue; }
         if (c == 10) {
             if (pp_mode) { in_pos--; tok = 0; return 1; }
             bol = 1;
@@ -1500,17 +1606,26 @@ int next1(void)
     bol = 0;
     if (isid1(c)) {
         n = 0;
+        i = pop_n;                      /* (a name its own expansion ends with is not expanded again) */
         while (c >= 0 && isid(c)) { if (n < 63) tb[n++] = c; c = nextc(); }
         tb[n] = 0;
-        if (!(n == 1 && tb[0] == 'L' && (c == 39 || c == '"'))) {
+        wide = n == 1 && tb[0] == 'L' && (c == 39 || c == '"');
+        if (!wide) {
             unget(c);
             tk_val = intern(tb, n);
-            if (IDR->kw) { tok = IDR->kw; return 1; }
-            if (IDR->mac) {
+            d = noexp;
+            noexp = 0;
+            if (IDR->mac && !d && !(pop_n != i && pop_mac == IDR->mac)) {
                 tk_mac = IDR->mac;
                 if (pp_expand()) return 0;
             }
             if (pp_mode) { tk_val = pp_defined(); tk_ty = Y_INT; tok = T_NUM; return 1; }
+            if (tb[1] == 'P' && streq(tb, "_Pragma")) {         /* _Pragma("..."): nothing */
+                next();
+                if (tok == '(') { next(); next(); }
+                return 0;
+            }
+            if (IDR->kw) { tok = IDR->kw; return 1; }
             tk_sym = IDR->sym;
             tk_tag = IDR->tag;
             tok = T_ID;
@@ -1525,7 +1640,7 @@ int next1(void)
             if (c < 0) err("unexpected end of file", 0);
             if (c == 39) break;
             if (c == 92) c = lex_esc();
-            tk_val = tk_val << 8 | (char)c;
+            tk_val = wide ? c : tk_val << 8 | (char)c;
         }
         tk_ty = Y_INT;
         tok = T_NUM;
@@ -1538,11 +1653,13 @@ int next1(void)
             if (c < 0 || c == 10) err("unexpected end of file", 0);
             if (c == '"') break;
             if (c == 92) c = lex_esc();
-            if (n >= STRMAX) err("string too long", 0);
+            if (n >= STRMAX - 4) err("string too long", 0);
             strbuf[n++] = c;
+            if (wide) for (i = 8; i < 32; i = i + 8) strbuf[n++] = c >> i;
         }
         strbuf[n] = 0;
         str_len = n;
+        str_wide = wide;
         tok = T_STR;
         return 1;
     }
@@ -1583,7 +1700,6 @@ void skip(int t)
 /* An array whose length its initialiser gives is read twice: once to count,
    once for real. scan_mark notes where the scanner is (tok is the token
    before the initialiser), scan_rewind takes it back there. */
-struct inp sv_stk[NIN];
 int sv_sp, sv_line, sv_bol, sv_kind, sv_aux, sv_tok, sv_if;
 long sv_pos, sv_end, sv_mark, sv_shift, sv_xh;
 char *sv_fname;
@@ -1591,7 +1707,7 @@ char *sv_fname;
 void scan_mark(void)
 {
     int i;
-    for (i = 0; i < in_sp; i++) sv_stk[i] = instk[i];
+    far_write(A_SV, instk, NIN * 32);
     sv_sp = in_sp; sv_line = line; sv_bol = bol; sv_kind = in_kind; sv_aux = in_aux;
     sv_pos = in_pos; sv_end = in_end; sv_mark = in_mark; sv_shift = sf_shift;
     sv_xh = xh_top; sv_fname = fname; sv_tok = tok; sv_if = if_sp;
@@ -1612,10 +1728,8 @@ void scan_rewind(void)
 {
     int i;
     long d = sf_shift - sv_shift;
-    for (i = 0; i < sv_sp; i++) {
-        instk[i] = sv_stk[i];
-        if (instk[i].kind == 2) mac_busy(instk[i].aux);
-    }
+    far_read(A_SV, instk, NIN * 32);
+    for (i = 0; i < sv_sp; i++) if (instk[i].kind == 2) mac_busy(instk[i].aux);
     in_sp = sv_sp; line = sv_line; bol = sv_bol; in_kind = sv_kind; in_aux = sv_aux;
     in_pos = sv_pos; in_end = sv_end; in_mark = sv_mark;
     xh_top = sv_xh; fname = sv_fname; tok = sv_tok; if_sp = sv_if;
@@ -1764,6 +1878,28 @@ int gv_d(struct val *v);
 int mat_cmp(struct val *v);
 void g_resolve(long chain, long target);
 
+/* Code that is parsed but not compiled (the arm of a constant condition
+   that is not taken, the operand of sizeof, a constant expression) must
+   leave the values of live code as they are: the entries up to vlive, and
+   the register mask */
+struct dead { struct val *lv; int rm; };
+struct val *vlive;
+
+void dead_on(struct dead *d)
+{
+    d->lv = vlive;
+    d->rm = rmask;
+    if (!nocode) vlive = vp;
+    nocode++;
+}
+
+void dead_off(struct dead *d)
+{
+    nocode--;
+    vlive = d->lv;
+    rmask = d->rm;
+}
+
 int fr_alloc(int size, int align)
 {
     int a = (fr_cur + align - 1) & -align;
@@ -1778,6 +1914,7 @@ void rfree(int r) { if (r < 7) rmask = rmask & ~(1 << r); }
 void spill1(struct val *v)
 {
     int s;
+    if (nocode && v <= vlive) return;
     if (v->kind == VK_CMP) mat_cmp(v);
     else if (v->kind == VK_JMP) gv_d(v);
     if (v->kind != VK_REG && v->kind != VK_IND) return;
@@ -1802,6 +1939,7 @@ int ralloc(void)
     for (;;) {
         for (r = 0; r < 6; r++)
             if (!(rmask >> r & 1)) { rmask = rmask | 1 << r; return r; }
+        if (nocode) return 0;
         for (v = vs + 1; v <= vp; v++)
             if ((v->kind == VK_REG || v->kind == VK_IND || v->kind == VK_CMP) && v->reg < 6) break;
         if (v > vp) err("expression too complex", 0);
@@ -2162,6 +2300,10 @@ void rv(void)
     int t = vp->type, k = ty[t].kind;
     if (k == TK_ARRAY) { v_addr(vp); vp->type = ty_ptr(ty[t].base); }
     else if (k == TK_FUNC) { v_addr(vp); vp->type = ty_ptr(t); }
+    else if (vp->bw && vp->bw < 32) {   /* a narrow bit-field is an int */
+        gv_d(vp);
+        vp->type = Y_INT;
+    }
 }
 
 /* a pointer becomes the lvalue it points to */
@@ -2388,23 +2530,37 @@ int fp_adr[11];
 
 long lib_lookup(int id);
 
+/* a call of the function at address a with the n values on top; the result has type rt */
+void g_calladdr(long a, int n, int rt)
+{
+    struct val *f;
+    int i;
+    vpush(0, 0, 0);
+    for (i = 0; i < n; i++) vp[-i] = vp[-i - 1];
+    f = vp - n;
+    f->kind = VK_GLOB; f->type = Y_FUNC0; f->val = a;
+    f->sym = 0; f->flags = 0; f->bw = 0;
+    g_call(n);
+    vp->type = rt;
+}
+
 /* a call of the library's floating-point routine k with the n values on
    top as its arguments; the result has type rt */
 void fp_call(int k, int n, int rt)
 {
-    struct val *f;
-    int i;
     if (!fp_adr[k]) {
         fp_adr[k] = lib_lookup(intern(fp_names[k], slen(fp_names[k])));
         if (fp_adr[k] < 0) err("cc.lib lacks ", fp_names[k]);
     }
-    vpush(0, 0, 0);
-    for (i = 0; i < n; i++) vp[-i] = vp[-i - 1];
-    f = vp - n;
-    f->kind = VK_GLOB; f->type = Y_FUNC0; f->val = fp_adr[k];
-    f->sym = 0; f->flags = 0; f->bw = 0;
-    g_call(n);
-    vp->type = rt;
+    g_calladdr(fp_adr[k], n, rt);
+}
+
+/* a call of the library function `name` with the n values on top */
+void g_libfn(char *name, int n, int rt)
+{
+    long a = lib_lookup(intern(name, slen(name)));
+    if (a < 0) err("cc.lib lacks ", name);
+    g_calladdr(a, n, rt);
 }
 
 /* ================= conversions ================= */
@@ -2475,8 +2631,7 @@ void f_cast(int to)
     }
     if (kt == TK_DOUBLE) return;
     if (kt == TK_FLOAT) { fp_call(F_D2F, 1, to); return; }
-    if (ty[to].size == 8 && is_uns(to)) { fp_call(F_FTOU, 1, to); return; }
-    fp_call(F_FTOI, 1, Y_LONG);
+    fp_call(ty[to].size == 8 && is_uns(to) ? F_FTOU : F_FTOI, 1, Y_LONG);
     icast(vp, to);
 }
 
@@ -2637,11 +2792,20 @@ void g_arith(int op, int t)
 
 void g_binop(int op);
 
+int is_vm(int t) { return ty[t].kind == TK_ARRAY && ty[t].x == 3; }
+
+/* the size of a type as a value: a constant, or the frame word of a variable array type */
+void vm_size(int t)
+{
+    if (is_vm(t)) vpush(VK_LOC, Y_LONG, ty[t].aux);
+    else vpush(VK_CONST, Y_LONG, ty[t].size);
+}
+
 /* [a, b] -> [a op b] where a pointer is involved */
 void g_ptrop(int op)
 {
     struct val *a = vp - 1, *b = vp;
-    int t, sz, s;
+    int t, sz, s, vm;
     if (is_cmp(op)) {
         icast(a, Y_ULONG);
         icast(b, Y_ULONG);
@@ -2656,11 +2820,13 @@ void g_ptrop(int op)
     if (!is_ptr(a->type)) { vswap(); if (op == '-') err("invalid operands", 0); }
     t = a->type;
     sz = ty[ty[t].base].size;
+    vm = is_vm(ty[t].base);
     if (!sz) sz = 1;
     if (is_ptr(b->type)) {              /* the difference of two pointers */
         icast(a, Y_LONG);
         icast(b, Y_LONG);
         g_arith('-', Y_LONG);
+        if (vm) { vm_size(ty[t].base); g_arith('/', Y_LONG); return; }
         s = log2of(sz);
         if (s > 0) e_i(OP_SRAI, ereg[vp->reg], ereg[vp->reg], s);
         else if (s < 0) { vpush(VK_CONST, Y_LONG, sz); g_arith('/', Y_LONG); }
@@ -2668,7 +2834,10 @@ void g_ptrop(int op)
     }
     if (!is_int(b->type)) err("invalid operands", 0);
     icast(b, Y_LONG);
-    if (b->kind == VK_CONST && !b->sym) {
+    if (vm) {
+        vm_size(ty[t].base);
+        g_arith('*', Y_LONG);
+    } else if (b->kind == VK_CONST && !b->sym) {
         b->val = b->val * sz;
         if (a->kind == VK_CONST || a->kind == VK_LADDR) {
             a->val = op == '+' ? a->val + b->val : a->val - b->val;
@@ -2805,6 +2974,7 @@ void g_store(void)
             e_i(is_uns(t) ? OP_SRLI : OP_SRAI, x, x, 64 - w);
             v->flags = 0;
         }
+        if (w < 32) v->type = Y_INT;
     }
     vfree(l);
     *l = *v;
@@ -2834,6 +3004,53 @@ long jmp_if(int want, long chain)
     chain = g_br(v->flags ^ !want, ereg[v->reg], ereg[v->val], chain);
     vpop();
     return chain;
+}
+
+/* ================= variable-length arrays ================= */
+
+/* [count] -> ; array type t gets its size, count elements, in a frame word */
+void vm_set(int t)
+{
+    int slot = fr_alloc(8, 8), r;
+    vm_size(ty[t].base);
+    g_arith('*', Y_LONG);
+    r = gv(vp);
+    e_i(OP_SD, ereg[r], X_SP, slot + sp_bias);
+    vpop();
+    ty[t].x = 3; ty[t].aux = slot; ty[t].size = 0;
+}
+
+int vm_arr(int b)
+{
+    int t = ty_new(TK_ARRAY, 0, ty[b].align, b);
+    vm_set(t);
+    return t;
+}
+
+/* the storage of the variable-length array s: from malloc, its address in a frame word */
+void vla_new(int s)
+{
+    int slot = fr_alloc(8, 8), r;
+    vm_size(sy[s].type);
+    g_libfn("malloc", 1, Y_VOIDP);
+    r = gv(vp);
+    e_i(OP_SD, ereg[r], X_SP, slot + sp_bias);
+    vpop();
+    sy[s].val = slot;
+    sy[s].flags = SF_REF | SF_VLA;
+    fn_vla = 1;
+}
+
+/* the variable-length arrays declared since symbol `from` are given back */
+void vla_free(int from)
+{
+    int i;
+    for (i = nsy - 1; i >= from; i--)
+        if (sy[i].flags & SF_VLA && sy[i].cls == SC_AUTO) {
+            vpush(VK_LOC, Y_VOIDP, sy[i].val);
+            g_libfn("free", 1, Y_VOID);
+            vpop();
+        }
 }
 
 /* ================= intrinsics ================= */
@@ -2931,6 +3148,9 @@ void intrinsic(int k)
 
 /* ================= expressions ================= */
 
+#ifndef SELF_UNITS
+#define SELF_UNITS (*(long *)32)    /* the start-up word __uload: the size of this program's cc.u */
+#endif
 #ifndef STK_MIN
 #define STK_MIN 0xE400          /* the stack is 0xE000..0xFFFF */
 #endif
@@ -2963,9 +3183,14 @@ void str_take(void)
 void str_push(void)
 {
     int n = str_len + 1, i;
-    long a = data_alloc(n, 1);
+    long a;
+    if (str_wide) {
+        n = str_len + 4;
+        for (i = 0; i < 4; i++) strbuf[str_len + i] = 0;
+    }
+    a = data_alloc(n, str_wide ? 4 : 1);
     if (!ini_dry) for (i = 0; i < n; i++) data_b(a + i, strbuf[i]);
-    vpush(VK_GLOB, str_ty(n), a);
+    vpush(VK_GLOB, str_wide ? ty_arr(Y_INT, n / 4) : str_ty(n), a);
 }
 
 /* a symbol as a value */
@@ -2988,6 +3213,45 @@ void v_sym(int s)
         return;
     }
     err("not a value: ", id_name(p->id));
+}
+
+/* __builtin_va_arg(ap, type): the next argument word is the value, or, for
+   a structure, its address; ap moves on */
+void va_arg_x(void)
+{
+    int t;
+    next();
+    assign();
+    skip(',');
+    t = type_name();
+    skip(')');
+    v_dup();
+    vpush(VK_CONST, Y_INT, 8);
+    g_binop('+');
+    g_store();
+    vpush(VK_CONST, Y_INT, 8);
+    g_binop('-');
+    if (is_agg(t)) {
+        vp->type = ty_ptr(ty_ptr(t));
+        v_deref();
+    } else vp->type = ty_ptr(t);
+    v_deref();
+}
+
+/* __builtin_va_start(ap, last): ap = the address of the first unnamed
+   argument: in a variadic function all the argument words are in a row */
+void va_start_x(void)
+{
+    next();
+    assign();
+    skip(',');
+    if (tok != T_ID) errtok("syntax error near ");
+    next();
+    skip(')');
+    vpush(VK_LADDR, Y_CHARP, fn_va)->flags = VF_S0;
+    g_store();
+    vpop();
+    vpush(VK_CONST, Y_VOID, 0);
 }
 
 void primary(void)
@@ -3017,7 +3281,10 @@ void primary(void)
             str_push();
             return;
         }
+        if (ce_soft && tok != '(') { ce_fail = 1; vpush(VK_CONST, Y_INT, 0); return; }
         if (tok != '(') err("undeclared: ", n);
+        if (streq(n, "__builtin_va_arg")) { va_arg_x(); return; }
+        if (streq(n, "__builtin_va_start")) { va_start_x(); return; }
         if (n[0] == '_' && n[1] == '_')
             for (i = 0; in_name[i]; i++)
                 if (streq(n, in_name[i])) { intrinsic(i); return; }
@@ -3126,24 +3393,26 @@ void postfix_ops(void)
 void sizeof_x(void)
 {
     int t;
+    struct dead d;
     if (tok == '(') {
         next();
         if (is_type()) { t = type_name(); skip(')'); }
         else {
-            nocode++;
+            dead_on(&d);
             expr(); skip(')'); postfix_ops();
             t = vp->type;
             vpop();
-            nocode--;
+            dead_off(&d);
         }
     } else {
-        nocode++;
+        dead_on(&d);
         unary();
         t = vp->type;
         vpop();
-        nocode--;
+        dead_off(&d);
     }
-    vpush(VK_CONST, Y_ULONG, ty[t].size);
+    if (is_vm(t)) vpush(VK_LOC, Y_ULONG, ty[t].aux);
+    else vpush(VK_CONST, Y_ULONG, ty[t].size);
 }
 
 void unary(void)
@@ -3215,15 +3484,16 @@ void logical(int op, int q)
 {
     int want = op == T_LOR, c;
     long t = 0;
+    struct dead d;
     rv();
     if (vp->kind == VK_CONST) {         /* decided, or decided by the rest, at compile time */
         c = vp->sym || vp->val != 0;
         vp--;
         if (c == want) {
-            nocode++;
+            dead_on(&d);
             binary(q + 1);
             vpop();
-            nocode--;
+            dead_off(&d);
             vpush(VK_CONST, Y_INT, want);
         } else {
             binary(q + 1);
@@ -3244,10 +3514,10 @@ void logical(int op, int q)
     vpush(VK_JMP, Y_INT, t)->flags = want ? 0 : VF_INV;
 }
 
-void binary(int p)
+/* [a] and the binary operators of precedence p or more that follow it */
+void bin_rest(int p)
 {
     int op, q;
-    unary();
     for (;;) {
         op = tok;
         q = prec(op);
@@ -3259,6 +3529,12 @@ void binary(int p)
         rv();
         g_binop(op);
     }
+}
+
+void binary(int p)
+{
+    unary();
+    bin_rest(p);
 }
 
 /* the value on top into register r (free, or its own) */
@@ -3277,6 +3553,7 @@ void cond(void)
     long f, e, x;
     int r = -1, ta, tb, t, c, agg;
     struct val sv;
+    struct dead d;
     binary(1);
     if (tok != '?') return;
     next();
@@ -3284,13 +3561,16 @@ void cond(void)
     if (vp->kind == VK_CONST) {         /* only one of the two is compiled */
         c = vp->sym || vp->val;
         vp--;
-        if (!c) nocode++;
+        if (!c) dead_on(&d);
         expr(); rv();
-        if (!c) { vpop(); nocode--; }
+        ta = vp->type;
+        if (!c) { vpop(); dead_off(&d); }
         skip(':');
-        if (c) nocode++;
+        if (c) dead_on(&d);
         cond(); rv();
-        if (c) { vpop(); nocode--; }
+        tb = vp->type;
+        if (c) { vpop(); dead_off(&d); }
+        if ((is_int(ta) || is_fp(ta)) && (is_int(tb) || is_fp(tb))) g_cast(arith_type(ta, tb));
         return;
     }
     g_spill(vp - 1);
@@ -3376,13 +3656,14 @@ void expr(void)
 long const_expr(void)
 {
     long v;
-    nocode++;
+    struct dead d;
+    dead_on(&d);
     cond();
-    nocode--;
     if (vp->kind != VK_CONST || vp->sym) err("constant expression expected", 0);
     v = vp->val;
     if (is_fp(vp->type)) { g_cast(Y_LONG); v = vp->val; }
     vp--;
+    dead_off(&d);
     return v;
 }
 
@@ -3417,7 +3698,7 @@ void member_add(struct sb *b, int id, int mt, int w)
         p = p + w;
         if (!id) a = 1;
     } else {
-        if (!sz && tk(mt) != TK_ARRAY) err("a member of incomplete type", 0);
+        if (!sz && tk(mt) != TK_ARRAY && !ty[mt].x) err("a member of incomplete type", 0);
         off = ((p + 7) / 8 + a - 1) & -a;
         p = (long)(off + sz) * 8;
     }
@@ -3565,10 +3846,21 @@ done:
 /* the parameter list of a function type: tok is past the ( */
 int func_params(int ret)
 {
-    int ids[16], ts[16], n = 0, t, bt, sd = d_name, sp = pn_set, i, f = 0;
+    int ids[16], ts[16], n = 0, t, bt, sd = d_name, sp = pn_set, i, f = 0, m0 = nsy;
     in_params++;
     if (tok == ')') f = TF_OLD;
-    else for (;;) {
+    else if (tok == T_ID && !is_type()) {       /* an old-style list of names: int, until declared */
+        f = TF_OLD;
+        for (;;) {
+            if (tok != T_ID || n >= 16) errtok("syntax error near ");
+            ids[n] = tk_val;
+            ts[n] = Y_INT;
+            n++;
+            next();
+            if (tok != ',') break;
+            next();
+        }
+    } else for (;;) {
         if (tok == T_ELL) { next(); f = TF_VARIADIC; break; }
         bt = decl_spec();
         if (bt < 0) errtok("syntax error near ");
@@ -3589,6 +3881,8 @@ int func_params(int ret)
     in_params--;
     d_name = sd;
     pn_set = sp;
+    for (i = m0; i < nsy; i++)          /* enumeration constants declared in the list end with it */
+        if (sy[i].cls == SC_ENUM) { id_set(sy[i].id, 0, sy[i].prev); sy[i].cls = SC_MEMBER; }
     t = ty_new(TK_FUNC, n, 1, ret);
     ty[t].flags = f;
     ty[t].aux = npt;
@@ -3601,22 +3895,107 @@ int func_params(int ret)
     return t;
 }
 
+/* the text [p0, p1) of the input, an array dimension, kept in the arena:
+   -> its record (the length, the text) */
+long dim_save(long p0, long p1)
+{
+    long a = mac_top;
+    far_sd(a, p1 - p0);
+    mac_top = (a + 8 + p1 - p0 + 7) & ~7;
+    if (mac_top > A_MACEND - 2048) err("too many macros", 0);
+    wb_open(a + 8);
+    while (p0 < p1) wb_put(rb_get(p0++));
+    wb_close();
+    return a;
+}
+
+/* read the kept dimension a: as a trial (-> its value if it is a constant,
+   else -1), or for real: its value stays on the stack */
+long dim_eval(long a, int trial)
+{
+    int t = tok;
+    long n = far_ld(a), r = -1;
+    struct dead d;
+    in_push(a + 8, a + 8 + n, 3, 0, 0);
+    if (trial) { ce_soft = 1; ce_fail = 0; dead_on(&d); }
+    next();
+    expr();
+    rv();
+    if (!is_int(vp->type)) err("constant expression expected", 0);
+    icast(vp, Y_LONG);
+    if (trial) {
+        if (vp->kind == VK_CONST && !vp->sym && !ce_fail) r = vp->val;
+        vpop();
+        dead_off(&d);
+        ce_soft = 0;
+    }
+    if (tok) errtok("syntax error near ");
+    in_pop();
+    tok = t;
+    return r;
+}
+
+/* the array types of a parameter that wait for the function's entry get their sizes */
+void vm_inst(int t)
+{
+    int k = ty[t].kind, x = ty[t].x;
+    if (k != TK_PTR && k != TK_ARRAY) return;
+    vm_inst(ty[t].base);
+    if (k != TK_ARRAY || x < 4) return;
+    if (x == 4) dim_eval(ty[t].size, 0);
+    else vpush(VK_CONST, Y_LONG, ty[t].size);
+    vm_set(t);
+}
+
 /* [n] and (parameters) after a declarator's name */
 int d_suffix(int t, int first)
 {
-    long n = 0;
-    int d;
+    long n = 0, p0, sh, txt = 0;
+    int d, vla = 0, pin = 0, sp0, e;
     if (tok == '(') { next(); return func_params(t); }
     if (tok != '[') return t;
+    p0 = in_pos;
+    sh = sf_shift;
+    sp0 = in_sp;
+    if (in_params && !in_sp && sf_pin < 0) { sf_pin = p0; pin = 1; }
     next();
-    if (in_params && first) {           /* a parameter's first dimension does not matter */
+    if (in_params) {                    /* the names in it are not declared yet: the text is kept */
         for (d = 0; tok && (d || tok != ']'); next()) {
             if (tok == '[') d++;
             if (tok == ']') d--;
         }
-    } else if (tok != ']') n = const_expr();
+        if (!in_sp) p0 = p0 - (sf_shift - sh);
+        if (!first && in_pos - 1 > p0) {        /* (a parameter's first dimension does not matter) */
+            if (in_sp != sp0) err("an array dimension that a macro ends in", 0);
+            txt = dim_save(p0, in_pos - 1);
+            n = dim_eval(txt, 1);
+            if (n >= 0) txt = 0;
+            else n = 0;
+        }
+    } else if (tok != ']') {
+        if (!fn_live) n = const_expr();
+        else {                          /* in a function it may be a value */
+            cond();
+            rv();
+            if (!is_int(vp->type)) err("constant expression expected", 0);
+            icast(vp, Y_LONG);
+            if (vp->kind == VK_CONST && !vp->sym) { n = vp->val; vp--; }
+            else vla = 1;
+        }
+    }
+    if (pin) sf_pin = -1;
     skip(']');
     t = d_suffix(t, 0);
+    e = ty[t].kind == TK_ARRAY ? ty[t].x : 0;
+    if (txt || e >= 4) {
+        d = ty_new(TK_ARRAY, txt ? txt : n, ty[t].align, t);
+        ty[d].x = txt ? 4 : 5;
+        return d;
+    }
+    if (vla || e == 3) {
+        if (!vla) vpush(VK_CONST, Y_LONG, n);
+        return vm_arr(t);
+    }
     return ty_arr(t, n);
 }
 
@@ -3661,6 +4040,20 @@ int type_name(void)
 }
 
 /* ================= initialisers ================= */
+
+/* the character that follows the current token, blanks aside (0: the text
+   at hand ends first) */
+int peek_ch(void)
+{
+    long p;
+    int c;
+    if (in_sp == 0 && !sf_eof && in_end - in_pos < 64) src_fill();
+    for (p = in_pos; p < in_end; p++) {
+        c = rb_get(p);
+        if (c != ' ' && c != 9) return c;
+    }
+    return 0;
+}
 
 void init_obj(int t, long off);
 
@@ -3709,13 +4102,16 @@ void init_scalar(int t, long off, int w, int b)
     vp--;
 }
 
-/* a character array from the string tok is */
+/* a character array from the string in strbuf */
 void init_str(int t, long off)
 {
-    int n, sz = ty[t].size, i;
+    int n = str_len + 1, sz = ty[t].size, i;
     long a;
-    str_take();
-    n = str_len + 1;
+    if (str_wide) {
+        for (i = 0; i < 4; i++) strbuf[str_len + i] = 0;
+        n = str_len + 4;
+        if (!sz) { ini_cnt = n / 4; sz = n; }
+    }
     if (!sz) { ini_cnt = n; sz = n; }
     if (ini_dry) return;
     if (ini_static) {
@@ -3730,37 +4126,10 @@ void init_str(int t, long off)
     vpop();
 }
 
-void init_list(int t, long off, int braced);
-
-/* tok is past a designator of the object of type t at off: more designators, or = and the value */
-void init_desig(int t, long off)
-{
-    long i;
-    int m;
-    if (tok == '[') {
-        if (tk(t) != TK_ARRAY) err("bad designator", 0);
-        next();
-        i = const_expr();
-        skip(']');
-        init_desig(ty[t].base, off + i * ty[ty[t].base].size);
-        return;
-    }
-    if (tok == '.') {
-        next();
-        m = is_agg(t) && tok == T_ID ? mem_find(t, tk_val) : 0;
-        if (!m) errtok("not a structure member: ");
-        next();
-        off = off + mem_off;
-        if (sy[m].aux) { skip('='); init_scalar(sy[m].type, off, sy[m].aux >> 8, sy[m].aux & 255); }
-        else init_desig(sy[m].type, off);
-        return;
-    }
-    skip('=');
-    init_obj(t, off);
-}
-
 /* the elements of an array or the members of a structure, with braces
-   around them or (braced 0) as many as the object takes */
+   around them or (braced 0) as many as the object takes. A designator
+   moves the position; when another follows it (ini_desig), the list of the
+   designated element starts with that one, without braces. */
 void init_list(int t, long off, int braced)
 {
     int arr = tk(t) == TK_ARRAY, et = ty[t].base, m = ty[t].aux, uni = tk(t) == TK_UNION, mt;
@@ -3771,35 +4140,45 @@ void init_list(int t, long off, int braced)
     }
     for (;;) {
         if (tok == '}' && !ini_pend) break;
-        if (!ini_pend && (tok == '[' || tok == '.')) {
-            if (!braced) { ini_comma = 1; break; }
-            if (arr) {
+        if (!ini_pend && (tok == '[' || tok == '.' || ini_desig == 2)) {
+            if (!braced && !ini_desig) { ini_comma = 1; break; }
+            if (ini_desig != 2) {
+                if (arr != (tok == '[')) err("bad designator", 0);
                 next();
+            }
+            ini_desig = 0;
+            if (arr) {
                 i = const_expr();
                 skip(']');
-                init_desig(et, off + i * esz);
-                i++;
             } else {
-                next();
-                m = tok == T_ID ? mem_find(t, tk_val) : 0;
+                if (tok != T_ID) errtok("not a structure member: ");
+                for (m = ty[t].aux; m; m = sy[m].prev) {
+                    if (sy[m].id == tk_val) break;
+                    if (!sy[m].id && is_agg(sy[m].type) && mem_find(sy[m].type, tk_val)) break;
+                }
                 if (!m) errtok("not a structure member: ");
-                next();
-                if (sy[m].aux) { skip('='); init_scalar(sy[m].type, off + mem_off, sy[m].aux >> 8, sy[m].aux & 255); }
-                else init_desig(sy[m].type, off + mem_off);
-                m = uni ? 0 : sy[m].prev;
+                if (sy[m].id) next();
+                else ini_desig = 2;             /* in an unnamed member: its list takes the name */
+                if (uni && !ini_dry) {          /* another member of a union: the others are gone */
+                    if (ini_static) for (i = 0; i < ty[t].size; i++) data_b(ini_base + off + i, 0);
+                    else { vpush(VK_LOC, t, ini_base + off); g_clear(ty[t].size); vp--; }
+                    i = 0;
+                }
             }
-        } else {
-            if (arr ? n >= 0 && i >= n : !m) {
-                if (braced) err("too many initialisers", 0);
-                break;
-            }
-            if (arr) { init_obj(et, off + i * esz); i++; }
-            else {
-                mt = sy[m].type;
-                if (sy[m].aux) init_scalar(mt, off + sy[m].val, sy[m].aux >> 8, sy[m].aux & 255);
-                else init_obj(mt, off + sy[m].val);
-                m = uni ? 0 : sy[m].prev;
-            }
+            if (ini_desig) ;
+            else if (tok == '[' || tok == '.') ini_desig = 1;
+            else skip('=');
+        }
+        if (arr ? (n >= 0 && i >= n) || i < 0 : !m) {
+            if (braced) err("too many initialisers", 0);
+            break;
+        }
+        if (arr) { init_obj(et, off + i * esz); i++; }
+        else {
+            mt = sy[m].type;
+            if (sy[m].aux) init_scalar(mt, off + sy[m].val, sy[m].aux >> 8, sy[m].aux & 255);
+            else init_obj(mt, off + sy[m].val);
+            m = uni ? 0 : sy[m].prev;
         }
         if (i > top) top = i;
         if (!braced && (arr ? n >= 0 && i >= n : !m)) break;
@@ -3812,32 +4191,60 @@ void init_list(int t, long off, int braced)
    initialised (ini_base: an address of the data, or a frame offset) */
 void init_obj(int t, long off)
 {
-    int k = tk(t), br = 0;
-    if (k != TK_ARRAY && !is_agg(t)) { init_scalar(t, off, 0, 0); return; }
-    if (!ini_pend && tok == '{') { next(); br = 1; }
-    if (k == TK_ARRAY && !ini_pend && tok == T_STR && tk(ty[t].base) == TK_CHAR) {
-        init_str(t, off);
-        if (br) { if (tok == ',') next(); skip('}'); }
+    int k = tk(t), br = 0, par = 0, pre = 0;
+    long i;
+    if (k != TK_ARRAY && !is_agg(t)) {
+        if (ini_desig) err("bad designator", 0);
+        init_scalar(t, off, 0, 0);
         return;
     }
+    if (ini_desig) { init_list(t, off, 0); return; }
+    if (!ini_pend && tok == '{') { next(); br = 1; }
+    if (k == TK_ARRAY && !ini_pend && is_int(ty[t].base)) {    /* a string, or an expression that begins like one */
+        while (tok == '(' && (peek_ch() == '"' || peek_ch() == '(')) { next(); par++; }
+        if (tok == T_STR) {
+            str_take();
+            if (ty[ty[t].base].size == (str_wide ? 4 : 1) && (tok == ',' || tok == '}' || tok == ';' || tok == ')')) {
+                init_str(t, off);
+                for (; par; par--) skip(')');
+                if (br) { if (tok == ',') next(); skip('}'); }
+                return;
+            }
+            str_push();
+            postfix_ops();
+            bin_rest(1);
+            pre = 1;
+        } else if (par) { expr(); pre = 1; }
+        if (pre) {
+            if (par) {
+                for (; par; par--) skip(')');
+                postfix_ops();
+                bin_rest(1);
+            }
+            rv();
+            ini_pend = 1;
+        }
+    }
     if (br) {
+        if (ini_static && !ini_dry) for (i = 0; i < ty[t].size; i++) data_b(ini_base + off + i, 0);
         init_list(t, off, 1);
         skip('}');
         ini_comma = 0;
         return;
     }
-    if (is_agg(t) && !ini_static && !ini_pend) {
+    if (is_agg(t) && !ini_static && !ini_pend && tok != T_STR) {
         assign();
-        if (is_agg(vp->type)) {         /* a whole structure */
-            if (ini_dry) { vpop(); return; }
-            vpush(VK_LOC, t, ini_base + off);
-            vswap();
-            g_copy();
-            vpop();
-            return;
-        }
-        rv();
+        if (!is_agg(vp->type)) rv();
         ini_pend = 1;
+    }
+    if (ini_pend && vp->type == t) {    /* a whole structure */
+        ini_pend = 0;
+        if (ini_dry) { vpop(); return; }
+        vpush(VK_LOC, t, ini_base + off);
+        vswap();
+        g_copy();
+        vpop();
+        return;
     }
     init_list(t, off, 0);
 }
@@ -3848,14 +4255,15 @@ int fix_len(int t)
 {
     long d = data_pc, f = fix_top;
     int fc = fr_cur;
+    struct dead dd;
     if (tk(t) != TK_ARRAY || ty[t].size || ini_dry) return t;
     scan_mark();
     if (tok == '=') next();
     ini_dry = 1;
-    nocode++;
+    dead_on(&dd);
     ini_cnt = 0; ini_pend = 0; ini_comma = 0;
     init_obj(t, 0);
-    nocode--;
+    dead_off(&dd);
     ini_dry = 0;
     data_pc = d; fix_top = f; fr_cur = fc;
     scan_rewind();
@@ -3864,10 +4272,11 @@ int fix_len(int t)
 
 void static_init(int t, long a)
 {
+    struct dead d;
     ini_static = 1; ini_base = a; ini_pend = 0; ini_comma = 0;
-    nocode++;
+    dead_on(&d);
     init_obj(t, 0);
-    nocode--;
+    dead_off(&d);
 }
 
 void auto_init(int t, int off)
@@ -3953,7 +4362,8 @@ void local_decl(void)
         } else if (cls == K_STATIC) static_var(id, t, cls);
         else {
             s = sym_decl(id, SC_AUTO, t);
-            if (tok == '=') {
+            if (is_vm(t)) vla_new(s);
+            else if (tok == '=') {
                 ini_static = 0;
                 t = fix_len(t);
                 next();
@@ -3988,6 +4398,7 @@ void block(void)
     }
     next();
     scope--;
+    if (fn_vla) vla_free(m);
     scope_exit(m);
     fr_cur = f;
     fr_keep = k;
@@ -3996,7 +4407,9 @@ void block(void)
 void loop_stmt(void)
 {
     long sb = brk_chain, sc = cnt_chain, st = cnt_target, top, a;
-    int m = nsy, k = tok;
+    int m = nsy, k = tok, bn = brk_nsy, cn = cnt_nsy;
+    brk_nsy = nsy;
+    cnt_nsy = nsy;
     brk_chain = 0;
     cnt_chain = 0;
     loop_depth++;
@@ -4025,6 +4438,7 @@ void loop_stmt(void)
             if (tok != ';') { expr(); vpop(); }
             skip(';');
         }
+        cnt_nsy = nsy;
         top = here();
         if (tok != ';') { expr(); rv(); brk_chain = jmp_if(0, 0); }
         skip(';');
@@ -4041,10 +4455,12 @@ void loop_stmt(void)
         stmt();
         g_jmp_to(cnt_target);
         scope--;
+        if (fn_vla) vla_free(m);
         scope_exit(m);
     }
     g_resolve(brk_chain, code_pc);
     brk_chain = sb; cnt_chain = sc; cnt_target = st;
+    brk_nsy = bn; cnt_nsy = cn;
     loop_depth--;
 }
 
@@ -4052,7 +4468,8 @@ void loop_stmt(void)
 void sw_stmt(void)
 {
     long sb = brk_chain, sd = cs_default, disp, v, a;
-    int b0 = cs_base, slot, i, r, x;
+    int b0 = cs_base, slot, i, r, x, bn = brk_nsy;
+    brk_nsy = nsy;
     next();
     skip('('); expr(); rv(); skip(')');
     if (!is_int(vp->type)) err("invalid operands", 0);
@@ -4083,6 +4500,7 @@ void sw_stmt(void)
     g_resolve(brk_chain, code_pc);
     cs_top = cs_base;
     cs_base = b0; cs_default = sd; brk_chain = sb;
+    brk_nsy = bn;
     loop_depth--;
 }
 
@@ -4095,22 +4513,10 @@ int lab_find(int id)
     return nlabels++;
 }
 
-/* does a colon follow the identifier tok is? (a label) */
-int peek_colon(void)
-{
-    long p;
-    int c;
-    if (in_sp == 0 && !sf_eof && in_end - in_pos < 64) src_fill();
-    for (p = in_pos; p < in_end; p++) {
-        c = rb_get(p);
-        if (c != ' ' && c != 9) return c == ':';
-    }
-    return 0;
-}
-
 void ret_stmt(void)
 {
     struct val *v;
+    int have = 0;
     next();
     if (tok != ';') {
         expr();
@@ -4124,11 +4530,18 @@ void ret_stmt(void)
         } else if (tk(fn_ret) == TK_VOID) vpop();
         else {
             g_cast(fn_ret);
-            g_into(vp, X_A0);
-            vp--;
+            have = 1;
         }
     }
     skip(';');
+    if (fn_vla) {
+        if (have) gv(vp);
+        vla_free(fn_nsy0);
+    }
+    if (have) {
+        g_into(vp, X_A0);
+        vp--;
+    }
     fn_rchain = g_jmp(fn_rchain);
 }
 
@@ -4171,11 +4584,13 @@ void stmt(void)
         if (!loop_depth) err("break outside a loop or switch", 0);
         next();
         skip(';');
+        if (fn_vla) vla_free(brk_nsy);
         brk_chain = g_jmp(brk_chain);
         break;
     case K_CONTINUE:
         next();
         skip(';');
+        if (fn_vla) vla_free(cnt_nsy);
         if (cnt_target) g_jmp_to(cnt_target);
         else cnt_chain = g_jmp(cnt_chain);
         break;
@@ -4205,7 +4620,7 @@ void stmt(void)
         else lb_chain[i] = g_jmp(lb_chain[i]);
         break;
     case T_ID:
-        if (peek_colon()) {
+        if (peek_ch() == ':') {
             i = lab_find(tk_val);
             next();
             next();
@@ -4294,6 +4709,7 @@ void g_fn_end(void)
     code_wr(fn_pro + 4, enc(OP_SD, X_RA, X_SP, f - 8));
     if (paged) g_fn_place();
     nocode = 1;
+    vlive = vs;
 }
 
 /* the definition of function s of type t: tok is { */
@@ -4302,16 +4718,19 @@ void func_def(int s, int t)
     int np = ty[t].size, m = nsy, n0 = nty, p0 = npt, ids[16], i, k, pt, ps, off, slot;
     struct sym *p;
     if (sy[s].flags & SF_DEF) err("defined twice: ", id_name(sy[s].id));
-    if (ty[t].flags & TF_OLD) np = 0;
     for (i = 0; i < np; i++) ids[i] = lastpn[i];
     sy[s].type = t;
     fn_sym = s;
     fn_ret = ty[t].base;
     k = is_agg(fn_ret);
     fn_s0 = (ty[t].flags & TF_VARIADIC) || np + k > 8;
+    fn_va = 8 * (np + k);
     nlabels = 0;
     scope = 1;
+    fn_vla = 0;
+    fn_nsy0 = nsy;
     g_fn_begin();
+    fn_live = 1;
     for (i = 0; i < np + k; i++) {
         if (fn_s0) off = 8 * i;
         else {
@@ -4333,7 +4752,9 @@ void func_def(int s, int t)
         if (is_agg(pt)) p->flags = SF_REF;
         else if (fn_s0) p->flags = SF_S0;
     }
+    for (i = 0; i < np; i++) vm_inst(pt_get(ty[t].aux + i));
     block();
+    fn_live = 0;
     for (i = 0; i < nlabels; i++) if (!lb_adr[i]) err("undefined label: ", id_name(lb_id[i]));
     if (sy[s].id == id_main) e_i(OP_ADDI, X_A0, 0, 0);
     g_fn_end();
@@ -4344,6 +4765,31 @@ void func_def(int s, int t)
     for (i = 0; i < n0; i++) if (ptrof[i] >= n0) ptrof[i] = 0;
     nty = n0;
     npt = p0;
+}
+
+/* the declarations of an old-style definition's parameters, up to the { */
+void kr_params(int t)
+{
+    int bt, pt, i;
+    in_params++;
+    while (tok != '{') {
+        bt = decl_spec();
+        if (bt < 0) errtok("syntax error near ");
+        for (;;) {
+            d_name = 0;
+            pt = declarator(bt);
+            if (tk(pt) == TK_ARRAY) pt = ty_ptr(ty[pt].base);
+            else if (tk(pt) == TK_FUNC) pt = ty_ptr(pt);
+            else if (tk(pt) == TK_FLOAT) pt = Y_DOUBLE;
+            for (i = 0; i < ty[t].size && lastpn[i] != d_name; i++) ;
+            if (i == ty[t].size) err("not a parameter: ", id_name(d_name));
+            far_sw(A_PT + 4 * (ty[t].aux + i), pt);
+            if (tok != ',') break;
+            next();
+        }
+        skip(';');
+    }
+    in_params--;
 }
 
 /* a declaration or a function definition at file scope */
@@ -4367,6 +4813,7 @@ void ext_decl(void)
         if (cls == K_TYPEDEF) sym_decl(id, SC_TYPEDEF, t);
         else if (tk(t) == TK_FUNC) {
             s = func_decl(id, t);
+            if ((ty[t].flags & TF_OLD) && tok != ';' && tok != ',' && tok != '{') kr_params(t);
             if (tok == '{') { func_def(s, t); return; }
         } else static_var(id, t, cls);
         if (tok != ',') break;
@@ -4553,12 +5000,20 @@ void lib_load(void)
 {
     long a, n, p;
     int i;
+    lib_base = A_LIB;
     lib_len = m_load("/bin/cc.lib", A_LIB, A_LIBEND - A_LIB, 1);
-    if (lib_len < 0) err("cannot read /bin/cc.lib", 0);
+    if (lib_len < 0) {                  /* no such file: the library may follow this program's own units */
+        lib_base = 0x10000 + SELF_UNITS;
+        lib_len = 0x8000;
+        far_read(lib_base, iob, 8);
+        if (!SELF_UNITS || !streq((char *)iob, "CCLIB1")) err("cannot read /bin/cc.lib", 0);
+    }
     lib_sym = lib_find("libc.sym");
     lib_nsym = lib_sz / 24;
     for (i = 0; i < 130; i++) iob[i] = 0;
     for (p = 0; p < 0xA000; p = p + 1024) far_write(A_DATA + p, iob, 1024);
+    far_write(A_IDH, iob, 1024);
+    far_write(A_IDH + 1024, iob, 1024);
     a = lib_find("libc.data");
     far_copy(A_DATA, a, lib_sz);
     data_pc = (lib_sz + 7) & ~7;
@@ -4582,7 +5037,7 @@ int main(int argc, char **argv)
 {
     int i;
     options(argc, argv);
-    nsy = 1; vp = vs; nocode = 1;
+    nsy = 1; vp = vs; vlive = vs; nocode = 1;
     id_top = A_ID; mac_top = A_MAC; xh_top = A_XH; src_top = A_INC; fix_top = A_FIX;
     sw_base = -1; rb_base = -1; dw_base = -4096; sf_pin = -1;
     lib_load();
@@ -4593,6 +5048,7 @@ int main(int argc, char **argv)
     predef("__STDC__", "1");
     predef("__STDC_VERSION__", "199901L");
     predef("__strata__", "1");
+    predef("__STRATA_CC__", "1");
     sf_fd = open(src_name, 0);
     if (sf_fd < 0) err("cannot open ", src_name);
     in_pos = A_SRC; in_end = A_SRC; sf_top = A_SRC;

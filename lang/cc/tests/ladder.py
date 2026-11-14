@@ -41,7 +41,7 @@ def boot(batch, tag):
         if HOST:
             exe = d + "/t%02d" % i
             c = subprocess.run([HOST] + FLAGS.split() + ["-o", exe, path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               env=dict(os.environ, CC_LIB=B + "/cc/cc.lib"))
+                               env=dict(os.environ, CC_LIB=os.environ.get("CC_LIB", B + "/cc/cc.lib")))
             hres[i] = (c.stdout.decode("latin-1"), c.returncode)
             if c.returncode == 0:
                 files.append(exe)
