@@ -438,7 +438,8 @@ The SystemVerilog implementation (Chapter~\ref{ch:impl}) compiled with Verilator
 \texttt{DLS\_KIB=}$d$ \texttt{ILS\_KIB=}$i$: the emulator's \texttt{-X} and \texttt{-L}). It accepts the emulator's options with these differences: \texttt{-m} and \texttt{-b} count clock
 cycles; \texttt{-T virtual} makes the timer count cycles / 100 (\texttt{-T real}, the default, reads
 the host clock through a DPI call); there is no \texttt{-c} and no JIT. A console read with no byte
-available is retried by the RTL without stopping the simulation. Halt lines carry the core's cycle
+available waits in the RTL without stopping the simulation (the harness is asked for input every
+256 cycles while one waits). Halt lines carry the core's cycle
 and stall counts in addition to the emulator's fields, and traces have the same format.
 
 \section{Cross-checking}\label{sec:compare}

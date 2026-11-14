@@ -15,6 +15,15 @@
 // Memory transfers move 8-byte words (bursts of len/8 beats); device
 // transfers move single bytes.
 //
+// A device read that is answered `retry` (its device has nothing to give
+// yet) is parked: it does not ask for the bus again until the device raises
+// this core's `wake` line (strata_dev), so a read that waits does not use
+// the bus while it waits. A parked read that has not started is rotated
+// behind the other queued commands, which go on meanwhile; one that has
+// moved bytes already (or is alone) is waited for at the head. A wake
+// unparks every parked read of the core; one that is answered retry again
+// is parked again.
+//
 // A command whose D-LS range overlaps a device read still in the queue (it
 // may wait for the device and be rotated behind later commands) is not
 // accepted until that read completes (iss_hz).
@@ -91,7 +100,8 @@ module strata_tu
   input  logic        b_rvalid,
   input  logic [63:0] b_rdata,
   input  logic        b_done,
-  input  logic        b_retry
+  input  logic        b_retry,
+  input  logic        wake          // the device: a read of this core that waits may now complete
 );
   localparam int QD = 4;
 
@@ -102,6 +112,7 @@ module strata_tu
   logic [LSW-1:0] q_end [QD];   // q_ls + q_len
   logic [QD-1:0]  q_nz;         // q_len != 0
   logic [QD-1:0]  q_w;          // a device read that has been tried and waits (answered retry)
+  logic [QD-1:0]  q_p;          // ... and is parked: no bus request until a wake
   logic [2:0]    q_sp   [QD];
   logic [FW-1:0] q_far  [QD];
   logic [LSW-1:0] q_len [QD];
@@ -109,7 +120,7 @@ module strata_tu
   logic [1:0] head, tail;
   logic [2:0] count;
 
-  typedef enum logic [2:0] {E_IDLE, E_REQ, E_XFER, E_RETIRE, E_ROT} estate_t;
+  typedef enum logic [2:0] {E_IDLE, E_REQ, E_XFER, E_RETIRE, E_ROT, E_PARK} estate_t;
   estate_t     es;
   logic [LSW-1:0] off;       // bytes moved so far
   logic [LSW-1:0] rd_off;    // put: next LS offset to read
@@ -136,6 +147,12 @@ module strata_tu
   assign step   = h_dev ? LSW'(1) : LSW'(8);
 
   logic do_issue, do_retire;
+  logic others;                // a queued command other than the head is not parked
+  always_comb begin
+    others = 0;
+    for (int i = 0; i < QD; i++)
+      if (q_v[i] && !q_p[i] && 2'(i) != head) others = 1;
+  end
   assign iss_ready = count < 3'(QD) && !tag_busy[iss_tag] && es != E_ROT && !iss_hz;
   assign do_issue  = iss_valid && iss_ready;
   assign do_retire = es == E_RETIRE;
@@ -261,6 +278,7 @@ module strata_tu
     if (rst || flush) begin
       q_v         <= '0;
       q_w         <= '0;
+      q_p         <= '0;
       head        <= '0;
       tail        <= '0;
       count       <= '0;
@@ -278,14 +296,15 @@ module strata_tu
           rd_off      <= '0;
           pf_cnt      <= '0;
           pf_inflight <= 0;
-          es          <= h_len == 0 ? E_RETIRE : E_REQ;
+          es          <= h_len == 0 ? E_RETIRE : q_p[head] ? E_PARK : E_REQ;
         end
         E_REQ: if (b_gnt) es <= E_XFER;
         E_XFER: begin
           if (b_retry) begin
-            // the device had no data yet: ask again, after the other queued
-            // transfers if it has not started (a break read may wait forever)
-            es <= off == 0 && count > 1 ? E_ROT : E_REQ;
+            // the device had no data yet: park the read until the device
+            // wakes this core; the other queued transfers go on meanwhile
+            // if it has not started (a break read may wait forever)
+            es <= off == 0 && count > 1 ? E_ROT : E_PARK;
             q_w[head] <= 1;
           end else begin
             if (!h_put && b_rvalid) off <= off + step;
@@ -318,6 +337,9 @@ module strata_tu
         end
         E_RETIRE: es <= E_IDLE;
         E_ROT: es <= E_IDLE;                      // the head moved to the tail
+        E_PARK:                                   // the head waits for a wake
+          if (!q_p[head]) es <= E_REQ;
+          else if (off == 0 && others) es <= E_ROT;
         default: es <= E_IDLE;
       endcase
 
@@ -325,6 +347,7 @@ module strata_tu
         q_v[head]    <= 0;
         q_v[tail]    <= 1;
         q_w[tail]    <= q_w[head];
+        q_p[tail]    <= q_p[head];
         q_kind[tail] <= q_kind[head];
         q_tag[tail]  <= q_tag[head];
         q_ls[tail]   <= q_ls[head];
@@ -337,6 +360,10 @@ module strata_tu
         tail         <= tail + 1;
       end
 
+      // ---- parking: a wake unparks every parked read; a retry parks the head
+      if (wake) q_p <= '0;
+      if (es == E_XFER && b_retry) q_p[head] <= 1;
+
       // ---- queue bookkeeping
       if (do_retire) begin
         q_v[head] <= 0;
@@ -345,6 +372,7 @@ module strata_tu
       if (do_issue) begin
         q_v[tail]    <= 1;
         q_w[tail]    <= 0;
+        q_p[tail]    <= 0;
         q_kind[tail] <= iss_kind;
         q_tag[tail]  <= iss_tag;
         q_ls[tail]   <= iss_ls;
