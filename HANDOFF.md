@@ -170,6 +170,35 @@ has the table of proofs, the assumptions and what is not covered;
   what device ports return, `strata_uart`, the system-wide invariant that
   write access to a byte has one holder. `formal/README.md` lists them with reasons.
 
+## The file system is a store (added 2026-11-14)
+
+The disk is no longer a directory of fixed entries. `os/servers/fs.s` keeps
+files, names, tags and indexes as trees of a copy-on-write B+tree store
+(`store.s`, `storew.s`, `sblob.s`, `fsops.s`, all included by `fs.s`). The
+design and its decisions are `doc/strata-fs-proposal.md`; the plan with what
+is done and what is not is `os/servers/PLAN-fs.md`; the protocol is in
+`doc/strataos.md` ("The disk is a store"). The format's reference is the C
+in `tools/stdb/` (`store.c` has the layout at its top, `fsl.h` the file
+system's trees), which `mkdisk` and `build/stdb` (check, dump, ls, get) are
+built from. The kernel boots from a boot manifest (`u_disk` in
+`os/kunits/boot.s`).
+- Tests: `make test-stdb` (the C store against a model, with the device cut
+  after every block), `tools/test-store.sh` (a disk the OS wrote: checked
+  from outside, read back after a second boot, power cuts). The emulator
+  and the RTL harness take `-w FILE` (the disk written back); the emulator
+  `--disk-cut N` and `--disk-cache SEED`.
+- What to know before changing the server: its D-LS is nearly full (about
+  1.8 KiB free of 40) and its I-LS too (about 1.7 KiB of 32); the library's
+  three 4 KiB buffers serve as its own (see the top of `fs.s`). A page
+  address from `P` is good only until the second `P` after it. Tree changes
+  use static scratch and do not nest; reads (`st_get`, `st_seek`) may
+  happen inside one.
+- Not done (the plan has the list): the store's calls for other programs
+  (namespaces over the endpoint, transactions), attributes and query terms
+  in paths, snapshots, the shell's completion and `httpd` on the cursor
+  calls (they still use DIR and TAGS, which cut names to 24 bytes), writing
+  a boot object from inside the OS.
+
 ## Open work
 
 **Waiting on a decision**

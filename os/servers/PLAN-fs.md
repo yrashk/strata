@@ -37,49 +37,73 @@ decisions taken.
 - [x] RTL harness: `disk_write` and `-w FILE`
 
 ## Stage 3: boot
-- [ ] Kernel `u_disk` / `u_findfile`: meta pages, checksum, manifest
-- [ ] A disk without a boot server fails in `mkdisk`; `stdb check` checks
+- [x] Kernel `u_disk`: meta blocks, checksums, the manifest turned into the
+      directory `u_findfile` and `u_loadsrv` read
+- [x] A disk without a boot server fails in `mkdisk`; `stdb check` checks
       the manifest
 
 ## Stage 4: the server, reading
-- [ ] Mount, page cache in far memory, node-at-a-time search and scan
-- [ ] Stream read (into a message, into an attached arena)
-- [ ] fs: OPEN, READ, CLOSE, STAT, LOADIMG, READALL, CWD, STATFS, READBLK
-- [ ] fs: QUERY (40), TAGS2 (41); DIR and TAGS in their present form
-- [ ] The OS boots; every test that does not write passes
+- [x] Mount, page cache in far memory (124 frames), three page buffers in
+      the D-LS, search and seek (`os/servers/store.s`)
+- [x] Blob read (into a message, into an attached arena) (`sblob.s`)
+- [x] fs: OPEN, READ, CLOSE, STAT, LOADIMG, READALL, CWD, STATFS, READBLK
+- [x] fs: QUERY (40), TAGS2 (41); DIR and TAGS in their present form
+- [x] The OS boots
 
 ## Stage 5: the server, writing
-- [ ] Allocator with a reserve; pending frees; the commit loop
-- [ ] Insert and split, delete and merge
-- [ ] Stream write, append, atomic replace at close
-- [ ] BATCH, BEGIN / COMMIT / ABORT, parking of other writers, abort at
-      CLEANUP
-- [ ] fs: WRITE, WRITEALL, UNLINK, RENAME, TAG, UNTAG; boot objects kept
-      contiguous
-- [ ] Tests: across a boot; cuts in the emulator; `dump` against the C
-      library; emulator against RTL
+- [x] Allocator: free and pending trees, spare extent, relief of the lists
+      where no change is under way, the commit's loop (`storew.s`)
+- [x] Insert and split, delete and merge
+- [x] Stream write, append, truncate; replace at close in one commit
+- [x] fs: WRITE, WRITEALL, UNLINK, RENAME, TAG, UNTAG
+- [x] `tools/test-store.sh`: a disk the OS wrote passes `stdb check` and
+      holds the right bytes; read back after a second boot; power cuts
+      over a whole session, with and without a write cache losing blocks
+- [x] Emulator against RTL: `compare-boot.sh` (console) passes on the store
+- [ ] Boot objects written from inside the OS (now refused: the manifest is
+      only written by `mkdisk`)
+- [ ] After a failed write (disk full, a bad page) the commit under way is
+      given up for every client: files being written by others are lost.
+      Give up only the failing client's work
+- [ ] A commit writes each changed page with a command of its own; pages
+      that lie together could go in one
+- [ ] `compare-boot.sh`: also compare the two disks' `stdb dump` (needs
+      `-w` on both; the RTL harness has it)
+- [x] `make test` runs `test-stdb` and `test-store`; `test-sh.out` regenerated
+      (a file's tags are listed in the order it got them; a 25-byte name is
+      a name). `test-http.out` expects an older `sh.s` size: not from here
 
 ## Stage 6: clients
-- [ ] `sys.s`: `sys_list`, `sys_tags2`
-- [ ] `ls`, `sh` completion, `httpd`, `tag` / `tags` / `cp -t`, `vi`
-- [ ] The 128 KiB refusals removed (`cp`, `vi`, `touch`)
-- [ ] Forth: `sys.fs`, `ls.fs`, `httpd.fs`, `tag.fs`, `tags.fs`, `cp.fs`,
-      `vi-edit.fs`
-- [ ] DIR (10) and TAGS (14) removed; expected outputs regenerated
-- [ ] `doc/strataos.md`, the manual (`ch-os`, `ch-firmware`,
-      `ch-appendices`), `HANDOFF.md`
+- [x] `sys.s`: `sys_list`, `sys_tags2`
+- [x] `ls` (names of any length, listings of any length)
+- [x] `cp`, `cp.fs`: no size limit
+- [ ] `sh` completion, `httpd`, `tag` / `tags` / `cp -t`, `vi`'s tags: still
+      DIR and TAGS (24-byte names, 16-byte tag names, 126 records, tag ids
+      below 64 in the facets)
+- [ ] `vi`: its "128 KiB at most" for `:w`
+- [ ] Forth: `sys.fs`, `ls.fs`, `httpd.fs`, `tag.fs`, `tags.fs`, `vi-edit.fs`
+- [ ] DIR (10) and TAGS (14) removed
+- [x] `doc/strataos.md`
+- [ ] The manual (`ch-os`, `ch-firmware`, `ch-appendices`), `HANDOFF.md`
 
 ## Stage 7: the store for programs
-- [ ] NSOPEN, NSGRANT, TREE, GET, SCAN, SOPEN and the rest over the
-      endpoint; handles through SPAWN and CLEANUP
+- [ ] NSOPEN, NSGRANT, TREE, GET, SCAN, BATCH, BEGIN / COMMIT / ABORT,
+      SOPEN over the endpoint; handles through SPAWN and CLEANUP. (The
+      server's code is 31 of the I-LS's 32 KiB with the whole of `sys.s`
+      in it, of which it uses little: a library of what a server needs
+      comes first)
 - [ ] `db` utility; Forth words
-- [ ] Attributes: SETATTR, GETATTR, `attr`; query terms in paths
+- [ ] Attributes: SETATTR, GETATTR, `attr`; query terms in paths (the host
+      side has attributes: `mkdisk -a`, `stdb dump`)
 
 ## Stage 8: snapshots
-- [ ] Births in pages and extents (in the format from stage 1)
+- [x] Births in pages and extents (in the format from stage 1)
 - [ ] Dead lists; take, list, delete; `fs@NAME` and `/@NAME/` paths
 
 ## Later
 - [ ] Browser persistence (IndexedDB, download)
 - [ ] `fsck` in the OS
 - [ ] Checksums of file data
+- [ ] The FPGA disk (128 KiB) is too small for the kernel's images and a
+      store: `mkdisk -B ""` writes it with the kernel only (it had no
+      servers before either)

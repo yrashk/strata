@@ -8,7 +8,8 @@
  * -B names the boot objects, the files the kernel loads before any server
  * runs (default proc,dev,fs; -B "" for a disk without them): each must be
  * among the files, and is stored in one piece and listed in the boot
- * manifest.
+ * manifest. With -B "" and no files the disk gets no store at all: the
+ * boot header and the kernel's images only (a disk too small for more).
  *
  * Layout (512-byte blocks; pages of 4096 bytes unless -p says 1024 or 2048):
  *   block 0   boot header (see firmware/bootrom.s; offset 56 "STDB", 60 u32
@@ -107,6 +108,14 @@ int main(int argc, char **argv) {
   put32(h + 44, flba);
   put32(h + 48, fblocks);
 
+  if (!nfiles && !*bootnames) { /* no store: the kernel's images only */
+    FILE *o = fopen(out, "wb");
+    if (!o) { perror(out); return 1; }
+    fwrite(dev.img, ST_BLK, next_lba, o);
+    fclose(o);
+    fprintf(stderr, "mkdisk: %s: %u blocks, OS code %u + data %u + far %u blocks, no store\n", out, nblocks, tblocks, dblocks, fblocks);
+    return 0;
+  }
   uint64_t first = (next_lba + ps / ST_BLK - 1) / (ps / ST_BLK);
   if (first + ST_RES + 8 > nblocks / (ps / ST_BLK)) { fprintf(stderr, "mkdisk: disk too small\n"); return 1; }
   st_format(&dev, ps, first);

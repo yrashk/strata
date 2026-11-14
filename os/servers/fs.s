@@ -1172,7 +1172,7 @@ g2_ret:
 
 
 ; setpath(a0 = text, a1 = length (<= PATHMAX)): the path -> pbuf, plen,
-; resolved: a relative one (not starting with "/"; DIR's empty one too) gets
+; resolved: a relative one (not starting with "/"; DIR's and QUERY's empty one too) gets
 ; the requester's current path and a "/" in front (pcwdl = the bytes that
 ; came from it), then pnorm. s registers are kept.
 setpath:
@@ -1188,9 +1188,11 @@ setpath:
         beq   t0, t1, stp_text          ; yes: as it is
         j     stp_rel                   ; ...
 stp_empty:
-        la    t0, srv_hdr               ; only DIR's empty path is the current one
+        la    t0, srv_hdr               ; only a listing's empty path is the current one
         ld    t0, 0(t0)                 ; ...
         li    t1, OP_DIR                ; ...
+        beq   t0, t1, stp_rel           ; ...
+        li    t1, 40                    ; (QUERY)
         bne   t0, t1, stp_text          ; ...
 stp_rel:
         call  srv_pid                   ; the requester's current path
