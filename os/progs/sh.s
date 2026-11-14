@@ -294,6 +294,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "windows: ws starts the window server; its keys, in the screen:\n" ; (continued)
          .ascii "  Alt+Enter new terminal    Alt+P or Alt+Space launch a program\n" ; (continued)
          .ascii "  Alt+1..4, Alt+arrows      focus a window\n" ; (continued)
+         .ascii "  Alt+F full screen         Alt+Z one tile alone (again: back)\n" ; (continued)
          .ascii "  Alt+Q close the window    Alt+Shift+Q quit ws, back to this shell\n" ; (continued)
          .ascii "  Ctrl-C interrupts the program in the focused window\n" ; (continued)
          .ascii "  programs for windows: term wmandel wclock wdoom kira wdb\n" ; (continued)

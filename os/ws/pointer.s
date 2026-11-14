@@ -18,7 +18,7 @@ CUR_EDGE  = 0x05080F                    ; its outline
 CUR_FILL  = 0xEAF4FF                    ; its body
 HELP_W    = 520                         ; the help panel's width
 HELP_ROW  = 20                          ; a binding's row
-HELP_N    = 10                          ; bindings shown
+HELP_N    = 12                          ; bindings shown
 HELP_ENT  = 56                          ; bytes per binding: key 24, what 32
 
         .data                           ; D-LS
@@ -55,6 +55,10 @@ help_tab:                               ; key, then what it does, NUL-padded
         .ascii "focus a tile\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" ; what it does
         .ascii "ALT+Q\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" ; key
         .ascii "close the focused tile\0\0\0\0\0\0\0\0\0\0" ; what it does
+        .ascii "ALT+F\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" ; key
+        .ascii "full screen, and back\0\0\0\0\0\0\0\0\0\0\0" ; what it does
+        .ascii "ALT+Z\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" ; key
+        .ascii "one tile alone, and back\0\0\0\0\0\0\0\0" ; what it does
         .ascii "CTRL+C\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" ; key
         .ascii "interrupt its program\0\0\0\0\0\0\0\0\0\0\0" ; what it does
         .ascii "ALT+?\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" ; key

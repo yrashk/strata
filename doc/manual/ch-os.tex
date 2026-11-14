@@ -1203,7 +1203,12 @@ The screen reads as an instrument panel of the machine and makes its explicitnes
 \item \textbf{Keys} (Alt+key as the window's keyboard sends it, \texttt{ESC [ 27 ; 3 ;} \textit{code}
   \texttt{\textasciitilde}; Alt+arrows \texttt{ESC [ 1 ; 3} \textit{X}). Alt+Enter opens a terminal; Alt+Space opens the
   command palette, a \texttt{launch} line with completion of program names; Alt+1--4 and Alt+arrows move
-  the focus; Alt+Q closes the focused window; Alt+Shift+Q quits the window server; Alt+? shows a panel
+  the focus; Alt+Q closes the focused window; Alt+F makes the focused window full screen (the whole
+  screen, without the strip or a frame; a sign says so for a few seconds) and Alt+Z makes it the only
+  tile (the strip and its frame stay; its tag ends \texttt{SINGLE}): the other windows keep running
+  but are not drawn, moving the focus shows another window alone, a new window or the end of the
+  window shown brings the tiling back, and the same key again puts everything where it was;
+  Alt+Shift+Q quits the window server; Alt+? shows a panel
   of these bindings, which also appears when the splash ends (any key or click dismisses it). Every
   other key is an event for the focused window: Esc and then a key is Esc and that key, whatever the
   timing, and an Alt+key the server does not bind arrives as ESC and the key. Ctrl-C interrupts the

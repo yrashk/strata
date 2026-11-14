@@ -315,6 +315,7 @@ window's surface and gives the band back.
 Keys (Alt+key has bytes of its own, so Esc and then a key is just that:
 vi's Esc then `p` is a put): Alt+Enter a new terminal, Alt+P (or
 Alt+Space) the launch palette, Alt+1..4 and Alt+arrows focus, Alt+Q close,
+Alt+F the focused window full screen and Alt+Z the only tile (again: back),
 Alt+Shift+Q back to the shell, Alt+? the key help (also shown when the
 splash ends; any key or click dismisses it).
 

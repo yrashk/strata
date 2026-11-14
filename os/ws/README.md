@@ -121,7 +121,11 @@ programs get 32 KiB from 0x8000).
 Keys (`keys.s`; Alt+key = ESC [ 27 ; 3 ; code ~, so Esc and then a key is
 just that, and an Alt+key ws does not bind reaches the client as ESC and the
 key): Alt+Enter a terminal; Alt+P or Alt+Space the
-palette; Alt+1..4 and Alt+arrows focus; Alt+Q close; Ctrl-C interrupts
+palette; Alt+1..4 and Alt+arrows focus; Alt+Q close; Alt+F the focused
+window full screen (every pixel: no strip, no frame) and Alt+Z the only
+tile (strip and frame stay), the same key again back to the tiling (the
+others keep running, undrawn; the focus keys show another one alone; a new
+window or the end of the one shown brings the tiling back); Ctrl-C interrupts
 the focused window's program (`wdoom`, `wmandel` and `wclock` end);
 Alt+Shift+Q quit to the shell; Alt+Shift+H
 halt; Alt+? the key help (shown when the splash ends; any key or click
