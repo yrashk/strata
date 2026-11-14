@@ -213,6 +213,8 @@
       if (hz_wr_stall) assert (f_ov_wr);
       if (hz_fetch_stall) assert (f_ov_pc);
       if (iss_hz) assert (f_ov_iss && iss_kind != XF_GETX);
+      // (what strata_core is proved under: strata_core.svh)
+      assert (!(iss_ready && iss_hz));
     end
 
   // ================================================================ the engine

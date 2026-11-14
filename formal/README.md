@@ -61,7 +61,9 @@ not covered; assumptions are `assume` statements and nowhere else.
 
 ## The proofs
 
-Times are on an Apple M-series laptop, one run each.
+The solver is Yices for `bus`, `tu`, `top` and `div`'s `ref`, Bitwuzla for
+the rest. (Yices did not finish the core's inductions in 20 minutes each;
+Bitwuzla takes 5 to 8.)
 
 | Target | Task | Method | What |
 |---|---|---|---|
@@ -81,12 +83,23 @@ Times are on an Apple M-series laptop, one run each.
 | `core` | traps | induction (k = 2) | the listed traps are delivered as the emulator's `trap()`: bank, epc, cause, tval, mode, next pc or halt |
 | `core` | prec | induction (k = 2) | a cycle that retires nothing changes no architectural state and takes nothing from the rest of the machine |
 | `core` | priv | induction (k = 2) | in user mode every supervisor-only instruction traps; supervisor state changes only by a trap to the supervisor |
-| `core` | lin | induction (k = 2) | write access to a byte of far memory is never in more registers after an instruction than before (but for the instructions that bring a capability in) |
-| `core` | cover | 266 cycles | from reset through the reset sequencer to traps and retiring instructions |
+| `core` | lin | induction (k = 2) | write access to a byte of far memory is never in more registers after an instruction than before (but for the instructions that bring a capability in); a gift given empties a linear source, a gift taken lands in cd; csave / crestore move, not copy |
+| `core` | cover | 6 cycles, from any state | traps of several causes to both handlers and to the double-fault halt, instructions retiring, a gift given and one taken; from any state, see below |
+| `core` | reset | 262 cycles | from reset, through the reset sequencer, to the first instruction's execute cycle |
 | `top` | prove | induction (k = 3) | inboxes: arbitration, no overflow, a gift comes out once, unchanged, in order; the walker: one walk, at most 774 cycles, the range rewritten with a new highest generation, heads at unit boundaries, done only for the request that started it |
 | `top` | cover | 40 cycles | |
 
 Results and run times of the last run: `make formal-report`.
+
+**The core's covers start in any state, not at reset.** From reset every
+trace spends 256 cycles in the reset sequencer first, and the solver then
+needs half an hour per cover. So `core`'s `cover` task drops the
+reset-in-the-first-cycle assumption (`F_FREE`): its traces show that each
+property's condition can occur together with every assumption (the proofs
+are not vacuous), not that the states are reachable. `reset` shows the way
+from reset to the first instruction. The proofs themselves do not depend on
+this: an induction holds from any state anyway. The other targets' covers
+all start at reset.
 
 ### What is assumed
 

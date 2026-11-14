@@ -71,6 +71,8 @@
 //   - the save table returns a well-formed capability (every write to it is
 //     asserted to be one, and the reset sequencer empties all slots; the
 //     table itself is not modelled word by word)
+//   - the Transfer Unit does not accept a command it reports a hazard for
+//     (asserted in strata_tu.svh)
 //   Nothing is assumed about the bus data, gifts' timing, the revocation
 //   walker (dom_done, dom_gen, gt_we ...), stop and reset requests, or the
 //   memories' contents.
@@ -88,9 +90,17 @@
   localparam bit F_G3 = F_GRP == 0 || F_GRP == 3;
   localparam bit F_G4 = F_GRP == 0 || F_GRP == 4;
 
+  // The cover task starts in any state instead of at reset (F_FREE): from
+  // reset every trace first spends 256 cycles in the reset sequencer, which
+  // makes the solver very slow (one cover in half an hour). Its traces show
+  // that the properties' conditions can occur together with every
+  // assumption, not that the states are reachable. The task `reset` covers
+  // the way from reset to the first instruction's execute cycle.
+  parameter bit F_FREE = 0;
+
   logic f_past = 0;
   logic f_rstd = 0;
-  always_comb if (!f_past) assume (rst);
+  always_comb if (!f_past && !F_FREE) assume (rst);
   always_ff @(posedge clk) begin
     f_past <= 1;
     if (rst) f_rstd <= 1;
@@ -130,6 +140,7 @@
     for (int i = 0; i < NCAPS; i++) f_wf_r[i] = f_wf(caps[i]);
   always_comb begin
     if (take_hit) assume (f_wf(take_cap));
+    assume (!(tu_iss_ready && tu_iss_hz));
     if (state == S_CT) assume (f_wf(ct_entry));
     if (f_rstd) begin
       assert (&f_wf_r);
@@ -303,7 +314,7 @@
   assign f_dbl  = s_tvec == 0 || (!user && pc == s_tvec);
   logic f_step;                   // the last cycle was an ordinary one (no reset of any kind)
   logic f_okp = 0;
-  always_ff @(posedge clk) f_okp <= f_rstd && !rst && !reset_flush;
+  always_ff @(posedge clk) f_okp <= (f_rstd || F_FREE) && !rst && !reset_flush;
   assign f_step = f_past && f_okp;
   always_ff @(posedge clk) begin
     if (F_G1 && f_step && $past(f_tv)) begin
@@ -426,11 +437,25 @@
     return k.valid && k.perms[P_W] && (k.space == SP_T2 || k.space == SP_T3) && k.space == sp &&
            k.base <= a && {1'b0, a} < {1'b0, k.base} + {1'b0, k.len};
   endfunction
-  logic [4:0] f_np;               // registers that hold write access to P
-  always_comb begin
-    f_np = '0;
-    for (int i = 0; i < NCAPS; i++) f_np = f_np + 5'(f_holds(caps[i], f_psp, f_pad));
+  // An instruction writes at most its two capability operands (shown: any
+  // other register is unchanged), so the count over all registers grows
+  // exactly when the count over those two does.
+  logic [1:0] f_np;               // of the instruction's operands: how many hold write access to P
+  assign f_np = f_is == f_id ? {1'b0, f_holds(f_ks, f_psp, f_pad)}
+                             : 2'(f_holds(f_ks, f_psp, f_pad)) + 2'(f_holds(f_kd, f_psp, f_pad));
+  logic [3:0] f_qs, f_qd;         // last cycle's operands
+  logic [1:0] f_qnp;              // and their count then
+  logic       f_qcap, f_qbr;
+  always_ff @(posedge clk) begin
+    f_qs   <= f_is;
+    f_qd   <= f_id;
+    f_qnp  <= f_np;
+    f_qcap <= f_capop && (state == S_EX || state == S_CT);
+    f_qbr  <= f_brings;
   end
+  logic [1:0] f_np_now;           // the same two registers now
+  assign f_np_now = f_qs == f_qd ? {1'b0, f_holds(caps[f_qs], f_psp, f_pad)}
+                                 : 2'(f_holds(caps[f_qs], f_psp, f_pad)) + 2'(f_holds(caps[f_qd], f_psp, f_pad));
   logic f_brings;                 // the instruction brings a capability into the registers
   assign f_brings = (d.kind == K_CAP && (d.cap_fn == CF_TAKE || d.cap_fn == CF_RESTORE)) ||
                     (d.kind == K_CAP2 && (d.cap_fn == C2_RECV || d.cap_fn == C2_RESTOREX ||
@@ -440,7 +465,8 @@
                       f_lv(caps[f_ci], caps[f_ci].space == SP_T2 ? gt2[0] : gt3[caps[f_ci].base[GRAN_SHIFT+G3W-1:GRAN_SHIFT]]);
   always_ff @(posedge clk) begin
     if (F_G4 && f_step && $past(state) != S_RST) begin
-      if (!$past(f_brings)) assert (f_np <= $past(f_np));
+      if (!(f_qcap && (f_ci == f_qs || f_ci == f_qd))) assert (caps[f_ci] == $past(caps[f_ci]));
+      if (!f_qbr) assert (f_np_now <= f_qnp);
       if ($past(f_lin_live) && caps[f_ci] != $past(caps[f_ci]))
         assert ($past(f_capop) && (f_ci == $past(f_is) ||
                 (f_ci == $past(f_id) && $past(d.kind) == K_CAP && ($past(d.cap_fn) == CF_JOIN || $past(d.cap_fn) == CF_CLEAR))));
@@ -461,9 +487,20 @@
 
   // ================================================================ not vacuous
   always_ff @(posedge clk) begin
-    cover (f_step && $past(f_tv) && $past(f_tc) == C_ILLEGAL && state == S_F0);
-    cover (f_step && $past(f_tv) && $past(f_tc) == C_IFAULT && state == S_HALT);
-    cover (f_step && $past(state) == S_EX && $past(d.kind) == K_CAP && $past(d.cap_fn) == CF_SPLIT && f_ret);
-    cover (f_step && $past(state) == S_EX && $past(d.kind) == K_XFER && f_ret);
-    cover (f_step && $past(f_tv) && $past(f_tc) == C_PERM && $past(d.kind) == K_XFER);
+    // (from any state: F_FREE)
+    cover (!F_FREE || (f_step && $past(f_tv) && $past(f_tc) == C_ILLEGAL && state == S_F0));
+    cover (!F_FREE || (f_step && $past(f_tv) && $past(f_tc) == C_IFAULT && state == S_HALT));
+    cover (!F_FREE || (f_step && $past(f_tv) && $past(f_tc) == C_PRIV && $past(f_dbl)));
+    cover (!F_FREE || (f_step && $past(f_tv) && $past(f_tc) == C_STOP && $past(state) == S_EX));
+    cover (!F_FREE || (f_step && $past(f_tv) && $past(f_to_u) && $past(f_tc) == C_CAPINV));
+    cover (!F_FREE || (f_step && $past(f_tv) && $past(f_tc) == C_PERM && $past(d.kind) == K_XFER));
+    cover (!F_FREE || (f_step && $past(state) == S_EX && $past(d.kind) == K_CAP && $past(d.cap_fn) == CF_SPLIT && f_ret && f_qnp == 2'd1));
+    cover (!F_FREE || (f_step && $past(state) == S_EX && $past(d.kind) == K_CAP2 && $past(d.cap_fn) == C2_DOM && f_ret));
+    cover (!F_FREE || (f_step && $past(state) == S_EX && $past(d.kind) == K_XFER && f_ret));
+    cover (!F_FREE || (f_step && $past(give_valid && give_ack) && !$past(f_ks.perms[P_D])));
+    cover (!F_FREE || (f_step && $past(take_pop) && $past(user)));
+    cover (!F_FREE || (f_step && $past(state) == S_CT && f_ret && !$past(ct_save)));
+    cover (!F_FREE || (f_step && $past(user) && !user && state == S_F0));
+    // (from reset: the first instruction is executed)
+    cover (F_FREE || (f_rstd && state == S_EX));
   end
