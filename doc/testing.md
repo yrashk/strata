@@ -21,14 +21,14 @@ cache when the test has passed with the same inputs (below).
 
 ## The tiers
 
-Times are from an 18-core Apple M5 Pro with 48 GB, with nothing else running
-(they double when other checkouts test at the same time).
+Times are from an 18-core Apple M5 Pro with 48 GB, every test run (nothing
+from the cache), while other checkouts were testing too.
 
 | tier | target | what it runs | time |
 |---|---|---|---|
-| fast | `make test-fast` | the examples on emulator and RTL, instruction by instruction (all but `gfx`); the conformance suite on interpreter, JIT and RTL; the shell, `vi`, files, preemption on the emulator; the JIT against the interpreter; the store with small pages | TFAST |
-| mid | `make test-mid` | the fast tier, and: a short StrataOS session in lockstep with the RTL (`os/demo-short.txt`); `gfx` and the framebuffer on the RTL; the rest of the OS tests on the emulator (`vi.fs`, the Forth ports, the store, network, HTTP, the window server, wdoom, kira, isolation, guests, the session under the JIT); the debuggers; the store against its model and with a million files | TMID |
-| full | `make test`, `make test-cached` | the mid tier, and: the two StrataOS sessions in lockstep with the RTL (`os/demo.txt`, `os/guest-demo.txt`); Ctrl-C on both machines; the process limits; the small configuration (`small-*`: 8 overlay map entries, examples and session); the smaller Local Stores (`ls*`) and the reproductions of what the proofs found (`formal-repro`); the WebAssembly builds under node (`wasm`, `wasm-rtl`) | TFULL |
+| fast | `make test-fast` | the examples on emulator and RTL, instruction by instruction (all but `gfx`); the conformance suite on interpreter, JIT and RTL; the shell, `vi`, files, preemption on the emulator; the JIT against the interpreter; the store with small pages | 12 s |
+| mid | `make test-mid` | the fast tier, and: a short StrataOS session in lockstep with the RTL (`os/demo-short.txt`); `gfx` and the framebuffer on the RTL; the rest of the OS tests on the emulator (`vi.fs`, the Forth ports, the store, network, HTTP, the window server, wdoom, kira, isolation, guests, the session under the JIT); the debuggers; the store against its model and with a million files | 1 min |
+| full | `make test`, `make test-cached` | the mid tier, and: the two StrataOS sessions in lockstep with the RTL (`os/demo.txt`, `os/guest-demo.txt`); Ctrl-C on both machines; the process limits; the small configuration (`small-*`: 8 overlay map entries, examples and session); the smaller Local Stores (`ls*`) and the reproductions of what the proofs found (`formal-repro`); the WebAssembly builds under node (`wasm`, `wasm-rtl`) | 7.5 min |
 
 A tier is a set of tests, not a different way of running them: a test does
 the same thing in every tier. What decides a test's tier is how long it
@@ -149,8 +149,8 @@ t sh fast build-main "emu os" "tools/test-sh.sh $OS"
 
 ## Where the time goes
 
-`make test` once ran its steps one after another: 39 minutes of processor
-time in a row. The steps were already independent (each made its own
+`make test` once ran its steps one after another: 38 minutes, 32 of them
+processor time in the tests. The steps were already independent (each made its own
 temporary directory), so they now run at the same time, and the time of
 the suite is the time of its longest test. What was changed in the tests
 themselves:

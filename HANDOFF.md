@@ -61,7 +61,7 @@ succeeded. `make test` builds everything and runs, several at a time
   16/4 and 4/32 KiB, and StrataOS refusing them);
 - `test-wasm` (needs node and emcc).
 
-It takes about 7 minutes on 18 cores (the longest test, a StrataOS session
+It takes 7 to 8 minutes on 18 cores (the longest test, a StrataOS session
 on the RTL, sets the time), more when the machine is busy; run one after
 another it was around an hour. For the loop of editing and testing:
 `make test-fast` (seconds), `make test-mid` (about a minute),
@@ -329,7 +329,7 @@ built from. The kernel boots from a boot manifest (`u_disk` in
 
 ```
 make                  # sasm, strata-emu, strata-rtl
-make test             # everything, each test run (about 7 minutes on 18 cores)
+make test             # everything, each test run (7 to 8 minutes on 18 cores)
 make test-fast        # the fast tier; test-mid, test-changed, test-one T=NAME: doc/testing.md
 make conformance      # the conformance suite on interpreter / JIT / RTL
 make formal           # the SymbiYosys proofs (formal-NAME: one target)

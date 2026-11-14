@@ -92,7 +92,7 @@ a conformance suite that holds them all to the same behaviour.
 
 ```bash
 make                # build/sasm, build/strata-emu, build/strata-rtl
-make test           # every test, several at a time (about 7 minutes on 18 cores)
+make test           # every test, several at a time (7 to 8 minutes on 18 cores)
 make test-fast      # the tests of the edit-and-test loop (seconds; doc/testing.md)
 make show-gfx       # eight cores draw a Mandelbrot set into the framebuffer window
 make boot           # boot StrataOS on the emulator (12 cores), on the real network (NAT)
