@@ -66,7 +66,7 @@ X touch: ls /tt
 X touch: cat t1 t2
 X cp: cp t1 t3
 X cp: cp -t /src/hello.s h1
-X cp: cp /src/sh.s big
+X cp: cp /src/sh.s big; wc < big; rm big
 X cp: cp t1 /tt/t1
 X cp: cp nope z
 X cp: cp a

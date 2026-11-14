@@ -54,6 +54,7 @@ static FILE *trace_file = nullptr;
 static bool faulted = false;
 static uint8_t *disk;
 static uint64_t disk_blocks;
+static const char *disk_out;            // -w: the disk is written here at the end
 static uint8_t plat[PLAT_LEN];
 static bool virtual_time;
 static svScope t3_scope;
@@ -95,7 +96,10 @@ extern "C" long long img_word(int kind, int widx) {
 extern "C" long long disk_word(int widx) {
   return (uint64_t)widx < disk_blocks * 64 ? (long long)stx_word(disk, (uint32_t)widx) : 0;
 }
-extern "C" void disk_write(int, long long) {}
+extern "C" void disk_write(int widx, long long v) { // the device wrote a word: kept for -w
+  if ((uint64_t)widx < disk_blocks * 64)
+    for (int i = 0; i < 8; i++) disk[(size_t)widx * 8 + i] = (uint8_t)((uint64_t)v >> (8 * i));
+}
 extern "C" char plat_byte(int idx) { return (char)plat[idx]; }
 extern "C" char ident_byte(int) { return 0; }
 
@@ -192,6 +196,7 @@ static void usage() {
           "  -t FILE     write an instruction trace\n"
           "  -m N        stop after N cycles (timeout)\n"
           "  -d FILE     block device image\n"
+          "  -w FILE     at the end, write the disk as it then is to FILE\n"
           "  -i FILE     console input from FILE (default: the terminal / stdin)\n"
           "  -P FILE     scripted pointer input (common/display.h; N = clock cycles)\n"
           "  -b N        press Ctrl-C after N cycles\n"
@@ -222,6 +227,8 @@ int main(int argc, char **argv) {
       break_at = strtoull(argv[++i], nullptr, 0);
     } else if (!strcmp(argv[i], "-d") && more) {
       disk_path = argv[++i];
+    } else if (!strcmp(argv[i], "-w") && more) {
+      disk_out = argv[++i];
     } else if (!strcmp(argv[i], "-i") && more) {
       in_path = argv[++i];
     } else if (!strcmp(argv[i], "-P") && more) {
@@ -310,6 +317,7 @@ int main(int argc, char **argv) {
   fflush(stdout);
   if (trace_file) fclose(trace_file);
   bool all_halted = top->all_halted;
+  if (disk_out) stx_disk_save(disk_out, disk, disk_blocks);
   top.reset();   // (the model goes before its context, and both before the
   ctx.reset();   // run time's own statics: not left to the exit-time destructors)
 

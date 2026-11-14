@@ -115,6 +115,9 @@ CW=$(printf '\027'); CL=$(printf '\014'); CD=$(printf '\004')
   printf 'cat /work/n%s%s%s\n' "$TAB" "$TAB" "$CU"
   printf 'echo more >> /work/n1; tags n1\n'
   printf 'cat /notes/n%s%s%s\n' "$TAB" "$TAB" "$CU"
+  printf 'echo long > /work/a-name-of-more-than-twenty-four-bytes.txt\n'
+  printf 'cat /work/a-na%s\n' "$TAB"
+  printf 'rm a-name-of-more-than-twenty-four-bytes.txt\n'
   printf 'untag n3 work; untag n1 work; ls /work\n'
   printf 'tags | grep notes\n'
   printf 'tag n1 a/b; tag nosuch x; untag; tags nosuch\n'
@@ -131,8 +134,8 @@ CW=$(printf '\027'); CL=$(printf '\014'); CD=$(printf '\004')
   printf 'cp /proj/p1 /copy/p4; cp -t p2 /copy/p5; ls -t /copy; cat p4 p5\n'
   printf 'cp p1 /copy/p1; cp nosuch p6; cp p1; cp /todo/p1 p6\n'
   printf 'mv p4 /done/; echo old > p6; mv p5 p6; ls -t /done; tags p6; cat p6\n'
-  printf 'mv nosuch p7; mv p6 /a/-b/p7; mv p6 0123456789012345678901234; mv p6\n'
-  printf 'touch p1 /proj/p8 /proj/-done/p9 0123456789012345678901234; ls -t /proj; cat p1\n'
+  printf 'mv nosuch p7; mv p6 /a/-b/p7; mv p6\n'
+  printf 'touch p1 /proj/p8 /proj/-done/p9 a_name_longer_than_24_bytes; ls -t /proj; cat p1; rm a_name_longer_than_24_bytes\n'
   printf 'touch /extra/p2; tags p2; cat p2\n'
   printf 'retag p6 x y; tags p6; retag p6 y; tags p6; retag p6; tags p6; retag nosuch\n'
   printf 'rm p1 p2 p3 p4 p6 p8; ls /proj\n'

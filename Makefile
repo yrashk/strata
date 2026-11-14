@@ -108,7 +108,7 @@ $(BUILD)/examples/%.stx: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 
 examples: $(IMAGES)
 
-test: all examples os
+test: all examples os $(BUILD)/stdb test-stdb
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/compare.sh $(IMAGES)
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/compare-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/demo.txt
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/compare-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/guest-demo.txt guests
@@ -117,6 +117,7 @@ test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vi.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vifs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-fs-progs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-store.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) ./tools/test-files.sh $(BUILD)/bootrom.stx $(BUILD)/files-test/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-net.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-http.sh $(BUILD)/bootrom.stx $(BUILD)/http-test/disk.img
@@ -227,9 +228,12 @@ test-dbg: $(BUILD)/strata-dbg $(BUILD)/strata-emu examples os
 # ---- firmware, OS and disk image -------------------------------------------
 OS_FILES := $(wildcard os/files/*)
 
-$(BUILD)/mkdisk: tools/mkdisk.c common/stx.h asm/isa.h
+STDB_LIB := tools/stdb/store.c tools/stdb/fsl.c
+STDB_HDR := tools/stdb/stdb.h tools/stdb/fsl.h
+# mkdisk writes the store format (doc/strata-fs-proposal.md): tools/stdb
+$(BUILD)/mkdisk: $(STDB_LIB) $(STDB_HDR) tools/stdb/mkdisk.c common/stx.h asm/isa.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -o $@ tools/mkdisk.c
+	$(CC) $(CFLAGS) -o $@ $(STDB_LIB) tools/stdb/mkdisk.c
 
 $(BUILD)/bootrom.stx: firmware/bootrom.s firmware/fw.s $(BUILD)/sasm
 	$(BUILD)/sasm -g $(BUILD)/bootrom.map -o $@ firmware/bootrom.s
@@ -264,11 +268,15 @@ $(BUILD)/prog/%: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
+$(BUILD)/prog/fs: os/servers/fsops.s os/servers/store.s os/servers/storew.s os/servers/sblob.s os/servers/fsattr.s
 $(SPROGS): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
-$(UPROGS) $(NPROGS): $(BUILD)/prog/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
+# db: looks into the store on the disk (os/lib/stview.s; wdb is its window)
+DBPROGS := $(BUILD)/prog/db $(BUILD)/prog/snap $(BUILD)/prog/attr
+$(BUILD)/prog/db: os/lib/stview.s os/lib/kv.s
+$(UPROGS) $(NPROGS) $(DBPROGS): $(BUILD)/prog/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
@@ -302,7 +310,8 @@ $(BUILD)/prog/retag: $(BUILD)/prog/tag
 	cp $<.map $@.map
 
 # the window server and its clients (os/ws/, os/lib/gfx.s, os/lib/wsclient.s)
-WSPROGS := $(patsubst %,$(BUILD)/prog/%,ws term wmandel wclock)
+WSPROGS := $(patsubst %,$(BUILD)/prog/%,ws term wmandel wclock wdb)
+$(BUILD)/prog/wdb: os/lib/stview.s
 $(WSPROGS): $(BUILD)/prog/%: os/progs/%.s $(wildcard os/ws/*.s) os/lib/gfx.s os/lib/font/font.s os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -I os/ws -I os/lib -g $@.map -o $@ $<
@@ -396,14 +405,14 @@ FORTH_DISK += lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUI
 # the ports of os/progs, with their library and loader: one file
 FORTH_DISK += $(BUILD)/forth-os/progs.pk
 
-DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as \
+DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(DBPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as \
               $(BUILD)/prog/units $(BUILD)/prog/vi $(SRCS) $(USRCS) $(BUILD)/src/vi.s $(FORTH_DISK)
 
 # The same files with their tags (mkdisk -t TAGS applies to the files after it).
 # The file system has no directories: `ls /bin` lists the files tagged bin,
 # `ls /src/demo` those tagged both src and demo.
 DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc %/resolv,$(OS_FILES)) \
-             -t sys $(SPROGS) -t bin $(UPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag -t bin,net $(NPROGS) -t bin,ws $(WSPROGS) \
+             -t sys $(SPROGS) -t bin $(UPROGS) $(DBPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag -t bin,net $(NPROGS) -t bin,ws $(WSPROGS) \
              -t demo $(PROGS) -t bin $(BUILD)/prog/as $(BUILD)/prog/units $(BUILD)/prog/vi \
              -t src,demo $(EXSRCS) -t src $(BUILD)/src/as.s $(BUILD)/src/units.s $(USRCS) $(BUILD)/src/vi.s \
              -t bin,forth $(BUILD)/prog/forth -t forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
@@ -495,7 +504,7 @@ $(BUILD)/mkhex: tools/mkhex.c common/stx.h common/platform.h asm/isa.h
 
 fpga-images: $(BUILD)/mkhex $(BUILD)/bootrom.stx $(BUILD)/kernel.stx $(BUILD)/mkdisk $(BUILD)/prog/hello $(BUILD)/prog/mandel
 	@mkdir -p $(FPGA)
-	$(BUILD)/mkdisk -b 256 -n 128 -o $(FPGA)/disk.img -k $(BUILD)/kernel.stx os/files/motd os/files/rc $(BUILD)/prog/hello $(BUILD)/prog/mandel
+	$(BUILD)/mkdisk -b 256 -B "" -o $(FPGA)/disk.img -k $(BUILD)/kernel.stx
 	$(BUILD)/mkhex ils $(BUILD)/bootrom.stx $(FPGA)/bootrom_ils.hex
 	$(BUILD)/mkhex dls $(BUILD)/bootrom.stx $(FPGA)/bootrom_dls.hex
 	$(BUILD)/mkhex disk $(FPGA)/disk.img 16384 $(FPGA)/disk.hex
@@ -794,3 +803,28 @@ manual:
 
 clean:
 	rm -rf $(BUILD)
+
+# The store on the host (doc/strata-fs-proposal.md): its tests against a
+# model and against power cuts.
+
+$(BUILD)/stdb-test: tools/stdb/store.c tools/stdb/test.c tools/stdb/stdb.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ tools/stdb/store.c tools/stdb/test.c
+
+# the tool that checks and reads a disk image
+$(BUILD)/stdb: $(STDB_LIB) $(STDB_HDR) tools/stdb/stdb.c
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ $(STDB_LIB) tools/stdb/stdb.c
+
+$(BUILD)/stdb-many: $(STDB_LIB) $(STDB_HDR) tools/stdb/many.c
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ $(STDB_LIB) tools/stdb/many.c
+
+# test-stdb: the store against a model and power cuts; then a million files
+# (about ten seconds, 1.5 GiB of memory), and 20,000 on small pages (trees
+# four levels high)
+.PHONY: test-stdb
+test-stdb: $(BUILD)/stdb-test $(BUILD)/stdb-many
+	$(BUILD)/stdb-test
+	$(BUILD)/stdb-many 1000000
+	$(BUILD)/stdb-many 20000 1024

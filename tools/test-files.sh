@@ -1,16 +1,15 @@
 #!/bin/sh
-# test-files.sh: a disk with more files than one window of the file server's
-# directory (128 entries) or one DIR message (126 records) holds.
+# test-files.sh: a disk with many files, more than one message of a listing
+# holds.
 #
 #   tools/test-files.sh bootrom.stx files-test/disk.img
 #
 # The disk is the standard one plus 300 files tagged many (f000 .. f299, each
-# holding its own name): 415 files in a directory of 1024 entries. One
-# session on the emulator: ls lists all 300 (three DIR messages); files of
-# several windows are read; df counts them; a file is created, one removed,
-# one renamed, one tagged, and the listings and the tags' counts follow;
-# then the blocks the file server wrote are read back from the device (the
-# emulator does not write a disk image back, so there is no second boot).
+# holding its own name). One session on the emulator: ls lists all 300 (in
+# parts); files from all over the listing are read; a file is created, one
+# removed, one renamed, one tagged, and the listings and the tags' counts
+# follow; then the disk the session left is checked from outside (stdb
+# check) and holds what the session did (stdb dump).
 set -e
 BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
@@ -46,12 +45,9 @@ ls /many | wc
 echo all-count
 ls / | wc
 tags
-hexdump 0
-hexdump 27
-hexdump 65
-hexdump 73
+halt
 EOF2
-$BUILD/strata-emu -c 12 -g none -m 40000000000 -d $T/disk.img -i $T/in1 "$ROM" > $T/out1.txt 2>&1 || fail "the emulator exited with an error" out1
+$BUILD/strata-emu -c 12 -g none -m 40000000000 -d $T/disk.img -w $T/after.img -i $T/in1 "$ROM" > $T/out1.txt 2>&1 || fail "the emulator exited with an error" out1
 if grep -q 'fault\|panic' $T/out1.txt; then fail "a fault was reported" out1; fi
 python3 - $T/out1.txt <<'PY' || fail "the first session's listings are not right" out1
 import sys, re
@@ -70,13 +66,11 @@ PY
 has out1 '^f299  *5$' "ls /extra did not list the tagged file"
 has out1 'cat: .*f150' "the removed file could still be read"
 
-# what reached the disk (hexdump N reads block N from the device): the header's
-# directory size (offset 56: 1024), the fourth new file's directory entry
-# (number 418: the third of block 1 + 418 / 16), the new tag's name (the tag
-# table starts at block 65) and f299's tag set (entry 414: many and extra,
-# bits 10 and 11)
-has out1 '^030  .. .. .. .. 41 00 00 00 00 04 00 00' "the header does not say 1024 entries, or the tag table is not at block 65"
-has out1 '^040  6e 34 00 00' "the new file's directory entry is not on the disk"
-has out1 '^0b0  65 78 74 72 61 00' "the new tag's name is not on the disk"
-has out1 '^0f0  00 0c 00 00 00 00 00 00' "the tagged file's tag set is not on the disk"
-echo "test-files: ok    415 files: listings in parts, several directory windows, create, remove, rename, tag, the blocks written"
+# what reached the disk
+$BUILD/stdb check $T/after.img > $T/check.txt 2>&1 || fail "the disk the session left fails its check" check
+$BUILD/stdb dump $T/after.img > $T/dump.txt
+has dump '^n4 size=2 ' "the fourth new file is not on the disk"
+has dump '^f299 .*tags=.*extra' "the new tag is not on the tagged file on the disk"
+has dump '^g298 size=5 ' "the renamed file is not on the disk under its new name"
+if grep -q '^f150 \|^f298 ' $T/dump.txt; then fail "a removed or renamed file is still on the disk" dump; fi
+echo "test-files: ok    300 files and the standard ones: listings in parts, create, remove, rename, tag; the disk checked"

@@ -571,9 +571,10 @@ the main points:
   when a program was waiting for input.
 - The file system has tags instead of directories (`ls /src/demo` lists
   the files tagged both `src` and `demo`, `ls /src/-demo` those tagged `src`
-  but not `demo`; subdirectories are facets: `ls /src` ends with `demo/`), but files are contiguous runs of
-  blocks, a deleted file's space comes back only if it was the last one, and
-  a disk holds at most 1024 files and 64 tags.
+  but not `demo`; subdirectories are facets: `ls /src` ends with `demo/`), and the disk is a
+  copy-on-write store of B+trees with snapshots (`doc/strata-fs-proposal.md`):
+  files, names and tags have no limit but the disk's. Some older programs
+  still list through calls that cut a name to 24 bytes.
 - The shell has no globbing and no `2>`.
 - Strata Forth runs on the bare machine only, not yet as a StrataOS program.
 - With timer-driven preemption, the emulator and the RTL cannot be compared

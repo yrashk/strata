@@ -154,7 +154,6 @@ sys_start: .space 512                   ; the start-up block: pid, parent, handl
 sys_bufb:  .dword 0                     ; base of our message buffer (what the kernel waits for)
 sys_intrf: .dword 0                     ; an interrupt arrived while we waited (-2 seen)
 sys_htab:  .space NHAND * 16            ; handles: {server register, server id}, register 0 = free
-sys_fskip: .dword 0                     ; sys_query: matching files to skip (a listing's next part)
 out_buf:   .space 4096                  ; buffered standard output
 out_len:   .dword 0                     ; bytes waiting in out_buf
 in_buf:    .space 4096                  ; buffered standard input
@@ -1005,10 +1004,7 @@ sys_dir:
         j     sys_fsdata                ; (tail call)
 
 ; sys_query(a0 = buffer, 128 * 32 bytes, a1 = tag path, a2 = its length) ->
-; a0 = files carrying every tag of the path (records as sys_dir), or -4.
-; One call brings 126 files at most. A listing longer than that is read in
-; parts: after a call that brought 126, add 126 to `sys_fskip` and call
-; again, until fewer come (ls does; sys_fskip starts as 0).
+; a0 = files carrying every tag of the path (records as sys_dir), or -4
 sys_query:
         mv    a3, a2                    ; length
         mv    a2, a1                    ; the path
@@ -1036,8 +1032,7 @@ sys_fsq:
         call  sys_put                   ; ...
         li    a0, 2                     ; fs
         ld    a1, 8(sp)                 ; op
-        la    t0, sys_fskip             ; (DIR: the files to skip; else ignored)
-        ld    a2, 0(t0)                 ; ...
+        li    a2, 0                     ; ...
         ld    a3, 24(sp)                ; length
         li    a4, 0                     ; ...
         call  sys_msg                   ; a0 = count
@@ -2295,4 +2290,59 @@ scw_get:
 scw_ret:
         ld    ra, 0(sp)                 ; restore ra
         addi  sp, sp, 24                ; release the frame
+        ret                             ; done
+
+; ---- files: listings without limits (fs QUERY, TAGS2) --------------------------
+OP_QUERY   = 40                         ; fs: list files, with a cursor
+OP_TAGS2   = 41                         ; fs: list tags, with a cursor
+
+; sys_list(a0 = buffer (SYS_MAX bytes), a1 = tag path, a2 = its length, a3 =
+; cursor (0 at first)) -> a0 = files in this part (or -4), a1 = the cursor to
+; ask with again (0: that was all). The buffer: u64 n and n u32 ids of the
+; path's own tags (padded to 8 bytes), then per file {u16 record bytes, u16
+; name length, u32 tags, u64 size, the name, the file's tag ids (u32 each)},
+; name and ids each padded to 8 bytes. sys_facets works as after sys_query.
+sys_list:
+        li    a4, OP_QUERY              ; the request
+        j     sys_fsl                   ; shared path
+; sys_tags2(a0 = buffer (SYS_MAX bytes), a1 = a file's path, a2 = its length
+; (0: every tag), a3 = cursor (0 at first)) -> a0 = tags in this part, a1 =
+; the cursor to ask with again (0: that was all). The buffer: per tag {u16
+; record bytes, u16 name length, u32 id, u64 files carrying it, the name
+; padded to 8 bytes}.
+sys_tags2:
+        li    a4, OP_TAGS2              ; the request
+sys_fsl:
+        addi  sp, sp, -40               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        sd    a0, 8(sp)                 ; destination
+        sd    a2, 16(sp)                ; length
+        sd    a3, 24(sp)                ; cursor
+        sd    a4, 32(sp)                ; op
+        mv    a0, a1                    ; the path -> the buffer
+        mv    a1, a2                    ; ...
+        call  sys_put                   ; ...
+        li    a0, 2                     ; fs
+        ld    a1, 32(sp)                ; op
+        ld    a2, 24(sp)                ; cursor
+        ld    a3, 16(sp)                ; length
+        li    a4, 0                     ; ...
+        call  sys_msg                   ; a0 = count
+        li    a1, 0                     ; (no more after an error)
+        bltz  a0, sfl_ret               ; ...
+        sd    a0, 16(sp)                ; keep it
+        la    t0, sys_hdr               ; the reply's length word: the data's bytes
+        ld    a1, 16(t0)                ; ...
+        li    t0, SYS_MAX               ; ...
+        bleu  a1, t0, sfl_cp            ; ...
+        mv    a1, t0                    ; ...
+sfl_cp:
+        ld    a0, 8(sp)                 ; destination
+        call  sys_get                   ; copy
+        ld    a0, 16(sp)                ; the count
+        la    t0, sys_hdr               ; the reply's handle word: the cursor
+        ld    a1, 8(t0)                 ; ...
+sfl_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 40                ; release the frame
         ret                             ; done

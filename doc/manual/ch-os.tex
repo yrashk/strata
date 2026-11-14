@@ -234,7 +234,7 @@ Message data & 4032 bytes\\
 Requests queued at a server's core; requests parked by a server & 16; 16\\
 Capabilities queued at a core as attachments and gifts between threads & 16\\
 Pipes; bytes buffered per pipe & 8; 2~KiB\\
-Files in the directory; tags on the disk & 128; 64\\
+Files; tags; bytes in a name & bounded by the disk; 255\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -672,17 +672,16 @@ handles (CLEANUP) and completes the parent's WAIT.
   gives the file the path's tags. Reply: a file id; $-4$\\
 4 & CLOSE & handle. A file that was written is saved to disk when its last reference closes\\
 10 & DIR & data = a path of tags (none: every file; \texttt{-tag} excludes). Reply: the count of
-  files carrying them all, and 32-byte records: 24 bytes of name, u64 size (126 at most; the handle
-  is a number of matching files to skip, for the next part of a longer listing); the mode
+  files carrying them all, and 32-byte records: 24 bytes of name, u64 size (126 at most; QUERY has no such limit); the mode
   word holds the facets, a tag set of the other tags those files carry; $-4$ no such tag\\
 11 & UNLINK & data = a path; $-4$\\
-12 & TAG & data = a path, a zero byte, a tag name (created if new). $-4$; $-6$ all 64 tags in use;
+12 & TAG & data = a path, a zero byte, a tag name (created if new). $-4$; $-6$ no room in the file's record;
   $-1$ a bad tag name\\
 13 & UNTAG & data = a path, a zero byte, a tag name. $-4$\\
 14 & TAGS & data = a path (none: every tag). Reply: the count, and 32-byte records: 16 bytes of name,
   u64 files carrying it, u64 tag number: every tag, or the tags of that file\\
 15 & RENAME & data = a path, a zero byte, a new path. The file takes the new name and gains the new
-  path's tags (created if new); it keeps its tags, blocks and directory entry, and another file of
+  path's tags (created if new); it keeps its tags and its contents, and another file of
   that name is deleted. $-4$; $-6$; $-1$ a bad new name\\
 20 & CWD & the requester's current tag path (Section~\ref{sec:os-cwd}). Mode 0: reply = its length,
   data = its text (\texttt{/} at the root). Mode 1: data = a path, relative to the current one
@@ -698,6 +697,26 @@ handles (CLEANUP) and completes the parent's WAIT.
   attachment: the whole file is copied into it\\
 35 & WRITEALL & handle = a file id, mode = arena offset, length; the arena as attachment: appended to
   the file\\
+40 & QUERY & data = a path of tags and terms, handle = a cursor (0 at first). Reply: the count of
+  files in this part; the handle word is the cursor to ask with again (0: that was all), the mode
+  word the facets, the length word the data's bytes. Data: u64 $n$ and $n$ u32 ids of the path's
+  own tags; then per file u16 record bytes, u16 name length, u32 tags, u64 size, the name, the
+  file's tag ids, each padded to 8 bytes. Names are whole, a listing has no limit\\
+41 & TAGS2 & as TAGS, with a cursor. Per tag: u16 record bytes, u16 name length, u32 id, u64 files
+  carrying it, the name\\
+42 & SETATTR & data = a path, a zero byte, an attribute's name, a zero byte, a value (digits: a
+  number; none: the attribute is taken away)\\
+43 & GETATTR & data = a path. Reply: the count; per attribute u16 record bytes, u16 name length, u8
+  type, u8 value length, u16 0, the name, the value\\
+45 & SNAP & mode 0 take, 1 delete, 2 list, 3 restore; data = a snapshot's name. A path that starts
+  with \texttt{@NAME} reads the files as the snapshot has them\\
+64 & DBGET & data = u8 namespace name length, u8 tree name length, u16 key length, u32 0, the two
+  names, the key. Reply: the value's length, data: the value; $-4$\\
+65 & DBSCAN & as DBGET; mode 0 from the key on, 1 after it. Reply: the count; data: per record u16
+  key length, u16 value length, u32 0, the key, the value (each padded to 8 bytes), in key order\\
+66 & DBBATCH & handle = items; after the names, from the next multiple of 8, per item u8 1 put / 2
+  delete, u8 0, u16 key length, u16 value length, u16 0, the key, the value. Reply 0: all of them
+  are on the disk, in one commit; or none is\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -707,7 +726,8 @@ command to the submission port through its device capability, lends the device i
 \insn{csend} through the endpoint to the device's node, and waits with WAIT\_REPLY for the buffer's
 base. The device's return of the buffer arrives at the core's inbox like any reply. Program images are
 read straight into the arena \texttt{proc} lends; the data never passes through \texttt{fs}'s Local
-Store. Files are contiguous runs of blocks; a file being written is held in a 128~KiB region.
+Store. The disk is a store of copy-on-write B+trees (\texttt{doc/strata-fs-proposal.md}); a file
+has no size limit but the disk's, and a change is on the disk whole or not at all.
 
 \begin{table}[htbp]
 \centering\small
@@ -797,15 +817,14 @@ files tagged \texttt{src} and then \texttt{demo/}, \texttt{ls /src/demo} narrows
 \texttt{ls /} ends with every tag in use. Nothing on the disk changes. The shell's Tab completes facets
 in a path like folders (\texttt{cat /sr} gives \texttt{/src/}).
 
-On the disk the directory has $N$ entries of 32 bytes ($N$ in boot-header offset 56: a multiple of
-128, at most 1024; the kernel reads the first 128 at boot to load the first servers), and the tag
-table follows it, at the LBA in boot-header offset 52: 64
-tag names of 16 bytes (zero-padded; a zero first byte is a free slot), then $N$ 64-bit tag sets, one
-per directory entry. The file server keeps the directory and the tag sets in far memory and works
-on a window of 128 entries in its data Local Store. In a tag set, bit $t$ of set $f$ says that
-entry $f$ carries tag $t$. A query is a loop over the tag sets, window by window, with one
-\texttt{and} each. \texttt{fs} keeps the tag names (1~KiB) in its D-LS and writes the table
-back with the directory. \texttt{mkdisk -t tag,tag\ldots} tags the files that follow it; the supplied
+On the disk nothing is counted in advance. \texttt{fs} keeps five trees in the store's namespace
+\texttt{fs}: the files' records by object id (size, tag ids, attributes, name), their contents, the
+names, an index (attribute, value, object: a tag is the attribute \texttt{tag}), and a dictionary of
+tag and attribute names with the count of files carrying each tag. A listing by tags walks the
+index entries of the first tag and checks the others against each file's record. Files, tags and
+names of up to 255 bytes are bounded by the disk; snapshots (\texttt{snap}), attributes
+(\texttt{attr}) and the trees themselves (\texttt{db}, \texttt{wdb}) are described in
+\texttt{doc/strataos.md}. \texttt{mkdisk -t tag,tag\ldots} tags the files that follow it; the supplied
 disk tags its files \texttt{doc}, \texttt{etc}, \texttt{sys}, \texttt{bin}, \texttt{ws},
 \texttt{demo}, \texttt{src} and \texttt{forth}.
 
@@ -1346,7 +1365,7 @@ quads and \texttt{localhost} need no query. \texttt{net\_resolve} in the library
 \item Core 0 becomes the system core. It makes the framebuffer window a revocable region, sets
   \csr{xslot}, and calls the start-up code unit, which is the first unit paged in. Start-up creates the
   kernel shared table as an atomic segment and gives every worker a copy, together with a core-control
-  capability for doorbells and the clock capability; makes the arena pool revocable; and reads the directory from the
+  capability for doorbells and the clock capability; makes the arena pool revocable; and reads the store's boot manifest from the
   disk with the firmware's block routines, the only time the kernel touches the disk.
 \item The workers become dispatchers and wait in \insn{tany}.
 \item The system core loads \texttt{proc}, \texttt{dev} and \texttt{fs} from the disk itself, since

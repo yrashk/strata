@@ -181,32 +181,6 @@ boots into it (`ws PROGRAM` is new); `tools/test-wdoom.sh` is in `make test`.
   that the pistol's samples reach a WAV file. Not verified: the SDL path
   beyond compiling.
 
-## The disk's directory: 1024 files (added 2026-11-13)
-
-The boot header's offset 56 holds the directory's entries (a multiple of
-128, at most 1024, `mkdisk -n`; 0 = 128, an older disk); the tag table
-grows with it. `fs` keeps the directory and the tag sets in its far I/O
-buffer and works on a 128-entry window in its D-LS (`win`, `wput` in
-`os/servers/fs.s`); DIR takes a count of files to skip, and `ls` reads a
-long listing in parts. `tools/test-files.sh` (415 files) is in `make test`.
-Limits:
-- The kernel reads only the directory's first 8 blocks at boot (`u_disk`
-  in `os/kunits/boot.s`): the servers it starts must be among the first 128
-  files. `mkdisk` is given them first; nothing checks it.
-- One DIR reply holds 126 files. `ls` asks again for the rest; `sh`'s
-  completion, `httpd`'s listings and the Forth ports (`ls.fs`, `httpd.fs`)
-  take the first 126 only.
-- Not verified across a boot: the emulator does not write a disk image
-  back. The test reads the written blocks back within one session
-  (`hexdump N`).
-- In `fs`, an entry's address is good only while its window is in the
-  D-LS. `find` leaves the found entry's window there; the routines that
-  walk everything (`dfree` when it finds nothing, `tag_gc`, `tcount`,
-  `dcount`) put the window back. New code that holds two entries at once
-  must remember the first one's window, as RENAME does.
-- Still 64 tags, names of 24 bytes, contiguous files, and a deleted file's
-  blocks come back only if it was the last one.
-
 ## Formal verification (added 2026-11-13)
 
 `formal/` holds SymbiYosys proofs of the RTL: `make formal` (all, about 15
@@ -235,6 +209,41 @@ has the table of proofs, the assumptions and what is not covered;
 - Not proved: what instructions compute (the emulator comparison's ground),
   what device ports return, `strata_uart`, the system-wide invariant that
   write access to a byte has one holder. `formal/README.md` lists them with reasons.
+
+## The file system is a store (added 2026-11-14)
+
+The disk is no longer a directory of fixed entries. `os/servers/fs.s` keeps
+files, names, tags and indexes as trees of a copy-on-write B+tree store
+(`store.s`, `storew.s`, `sblob.s`, `fsops.s`, all included by `fs.s`). The
+design and its decisions are `doc/strata-fs-proposal.md`; the plan with what
+is done and what is not is `os/servers/PLAN-fs.md`; the protocol is in
+`doc/strataos.md` ("The disk is a store"). The format's reference is the C
+in `tools/stdb/` (`store.c` has the layout at its top, `fsl.h` the file
+system's trees), which `mkdisk` and `build/stdb` (check, dump, ls, get) are
+built from. The kernel boots from a boot manifest (`u_disk` in
+`os/kunits/boot.s`).
+- Tests: `make test-stdb` (the C store against a model, with the device cut
+  after every block), `tools/test-store.sh` (a disk the OS wrote: checked
+  from outside, read back after a second boot, power cuts). The emulator
+  and the RTL harness take `-w FILE` (the disk written back); the emulator
+  `--disk-cut N` and `--disk-cache SEED`.
+- What to know before changing the server: the library's
+  three 4 KiB buffers serve as its own (see the top of `fs.s`). A page
+  address from `P` is good only until the second `P` after it. Tree changes
+  use static scratch and do not nest; reads (`st_get`, `st_seek`) may
+  happen inside one.
+- Inside the OS: `db` and `wdb` (a window) show the trees, read from the
+  disk with READBLK (`os/lib/stview.s`); `snap` takes, lists, deletes and
+  restores snapshots, read through `/@NAME/` paths.
+- The server does not include `os/lib/sys.s` (it has its own three buffers
+  and one start-up message); about 5 KiB of its I-LS and 1 KiB of its D-LS
+  are free. Its small data must stay below 32 KiB (loads use absolute
+  16-bit addresses), so the large buffers are declared last.
+- Not done (the plan has the list): private namespaces and
+  transactions over several requests for other programs, terms answered
+  from the index, the Forth ports on the cursor calls (they
+  still use DIR and TAGS, which cut names to 24 bytes), facets beyond 64
+  tags.
 
 ## Open work
 
