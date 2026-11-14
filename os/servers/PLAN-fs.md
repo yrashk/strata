@@ -105,7 +105,8 @@ decisions taken.
       commit), pages, a walk over a tree's records, lines of text
 - [x] `db` (the trees; a tree's records; one page) and `wdb` (the same in a
       window: the list of trees, then a tree page by page, into branches)
-- [ ] `wdb` has no test of its own (it was looked at on a captured frame)
+- [x] `tools/test-wdb.sh` (in `make test`): the list, a tree's root page,
+      back, quit, by the frames they leave
 
 ## Stage 7: the store for programs
 - [x] DBGET (64), DBSCAN (65), DBBATCH (66): trees of keys and values in
