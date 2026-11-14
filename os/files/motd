@@ -16,8 +16,8 @@ Try:
   -n 3 mandel                a bare-metal program as 3 threads on 3 cores
   spin 20 a & spin 20 b &    time sharing (add -c 6 to put both on core 6)
   ps, cores, free, uptime    who runs where, and what switching costs
-  as < hello.s > hi          assemble with the assembler written in Strata
-  vi /src/demo/hello.s            the editor, with Strata assembly and Forth in colour
+  cd /src/demo               a directory: ls, then as < hello.s > hi assembles a program
+  vi /src/demo/hello.s       the editor, with Strata assembly and Forth in colour
   spin                       runs forever: press Ctrl-C to stop it
   ws                         the window server: tiled windows (help lists its keys)
   ping 127.0.0.1             TCP/IP: starts the network server; also nc, tcpecho, netstat
