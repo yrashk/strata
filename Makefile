@@ -5,6 +5,8 @@
 #   make test       run every example on the emulator and the RTL and compare
 #   make test-small the same (examples, StrataOS boot) with 8 overlay map entries
 #                   (NXMAP=8, the FPGA configuration; part of make test)
+#   make test-nostream  the examples and the conformance suite on an RTL built with
+#                   STREAM=0 (every instruction fetched through F0 and F1; part of make test)
 #   make test-ls    the examples, lssize.s and StrataOS's refusal with smaller Local
 #                   Stores (32/32, 16/4, 4/32 KiB D-LS/I-LS; part of make test)
 #   make run        run every example on the RTL simulator, showing its output
@@ -40,8 +42,9 @@ NCORES  ?= 8
 NXMAP   ?= 16
 DLS_KIB ?= 64
 ILS_KIB ?= 64
-# 1: the cores' stream fetch (rtl/strata_core.sv STREAM): the same machine in fewer cycles
-STREAM  ?= 0
+# the cores' stream fetch (rtl/strata_core.sv STREAM): 0 fetches every
+# instruction in two cycles of its own, the same machine in more cycles
+STREAM  ?= 1
 
 # SDL2 for the framebuffer window, when pkg-config finds it (else -DNO_SDL:
 # no window, PRESENT only records frames for -F)
@@ -60,7 +63,7 @@ IMAGES  := $(patsubst examples/%.s,$(BUILD)/examples/%.stx,$(EXAMPLES))
 PROGS   := $(patsubst examples/%.s,$(BUILD)/prog/%,$(EXAMPLES))
 EMU     := $(BUILD)/strata-emu -c $(NCORES)
 
-.PHONY: all examples test test-small test-ls clean lint run run-emu boot boot-net boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
+.PHONY: all examples test test-small test-ls test-nostream clean lint run run-emu boot boot-net boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
 
 all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl $(BUILD)/netrelay $(BUILD)/strata-dbg
 
@@ -102,6 +105,7 @@ lint:
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -DSIMULATION --top-module strata_top $(RTL)
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM --top-module strata_top $(RTL)
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GDLS_KIB=8 -GILS_KIB=4 --top-module strata_top $(RTL)
+	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GSTREAM=0 --top-module strata_top $(RTL)
 
 $(BUILD)/examples/%.stx: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/examples
@@ -132,6 +136,7 @@ test: all examples os
 	BUILD=$(BUILD) NCORES=$(NCORES) ./conformance/run.sh
 	$(MAKE) test-small
 	$(MAKE) test-ls
+	$(MAKE) test-nostream
 	@if command -v node >/dev/null 2>&1 && command -v $(EMCC) >/dev/null 2>&1; then $(MAKE) test-wasm; \
 	else echo "test-wasm: skipped (needs node and $(EMCC))"; fi
 	@if command -v node >/dev/null 2>&1 && command -v $(EMXX) >/dev/null 2>&1 && [ "$(NCORES)" = "$(WEB_RTL_CORES)" ]; then $(MAKE) test-wasm-rtl; \
@@ -145,6 +150,14 @@ test-small:
 	$(MAKE) BUILD=$(SMALL) NXMAP=8 all examples os
 	BUILD=$(SMALL) NCORES=$(NCORES) EMU_ARGS="-X 8" ./tools/compare.sh $(patsubst $(BUILD)/%,$(SMALL)/%,$(IMAGES))
 	BUILD=$(SMALL) NCORES=$(NCORES) EMU_ARGS="-X 8" ./tools/compare-boot.sh $(SMALL)/bootrom.stx $(SMALL)/disk.img os/demo.txt
+
+# the fetch without the stream (STREAM=0): the RTL built that way in its own
+# directory, every example in lockstep with the emulator and the conformance suite
+NOSTREAM := $(BUILD)/nostream
+test-nostream:
+	$(MAKE) BUILD=$(NOSTREAM) STREAM=0 all examples
+	BUILD=$(NOSTREAM) NCORES=$(NCORES) ./tools/compare.sh $(patsubst $(BUILD)/%,$(NOSTREAM)/%,$(IMAGES))
+	BUILD=$(NOSTREAM) NCORES=$(NCORES) ./conformance/run.sh
 
 # smaller Local Stores (DLS_KIB / ILS_KIB, the emulator's -L): RTLs built
 # with 32/32, 16/4 and 4/32 KiB (D-LS/I-LS) in their own directories,

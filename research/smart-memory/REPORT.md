@@ -32,7 +32,7 @@ on an affordable process as the goal.
    that no affordable process offers.
 
 Since this was written the first recommendation has been built
-(`STREAM = 1` in `rtl/strata_core.sv`, off by default) and measured:
+(`STREAM` in `rtl/strata_core.sv`, since made the default) and measured:
 section 9. The StrataOS session runs at 1.75 cycles per instruction, 1.84x.
 
 Which numbers are measured, estimated or from the literature is stated per
@@ -571,9 +571,11 @@ Sections 1 to 8 describe the RTL before the change of section 9.
 
 ## 9. The first prototype: the stream fetch, measured
 
-`rtl/strata_core.sv` has a parameter `STREAM` (default 0: the fetch of
-sections 1 to 8, cycle for cycle). `make STREAM=1` builds the simulator
-with it; `strata_top` passes it to every core.
+`rtl/strata_core.sv` has a parameter `STREAM`. It was added with the
+default 0 (the fetch of sections 1 to 8, cycle for cycle) and measured
+against it; it is now 1 by default, `make STREAM=0` builds the simulator
+without it and `make test-nostream` keeps that setting tested.
+`strata_top` passes it to every core.
 
 **What it does.** The core keeps the I-LS word that `F1` read (`fb_cur`)
 and reads the word after it through the idle port A while it executes
@@ -633,8 +635,8 @@ shared single-port memory in the same cycle in 1.43 M cycles (1.34 M
 before): 11.3% of the unit's beats, 1.3% of the busy cycles. Section 3.1's
 conclusion stands.
 
-**Checked.** `make test` passes with the default, and `make
-BUILD=build/stream STREAM=1 test` passes with the stream fetch: every
+**Checked.** `make test` passed with `STREAM = 0` and with `STREAM = 1`
+(each as a whole run, before the default changed): every
 example in lockstep with the emulator (console, halt state, every core's
 instruction trace), the scripted StrataOS and guest sessions, the break,
 preemption, isolation, guest, network and window-server tests, the

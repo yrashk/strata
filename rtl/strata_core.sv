@@ -30,8 +30,8 @@
 // kept in a small ROM per Local Store) and zeros above it, one word per
 // cycle. Then it fetches from pc 0, as at power-on (emu.c core_reset).
 //
-// STREAM = 1 (off by default) takes the two fetch cycles off sequential
-// code. An I-LS word is two instructions and port A of the I-LS is idle
+// STREAM = 1 (the default; 0 fetches every instruction through F0 and F1)
+// takes the two fetch cycles off sequential code. An I-LS word is two instructions and port A of the I-LS is idle
 // outside F0, so the core keeps the word F1 read (fb_cur) and reads the
 // word after it while it executes (fb_nxt: the read-ahead). An instruction
 // that retires to pc + 4 and finds its successor there goes straight to EX
@@ -50,7 +50,7 @@ module strata_core
   parameter int    NXMAP    = NXMAP_DEF,  // overlay map entries (4..16; the platform table says)
   parameter int    DLS_KIB  = LS_DEF_KIB, // the D-LS and I-LS in KiB (powers of two, 4..64; the
   parameter int    ILS_KIB  = LS_DEF_KIB, //   platform table says)
-  parameter bit    STREAM   = 0,          // 1: sequential code skips F0 / F1 (see above)
+  parameter bit    STREAM   = 1,          // 1: sequential code skips F0 / F1 (see above)
   parameter string ILS_INIT = "",
   parameter string DLS_INIT = ""
 )(

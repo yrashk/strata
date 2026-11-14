@@ -107,11 +107,12 @@ Not verified:
   4 KiB saved (88 at 64/64 KiB, 59 at 4/4).
 - Scripts: `fpga/synth.sh FAMILY N [NXMAP [D I]]`, `fpga/pnr.sh`,
   `fpga/ecp5-runs.sh`; the die picture is drawn from nextpnr's output.
-- `STREAM = 1` (a parameter of `strata_core` / `strata_top`, `make
-  STREAM=1`; off by default) lets sequential code skip the two fetch
-  cycles: the core keeps the I-LS word and reads the next one while it
-  executes. The scripted StrataOS session runs at 1.75 cycles per
-  instruction instead of 3.22. One core alone in generic gates: 4% more
+- The stream fetch (`STREAM`, a parameter of `strata_core` / `strata_top`,
+  1 by default; `make STREAM=0` and `make test-nostream` for the fetch
+  without it) lets sequential code skip the two fetch cycles: the core
+  keeps the I-LS word and reads the next one while it executes. The
+  scripted StrataOS session runs at 1.75 cycles per instruction instead of
+  3.22. The kept FPGA and ASIC results are of the RTL before it. One core alone in generic gates: 4% more
   gates, 98 more flip-flops, no new deepest path; not placed and routed
   (`research/smart-memory/REPORT.md`, section 9).
 

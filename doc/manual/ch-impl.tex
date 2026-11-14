@@ -42,7 +42,17 @@ save-table instructions; LD, receive load data; LG, LT and LW, the set-entry com
 tag-table walk of \insn{ltag}/\insn{linst}; DV, multiplication (four partial products of a
 $32\times32$ multiplier, one per cycle) and iterative division (one quotient bit per cycle); AM, a far
 atomic in flight. Each Local Store is a true dual-port RAM: port A belongs to the core and port B to
-its TU. The integer registers are LUT-RAM with one write port and three asynchronous read ports (every
+its TU.
+
+Sequential code does not pay F0 and F1. An I-LS word holds two instructions and port A of the I-LS
+is idle outside F0, so the core keeps the word F1 read and reads the following word while it
+executes. An instruction that retires to the next address and finds its successor in one of the two
+words goes straight to EX with it. A transfer of control (a taken branch, a jump, \insn{xcall},
+\insn{xret}, \insn{eret}, a trap), every transfer instruction and a pending stop or reset request
+go through F0 and F1, so the fetch stall of an in-flight \insn{tgetx} and the wait for a
+core-control write are decided there, as they would be without this; nothing is read ahead while a
+\insn{tgetx} is queued. No instruction's result depends on it (the \texttt{STREAM} parameter of
+the core turns it off). The integer registers are LUT-RAM with one write port and three asynchronous read ports (every
 result is written through the one port at the end of its cycle); the capability registers, the
 overlay map, the mode bits and the banked trap CSRs are flip-flops. A pending stop
 request is checked in F0 and in EX, so a user-mode core takes it at the next instruction boundary
@@ -84,21 +94,23 @@ $\mathit{ttag} + \mathit{set}\times(\mathit{ways}+1)\times 8$ in 64 bits (it is 
 value) by shift-and-add in the first cycle of LG and check it in the second. The decoder is purely
 combinational and flags undefined encodings.
 
-Table~\ref{tab:cycles} gives the cycles an instruction takes when nothing stalls it.
+Table~\ref{tab:cycles} gives the cycles an instruction takes when nothing stalls it: fetched through
+F0 and F1 (after a transfer of control or a transfer instruction), and in sequence.
 
 \begin{table}[htbp]
 \centering\small
 \caption{Cycles per instruction, without stalls}\label{tab:cycles}
-\begin{tabular}{@{}l r@{}}
+\begin{tabular}{@{}l r r@{}}
 \toprule
-\textbf{Instructions} & \textbf{Cycles}\\\midrule
-most (ALU, branches, stores, capability, CSR, transfer issue) & 3\\
-loads & 4\\
-\insn{csave}, \insn{crestore}, \insn{csavex}, \insn{crestorex} & 4\\
-\insn{mul} & 6\\
-\insn{mulhu} & 7\\
-division and remainder & about 68\\
-\insn{ltag}, \insn{linst} & $5 + 2k$ (\insn{ltag}: $k$ tag words read) or 9 (\insn{linst})\\
+\textbf{Instructions} & \textbf{Fetched} & \textbf{In sequence}\\\midrule
+most (ALU, branches, stores, capability, CSR, transfer issue) & 3 & 1\\
+loads & 4 & 2\\
+\insn{csave}, \insn{crestore}, \insn{csavex}, \insn{crestorex} & 4 & 2\\
+\insn{mul} & 6 & 4\\
+\insn{mulhu} & 7 & 5\\
+division and remainder & about 68 & about 66\\
+\insn{ltag} ($k$ tag words read) & $5 + 2k$ & $3 + 2k$\\
+\insn{linst} & 9 & 7\\
 \bottomrule
 \end{tabular}
 \end{table}
