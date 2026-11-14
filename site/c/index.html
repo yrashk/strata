@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C on Strata — a compiler that compiles itself</title>
+<meta name="description" content="cc, a C99 compiler for Strata that runs inside StrataOS and compiles itself: written in C, bootstrapped from a compiler in Strata assembly, also built as a cross compiler. Both compilers pass 521 conformance tests.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="c.css">
+</head>
+<body>
+
+<nav class="top">
+  <a class="mark" href="../">STRATA</a>
+  <div class="links">
+    <a href="../#idea">Idea</a>
+    <a href="../arch/">Architecture</a>
+    <a href="../isa/">Instructions</a>
+    <a href="../forth/">Forth</a>
+    <a href="./" aria-current="page">C</a>
+    <a href="../hardware/">Hardware</a>
+    <a href="../play/">Play</a>
+    <a href="../debug/">Debug</a>
+    <a href="../code/">Source</a>
+    <a class="pill" href="../Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
+    <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
+  </div>
+</nav>
+
+<main class="cc">
+
+<header class="cc-hero">
+  <p class="kicker">Strata C</p>
+  <h1>C, ON THE MACHINE</h1>
+  <p class="lede">A C99 compiler that runs inside StrataOS, writes program images with no assembler and
+    no linker, and compiles itself.</p>
+  <div class="cta">
+    <a class="btn" href="../play/?run=cc">Compile a program in your browser</a>
+    <a class="btn ghost" href="https://github.com/yrashk/strata/blob/main/lang/cc/cc.c">Read cc.c</a>
+  </div>
+  <div class="stats">
+    <div class="stat hot"><b>521 / 521</b><span>conformance tests, both compilers</span></div>
+    <div class="stat"><b>5,400</b><span>lines of C: the compiler</span></div>
+    <div class="stat"><b>13,900</b><span>lines of assembly: the bootstrap</span></div>
+    <div class="stat"><b>108 KiB</b><span>of its own code, paged in 4 KiB units</span></div>
+    <div class="stat"><b>40 KiB</b><span>of data: all a program has</span></div>
+  </div>
+</header>
+
+<section class="section" id="bootstrap">
+  <h2><span class="num">01</span>Two compilers, one fixed point</h2>
+  <p class="intro">A new machine has no C compiler to compile its C compiler with. Strata's answer is the old one:
+    write the first compiler by hand, in assembly, and let it compile the real one.</p>
+  <div class="split">
+    <div>
+      <p><a class="srcpath" href="https://github.com/yrashk/strata/blob/main/lang/cc/cc.c">lang/cc/cc.c</a> is the compiler: the <code>cc</code> of StrataOS,
+        written in the C it compiles. <a class="srcpath" href="../code/#lang/cc/cc.s">lang/cc/cc.s</a> and the files beside
+        it are the bootstrap compiler, <code>cc0</code>: the same language again, in Strata assembly.</p>
+      <p>Both are on the disk, with the compiler's source, so the bootstrap can be run where it belongs, on the
+        machine. One test of the build does exactly that, and compares the results byte for byte.</p>
+      <ul class="ticks">
+        <li><code>cc1</code> differs from <code>c2</code>: other compiler, other code</li>
+        <li><code>c2</code> and <code>c3</code> are the same files: the compiler reproduces itself</li>
+        <li>They are also the <code>cc</code> on the disk, which was built on another machine</li>
+      </ul>
+    </div>
+    <div class="terminal">
+<pre><span class="p">strata$</span> cc0 -p -h 0 -o cc1 /src/cc.c   <span class="c"># the assembly compiler compiles cc.c</span>
+<span class="p">strata$</span> cc1 -p -h 0 -o c2 /src/cc.c    <span class="c"># cc.c compiles itself</span>
+<span class="p">strata$</span> c2 -p -h 0 -o c3 /src/cc.c     <span class="c"># ... and once more</span>
+<span class="p">strata$</span> cc -o cmp /src/cmp.c
+<span class="p">strata$</span> cmp c2 c3
+c2 c3: same
+<span class="p">strata$</span> cmp c2.u c3.u
+c2.u c3.u: same
+<span class="p">strata$</span> cmp c2 /bin/cc
+c2 /bin/cc: same</pre>
+    </div>
+  </div>
+  <div class="chain">
+    <div><code>cc0(cc.c) = cc1</code><span>The bootstrap compiler only has to be good enough to compile <code>cc.c</code>.
+      It was taken further: it passes the same tests.</span></div>
+    <div><code>cc1(cc.c) = c2</code><span>From here on the compiler is its own product. Its 108 KiB of code do not fit the
+      32 KiB instruction store: it pages itself.</span></div>
+    <div><code>c2(cc.c) = c3 = c2</code><span>The fixed point. Any difference between these two would be a bug in the
+      compiler that compiling a compiler is large enough to show.</span></div>
+  </div>
+</section>
+
+<section class="section" id="model">
+  <h2><span class="num">02</span>C as this machine sees it</h2>
+  <p class="intro">Strata has no flat memory to point into. A C pointer is an address in the core's data Local Store;
+    everything larger is behind a capability and is reached by a transfer. The compiler does not hide that.</p>
+  <div class="cards">
+    <div class="card"><h3>40 KiB of data, 8 KiB of stack</h3>
+      <p><code>int</code> is 32 bits, <code>long</code> and pointers 64. Globals, the heap and string literals share the
+        data Local Store; <code>malloc</code> hands out what the program left of it. System memory is an arena that
+        <code>far_read</code> and <code>far_write</code> copy to and from.</p></div>
+    <div class="card"><h3>Code larger than the machine holds</h3>
+      <p>The instruction store is 32 KiB. With <code>-p</code> a program's functions are placed in 4 KiB units that
+        the OS pages in on <code>xcall</code>; the compiler itself is built that way, its units in a second file
+        the start-up code loads.</p></div>
+    <div class="card"><h3>One pass, no assembler, no linker</h3>
+      <p>Code is emitted while the source is parsed, with what has not yet had to be computed kept on a stack of
+        value descriptors. The image is written directly; the run-time library is assembled once, at fixed
+        addresses, and copied into every program.</p></div>
+    <div class="card"><h3>No floating-point hardware</h3>
+      <p><code>float</code> and <code>double</code> are IEEE 754 in software, round to nearest even, in the
+        library. The compiler folds constants with the same routines the programs
+        call.</p></div>
+  </div>
+</section>
+
+<section class="section" id="machine">
+  <h2><span class="num">03</span>The machine from C</h2>
+  <p class="intro">The instructions only Strata has are intrinsics, one instruction each. Anything else is
+    <code>asm("...")</code>: Strata assembly encoded in place, with <code>{name}</code> for a C object. The table of
+    instructions is not in the compiler: the build makes it from the assembler, by assembling each instruction and
+    seeing which bits each operand changes.</p>
+  <div class="split">
+    <div class="code">
+<pre><span class="c">/* at file scope the labels of an asm are functions */</span>
+<span class="k">long</span> twice(<span class="k">long</span> x);
+asm(<span class="s">"twice:\n"</span>
+    <span class="s">"    add   a0, a0, a0\n"</span>
+    <span class="s">"    ret"</span>);
+
+<span class="k">int</span> main(<span class="k">void</span>)
+{
+    <span class="k">long</span> a = 3, b = 4, r = 0;
+
+    asm(<span class="s">"ld    t0, {a}\n"</span>
+        <span class="s">"ld    t1, {b}\n"</span>
+        <span class="s">"mul   t0, t0, t1\n"</span>
+        <span class="s">"sd    t0, {r}"</span>);
+    printf(<span class="s">"%ld %ld\n"</span>, r, twice(21));
+    <span class="k">return</span> 0;
+}</pre>
+    </div>
+    <div class="code">
+<pre><span class="c">/* a transfer to system memory and back, a
+   capability's length: one instruction each */</span>
+<span class="k">long</span> buf[2];
+
+buf[0] = 0x1122334455667788;
+__tput(1, (<span class="k">long</span>)buf, 0, 0x1000, 8);
+__tget(2, (<span class="k">long</span>)(buf + 1), 0, 0x1000, 8);
+__twait(6);
+
+printf(<span class="s">"%lx, the arena is %ld KiB\n"</span>,
+       buf[1], __clen(0) &gt;&gt; 10);</pre>
+    </div>
+  </div>
+  <p class="note">Both are cut from <a class="srcpath" href="https://github.com/yrashk/strata/blob/main/lang/cc/examples/asm.c">lang/cc/examples/asm.c</a>, which the
+    tests compile and run in both code models. <code>&lt;strata.h&gt;</code> lists the intrinsics: transfers, far
+    atomics, capabilities, CSRs, the supervisor call.</p>
+</section>
+
+<section class="section" id="cross">
+  <h2><span class="num">04</span>The same source, on your machine</h2>
+  <p class="intro"><code>cc.c</code> uses three things of StrataOS: the arena, files, and the library's floating-point
+    routines. A hundred or so lines stand in for them on an ordinary machine, and the host's C compiler builds the same
+    file into a cross compiler.</p>
+  <div class="terminal">
+<pre><span class="p">$</span> make build/strata-cc
+<span class="p">$</span> build/strata-cc -o hi lang/cc/examples/hi.c     <span class="c"># a StrataOS program image, as cc would write it</span></pre>
+  </div>
+  <p class="note">The build makes the disk's <code>cc</code> this way, so no emulator is needed to build the system;
+    the bootstrap above is the check that the two ways agree.</p>
+</section>
+
+<section class="section" id="tests">
+  <h2><span class="num">05</span>Measured against other people's tests</h2>
+  <p class="intro">The compiler was built against a ladder of 521 C programs from the test suites of two other
+    compilers, scc (ISC licence) and lacc (MIT), sorted by what they need. Each is compiled and run inside StrataOS;
+    exit status and output must match. Both compilers pass all of them, in both code models.</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Rung</th><th>What it needs</th><th class="n">Tests</th><th class="n">cc</th><th class="n">cc0</th></tr></thead>
+      <tbody>
+        <tr><td>01</td><td>integer expressions, assignment, <code>if</code>, loops</td><td class="n">32</td><td class="n">32</td><td class="n">32</td></tr>
+        <tr><td>02</td><td>functions, recursion, scalar globals</td><td class="n">12</td><td class="n">12</td><td class="n">12</td></tr>
+        <tr><td>03</td><td>pointers, arrays, strings, the integer types, casts, <code>sizeof</code></td><td class="n">93</td><td class="n">93</td><td class="n">93</td></tr>
+        <tr><td>04</td><td><code>struct</code>, <code>union</code>, <code>enum</code>, <code>typedef</code></td><td class="n">33</td><td class="n">33</td><td class="n">33</td></tr>
+        <tr><td>05</td><td>the preprocessor: macros, conditionals, <code>#</code> and <code>##</code></td><td class="n">58</td><td class="n">58</td><td class="n">58</td></tr>
+        <tr><td>06</td><td>aggregate and string initialisers, static locals</td><td class="n">75</td><td class="n">75</td><td class="n">75</td></tr>
+        <tr><td>07</td><td>function pointers, <code>switch</code>, <code>goto</code></td><td class="n">18</td><td class="n">18</td><td class="n">18</td></tr>
+        <tr><td>08</td><td>C99: designated initialisers, compound literals, variable-length arrays, variadic functions, bit-fields</td><td class="n">139</td><td class="n">139</td><td class="n">139</td></tr>
+        <tr><td>09</td><td><code>float</code> and <code>double</code></td><td class="n">61</td><td class="n">61</td><td class="n">61</td></tr>
+        <tr class="sum"><td></td><td>all</td><td class="n">521</td><td class="n">521</td><td class="n">521</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">The tests, their licences and the runner are in
+    <a class="srcpath" href="https://github.com/yrashk/strata/tree/main/lang/cc/tests">lang/cc/tests</a>. What the library does not have yet:
+    <code>qsort</code>, <code>bsearch</code>, <code>&lt;math.h&gt;</code>.</p>
+</section>
+
+<section class="section" id="try">
+  <h2><span class="num">06</span>Try it</h2>
+  <div class="card accent">
+    <p>The play page boots StrataOS in your browser and types the first command for you. Then it is your shell:
+      <code>cat /src/hi.c</code>, <code>cc -o calc /src/calc.c</code>, <code>cc /src/asm.c</code>, or write a
+      program with <code>vi</code>. The bootstrap above runs there too; give it a few minutes.</p>
+    <p class="cta play-cta"><a class="btn" href="../play/?run=cc">Boot StrataOS and compile hi.c</a></p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="bands small" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+  <p><a href="../">Strata</a> ·
+    <a href="../Strata-Architecture-Reference-Manual.pdf">Architecture Reference Manual</a> ·
+    <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
+</footer>
+
+</body>
+</html>
