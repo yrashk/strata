@@ -255,7 +255,8 @@ There are two compilers.
   features go into `cc.c`.
 
 The two agree on the calling convention and on the library, not on the code
-they emit: `cc.c` generates somewhat tighter code and accepts more of C.
+they emit: `cc.c` generates somewhat tighter code. Both pass the whole test
+ladder; `cc.c` alone has `asm("...")`.
 
 ### The fixed point
 

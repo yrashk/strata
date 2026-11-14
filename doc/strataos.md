@@ -1282,12 +1282,31 @@ shell):
 - Draws a 28-pixel **status strip** (below) and **tiles** the windows under
   it: 1 window full; 2 side by side; 3 one left, two stacked right; 4 a
   2 × 2 grid (at most 4).
+- **A window alone.** Alt+F makes the focused window **full screen**: it
+  covers the whole screen, the strip too, and has no frame, so its client
+  gets every pixel; a sign in the top right corner (`FULL SCREEN · ALT+F TO
+  LEAVE`) says so for a few seconds. Alt+Z makes it a **single tile**: as
+  large as if it were the only window, with the strip and its frame, whose
+  tag ends `· SINGLE`. In both the client is told its new size as on any
+  change of the tiling (a resize event) and draws again; the other windows
+  keep running and keep their places in the tiling, but are not drawn and
+  get no pointer events (every pointer event is for the window shown). The
+  same key again brings the tiling back exactly as it was; the other key
+  changes from one mode to the other. Moving the focus (Alt+1..4,
+  Alt+arrows) shows the newly focused window alone instead. A new window
+  brings the tiling back, and so does the end of the window shown (closed,
+  or its process ended); the end of a window that is not shown does not.
+  The palette and the key help are drawn over a window alone as over the
+  desktop (a program started from the palette is a new window). `term`'s
+  grid holds the 50 rows of a 1280 × 800 screen.
 - Text drawing uses an original public-domain 8 × 16 cell font (plus a
   5 × 7 small-caps font for labels) and is available to clients (TEXT).
 - Keys (Alt+key as the window's keyboard sends it, 1.4: ESC [ 27 ; 3 ;
   code ~, Alt+arrows ESC [ 1 ; 3 X): Alt+Enter starts a new `term` window; Alt+Q
   closes the focused window (its client gets a close event, and is killed
   after 400 ms if it does not go away); Alt+arrows / Alt+1..4 move focus;
+  Alt+F makes the focused window full screen and Alt+Z makes it the only
+  tile, and the same key again puts it back (below);
   Alt+P or Alt+Space opens the command palette; Alt+Shift+Q quits the window server
   (the console returns to the shell); Alt+Shift+H halts the machine;
   Alt+Shift+W makes the server ignore the keyboard for a second (for
