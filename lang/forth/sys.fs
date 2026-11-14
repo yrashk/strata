@@ -62,8 +62,14 @@ create iob 4096 allot                           \ request data on their way (8-a
 : fs-2path ( a u a2 u2 op -- r )                \ about two paths ("a u", a zero, "a2 u2"): TAG, UNTAG
   >r 2swap 1000 min dup >r iob swap move  0 iob r@ + c! \ (a file, a tag), RENAME (a file, its new path)
   1000 min iob r@ + 1+ swap dup r> + 1+ >r move  iob r@ >msg  0 r> 0 r> fs ;
-: tags-of ( a u buf -- n|err )                  \ TAGS: a file's tags (u = 0: every tag), 32-byte
-  >r 0 14 fs-path dup 0> if r@ over 32 * msg> then rdrop ; \ records: name[16], u64 files, u64 number
+\ fs answers tags (TAGS2) and files (QUERY) as records of their own lengths: a first cell of
+\ u16 record bytes, u16 name length, u32 id (a tag's) or tags (a file's); a second cell (the
+\ files carrying a tag; a file's size); the name, padded to a cell.
+: rec-next ( rec -- rec' ) dup @ $ffff and + ;
+: rec-name ( rec -- a u ) dup 16 + swap @ 16 rshift $ffff and ;
+: rec-id ( rec -- u ) @ 32 rshift ;
+: tags-of ( a u buf -- n|err )                  \ TAGS2: a file's tags (u = 0: every tag) -> a buffer of
+  >r 0 41 fs-path dup 0> if r@ 4032 msg> then rdrop ; \ 4032 bytes: n records (one message's worth)
 : write ( a u reg id -- )                       \ all of a u, to a handle: its server, the server's id
   2>r begin dup while  2dup >msg  dup 4032 min  r@ swap 0 2 2r@ drop (msg)     ( a u n )
     dup 0> 0= if drop 2drop 2r> 2drop exit then  /string repeat 2drop 2r> 2drop ;

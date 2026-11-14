@@ -7,11 +7,11 @@
 [defined] sys.fs 0= [if] include /sys.fs [then]
 
 2variable src  2variable dst  variable cp-t
-create tagb 64 32 * allot                       \ SRC's tags (-t)
+create tagb 4032 allot                          \ SRC's tags (-t)
 : cp-fail ( a u a2 u2 -- ) +e +e e! 1 stop ;    \ "message" "name", exit code 1
 : cp-use ( -- ) s" usage: cp [-t] SRC DST" usage ;
 : cp-tags ( -- )                                \ SRC's tags, given to DST
-  src 2@ tagb tags-of 0 max 0 ?do dst 2@ tagb i 32 * + 16 zlen 12 fs-2path drop loop ;
+  src 2@ tagb tags-of 0 max tagb swap 0 ?do dup >r dst 2@ r@ rec-name 12 fs-2path drop r> rec-next loop drop ;
 : cp-main ( a u -- )
   0 cp-t !  arg dup 0= if cp-use then
   2dup s" -t" str= if 2drop -1 cp-t ! arg dup 0= if cp-use then then  src 2!

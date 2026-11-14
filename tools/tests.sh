@@ -52,12 +52,20 @@ t net          mid  build-main "emu os" "tools/test-net.sh $OS"
 t http         mid  "build-main build-test-disks" "emu" 'tools/test-http.sh $B/bootrom.stx $B/http-test/disk.img'
 t ws           mid  build-main "emu os" "tools/test-ws.sh $OS"
 t wdoom        mid  build-main "emu os" "tools/test-wdoom.sh $OS"
-t kira         mid  build-main "emu os" "tools/test-kira.sh $OS"
+t kira         full build-main "emu os" "tools/test-kira.sh $OS"
 t preempt      fast build-main "emu os" "tools/test-preempt.sh $OS"
 t isolate      mid  "build-main build-test-disks" "emu" 'tools/test-isolate.sh $B/bootrom.stx $B/isol-test/disk.img'
 t guest        mid  build-main "emu os" "tools/test-guest.sh $OS"
 t procs        full build-main "emu os" "tools/test-procs.sh $OS"
 t boot-jit     mid  build-main "emu os" "tools/test-boot-jit.sh $OS os/demo.txt"
+t wdb          mid  build-main "emu os" "tools/test-wdb.sh $OS"
+t fsunits      fast build-main '$B/prog/fs' 'python3 tools/check-fsunits.py $B/prog/fs'
+
+# ---- the C compiler inside StrataOS: a few tests of every rung and the example
+#      programs; the bootstrap (cc0 compiles cc.c, which reproduces itself)
+t cc-ladder    mid  build-main "emu os lang/cc/tests/ladder.py lang/cc/tests/ladder" 'CC_OUT=$B/test-cc-ladder lang/cc/tests/run.sh -f lang/cc/tests/ladder/FAST.txt'
+t cc           mid  build-main "emu os" "tools/test-cc.sh $OS"
+t cc-boot      mid  build-main "emu os" "tools/test-cc-boot.sh $OS"
 
 # ---- the framebuffer, the JIT, the debuggers --------------------------------------
 t fb           mid  build-main "emu rtl" 'tools/test-fb.sh $B/examples/gfx.stx'

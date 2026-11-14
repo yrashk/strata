@@ -11,7 +11,7 @@
 ; SRC is read with sys_open / sys_read and DST written chunk by chunk (opened
 ; for writing: created, or replaced keeping its tags; the path's tags are
 ; added, as for `echo hi > /notes/todo`). With -t each of SRC's tags
-; (sys_tags) is then given to DST with sys_tag. Errors go to standard error
+; (sys_tags2) is then given to DST with sys_tag. Errors go to standard error
 ; with exit code 1: "cp: no such file: SRC", "cp: same file: SRC DST", "cp:
 ; cannot write DST".
 
@@ -19,7 +19,7 @@
         .align 8                        ; aligned buffers
 args:   .space 512                      ; the argument text (a command line is at most 440 bytes)
 buf:    .space 4096                     ; a chunk of the file
-tagbuf: .space 64 * 32                  ; SRC's tag records (-t)
+tagbuf: .space 4032                     ; SRC's tag records (-t): one message's worth
 flag_t: .dword 0                        ; -t: copy the tags too
 m_use:  .ascii "usage: cp [-t] SRC DST\n" ; error text
 m_use_e:                                ; end of the text above
@@ -124,25 +124,29 @@ copied:
         la    t0, flag_t                ; and SRC's tags?
         ld    t0, 0(t0)                 ; ...
         beqz  t0, ok                    ; no
-        la    a0, tagbuf                ; SRC's tags
+        li    s4, 0                     ; s4 = the cursor
+t_part:
+        la    a0, tagbuf                ; SRC's tags, a part of them
         mv    a1, s2                    ; ...
         mv    a2, s3                    ; ...
-        call  sys_tags                  ; a0 = how many
+        mv    a3, s4                    ; ...
+        call  sys_tags2                 ; a0 = how many, a1 = the cursor
+        mv    s4, a1                    ; ...
         mv    s0, a0                    ; s0 = records left
         la    s1, tagbuf                ; s1 = record
 t_l:
-        blez  s0, ok                    ; no more
-        mv    a0, s1                    ; its name's length
-        li    a1, 16                    ; ...
-        call  str_len                   ; ...
-        mv    a3, a0                    ; give it to DST
-        mv    a2, s1                    ; ...
+        blez  s0, t_more                ; no more in this part
+        lhu   a3, 2(s1)                 ; give it to DST
+        addi  a2, s1, 16                ; ...
         mv    a0, s6                    ; ...
         mv    a1, s5                    ; ...
         call  sys_tag                   ; ...
-        addi  s1, s1, 32                ; next tag
+        lhu   t0, 0(s1)                 ; next tag
+        add   s1, s1, t0                ; ...
         addi  s0, s0, -1                ; ...
         j     t_l                       ; ...
+t_more:
+        bnez  s4, t_part                ; another part
 ok:
         li    a0, 0                     ; exit code
         call  sys_exit                  ; flush stdout, end the process

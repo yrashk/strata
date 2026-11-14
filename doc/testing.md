@@ -27,8 +27,8 @@ from the cache), while other checkouts were testing too.
 | tier | target | what it runs | time |
 |---|---|---|---|
 | fast | `make test-fast` | the examples on emulator and RTL, instruction by instruction (all but `gfx`); the conformance suite on interpreter, JIT and RTL; the shell, `vi`, files, preemption on the emulator; the JIT against the interpreter; the store with small pages | 12 s |
-| mid | `make test-mid` | the fast tier, and: a short StrataOS session in lockstep with the RTL (`os/demo-short.txt`); `gfx` and the framebuffer on the RTL; the rest of the OS tests on the emulator (`vi.fs`, the Forth ports, the store, network, HTTP, the window server, wdoom, kira, isolation, guests, the session under the JIT); the debuggers; the store against its model and with a million files | 1 min |
-| full | `make test`, `make test-cached` | the mid tier, and: the two StrataOS sessions in lockstep with the RTL (`os/demo.txt`, `os/guest-demo.txt`); Ctrl-C on both machines; the process limits; the small configuration (`small-*`: 8 overlay map entries, examples and session); the smaller Local Stores (`ls*`) and the reproductions of what the proofs found (`formal-repro`); the WebAssembly builds under node (`wasm`, `wasm-rtl`) | 7.5 min |
+| mid | `make test-mid` | the fast tier, and: a short StrataOS session in lockstep with the RTL (`os/demo-short.txt`); `gfx` and the framebuffer on the RTL; the rest of the OS tests on the emulator (`vi.fs`, the Forth ports, the store, network, HTTP, the window server, wdoom, wdb, isolation, guests, the C compiler (part of its ladder, its examples, its bootstrap), the session under the JIT); the debuggers; the store against its model and with a million files | 1 min |
+| full | `make test`, `make test-cached` | the mid tier, and: the two StrataOS sessions in lockstep with the RTL (`os/demo.txt`, `os/guest-demo.txt`); Ctrl-C on both machines; the process limits; kira; the small configuration (`small-*`: 8 overlay map entries, examples and session); the smaller Local Stores (`ls*`) and the reproductions of what the proofs found (`formal-repro`); the WebAssembly builds under node (`wasm`, `wasm-rtl`) | 7.5 min |
 
 A tier is a set of tests, not a different way of running them: a test does
 the same thing in every tier. What decides a test's tier is how long it
@@ -157,8 +157,8 @@ themselves:
 
 - `tools/compare-boot.sh` runs the emulator and the RTL at the same time
   instead of one after the other;
-- `tools/test-procs.sh` and `tools/test-kira.sh` run their machines (three,
-  and eight) at the same time, then check each;
+- `tools/test-procs.sh` runs its three machines at the same time, then
+  checks each;
 - `tools/compare.sh` and `conformance/run.sh` are called once per example
   and per test, so one slow example does not hold the rest and each has
   its own result in the cache.
@@ -174,5 +174,8 @@ What still takes long, and why:
 - `procs` (4 minutes): two of its three machines wait in `spin` for a
   Ctrl-C that the emulator delivers at step 3,000,000,000 (`-b`,
   `PROCS_BREAK`), interpreting all the way.
-- `kira`, `ws`, `wdoom` (20 to 60 s): they wait in host time (`Alt+Shift+W`
+- `kira` (2 minutes), `ws`, `wdb`, `wdoom` (20 to 60 s): they wait in host time (`Alt+Shift+W`
   holds the keyboard for a second) while almost no processor time passes.
+  They give a program so many seconds of host time to get somewhere, so
+  they are the first to fail on a machine that is far too busy; kira's
+  eight demos run one after another for that reason.

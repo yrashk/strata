@@ -671,15 +671,10 @@ handles (CLEANUP) and completes the parent's WAIT.
 3 & OPEN & data = a path (Section~\ref{sec:os-tags}); mode 0 read, 1 write (truncate), 2 append. Writing
   gives the file the path's tags. Reply: a file id; $-4$\\
 4 & CLOSE & handle. A file that was written is saved to disk when its last reference closes\\
-10 & DIR & data = a path of tags (none: every file; \texttt{-tag} excludes). Reply: the count of
-  files carrying them all, and 32-byte records: 24 bytes of name, u64 size (126 at most; QUERY has no such limit); the mode
-  word holds the facets, a tag set of the other tags those files carry; $-4$ no such tag\\
 11 & UNLINK & data = a path; $-4$\\
 12 & TAG & data = a path, a zero byte, a tag name (created if new). $-4$; $-6$ no room in the file's record;
   $-1$ a bad tag name\\
 13 & UNTAG & data = a path, a zero byte, a tag name. $-4$\\
-14 & TAGS & data = a path (none: every tag). Reply: the count, and 32-byte records: 16 bytes of name,
-  u64 files carrying it, u64 tag number: every tag, or the tags of that file\\
 15 & RENAME & data = a path, a zero byte, a new path. The file takes the new name and gains the new
   path's tags (created if new); it keeps its tags and its contents, and another file of
   that name is deleted. $-4$; $-6$; $-1$ a bad new name\\
@@ -699,10 +694,12 @@ handles (CLEANUP) and completes the parent's WAIT.
   the file\\
 40 & QUERY & data = a path of tags and terms, handle = a cursor (0 at first). Reply: the count of
   files in this part; the handle word is the cursor to ask with again (0: that was all), the mode
-  word the facets, the length word the data's bytes. Data: u64 $n$ and $n$ u32 ids of the path's
+  word the facets (a tag set of the other tags those files carry), the length word the data's
+  bytes; with mode 1 no records, the count and the facets of every file. Data: u64 $n$ and $n$ u32 ids of the path's
   own tags; then per file u16 record bytes, u16 name length, u32 tags, u64 size, the name, the
   file's tag ids, each padded to 8 bytes. Names are whole, a listing has no limit\\
-41 & TAGS2 & as TAGS, with a cursor. Per tag: u16 record bytes, u16 name length, u32 id, u64 files
+41 & TAGS2 & data = a path (none: every tag), handle = a cursor: every tag, or the tags of
+  that file. Per tag: u16 record bytes, u16 name length, u32 id, u64 files
   carrying it, the name\\
 42 & SETATTR & data = a path, a zero byte, an attribute's name, a zero byte, a value (digits: a
   number; none: the attribute is taken away)\\
@@ -783,7 +780,7 @@ takes is a \emph{path}: components separated by \texttt{/}, empty ones skipped. 
 is the file's name and the ones before it are tags the file must carry: \texttt{motd},
 \texttt{/motd} and \texttt{/doc/motd} all name \texttt{motd} when it carries \texttt{doc}, and
 \texttt{/bin/motd} names nothing. Opening for writing gives the file the path's tags, creating new
-ones (\texttt{echo hi > /notes/todo}), and a file that a write replaces keeps its tags. DIR lists the
+ones (\texttt{echo hi > /notes/todo}), and a file that a write replaces keeps its tags. QUERY lists the
 files that carry every tag of its path (\texttt{ls /src/demo} is an intersection); when the last
 component is not a tag but names a file that carries the others, it lists that one file. Deleting
 through a path deletes the file; UNTAG takes it out of a directory. A tag no file carries any more
@@ -798,7 +795,7 @@ creates a file or tags (writing, RENAME's new path) cannot exclude, and no tag n
 analogue of a working directory, kept by \texttt{fs}: one entry per live process that is not at
 \texttt{/} (32 entries of at most 64 bytes), found by the sender pid the kernel stamps on each
 request. A path that does not start with \texttt{/} is read as that path, a \texttt{/}, then the
-path; DIR with no path lists it. In \texttt{/src/demo}, \texttt{cat hello.s} opens
+path; QUERY with no path lists it. In \texttt{/src/demo}, \texttt{cat hello.s} opens
 \texttt{/src/demo/hello.s}, \texttt{ls x/} lists \texttt{/src/demo/x}, and \texttt{echo hi > notes}
 creates \texttt{notes} tagged \texttt{src} and \texttt{demo}. Every path is then normalized:
 \texttt{.} components go, \texttt{..} removes the one before it. When creating, exclusions that come
@@ -810,7 +807,7 @@ CLEANUP it sends when the process ends frees the entry. \texttt{proc} itself sta
 program images are always found from the root. Every client gets this for free: library programs,
 Forth's \texttt{include} and file words, and servers.
 
-\paragraph{Subdirectories are facets.} With its files DIR answers the other tags that at least one of
+\paragraph{Subdirectories are facets.} With its files QUERY answers the other tags that at least one of
 them carries: the OR of their tag sets, without the path's own tags, computed in the same loop. These
 are the ways to narrow the listing further, as subdirectories would be: \texttt{ls /src} shows the
 files tagged \texttt{src} and then \texttt{demo/}, \texttt{ls /src/demo} narrows to both, and
@@ -1203,7 +1200,12 @@ The screen reads as an instrument panel of the machine and makes its explicitnes
 \item \textbf{Keys} (Alt+key as the window's keyboard sends it, \texttt{ESC [ 27 ; 3 ;} \textit{code}
   \texttt{\textasciitilde}; Alt+arrows \texttt{ESC [ 1 ; 3} \textit{X}). Alt+Enter opens a terminal; Alt+Space opens the
   command palette, a \texttt{launch} line with completion of program names; Alt+1--4 and Alt+arrows move
-  the focus; Alt+Q closes the focused window; Alt+Shift+Q quits the window server; Alt+? shows a panel
+  the focus; Alt+Q closes the focused window; Alt+F makes the focused window full screen (the whole
+  screen, without the strip or a frame; a sign says so for a few seconds) and Alt+Z makes it the only
+  tile (the strip and its frame stay; its tag ends \texttt{SINGLE}): the other windows keep running
+  but are not drawn, moving the focus shows another window alone, a new window or the end of the
+  window shown brings the tiling back, and the same key again puts everything where it was;
+  Alt+Shift+Q quits the window server; Alt+? shows a panel
   of these bindings, which also appears when the splash ends (any key or click dismisses it). Every
   other key is an event for the focused window: Esc and then a key is Esc and that key, whatever the
   timing, and an Alt+key the server does not bind arrives as ESC and the key. Ctrl-C interrupts the
