@@ -67,8 +67,10 @@ decisions taken.
 - [ ] After a failed write (disk full, a bad page) the commit under way is
       given up for every client: files being written by others are lost.
       Give up only the failing client's work
-- [ ] A commit writes each changed page with a command of its own; pages
-      that lie together could go in one
+- [x] A commit writes changed pages that lie together, in frames that lie
+      together, with one command (`c_write`; 4 KiB pages): 171 write
+      commands became 102 in a session of small files and a large one.
+      Pages together on the disk but apart in the cache still go one by one
 - [x] `compare-boot.sh` checks the disks the emulator and the RTL leave
       and compares their `stdb dump`
 - [x] `make test` runs `test-stdb` and `test-store`; `test-sh.out` regenerated
