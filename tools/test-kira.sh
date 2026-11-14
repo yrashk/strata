@@ -50,14 +50,21 @@ W='\033[27;3;87~'                       # Alt+Shift+W
 AQ='\033[27;3;81~' AH='\033[27;3;72~'   # Alt+Shift+Q, Alt+Shift+H
 fail() { echo "test-kira: FAILED: $1"; tail -20 $T/$2.txt; exit 1; }
 
-# ---- 1. the demos and their last frames
+# ---- 1. the demos and their last frames (the machines run at the same time,
+#         each with its own disk; then each is checked)
 for d in $KIRA_CRC; do                  # demo:checksum:seconds it is given
   n=${d%%:*}
-  crc=${d#*:}; crc=${crc%%:*}
-  cp "$DISK" $T/disk.img
+  cp "$DISK" $T/disk$n.img
   WW=""; i=0; while [ $i -lt ${d##*:} ]; do WW="$WW$W"; i=$((i + 1)); done
-  printf "ws kira demo $n\n$W$W$W$W $W$WW${AH}" > $T/keys
-  $BUILD/strata-emu -c 12 -g none -m 40000000000 -F $T/frame$n.ppm -d $T/disk.img -i $T/keys "$ROM" > $T/out$n.txt 2>&1 || {
+  printf "ws kira demo $n\n$W$W$W$W $W$WW${AH}" > $T/keys$n
+  { $BUILD/strata-emu -c 12 -g none -m 40000000000 -F $T/frame$n.ppm -d $T/disk$n.img -i $T/keys$n "$ROM" > $T/out$n.txt 2>&1
+    echo $? > $T/rc$n; } &
+done
+wait
+for d in $KIRA_CRC; do
+  n=${d%%:*}
+  crc=${d#*:}; crc=${crc%%:*}
+  [ "$(cat $T/rc$n)" = 0 ] || {
     echo "test-kira: FAILED: the emulator exited with an error (demo $n)"; tail -5 $T/out$n.txt; exit 1; }
   grep -q '^kira: demo: [0-9]* frames in ' $T/out$n.txt || fail "demo $n did not play to its end" out$n
   grep -q 'all cores halted' $T/out$n.txt || fail "the window server did not halt the machine" out$n

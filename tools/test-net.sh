@@ -87,7 +87,7 @@ else
 fi
 
 # ---- 2: two machines over UDP ---------------------------------------------------------------
-pa=$((20000 + $$ % 20000)); pb=$((pa + 1))
+pa=$((20000 + $$ % 2500 * 2)); pb=$((pa + 1))   # (ranges of their own: tests run at the same time)
 cat >"$tmp/inA.txt" <<'EOF'
 net 10.0.0.1 &
 tcpecho 7 1 &
@@ -141,7 +141,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   printf '%-14s SKIP  (needs python3)\n' net-nat
   exit $ok
 fi
-tp=$((30000 + $$ % 20000)); up=$((tp + 1)); cp_=$((tp + 2)); fp=$((tp + 3))
+tp=$((30000 + $$ % 2500 * 4)); up=$((tp + 1)); cp_=$((tp + 2)); fp=$((tp + 3))
 python3 "$here/tools/net-echo.py" serve "$tp" "$up" &
 pidE=$!
 {

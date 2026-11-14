@@ -107,7 +107,7 @@ else
 fi
 
 # ---- 2: two machines, two connections at once -------------------------------------------------
-pa=$((20000 + $$ % 20000)); pb=$((pa + 1))
+pa=$((25000 + $$ % 2500 * 2)); pb=$((pa + 1))   # (a range of its own: test-net.sh runs at the same time)
 cat >"$tmp/inA.txt" <<'EOF'
 net 10.0.0.1 &
 httpd
