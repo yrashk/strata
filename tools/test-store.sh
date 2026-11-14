@@ -382,6 +382,10 @@ rm /t/gap1
 cp /t/devcopy /sys/dev
 mv /sys/fs /sys/fs2
 rm /sys/proc
+snap b1
+cp /t/fscopy /sys/fs
+snap -r b1
+snap -d b1
 halt
 EOF
 run "$tmp/b1.txt" "$disk" -w "$tmp/b1.img" || fail "the session that writes boot objects did not end well"
