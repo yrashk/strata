@@ -771,9 +771,55 @@ the result filled in.
   hold a core-control capability), so the destination's dispatcher runs
   within microseconds instead of at the next tick. A core idle in `tany`
   wakes on its inbox anyway.
+  The system core rings a worker's doorbell the same way before each
+  piece of a new process's arena it gives it: an inbox holds two gifts
+  from one sender, and a core that runs one busy thread looks at it only
+  when stopped, so the third gift would hold the system core until that
+  thread made a call.
 - **The system core** has an endpoint too, but ordinary processes never
   get it: only `proc` holds it, and `dev` (to halt the machine and to lend
   the framebuffer).
+
+- **Console rings: output without a message.** The console server lends
+  each program that writes to it a ring of 1 KiB (`CON_RSZ`): an atomic
+  segment cut from the top of `tty`'s own memory, `catomic`, 32 of them.
+  A WRITE whose mode has bit 1 set (the writer's c6 is free) is answered
+  with a copy of the writer's ring as the reply's attachment; it lands in
+  c6 and stays there. From then on `sys_write` to the console puts each
+  chunk into the ring as a record (`os/lib/chan.s`: a length word and the
+  bytes, a few far atomics, published by adding to the ring's HEAD) and
+  returns without a message. It falls back to a WRITE when the chunk does
+  not fit (the ring is full, or the chunk is over 952 bytes) or when c6
+  no longer holds the ring: a reply's attachment replaced it, or the
+  program used c6 (the ring is copyable, so that is not an error; every
+  use checks c6's base, length and permissions first, and `sys_msga`
+  drops it from c6 before sending, since its callers look at c6 after the
+  reply). Servers (`sys_server`) and guests never get a ring.
+  - **Order.** `tty` writes out every ring before it acts on any request,
+    so a process's bytes come out before whatever it asks next (a prompt
+    before the READ that follows it, earlier output before a WRITE that
+    did not fit). A process's ring is written out and freed at its
+    CLEANUP, which `proc` sends before the process's parent learns that
+    it ended. Output of different processes is interleaved by ring, not
+    by write.
+  - **Waking `tty`.** Between requests `tty` looks at the rings every
+    `RPOLL` ticks (500 µs), 20 times after the last output it found; then
+    it sets each ring's SLEEP word and waits for requests only. A writer
+    that sees SLEEP after publishing sends an empty WRITE, which `tty`
+    answers after writing the rings out.
+  - **Ownership.** A ring is `tty`'s memory and is never revoked: when a
+    process ends its copy goes with it, and the slot is used again. A
+    copy that a program passed on before it ended can only write console
+    output or read what went to the console, which any program can do
+    anyway; `tty` checks the lengths and positions in a ring and empties
+    a damaged one.
+  - **Cost** (RTL, 8 cores, `-T virtual`): a 50-byte write takes 2,134
+    cycles of the writer through the ring, 37,134 by message. In the
+    shell session (`os/demo.txt`) requests to `tty` fall from 1,086 to
+    639 and the kernel's atomics on the KST by 17%; most of the WRITEs
+    left are a process's first (most commands write once, at exit).
+    C programs (`lang/cc/lib/rt.s`) and the Forth have their own message
+    code and use no ring.
 
 ### 2.4 Services
 

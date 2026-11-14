@@ -62,6 +62,7 @@ _start:
         .word 0x32535953                ; "SYS2": a StrataOS 0.1 program
 main:
         call  sys_init                  ; ...
+        call  sys_server                ; (c6 holds requests: no console ring)
         cclear c0                       ; the arena is not needed: c0 is scratch
         cclear c7                       ; the clock is not needed here
         cmov  c7, c6                    ; c7 = the device root (c6 receives requests)

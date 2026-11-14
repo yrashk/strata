@@ -1,6 +1,7 @@
 # Designing for T2: uses that change how software is written
 
-Status: proposal, nothing implemented. Written 2026-11-14. Builds on
+Status: proposal; the console rings of 4.1 and the ring part of 4.2 are
+built (in T3), the rest is not. Written 2026-11-14. Builds on
 `doc/t2-proposal.md` (what T2 holds and carries, measured; the ownership
 models A to D; the T2 lane and finer granules), which this document does
 not repeat.
@@ -239,6 +240,32 @@ not all of it on a session's critical path.
   console; a program killed with output in its ring loses it unless the
   exit path drains it. Guests keep the message path.
 
+- **Built, in T3** (`os/lib/chan.s`, `os/servers/tty.s`, `sys_write`;
+  `doc/strataos.md` 2.3, "Console rings"). Two differences from the
+  design above. A program has no capability register that survives a
+  switch and is free (c0..c7 are all spoken for, c8..c15 are lost), so the
+  ring lives in c6 and is checked before every use; a reply's attachment
+  replaces it, and the next WRITE by message brings it back. And the ring
+  is cut from `tty`'s memory, not the writer's: `tty` is the only party
+  that keeps it, and a copy that outlives its process can do nothing a
+  program cannot do anyway (model B, harmless for the console).
+- **Measured.** RTL, 8 cores: a 50-byte write costs the writer 2,134
+  cycles through the ring against 37,134 by message (17 times less).
+  Shell session (emulator, 12 cores): requests to `tty` 1,086 to 639, KST
+  atomics 554,357 to 457,776 (-17%), memory bus cycles 16.9 M to 16.8 M
+  (the ring's own atomics, in T3, are 200,000 of them). The requests left
+  are almost all a process's first write, the one that fetches the ring:
+  most commands write once, at exit. Keeping `tty` awake throughout
+  changes nothing (637), so the wake-ups are not the limit. Giving a
+  process its ring when it is created would take the rest; that needs
+  the kernel or `proc` to hand it a capability at start.
+- **Found on the way:** the system core gave a new process's arena pieces
+  to its core before ringing that core's doorbell. An inbox holds two
+  gifts from one sender, so with a busy single thread on the core (one
+  that makes no calls) the third gift held the system core, and the whole
+  machine, until that thread called the kernel. Fixed in `u_launch`'s
+  path (`os/kunits/ops.s`): the doorbell goes before each gift.
+
 ### 4.2 A channel library
 
 - **Design:** `os/lib/chan.s`: single-producer single-consumer rings of
@@ -396,7 +423,10 @@ Kira's bus; the larger gain would be STATs answered without `fs` (4.5).
    moves.
 2. **Console output rings (1)**, still in T3: the largest single gain in
    the measured sessions, in one server and the library. Decide the
-   output semantics first (question 3).
+   output semantics first (question 3). Done in T3 (4.1): 17 times
+   cheaper per write on the RTL, 41% fewer requests to `tty` in the shell
+   session; output is buffered until the next request, the process's
+   end, or `tty`'s next look (at most 500 µs while output flows).
 3. **Then model E (3)**, to move the rings into T2, and measure the
    difference against T3: it is the T2-specific step, and it is worth
    doing only if the bus occupancy measured in 1 and 2 matters.
