@@ -70,7 +70,7 @@ a conformance suite that holds them all to the same behaviour.
 | `lang/cc/` | `cc`, a C99 compiler that runs in StrataOS and compiles itself: `cc.c`, the bootstrap compiler in assembly, the host build (`strata-cc`), the run-time library and headers, the C test ladder |
 | `conformance/` | The architectural conformance suite and a three-way differential fuzzer |
 | `formal/` | Formal proofs of the RTL with SymbiYosys: specifications, property files, one `.sby` per target |
-| `tools/` | Test scripts (`compare.sh`, `compare-boot.sh`, `test-*.sh`), `mkdisk` (bootable disks), `mkhex` (FPGA memory images), `bench-jit.sh`, `web-code.py` |
+| `tools/` | The tests (`tests.sh`: the list; `run-tests.sh`: runs them; `compare.sh`, `compare-boot.sh`, `test-*.sh`), `build-cache.sh`, `mkdisk` (bootable disks), `mkhex` (FPGA memory images), `bench-jit.sh`, `web-code.py` |
 | `fpga/` | Synthesis script, LiteDRAM adapter, a board top, pin constraints |
 | `web/` | The WebAssembly builds for the site's play page: the emulator (`web.c`), and the RTL simulator (`web_rtl.cpp`: Verilator's C++ compiled with Emscripten, `make wasm-rtl`) |
 | `site/` | The project site: the landing page, `play/` (the in-browser emulator), `debug/` (the web debugger) and `code/` (the source browser) |
@@ -93,7 +93,8 @@ a conformance suite that holds them all to the same behaviour.
 
 ```bash
 make                # build/sasm, build/strata-emu, build/strata-rtl
-make test           # everything below, compared across the machines (several minutes)
+make test           # every test, several at a time (7 to 8 minutes on 18 cores)
+make test-fast      # the tests of the edit-and-test loop (seconds; doc/testing.md)
 make show-gfx       # eight cores draw a Mandelbrot set into the framebuffer window
 make boot           # boot StrataOS on the emulator (12 cores), on the real network (NAT)
 make boot-ws        # the same, with the window server started at boot
@@ -115,6 +116,12 @@ make debug-os       # boot StrataOS under strata-dbg
   with Ctrl-C on both; runs a scripted interactive shell session, a
   preemption test, the session under the JIT, a framebuffer frame
   comparison, the JIT against the interpreter, and the conformance suite.
+  The tests are listed in `tools/tests.sh` and run several at a time, each
+  with a log in `build/test/`. `make test-fast` and `make test-mid` run the
+  quick ones, `make test-changed` those that what differs from `main` can
+  reach, `make test-one T=NAME` one; these skip a test that has passed with
+  the same inputs. [`doc/testing.md`](doc/testing.md) has the tiers, the
+  selection and the caches.
 - `make run` / `make run-emu` show every example's output; `make run-NAME`
   runs one example on the RTL; `make show-NAME` (`show-rtl-NAME`) runs one
   and keeps its window open.

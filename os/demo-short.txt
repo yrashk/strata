@@ -1,0 +1,4 @@
+cat about
+-n 2 hello
+seq 30 | grep 2 | wc
+halt

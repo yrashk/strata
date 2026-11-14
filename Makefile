@@ -2,8 +2,11 @@
 #
 #   make            assembler, emulator, RTL simulator
 #   make examples   assemble every example
-#   make test       run every example on the emulator and the RTL and compare
-#   make test-small the same (examples, StrataOS boot) with 8 overlay map entries
+#   make test       every test (tools/tests.sh), several at a time: the gate before a push
+#   make test-fast  the fast tier, for the edit-and-test loop; test-mid: the middle tier too;
+#                   test-cached: every test not unchanged since it passed; test-changed:
+#                   those that what differs from main can reach; test-one T=NAME (doc/testing.md)
+#   make test-small the examples and the StrataOS session with 8 overlay map entries
 #                   (NXMAP=8, the FPGA configuration; part of make test)
 #   make test-ls    the examples, lssize.s and StrataOS's refusal with smaller Local
 #                   Stores (32/32, 16/4, 4/32 KiB D-LS/I-LS; part of make test)
@@ -51,6 +54,10 @@ SDL_CFLAGS := -DNO_SDL
 endif
 
 BUILD   := build
+# the builds that take long (the simulators, the WebAssembly modules) go
+# through a cache shared by every checkout (tools/build-cache.sh: keyed by
+# the contents of their sources and of this file; STRATA_CACHE= turns it off)
+CACHED  := ./tools/build-cache.sh
 RTL     := rtl/strata_pkg.sv rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv rtl/strata_mul.sv \
            rtl/strata_ram.sv rtl/strata_uart.sv rtl/strata_tu.sv rtl/strata_bus.sv \
            rtl/strata_mem.sv rtl/strata_dev.sv rtl/strata_core.sv rtl/strata_top.sv
@@ -59,7 +66,7 @@ IMAGES  := $(patsubst examples/%.s,$(BUILD)/examples/%.stx,$(EXAMPLES))
 PROGS   := $(patsubst examples/%.s,$(BUILD)/prog/%,$(EXAMPLES))
 EMU     := $(BUILD)/strata-emu -c $(NCORES)
 
-.PHONY: all examples test test-small test-ls clean lint run run-emu boot boot-net boot-ws boot-wdoom boot-demo boot-rtl boot-rtl-demo os fpga-images manual
+.PHONY: all examples test-small test-ls clean lint run run-emu boot boot-net boot-ws boot-wdoom boot-demo boot-rtl boot-rtl-demo os fpga-images manual
 
 all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl $(BUILD)/netrelay $(BUILD)/strata-dbg
 
@@ -85,17 +92,20 @@ DBG_ENGINE := emu/debug.h emu/debug.c emu/debug_sym.c emu/debug_tt.c emu/debug_i
 
 $(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) $(DBG_ENGINE) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
+	$(CACHED) "emu $$($(CC) --version | head -1) $(CFLAGS) $(SDL_CFLAGS) $(SDL_LIBS)" -o $@ -i emu -i common -i asm/isa.h -i Makefile -- \
+	  $(CC) $(CFLAGS) $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
 
 $(BUILD)/strata-rtl: $(RTL) sim/main.cpp common/stx.h common/platform.h common/display.h common/net.h common/netnat.h asm/isa.h
 	@mkdir -p $(BUILD)
+	$(CACHED) "rtl $$(verilator --version) $$(c++ --version | head -1) $(NCORES) $(NXMAP) $(DLS_KIB) $(ILS_KIB) $(SDL_CFLAGS) $(SDL_LIBS)" \
+	  -o $@ -i rtl -i sim -i common -i asm/isa.h -i Makefile -- sh -c '\
 	verilator --cc --exe --build -j 0 -O3 --x-assign fast --x-initial fast \
 	  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
 	  -DSIMULATION -GNCORES=$(NCORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) --top-module strata_top \
 	  -Mdir $(BUILD)/obj_dir -o strata-rtl \
 	  -CFLAGS "-O2 -std=c++17 -DNCORES=$(NCORES) -DNXMAP=$(NXMAP) -DDLS_KIB=$(DLS_KIB) -DILS_KIB=$(ILS_KIB) $(SDL_CFLAGS)" \
-	  -LDFLAGS "$(SDL_LIBS)" $(RTL) sim/main.cpp
-	rm -f $@ && cp $(BUILD)/obj_dir/strata-rtl $@
+	  -LDFLAGS "$(SDL_LIBS)" $(RTL) sim/main.cpp && \
+	rm -f $@ && cp $(BUILD)/obj_dir/strata-rtl $@'
 
 lint:
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -DSIMULATION --top-module strata_top $(RTL)
@@ -108,48 +118,52 @@ $(BUILD)/examples/%.stx: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 
 examples: $(IMAGES)
 
-test: all examples os $(BUILD)/stdb test-stdb
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/compare.sh $(IMAGES)
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/compare-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/demo.txt
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/compare-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/guest-demo.txt guests
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-break.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-sh.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vi.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vifs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-fs-progs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	python3 tools/check-fsunits.py $(BUILD)/prog/fs
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-store.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	BUILD=$(BUILD) ./tools/test-files.sh $(BUILD)/bootrom.stx $(BUILD)/files-test/disk.img
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-net.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-http.sh $(BUILD)/bootrom.stx $(BUILD)/http-test/disk.img
-	BUILD=$(BUILD) ./tools/test-ws.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	BUILD=$(BUILD) ./tools/test-wdb.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	BUILD=$(BUILD) ./tools/test-wdoom.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	BUILD=$(BUILD) ./tools/test-kira.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-preempt.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-isolate.sh $(BUILD)/bootrom.stx $(BUILD)/isol-test/disk.img
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-guest.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	BUILD=$(BUILD) ./tools/test-procs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-boot-jit.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img os/demo.txt
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-fb.sh $(BUILD)/examples/gfx.stx
-	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-jit.sh
-	BUILD=$(BUILD) ./tools/test-dbg.sh
-	BUILD=$(BUILD) NCORES=$(NCORES) ./conformance/run.sh
-	$(MAKE) test-small
-	$(MAKE) test-ls
-	@if command -v node >/dev/null 2>&1 && command -v $(EMCC) >/dev/null 2>&1; then $(MAKE) test-wasm; \
-	else echo "test-wasm: skipped (needs node and $(EMCC))"; fi
-	@if command -v node >/dev/null 2>&1 && command -v $(EMXX) >/dev/null 2>&1 && [ "$(NCORES)" = "$(WEB_RTL_CORES)" ]; then $(MAKE) test-wasm-rtl; \
-	else echo "test-wasm-rtl: skipped (needs node and $(EMXX), and NCORES = WEB_RTL_CORES)"; fi
+# ---- the tests (tools/run-tests.sh runs the list in tools/tests.sh; doc/testing.md)
+# test          every test, each one run: the gate before a push
+# test-fast     the fast tier, for the edit-and-test loop; results from the cache
+# test-mid      the fast and middle tiers; results from the cache
+# test-cached   every test; results from the cache
+# test-changed  the tests that what differs from BASE (default main) can reach;
+#               results from the cache
+# test-one      the tests named in T (names or patterns: T="sh vi" T='conf-*')
+# test-list     the tests, with tier and command
+# A cached result is used when the test has passed with the same inputs (the
+# files it reads, by content). JOBS: tests at a time (default: every processor).
+.PHONY: test test-fast test-mid test-cached test-changed test-one test-list
+BASE ?= main
+RUN_TESTS = BUILD=$(BUILD) NCORES=$(NCORES) MAKE="$(MAKE)" EMCC="$(EMCC)" EMXX="$(EMXX)" WEB_RTL_CORES="$(WEB_RTL_CORES)" ./tools/run-tests.sh $(if $(JOBS),-j $(JOBS))
+test:
+	@$(RUN_TESTS) -t full
+test-fast:
+	@$(RUN_TESTS) -c -t fast
+test-mid:
+	@$(RUN_TESTS) -c -t mid
+test-cached:
+	@$(RUN_TESTS) -c -t full
+test-changed:
+	@$(RUN_TESTS) -c -g $(BASE)
+test-one:
+	@$(RUN_TESTS) $(T)
+test-list:
+	@$(RUN_TESTS) -l
+
+# what the tests need built (the NEEDS of tools/tests.sh); run-tests.sh builds
+# them with one make -j
+.PHONY: build-main build-test-disks build-stdb-test build-forth build-small build-ls32 build-ls16-4 build-ls4-32 build-f44 \
+        build-wasm build-wasm-test build-wasm-rtl-test
+build-main: all examples os $(BUILD)/stdb
+build-test-disks: $(BUILD)/http-test/disk.img $(BUILD)/isol-test/disk.img $(BUILD)/files-test/disk.img
+build-stdb-test: $(BUILD)/stdb-test $(BUILD)/stdb-many
+build-forth: $(BUILD)/forth.stx
 
 # the small (FPGA) configuration: 8 overlay map entries instead of 16. The
 # RTL is built with NXMAP=8 in its own directory and compared with the
 # emulator's -X 8 on the examples and a full StrataOS boot and session.
 SMALL := $(BUILD)/small
+build-small:
+	$(MAKE) BUILD=$(SMALL) NXMAP=8 all examples os $(SMALL)/stdb
 test-small:
-	$(MAKE) BUILD=$(SMALL) NXMAP=8 all examples os
-	BUILD=$(SMALL) NCORES=$(NCORES) EMU_ARGS="-X 8" ./tools/compare.sh $(patsubst $(BUILD)/%,$(SMALL)/%,$(IMAGES))
-	BUILD=$(SMALL) NCORES=$(NCORES) EMU_ARGS="-X 8" ./tools/compare-boot.sh $(SMALL)/bootrom.stx $(SMALL)/disk.img os/demo.txt
+	@$(RUN_TESTS) 'small-*'
 
 # smaller Local Stores (DLS_KIB / ILS_KIB, the emulator's -L): RTLs built
 # with 32/32, 16/4 and 4/32 KiB (D-LS/I-LS) in their own directories,
@@ -164,21 +178,16 @@ test-small:
 LSA := $(BUILD)/ls32
 LSB := $(BUILD)/ls16-4
 LSC := $(BUILD)/ls4-32
-LSB_EXAMPLES := clock faults hello mandel pipeline race
-LSC_EXAMPLES := clock faults hello mandel overlay race
-test-ls: os
+build-ls32:
 	$(MAKE) BUILD=$(LSA) DLS_KIB=32 ILS_KIB=32 all examples
-	BUILD=$(LSA) NCORES=$(NCORES) EMU_ARGS="-L 32" ./tools/compare.sh $(patsubst $(BUILD)/%,$(LSA)/%,$(IMAGES))
-	BUILD=$(LSA) NCORES=$(NCORES) EMU_ARGS="-L 32" ./conformance/run.sh lssize
-	BUILD=$(LSA) NCORES=$(NCORES) EMU_ARGS="-L 32" ./tools/test-ls-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+build-ls16-4:
 	$(MAKE) BUILD=$(LSB) DLS_KIB=16 ILS_KIB=4 all examples
-	BUILD=$(LSB) NCORES=$(NCORES) EMU_ARGS="-L 16,4" ./tools/compare.sh $(patsubst %,$(LSB)/examples/%.stx,$(LSB_EXAMPLES))
-	BUILD=$(LSB) NCORES=$(NCORES) EMU_ARGS="-L 16,4" ./conformance/run.sh lssize
+build-ls4-32:
 	$(MAKE) BUILD=$(LSC) DLS_KIB=4 ILS_KIB=32 all examples
-	BUILD=$(LSC) NCORES=$(NCORES) EMU_ARGS="-L 4,32" ./tools/compare.sh $(patsubst %,$(LSC)/examples/%.stx,$(LSC_EXAMPLES))
-	BUILD=$(LSC) NCORES=$(NCORES) EMU_ARGS="-L 4,32" ./tools/test-ls-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	BUILD=$(BUILD) NCORES=$(NCORES) EMU_ARGS="-L 64,32" RTL=none ./tools/test-ls-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-	./formal/repro/run.sh
+build-f44:
+	$(MAKE) BUILD=build-f44 NCORES=2 DLS_KIB=4 ILS_KIB=4 build-f44/sasm build-f44/strata-emu build-f44/strata-rtl
+test-ls:
+	@$(RUN_TESTS) 'ls*' formal-repro
 
 run: all examples
 	@for img in $(IMAGES); do \
@@ -611,8 +620,6 @@ test-cc-fast: $(CC_TEST_DEPS) $(BUILD)/disk.img
 	BUILD=$(BUILD) ./tools/test-cc.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 test-cc-boot: $(CC_TEST_DEPS) $(BUILD)/disk.img
 	BUILD=$(BUILD) ./tools/test-cc-boot.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
-test: test-cc-boot
-test: test-cc-fast
 
 # the disk of tools/test-http.sh: the standard one plus two requests as a
 # browser sends them (CR LF; a 3 KB Cookie header), which the console cannot type
@@ -622,7 +629,6 @@ $(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	{ printf 'GET /doc/about?x=1 HTTP/1.1\r\nHost: localhost:8080\r\nCookie: '; for i in $$(seq 1 80); do printf 'c%s=0123456789abcdef0123456789abcdef; ' $$i; done; \
 	  printf '\r\nAccept: */*\r\n\r\n'; } >$(BUILD)/http-test/cookie.req
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
-test: $(BUILD)/http-test/disk.img
 
 # the disk of tools/test-isolate.sh: the standard one plus dlsgap (tools/dlsgap.s),
 # which checks that no process sees what another left in its core's D-LS
@@ -631,7 +637,6 @@ $(BUILD)/isol-test/dlsgap: tools/dlsgap.s os/lib/sys.s $(BUILD)/sasm
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
 $(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin,test $(BUILD)/isol-test/dlsgap
-test: $(BUILD)/isol-test/disk.img
 
 # the disk of tools/test-files.sh: the standard one plus 300 small files tagged
 # many (f000 .. f299, each holding its own name): more files than one window
@@ -641,7 +646,6 @@ $(BUILD)/files-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	@mkdir -p $(BUILD)/files-test/many
 	@for f in $(MANY); do basename $$f > $$f; done
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) 2>&1 | cut -c1-200
-test: $(BUILD)/files-test/disk.img
 
 # the disk of `make test-forth`: the standard one plus the test files
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs) \
@@ -742,7 +746,9 @@ WEB_IMAGES := $(BUILD)/bootrom.stx $(BUILD)/disk.img $(BUILD)/disk-ws.img $(BUIL
 .PHONY: web-assets wasm web-code web-site test-wasm
 web-assets: $(WEB_IMAGES)
 
-test-wasm: $(WEB)/strata-emu.js $(BUILD)/strata-emu $(BUILD)/sasm examples $(BUILD)/forth.stx $(BUILD)/ws/wsdemo.stx
+build-wasm: $(WEB)/strata-emu.js
+build-wasm-test: $(WEB)/strata-emu.js $(BUILD)/strata-emu $(BUILD)/sasm examples $(BUILD)/forth.stx $(BUILD)/ws/wsdemo.stx $(BUILD)/netrelay os
+test-wasm: build-wasm-test
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-wasm.sh
 
 # one build for the page's worker and for node (tools/wasm-run.js, the tests)
@@ -750,6 +756,7 @@ test-wasm: $(WEB)/strata-emu.js $(BUILD)/strata-emu $(BUILD)/sasm examples $(BUI
 # installs it in the module's function table, hence ALLOW_TABLE_GROWTH)
 $(WEB)/strata-emu.js: web/web.c emu/emu.c $(DBG_ENGINE) emu/jit/jit_wasm.c emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
 	@mkdir -p $(WEB)
+	$(CACHED) "emu.js $$($(EMCC) --version | head -1)" -o $@ -o $(@:.js=.wasm) -i web -i emu -i common -i asm/isa.h -i Makefile -- \
 	$(EMCC) -std=gnu11 -O3 -Wall -DNO_SDL -o $@ web/web.c emu/jit/jit_wasm.c \
 	  -sMODULARIZE=1 -sEXPORT_NAME=createStrata -sENVIRONMENT=worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
 	  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=128MB -sALLOW_TABLE_GROWTH=1 \
@@ -770,15 +777,18 @@ VERILATOR_ROOT ?= $(shell verilator --getenv VERILATOR_ROOT 2>/dev/null)
 wasm-rtl: $(WEB)/strata-rtl.js
 # test-wasm-rtl: that build under node against the native simulator
 # (tools/test-wasm-rtl.sh): same output, same cycle counts, same frame
-test-wasm-rtl: $(WEB)/strata-rtl.js $(BUILD)/strata-rtl examples
+build-wasm-rtl-test: $(WEB)/strata-rtl.js $(BUILD)/strata-rtl examples
+test-wasm-rtl: build-wasm-rtl-test
 	BUILD=$(BUILD) ./tools/test-wasm-rtl.sh
 $(WEB)/strata-rtl.js: $(RTL) sim/main.cpp web/web_rtl.cpp web/web_rtl_stubs.c common/stx.h common/platform.h common/display.h common/net.h common/netnat.h asm/isa.h
 	@mkdir -p $(WEB) $(BUILD)/web-rtl
+	$(CACHED) "rtl.js $$(verilator --version) $$($(EMXX) --version | head -1) $(WEB_RTL_CORES) $(NXMAP) $(DLS_KIB) $(ILS_KIB)" \
+	  -o $@ -o $(@:.js=.wasm) -i rtl -i sim -i web -i common -i asm/isa.h -i Makefile -- sh -c '\
 	verilator --cc -O3 --x-assign fast --x-initial fast \
 	  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
 	  -DSIMULATION -GNCORES=$(WEB_RTL_CORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) --top-module strata_top \
-	  -Mdir $(BUILD)/web-rtl/obj $(RTL)
-	$(EMCC) -O2 -c -o $(BUILD)/web-rtl/stubs.o web/web_rtl_stubs.c
+	  -Mdir $(BUILD)/web-rtl/obj $(RTL) && \
+	$(EMCC) -O2 -c -o $(BUILD)/web-rtl/stubs.o web/web_rtl_stubs.c && \
 	$(EMXX) -std=c++17 -O2 -include cstdint -DNO_SDL -DVL_IGNORE_UNKNOWN_ARCH -DNCORES=$(WEB_RTL_CORES) -DNXMAP=$(NXMAP) -DDLS_KIB=$(DLS_KIB) -DILS_KIB=$(ILS_KIB) \
 	  -I$(BUILD)/web-rtl/obj -I$(VERILATOR_ROOT)/include -I$(VERILATOR_ROOT)/include/vltstd \
 	  -o $@ web/web_rtl.cpp $(BUILD)/web-rtl/stubs.o $(BUILD)/web-rtl/obj/Vstrata_top*.cpp \
@@ -786,7 +796,7 @@ $(WEB)/strata-rtl.js: $(RTL) sim/main.cpp web/web_rtl.cpp web/web_rtl_stubs.c co
 	  -sMODULARIZE=1 -sEXPORT_NAME=createStrataRtl -sENVIRONMENT=worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
 	  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=256MB -sSTACK_SIZE=1MB \
 	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_stop,_web_finish,_web_stat,_malloc,_free \
-	  -sEXPORTED_RUNTIME_METHODS=callMain,FS,HEAPU8
+	  -sEXPORTED_RUNTIME_METHODS=callMain,FS,HEAPU8'
 
 # the web debugger's examples (site/debug/): images, their maps (sasm -g) and
 # the sources the maps name, under build/web/debug/ (the site's play/debug/)
@@ -794,9 +804,10 @@ DEBUG_EXAMPLES := hello pipeline clock stream_sum parsum overlay swcache race
 DEBUG_ASSETS := $(foreach e,$(DEBUG_EXAMPLES),$(BUILD)/examples/$(e).stx $(BUILD)/examples/$(e).map)
 
 # (a map is written with its image; this rebuilds an image made before maps were)
-$(BUILD)/examples/%.map: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
-	@mkdir -p $(BUILD)/examples
-	$(BUILD)/sasm -g $@ -o $(@:.map=.stx) $<
+# (after the image's own rule, never beside it: both write both files)
+$(BUILD)/examples/%.map: $(BUILD)/examples/%.stx
+	@test -f $@ || $(BUILD)/sasm -g $@ -o $< examples/$*.s
+	@touch $@
 
 wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS)
 	@mkdir -p $(WEB)/images $(WEB)/demos $(WEB)/debug/src/examples/lib

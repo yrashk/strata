@@ -58,7 +58,8 @@ Unit, with capabilities for authority. The tree has:
 
 Verified on 2026-11-12 on an arm64 Mac, NCORES=8, at the last code commit
 (9894636): the full `make test` passed (exit 0), and the Pages deploy
-succeeded. `make test` builds everything and runs, in order:
+succeeded. `make test` builds everything and runs, several at a time
+(`tools/run-tests.sh` runs the list in `tools/tests.sh`; `doc/testing.md`):
 - the examples, emulator against RTL instruction by instruction;
 - two StrataOS sessions in lockstep with the RTL (`os/demo.txt` and the
   guest session `os/guest-demo.txt`);
@@ -70,7 +71,13 @@ succeeded. `make test` builds everything and runs, in order:
   16/4 and 4/32 KiB, and StrataOS refusing them);
 - `test-wasm` (needs node and emcc).
 
-It takes around an hour, more when the machine is busy. `make lint`,
+It takes 7 to 8 minutes on 18 cores (the longest test, a StrataOS session
+on the RTL, sets the time), more when the machine is busy; run one after
+another it was around an hour. For the loop of editing and testing:
+`make test-fast` (seconds), `make test-mid` (about a minute),
+`make test-changed` (what differs from `main` can reach), `make test-one
+T=NAME`; these skip tests that have passed with the same inputs, and
+`make test` never does. `make lint`,
 `make manual` and `make wasm` also build. `make manual` prints a warning,
 "Object @table.D.1 already defined", that nobody has looked at.
 
@@ -80,7 +87,8 @@ Not verified:
 
 ## How the work is done
 
-- **Tests gate every push.** Run the full `make test` and push only if it
+- **Tests gate every push.** Run the full `make test` (not `test-cached` or
+  a tier: those take results from the cache) and push only if it
   exits 0 (chain the push behind it with `&&`; a push once went out after
   a failing test because it was not).
 - **Git LFS:** `fpga/results/` and `asic/results/` keep logs, netlists and
@@ -343,7 +351,8 @@ built from. The kernel boots from a boot manifest (`u_disk` in
 
 ```
 make                  # sasm, strata-emu, strata-rtl
-make test             # everything (about an hour)
+make test             # everything, each test run (7 to 8 minutes on 18 cores)
+make test-fast        # the fast tier; test-mid, test-changed, test-one T=NAME: doc/testing.md
 make conformance      # the conformance suite on interpreter / JIT / RTL
 make formal           # the SymbiYosys proofs (formal-NAME: one target)
 make boot             # StrataOS on the emulator; boot-ws: with the window server
