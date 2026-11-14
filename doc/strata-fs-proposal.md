@@ -1,8 +1,8 @@
 # A database store for StrataOS, and the file system on top of it
 
-Status: a proposal. Nothing here is implemented. The open questions are in
-section 11; the staged plan is in section 10 and, as checkboxes, in
-`os/servers/PLAN-fs.md`.
+Status: the design is accepted with the decisions of section 11; the
+implementation follows the stages of section 10 (as checkboxes in
+`os/servers/PLAN-fs.md`, which says how far it is).
 
 The idea in one paragraph: StrataOS gets a **generic store**, `db`: ordered
 key-value trees (copy-on-write B+trees) grouped into **namespaces**, with
@@ -322,22 +322,27 @@ so an insert moves 2-byte slots, not cells.
   of the last run is given back at close. Overwriting the middle of a
   stream writes new pages and replaces that range's extent (the extent is
   split in the tree); the old pages are freed at commit.
-- **Free space is a tree**: start page → page count, coalesced with its
-  neighbours on insert. Allocation is first fit from a hint (the end of
+- **Free space is a tree**: an extent's end page → its page count (by
+  end, because allocation takes pages from an extent's front: the key
+  stays while the count shrinks), coalesced with its neighbours. Allocation is first fit from a hint (the end of
   the stream being extended, else the last allocation), so it reuses any
   hole, not just the one at the end.
 - **Pending frees.** A page freed by a transaction is not reusable until
   that transaction is on the disk, or a crash would leave the old tree
   pointing at overwritten pages. Freed extents go to a second tree keyed
-  by (commit number, start), and the next transaction moves the committed
-  ones into the free tree. (With snapshots this same tree says which
-  pages a snapshot still needs.)
+  by (commit number, start), with the commit that wrote the pages, and the
+  next transaction takes the committed ones for reuse. (With snapshots
+  this same tree says which pages a snapshot still needs, section 4.1.)
 - **The allocator does not recurse.** Changing the free tree needs pages
   and frees pages. At the start of a transaction the allocator takes a
   reserve of free extents into memory and serves the transaction from it;
   frees accumulate in a list in far memory; at commit both are written
-  into the trees in a loop that ends when a pass needs no new page (two
-  or three passes; LMDB saves its free list the same way).
+  into the trees in a loop that ends when a pass frees no page (one or
+  two passes in the tests; LMDB saves its free list the same way). The
+  last extent of the reserve is not put back into the tree, since that
+  insert could need more pages than the extent has: the meta page holds
+  it as the *spare extent*. A new disk has no free tree at all, only a
+  spare extent.
 
 ### 3.5 Growth and sizes
 
@@ -405,6 +410,32 @@ accepts a larger image, the RTL harness does not.
   has its attribute in the record and the reverse; `dict` counts; every
   stream's extents inside the disk); and the boot manifest (section 6).
   A smaller `fsck` program in the OS can follow.
+
+### 4.1 Snapshots
+
+A snapshot is the whole store as of one commit, under a name: every
+namespace, every tree, every file. Taking one records that commit's
+catalog root in a tree of snapshots; it copies nothing. It is read-only
+and is opened like a namespace (`NSOPEN` of `fs@NAME`); for files, a
+first path component `@NAME` reads the file system as it was (`ls
+/@monday/src`, `cat /@monday/notes`), so `cp /@monday/notes notes` brings
+an old version back.
+
+What a snapshot costs is the pages it keeps from being reused. Every tree
+page and every extent records the commit that wrote it (its birth). When
+the live store stops using a page:
+
+- born after the newest snapshot: no snapshot can see it; it is freed as
+  described in 3.4;
+- born before: the newest snapshot still needs it. It goes to that
+  snapshot's dead list (entries in the pending tree under the snapshot's
+  commit number, with the birth kept).
+
+Deleting a snapshot walks the dead list of the snapshot after it (or of
+the live store): entries born after the snapshot before it become free,
+the rest move to that earlier snapshot's list. This is the scheme of ZFS's dead lists
+([OpenZFS documentation](https://openzfs.github.io/openzfs-docs/)); it
+needs no reference counts and no walk of the trees.
 
 ## 5. Working within the Local Stores
 
@@ -634,45 +665,42 @@ Sizes are lines of new code, rough.
 | 5 | Writing: allocator, insert and split, delete and merge, commit, stream write, batches and transactions; fs writing | 2,500 asm | Feature parity without the limits; crash tests in the emulator; the comparison with the C library |
 | 6 | Clients: `sys_list`, `ls`, `sh`, `httpd`, tag tools, the refusals, the Forth ports; DIR and old TAGS removed; documents | 800 asm, 300 Forth | The 126 and 24-byte limits gone from programs too |
 | 7 | The store for programs: namespace calls, grants, `db`, Forth words; attributes, `attr`, query terms in paths | 900 asm | The database facility in use beyond `fs` |
-| 8 | Later: snapshots, browser persistence, `fsck` in the OS, data checksums | — | — |
+| 8 | Snapshots (section 4.1): SNAP calls, `snap` utility, reading a snapshot through a path | 500 asm, 300 C | The disk as it was, by name |
+| 9 | Later: browser persistence, `fsck` in the OS, data checksums | — | — |
 
 Stages 1 to 3 change no server. From stage 4 the old `fs.s` is replaced;
 the old format is not read (disks are always built by `mkdisk`), so there
 is no migration.
 
-**Left out of the first version**: snapshots and versions; permissions
+**Left out of the first version**: versions of single files (a snapshot
+is of the whole store); permissions
 finer than a namespace handle; more than one writer at a time; checksums
 of file data; defragmentation and compaction (free space coalesces, files
 do not move); wall-clock times; full-text or substring search; discard;
 hard links (an object has one name; tags do what links did).
 
-## 11. Open questions
+## 11. Decisions
 
-1. **One server or two.** The proposal is one process holding the store
-   and the fs layer as separate modules, answering both `fs` and `db`
-   (7.1). A separate `db` server is cleaner and costs a core (seven at
-   least, and `ws` no longer fits on eight) and messages per file call.
-2. **Hierarchy.** The proposal keeps tags as the only grouping and paths
-   as queries, as today. The alternative is real nesting (a parent
-   attribute, names unique per parent). Related: names are unique on the
-   whole disk today; with many files that gets awkward. The format allows
-   names unique per tag set, or not unique at all (the `name` key becomes
-   name and id); the proposal keeps them unique for now.
-3. **Snapshots and versions.** Copy-on-write makes a snapshot one saved
-   root plus not freeing what it references; the pending-free tree is
-   designed for it. Wanted in a later stage, or not at all?
-4. **Query syntax.** Terms as path components (`ls /src/size>4096`,
-   `ls '/type=text/a*'`) need quoting in the shell because of `>` and
-   `*`. Alternatives: other operators (`size.gt.4096`), or a `find`-like
-   utility and no syntax in paths.
-5. **Who may open a namespace.** StrataOS has no users. Proposal: a
-   namespace is private to its creator and whoever it grants, or public
-   (anyone opens it by name), chosen at creation; `fs` is private to the
-   fs module. Should the shell or `proc` hold a right to everything?
-6. **Assembly or C.** The reference is C in any case. If the C compiler
-   in `lang/cc/` is expected to build servers soon, stage 4 and 5 could
-   compile the same source instead of porting it by hand.
-7. **Durability of small changes.** The proposal commits at every
-   metadata change and every close (four device commands each). Batching
-   commits over a short interval would be faster for bursts (`cp` of many
-   files) and would lose the last interval in a power cut.
+1. **One server.** The store and the fs layer are two modules of one
+   process that answers both `fs` and `db` (7.1).
+2. **No hierarchy.** Tags are the only grouping and a path is a query.
+   Names stay unique on the disk for now; the format does not depend on
+   it.
+3. **Snapshots are wanted** (section 4.1, stage 8). The format carries
+   what they need from the first stage, so adding them changes no disk.
+4. **Query terms are path components** (`ls '/src/size>4096'`), quoted in
+   the shell where they hold `>` or `*`.
+5. **A namespace is private or public**, chosen when it is created:
+   private to its creator and whoever it grants, or open to anyone by
+   name. `fs` is private to the fs module.
+6. **The server is assembly.** The C in `tools/stdb/` is the host's side
+   of the format (`mkdisk`, the checker) and the reference the assembly is
+   compared with.
+7. **Every metadata change and every close is a commit.**
+
+**Where the code lives.** The emulator, the RTL and the browser build
+know nothing of the store: they model a block device, as now. What they
+gain is the device's own behaviour: keeping what was written (`-w`) and
+losing power (`--disk-cut`). The store and the file system are in `os/`.
+The host knows the format only in `tools/` (`mkdisk` must write a disk,
+and a checker must read one), as `mkdisk` knows the present one.

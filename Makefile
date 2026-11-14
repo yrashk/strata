@@ -730,3 +730,13 @@ manual:
 
 clean:
 	rm -rf $(BUILD)
+
+# The store on the host (doc/strata-fs-proposal.md): its tests against a
+# model and against power cuts.
+$(BUILD)/stdb-test: tools/stdb/store.c tools/stdb/test.c tools/stdb/stdb.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ tools/stdb/store.c tools/stdb/test.c
+
+.PHONY: test-stdb
+test-stdb: $(BUILD)/stdb-test
+	$(BUILD)/stdb-test

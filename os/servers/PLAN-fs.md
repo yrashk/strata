@@ -1,29 +1,32 @@
 # Plan: the database store and the file system on it
 
-The design is `doc/strata-fs-proposal.md`. Nothing below the first section
-starts before the open questions (section 11 there) are answered.
+The design is `doc/strata-fs-proposal.md`. Its section 11 holds the
+decisions taken.
 
 ## Proposal
 - [x] Survey: `fs.s`, the kernel's disk reading, `mkdisk`, the block
       device, the protocol, every client, the limits, persistence
 - [x] `doc/strata-fs-proposal.md`
-- [ ] Answers to the open questions: one server or two; hierarchy and
-      unique names; snapshots; query syntax; namespace rights; assembly or
-      C; when to commit
-- [ ] The proposal revised to the answers and turned into the format's
-      specification (field offsets, the checksum, key encodings)
+- [x] Decisions (section 11 of the proposal): one server; no hierarchy;
+      snapshots wanted; query terms in paths; private or public
+      namespaces; assembly; a commit per change. Emulator and RTL stay
+      block devices only.
+- [ ] The format's specification (field offsets, the checksum, key
+      encodings) written out from `tools/stdb/` once stage 1 settles it
 
 ## Stage 1: the store on the host
-- [ ] `tools/stdb/`: pages, cache, B+tree (search, insert, split, delete,
-      merge), free-space and pending trees, commit, mount
+- [x] `tools/stdb/store.c`: pages, B+tree (search, seek, insert, split,
+      delete, merge), free-space and pending trees, commit, mount,
+      catalog, `st_check`
+- [x] `tools/stdb/test.c`: random operations against a model; a cut at
+      every block write (`make test-stdb`)
 - [ ] Streams: inline values, extents, sparse ranges, truncate
 - [ ] Catalog and namespaces; batches and transactions
 - [ ] The fs layer: `obj`, `data`, `name`, `attr`, `dict`; queries with
       cursors
 - [ ] `mkdisk` on the library; the boot manifest
 - [ ] `stdb check`, `dump`, `ls`, `get`, `put`, `rm`, `tag`
-- [ ] Tests: random operations against a model; a cut at every block
-      write; a million objects
+- [ ] Tests of the fs layer; a million objects
 
 ## Stage 2: persistence
 - [ ] Emulator `-w` (write back at exit and at FLUSH)
@@ -69,8 +72,11 @@ starts before the open questions (section 11 there) are answered.
 - [ ] `db` utility; Forth words
 - [ ] Attributes: SETATTR, GETATTR, `attr`; query terms in paths
 
+## Stage 8: snapshots
+- [ ] Births in pages and extents (in the format from stage 1)
+- [ ] Dead lists; take, list, delete; `fs@NAME` and `/@NAME/` paths
+
 ## Later
-- [ ] Snapshots
 - [ ] Browser persistence (IndexedDB, download)
 - [ ] `fsck` in the OS
 - [ ] Checksums of file data
