@@ -6,6 +6,8 @@ T = "lang/cc/tests"
 OUT = os.path.join(T, "out")
 BATCH = int(os.environ.get("CC_BATCH", "24"))      # tests per boot
 SECS = int(os.environ.get("CC_TIMEOUT", "60"))     # host seconds per boot
+FLAGS = os.environ.get("CC_FLAGS", "")              # e.g. "-p": the paged code model
+if FLAGS: FLAGS += " "
 PROMPT = "strata$ "
 BASE = ["-t", "sys"] + [B + "/prog/" + p for p in ("proc", "dev", "fs", "tty", "pipe")] + \
        ["-t", "bin", B + "/prog/sh", B + "/prog/rm", B + "/prog/cc", B + "/cc/cc.lib"]
@@ -32,7 +34,7 @@ def boot(batch, tag):
     for i, (rung, path) in enumerate(batch):
         n = "t%02d.c" % i
         shutil.copyfile(path, d + "/" + n); files.append(d + "/" + n)
-        script += ["cc -o t %s" % n, "echo @@C%02d $?" % i, "t", "echo @@R%02d $?" % i, "rm t"]
+        script += ["cc %s-o t %s" % (FLAGS, n), "echo @@C%02d $?" % i, "t", "echo @@R%02d $?" % i, "rm t"]
     script.append("halt")
     open(d + "/in.txt", "w").write("\n".join(script) + "\n")
     open(d + "/rc", "w").write("")
@@ -54,7 +56,7 @@ def parse(out, n):
     """-> per test: (compile output, compile status, run output, run status), None where the session did not get that far"""
     res = []
     for i in range(n):
-        m = re.search(re.escape(PROMPT + "cc -o t t%02d.c\n" % i) + "(.*?)" + re.escape(PROMPT + "echo @@C%02d $?\n" % i) +
+        m = re.search(re.escape(PROMPT + "cc %s-o t t%02d.c\n" % (FLAGS, i)) + "(.*?)" + re.escape(PROMPT + "echo @@C%02d $?\n" % i) +
                       r"@@C%02d (\d+)\n" % i, out, re.S)
         if not m: res.append(None); continue
         r = re.search(re.escape(PROMPT + "echo @@C%02d $?\n" % i) + r"@@C%02d \d+\n" % i + re.escape(PROMPT + "t\n") + "(.*?)" +

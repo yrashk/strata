@@ -67,6 +67,7 @@ a conformance suite that holds them all to the same behaviour.
 | `os/ws/` | The window server `ws`: main loop, protocol, renderers, and a bare-metal demo of them |
 | `os/files/`, `os/demo.txt` | Files put on the disk (`motd`, `rc`); a scripted demo session |
 | `lang/forth/` | Strata Forth: a kernel in assembly, the language in Forth, demos and tests |
+| `lang/cc/` | `cc`, a C99 compiler in Strata assembly that runs in StrataOS: the compiler, its run-time library and headers, the C test ladder |
 | `conformance/` | The architectural conformance suite and a three-way differential fuzzer |
 | `tools/` | Test scripts (`compare.sh`, `compare-boot.sh`, `test-*.sh`), `mkdisk` (bootable disks), `mkhex` (FPGA memory images), `bench-jit.sh`, `web-code.py` |
 | `fpga/` | Synthesis script, LiteDRAM adapter, a board top, pin constraints |
@@ -258,7 +259,7 @@ strata$ ws                          # the window server takes the screen
   `help`.
 - **Utilities**: `ls cat cp mv rm touch df tag untag retag tags ps free
   uptime devs hexdump cores sched seq grep wc upper spin`, `units` (a program
-  that pages its own code), and `as`.
+  that pages its own code), `as`, and `cc`, a C compiler.
 - **The editor** (`vi FILE`): vi keys (motions, counts, `d c y` operators,
   put, many-level undo and redo, `.`, search, `:w :q :e :set nu`) on the
   console or in a window, Strata assembly and Forth in the site's colours
@@ -345,6 +346,43 @@ build/strata-emu -c 1 -i all.s as.stx > prog.stx     # source on the console in,
 `tools/test-as.sh` checks it against `sasm` on every example, the kernel,
 the boot ROM, itself, a feature test and a set of inputs both must reject,
 and runs it under a StrataOS boot.
+
+### `cc`: a C compiler in Strata assembly
+
+`lang/cc/` is a C99 compiler written in Strata assembly. Like `as`, it is a
+program on the StrataOS disk: it reads C source from the file system and
+writes a program image that the shell starts by name.
+
+```
+strata$ cc /src/hi.c                # writes the program hi
+strata$ hi there
+Hello from C on Strata, there!
+strata$ cc -o calc calc.c           # -o names the output; -h KIB sizes the heap
+```
+
+- **No assembler pass, no linker.** `cc` emits the image itself: compiler
+  output has more labels and address loads than `as` holds in its 40 KiB of
+  tables. The run-time library is assembled once at fixed addresses and copied
+  into every program; its headers, its export table and the compiler's own
+  code units travel in one file, `cc.lib`.
+- **C as this machine sees it.** `int` is 32 bits, `long` and pointers 64. A
+  pointer is an address in the data Local Store, so a C program has 40 KiB of
+  data and heap and 8 KiB of stack; system memory is reached through library
+  calls (`<strata.h>`), which are transfers. There is no floating-point
+  hardware.
+- **One pass.** The compiler emits code while it parses, keeping what it has
+  not yet had to compute on a stack of value descriptors, so constants fold,
+  variables become operands and narrow results are extended only where it
+  matters. It is larger than the instruction store and pages its own code
+  with `xcall`, like `units`.
+- **Tested against existing C tests.** `lang/cc/tests/` holds 521 programs
+  from the test suites of scc (ISC) and lacc (MIT), sorted into a ladder by
+  the features they need; `make test-cc` compiles and runs each one inside
+  StrataOS and prints the score per rung.
+
+What is implemented and what is not is listed in
+[`lang/cc/PLAN-cc.md`](lang/cc/PLAN-cc.md); the design is in
+[`lang/cc/DESIGN.md`](lang/cc/DESIGN.md).
 
 ## Strata Forth
 

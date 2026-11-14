@@ -922,6 +922,15 @@ shows the files tagged src, then `demo/`; `ls /src/demo` narrows to both;
 no facets. The shell's Tab completes facets in a path like folders (`cat
 /sr` Tab gives `/src/`, with no space after it).
 
+**`cc`** (`lang/cc/`, its design in `lang/cc/DESIGN.md`) is a C99 compiler
+on the disk: `cc [-o OUT] [-h KIB] FILE.c` reads the file through `fs`,
+writes a StrataOS program image (an STX2 file with the `"SYS2"` marker, the
+run-time library at the start of both Local Store sections, the heap inside
+the data section so that a context switch keeps it) and exits with status 1
+after printing `file:line: message` for the first error. It needs
+`/bin/cc.lib` (the library, its headers, and the compiler's own code units,
+which it copies into its arena at start-up and pages from there).
+
 Utilities: `ls [-t] [PATH]` (files, then facets as `tag/`; `-t` adds each
 file's tags; no PATH: the current tag path), `cat`, `cp [-t] SRC DST` (a copy; DST's path gives it tags,
 `-t` also copies SRC's; names are unique, so DST must name another file),
