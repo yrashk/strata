@@ -976,7 +976,8 @@ delete, u8 0, u16 key length, u16 value length, u16 0, key, value} from
 the next multiple of 8) → all of them in one commit, or none. A namespace
 and a tree are made by the first write. Namespaces made this way are
 public (any program names them); `fs` is private and refused. `os/lib/kv.s` wraps them for assembly programs (`kv_open`,
-`kv_get`, `kv_put`, `kv_del`, `kv_scan`). `db put
+`kv_get`, `kv_put`, `kv_del`, `kv_scan`), `db.fs` for Forth (`kv-open`,
+`kv-get` ...; `forth db.fs get NS/TREE KEY`). `db put
 NS/TREE KEY VALUE`, `db get NS/TREE KEY` and `db del NS/TREE KEY` use
 them from the shell. Inside the OS,
 `db` shows the store's trees (`db`: the trees with their roots and heights;

@@ -301,14 +301,24 @@ db put app/log 0002 again
 db get app/conf size
 db put fs/name evil x
 db get fs/name motd
+forth db.fs put app/forth k1 from-forth
+forth db.fs put app/forth k2 gone
+forth db.fs del app/forth k2
+forth db.fs get app/conf colour
+db get app/forth k1
+echo --fscan; forth db.fs scan app/conf
+forth db.fs get fs/name motd
 halt
 EOF
 run "$tmp/k1.txt" "$disk" -w "$tmp/k1.img" || fail "the session with a namespace of its own did not end well"
 grep -q '^43$' "$tmp/out.txt" || { cat "$tmp/out.txt" >&2; fail "db get does not answer what db put wrote"; }
-[ "$(grep -c '^db: refused' "$tmp/out.txt")" -eq 2 ] || fail "the file system's namespace was not refused to db put and db get"
+[ "$(grep -c '^db: refused' "$tmp/out.txt")" -eq 3 ] || fail "the file system's namespace was not refused to db put and db get (and to db.fs)"
+grep -q '^amber$' "$tmp/out.txt" && grep -q '^from-forth$' "$tmp/out.txt" || { cat "$tmp/out.txt" >&2; fail "the Forth words for the store (db.fs) do not get what was put"; }
+sed -n '/^--fscan$/,$p' "$tmp/out.txt" | grep '^"' | head -2 >"$tmp/fscan.txt"
+printf '"colour" = "amber"\n"size" = "43"\n' | cmp -s - "$tmp/fscan.txt" || { cat "$tmp/fscan.txt" >&2; fail "forth db.fs scan does not list the tree"; }
 "$b/stdb" check "$tmp/k1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk with a program's namespace fails its check"; }
 "$b/stdb" dump "$tmp/k1.img" | grep '^app/' >"$tmp/k1.dump"
-printf 'app/conf "colour" = "amber"\napp/conf "size" = "43"\napp/log "0002" = "again"\n' | cmp -s - "$tmp/k1.dump" ||
+printf 'app/conf "colour" = "amber"\napp/conf "size" = "43"\napp/forth "k1" = "from-forth"\napp/log "0002" = "again"\n' | cmp -s - "$tmp/k1.dump" ||
   { cat "$tmp/k1.dump" >&2; fail "the namespace on the disk is not what was put"; }
 "$b/stdb" dump "$tmp/k1.img" | grep -v '^app/' | cmp -s - "$tmp/dump0.txt" || fail "a program's namespace changed the file system"
 { printf 'db get app/log 0002\ndb app/conf\n'
@@ -320,7 +330,7 @@ grep -q '^again$' "$tmp/out.txt" && grep -q '^"size" = "43"$' "$tmp/out.txt" || 
 sed -n '/^--scan$/,$p' "$tmp/out.txt" | grep '^"k' >"$tmp/scan.txt"
 i=0; while [ $i -lt 300 ]; do printf '"k%04d" = "v%d"\n' $i $((i * 7)); i=$((i + 1)); done | cmp -s - "$tmp/scan.txt" ||
   { head -3 "$tmp/scan.txt" >&2; fail "db scan does not list the 300 records put, in order"; }
-echo "test-store: a namespace of a program's own: put, get, del, on the disk as put, read after a boot, 300 records scanned in parts; fs refused"
+echo "test-store: a namespace of a program's own: put, get, del, on the disk as put, read after a boot, 300 records scanned in parts; the same from Forth (db.fs); fs refused"
 # ---- 7. attributes and terms -------------------------------------------------------------
 cat >"$tmp/a1.txt" <<'EOF'
 echo x > /t/a1

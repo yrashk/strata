@@ -122,7 +122,9 @@ decisions taken.
 - [x] Wrappers: `os/lib/kv.s` (`kv_open`, `kv_get`, `kv_put`, `kv_del`,
       `kv_scan`; a library of its own, so that programs that keep nothing
       in the store do not grow); `db` is built on it
-- [ ] Forth words for the store's calls
+- [x] Forth words for the store's calls: `lang/forth/progs/db.fs`
+      (`kv-open`, `kv-get`, `kv-put`, `kv-del`, `kv-scan`; `forth db.fs
+      get|put|del|scan`)
 - [x] Attributes: SETATTR (42), GETATTR (43), `attr` (`fsattr.s`); terms
       in paths: `NAME=VALUE`, `<`, `>` over attributes, `size`,
       `modified`; `PREFIX*` last in a listing; `test-store.sh` part 7
