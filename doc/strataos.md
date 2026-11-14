@@ -927,9 +927,12 @@ on the disk: `cc [-o OUT] [-h KIB] FILE.c` reads the file through `fs`,
 writes a StrataOS program image (an STX2 file with the `"SYS2"` marker, the
 run-time library at the start of both Local Store sections, the heap inside
 the data section so that a context switch keeps it) and exits with status 1
-after printing `file:line: message` for the first error. It needs
-`/bin/cc.lib` (the library, its headers, and the compiler's own code units,
-which it copies into its arena at start-up and pages from there).
+after printing `file:line: message` for the first error; `-p` pages the
+program's code in 4 KiB units. It needs `/bin/cc.lib` (the library and its
+headers) and its own code units, `/bin/cc.u`, which its start-up code loads
+into the arena and the dispatcher pages from there. `cc` is `lang/cc/cc.c`
+compiled by itself; the bootstrap compiler in assembly, `cc0`, is not on
+the standard disk.
 
 Utilities: `ls [-t] [PATH]` (files, then facets as `tag/`; `-t` adds each
 file's tags; no PATH: the current tag path), `cat`, `cp [-t] SRC DST` (a copy; DST's path gives it tags,

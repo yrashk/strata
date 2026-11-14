@@ -329,64 +329,53 @@ $(BUILD)/prog/as: os/progs/as.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
-# the C compiler (lang/cc/): cc, in Strata assembly, and the one file it needs,
-# cc.lib: the run-time library (assembled at fixed addresses), the table of its
-# exported names and the headers (lang/cc/lib/mklib.py packs them)
+# the C compiler (lang/cc/, DESIGN.md section 6):
+#   cc.lib      what compiled programs are made with: the run-time library
+#               (assembled at fixed addresses), the table of its exported names
+#               and the headers (lang/cc/lib/mklib.py packs them)
+#   strata-cc   cc.c, the compiler, built for this machine (lang/cc/host/): the
+#               cross compiler
+#   prog/cc     cc.c compiled by strata-cc: the compiler inside StrataOS. It is
+#               larger than an image may be, so its code units are a second
+#               file, cc.u, which its start-up code loads
+#   prog/cc0    cc.s, the bootstrap compiler in Strata assembly, and cc0.lib,
+#               cc.lib plus cc0's own code units. make test-cc-boot compiles
+#               cc.c with it inside StrataOS and checks that the result,
+#               compiling cc.c again, gives prog/cc byte for byte
 CC_SRC  := $(wildcard lang/cc/*.s) lang/cc/lib/rt.s
 CC_HDRS := $(sort $(wildcard lang/cc/lib/include/*.h))
-# sasm assembles the whole compiler into one image; mklib.py splits it: the
-# program cc keeps the Local Store sections, its code units go into cc.lib
-$(BUILD)/cc/cc-full.stx: $(CC_SRC) $(BUILD)/sasm lang/cc/tests/check-units.py
-	@mkdir -p $(BUILD)/cc $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -I lang/cc -g $(BUILD)/prog/cc.map -o $@ lang/cc/cc.s
-	python3 lang/cc/tests/check-units.py $@
-$(BUILD)/cc/libc.stx: lang/cc/lib/libc.s lang/cc/lib/rt.s $(BUILD)/sasm
+CC_LIBIN := $(BUILD)/cc/libc.stx $(BUILD)/cc/libc.map lang/cc/lib/libc.s $(CC_HDRS)
+$(BUILD)/cc/libc.stx: lang/cc/lib/libc.s lang/cc/lib/rt.s lang/cc/lib/fp.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/cc
 	$(BUILD)/sasm -T 0x8000 -I lang/cc/lib -g $(BUILD)/cc/libc.map -o $@ lang/cc/lib/libc.s
-$(BUILD)/prog/cc: $(BUILD)/cc/cc.lib
+$(BUILD)/cc/cc.lib: $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS)
+	python3 lang/cc/lib/mklib.py $@ $(CC_LIBIN)
+$(BUILD)/strata-cc: lang/cc/cc.c lang/cc/host/host.c lang/cc/host/strata.h
+	@mkdir -p $(BUILD)
+	$(CC) -O2 -w -Ilang/cc/host -o $@ lang/cc/cc.c lang/cc/host/host.c
+$(BUILD)/prog/cc: $(BUILD)/strata-cc $(BUILD)/cc/cc.lib lang/cc/cc.c
+	@mkdir -p $(BUILD)/prog
+	CC_LIB=$(BUILD)/cc/cc.lib $(BUILD)/strata-cc -p -h 0 -o $@ lang/cc/cc.c
+	@test -f $@.u
+$(BUILD)/prog/cc.u: $(BUILD)/prog/cc
 	@touch $@
-$(BUILD)/cc/cc.lib: $(BUILD)/cc/cc-full.stx $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS)
-	python3 lang/cc/lib/mklib.py --cc $(BUILD)/cc/cc-full.stx $(BUILD)/prog/cc $(BUILD)/cc/cc.lib $(BUILD)/cc/libc.stx $(BUILD)/cc/libc.map lang/cc/lib/libc.s $(CC_HDRS)
+# sasm assembles the whole bootstrap compiler into one image; mklib.py splits
+# it: the program cc0 keeps the Local Store sections, its code units go into
+# cc0.lib
+$(BUILD)/cc/cc-full.stx: $(CC_SRC) $(BUILD)/sasm lang/cc/tests/check-units.py
+	@mkdir -p $(BUILD)/cc $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -I lang/cc -g $(BUILD)/prog/cc0.map -o $@ lang/cc/cc.s
+	python3 lang/cc/tests/check-units.py $@
+$(BUILD)/prog/cc0: $(BUILD)/cc/cc0.lib
+	@touch $@
+$(BUILD)/cc/cc0.lib: $(BUILD)/cc/cc-full.stx $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS)
+	python3 lang/cc/lib/mklib.py --cc $(BUILD)/cc/cc-full.stx $(BUILD)/prog/cc0 $@ $(CC_LIBIN)
 
-# Every source on the disk carries a copy of the library after the program.
-$(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s
-	@mkdir -p $(BUILD)/src
-	grep -v '^[[:space:]]*\.include' $< > $@
-	cat os/lib/sys.s >> $@
-
-# vi's source: its two includes (at the top: their labels come first) in place
-$(BUILD)/src/vi.s: os/progs/vi.s os/lib/sys.s $(BUILD)/vi-syntax.s
-	@mkdir -p $(BUILD)/src
-	awk '/^[[:space:]]*\.include "\.\.\/lib\/sys\.s"/ { system("cat os/lib/sys.s"); next } \
-	     /^[[:space:]]*\.include "vi-syntax\.s"/ { system("cat $(BUILD)/vi-syntax.s"); next } { print }' $< > $@
-
-$(BUILD)/src/units.s: os/progs/units.s examples/lib/print.s
-	@mkdir -p $(BUILD)/src
-	grep -v '^[[:space:]]*\.include' $< > $@
-	cat examples/lib/print.s >> $@
-
-$(BUILD)/src/%.s: examples/%.s examples/lib/print.s
-	@mkdir -p $(BUILD)/src
-	grep -v '^[[:space:]]*\.include' $< > $@
-	cat examples/lib/print.s >> $@
-
-$(BUILD)/src/as.s: os/progs/as.s
-	@mkdir -p $(BUILD)/src
-	cp $< $@
-
-# Strata Forth as a StrataOS program (its rules are in the Forth section below):
-# `forth`, the files it loads on demand (tools.fs, see.fs), core.fs to read, the demos
-FORTH_DISK := $(BUILD)/prog/forth lang/forth/core.fs lang/forth/tools.fs lang/forth/see.fs \
-              $(wildcard lang/forth/demos/*.fs)
-# the network words (loaded on demand, like tools.fs) and the web server built on them
-FORTH_DISK += lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd.fs lang/forth/httpd-ps.fs
-# the editor, with its keyword tables
-FORTH_DISK += lang/forth/vi.fs lang/forth/vi-text.fs lang/forth/vi-edit.fs $(BUILD)/forth-os/vi-syntax.fs
 # the ports of os/progs, with their library and loader: one file
 FORTH_DISK += $(BUILD)/forth-os/progs.pk
 
 # the C compiler, its library file and two C programs to try it on
-CC_DISK := $(BUILD)/prog/cc $(BUILD)/cc/cc.lib lang/cc/examples/hi.c
+CC_DISK := $(BUILD)/prog/cc $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib lang/cc/examples/hi.c
 DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as $(CC_DISK) \
               $(BUILD)/prog/units $(BUILD)/prog/vi $(SRCS) $(USRCS) $(BUILD)/src/vi.s $(FORTH_DISK)
 
@@ -409,7 +398,7 @@ DISK_ARGS  += -t www $(WWW_FILES)
 # The directory has 128 entries and the tests that create many files (HTTP,
 # isolation, Forth) fill it: their disks are built without the C compiler.
 DISK_ARGS_NOCC := $(DISK_ARGS)
-DISK_ARGS  += -t bin $(BUILD)/prog/cc $(BUILD)/cc/cc.lib -t src lang/cc/examples/hi.c
+DISK_ARGS  += -t bin $(BUILD)/prog/cc $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib -t src lang/cc/examples/hi.c
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) -t guest,forth $(FORTH_GUEST)
@@ -497,17 +486,34 @@ $(BUILD)/prog/forth: $(FORTH_OS_SRC) $(BUILD)/forth-os/corefs.s $(BUILD)/sasm
 # the C compiler's tests (lang/cc/tests/README.md):
 #   test-cc       the whole ladder of C test programs, compiled and run inside StrataOS
 #   test-cc-fast  a few tests of every rung, and the two example programs (part of make test)
-CC_TEST_DEPS := $(BUILD)/strata-emu $(BUILD)/mkdisk $(BUILD)/bootrom.stx $(BUILD)/kernel.stx $(SPROGS) $(BUILD)/prog/sh $(BUILD)/prog/rm $(BUILD)/prog/cc $(BUILD)/cc/cc.lib
-.PHONY: test-cc test-cc-fast
+#   test-cc-boot  the bootstrap: cc0 compiles cc.c, which reproduces itself (part of make test)
+#   test-cc0      the whole ladder with the bootstrap compiler
+#   test-cc-host  the whole ladder compiled by build/strata-cc, only run inside StrataOS
+CC_TEST_DEPS := $(BUILD)/strata-emu $(BUILD)/mkdisk $(BUILD)/bootrom.stx $(BUILD)/kernel.stx $(SPROGS) $(BUILD)/prog/sh $(BUILD)/prog/rm \
+                $(BUILD)/prog/cc $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib
+CC_BOOT := -t bin $(BUILD)/prog/cc0 $(BUILD)/cc/cc0.lib -t src lang/cc/cc.c lang/cc/tests/cmp.c
+.PHONY: test-cc test-cc-fast test-cc-boot test-cc0 test-cc-host
 test-cc: $(CC_TEST_DEPS)
 	BUILD=$(BUILD) lang/cc/tests/run.sh
+test-cc0: $(CC_TEST_DEPS) $(BUILD)/prog/cc0
+	BUILD=$(BUILD) CC_NAME=cc0 lang/cc/tests/run.sh
+test-cc-host: $(CC_TEST_DEPS) $(BUILD)/strata-cc
+	BUILD=$(BUILD) CC_HOST=$(BUILD)/strata-cc lang/cc/tests/run.sh
 # the disk of tools/test-cc.sh: the standard one plus the larger example
 $(BUILD)/cc-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) lang/cc/examples/calc.c
 	@mkdir -p $(BUILD)/cc-test
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t src lang/cc/examples/calc.c
+# the disk of tools/test-cc-boot.sh: the system, both compilers, cc.c
+$(BUILD)/cc-boot/disk.img: $(CC_TEST_DEPS) $(BUILD)/prog/cc0 lang/cc/cc.c lang/cc/tests/cmp.c
+	@mkdir -p $(BUILD)/cc-boot
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx -t sys $(SPROGS) -t bin $(BUILD)/prog/sh $(BUILD)/prog/rm \
+	    $(BUILD)/prog/cc $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib $(CC_BOOT)
 test-cc-fast: $(CC_TEST_DEPS) $(BUILD)/cc-test/disk.img
 	BUILD=$(BUILD) lang/cc/tests/run.sh -f lang/cc/tests/ladder/FAST.txt
 	BUILD=$(BUILD) ./tools/test-cc.sh $(BUILD)/bootrom.stx $(BUILD)/cc-test/disk.img
+test-cc-boot: $(CC_TEST_DEPS) $(BUILD)/cc-boot/disk.img
+	BUILD=$(BUILD) ./tools/test-cc-boot.sh $(BUILD)/bootrom.stx $(BUILD)/cc-boot/disk.img
+test: test-cc-boot
 test: test-cc-fast
 
 # the disk of tools/test-http.sh: the standard one plus two requests as a

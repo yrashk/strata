@@ -107,51 +107,49 @@ each stage. Keep it current.
 - [ ] `qsort`, `bsearch`, `strtod`, `<math.h>` in the library
 
 ### Stage 6: the main compiler, in C
-`cc.s` is the bootstrap compiler; `cc.c` is to be the main one and need not
-emit the same bytes (DESIGN.md, section 6).
+`cc.s` is the bootstrap compiler (`cc0`); `cc.c` is the compiler (`cc`, and
+`build/strata-cc` on the host) and need not emit the same bytes (DESIGN.md,
+section 6).
 - [x] paged code model (`-p`): functions placed in 4 KiB units; the whole
       ladder passes with `CC_FLAGS=-p` exactly as without; a generated
       program of 150 functions and 100 KiB of code (three times the
       instruction store) runs and prints what the host prints
-- [ ] the symbol table (1000 records, 5 per function with a prototype) is
-      too small for a program of the compiler's own size: prototype
-      parameters need a cheaper form, or the table a place in the arena
-- [ ] `cc.c`, compiled by `cc.s`
-- [ ] fixed point: `cc2 = cc1(cc.c)`, `cc3 = cc2(cc.c)`, identical bytes
-- [ ] programs whose image exceeds 128 KiB: code units in a second file,
-      loaded by `crt0` (as `cc` itself does with `cc.lib`)
+- [x] programs whose image exceeds 128 KiB: the code units go to a second
+      file, `OUT.u`, loaded by `crt0` (`__uload`); both compilers write it
+- [x] `cc.c`: the whole compiler in C (4,600 lines), compiled by `cc.s`
+      without changes to its tables (it stays under 1000 symbols and 448
+      types by defining functions before their use)
+- [x] fixed point, inside StrataOS: `cc1 = cc0(cc.c)`, `c2 = cc1(cc.c)`,
+      `c3 = c2(cc.c)`; `c2` and `c3` are identical, and identical to the
+      `cc` built on the host (`make test-cc-boot`, part of `make test`)
+- [x] `cc.c` on the host: `lang/cc/host/`, `build/strata-cc`; the Makefile
+      builds the `cc` of the disk with it
+- [x] `cc.c` passes the ladder: 471 of 521 (the bootstrap compiler: 450)
+- [x] found on the way, fixed in `cc.s`: a register stored to the frame
+      inside one arm of `?:`, `&&`, `||` was read back on the other path
+- [ ] `cc.c` data: 40,048 of the 40,960 bytes of D-LS are in use. The next
+      table that grows has to move to the arena (the symbol table first)
+- [ ] VLAs, K&R definitions, structure arguments of variadic functions,
+      wide strings, trigraphs, `#line`, `_Pragma`, hexadecimal floating
+      constants (see `tests/ladder/EXPECT.tsv`)
 
 ### Stage 7: the machine from C
-- [ ] intrinsics (`<strata.h>`), one instruction each; tags, capability
-      registers and CSR numbers are constants: `__tget __tput __tgetx __twait
+- [x] intrinsics (`cc-intr.s`; in `cc.c` the same table; documented in
+      `<strata.h>`), one instruction each: `__tget __tput __tgetx __twait
       __tpoll __tany`, `__tamo_add/_swap/_cas/_and/_or`, `__cbase __clen
-      __cperms __cvalid`, `__cmov __csplit __cjoin __cshare __crestrict
+      __cperms __cvalid`, `__cmov __cjoin __cshare __csplit __crestrict
       __cclear`, `__cgive __ctake __cpoll __csend`, `__csrr __csrw`, `__svc
-      __halt`, `__ltag __linst`. Supervisor-only instructions are left to `asm`
-- [ ] `asm("...")`: inline Strata assembly as `as` reads it, encoded with the
-      instruction table of `as` (`os/progs/as.s`; `asm/sasm.c` for `cc.c`).
-      In a function: lines encoded in place, `{name}` is a C variable as a
-      memory operand, labels are local to the statement; t0..t6, tp, a0..a7
-      are free, s registers, sp and gp are kept. At file scope: defines
-      symbols in the code section, declared to C by a prototype
-
-### Stage 7: the machine from C
-- [x] intrinsics (`cc-intr.s`, documented in `<strata.h>`), one instruction
-      each: `__tget __tput __tgetx __twait __tpoll __tany`,
-      `__tamo_add/_swap/_cas/_and/_or`, `__cbase __clen __cperms __cvalid`,
-      `__cmov __cjoin __cshare __csplit __crestrict __cclear`, `__cgive
-      __ctake __cpoll __csend`, `__csrr __csrw`, `__svc __halt`, `__ltag
-      __linst`. Tried in StrataOS: transfers to and from the arena, the
-      clock through c7, capability queries, CSRs, `svc`
-- [ ] `asm("...")`: inline Strata assembly as `as` reads it. Planned for
-      `cc.c`, which can use the instruction table of `asm/sasm.c` as it is;
-      the bootstrap compiler does not have it. In a function: lines encoded
-      in place, `{name}` is a C variable as a memory operand, labels are
-      local to the statement; t0..t6, tp, a0..a7 are free, s registers, sp
-      and gp are kept. At file scope: defines symbols in the code section
+      __halt`, `__ltag __linst`. Tried in StrataOS: transfers to and from
+      the arena, the clock through c7, capability queries, CSRs, `svc`
+- [ ] `asm("...")`: inline Strata assembly as `as` reads it, in `cc.c`
+      only, with the instruction table of `asm/sasm.c`. In a function:
+      lines encoded in place, `{name}` is a C variable as a memory operand,
+      labels are local to the statement; t0..t6, tp, a0..a7 are free, s
+      registers, sp and gp are kept. At file scope: defines symbols in the
+      code section
 
 ## Integration
-- [x] `cc`, `cc.lib` and `hi.c` on the OS disk (Makefile `CC_DISK`); the
+- [x] `cc`, `cc.u`, `cc.lib` and `hi.c` on the OS disk (Makefile `CC_DISK`); the
       disks of the HTTP, isolation and Forth tests are built without them
       (`DISK_ARGS_NOCC`): those tests fill the 128-entry directory
 - [x] `help` line in the shell
@@ -165,9 +163,11 @@ emit the same bytes (DESIGN.md, section 6).
 
 ## Scores
 
-Tests passing per rung, in the resident code model, after each stage
-(`lang/cc/tests/run.sh`). The paged model (`CC_FLAGS=-p`) gives the same
-counts (450 at the last run).
+Tests passing per rung, in the resident code model
+(`lang/cc/tests/run.sh`). First the bootstrap compiler after each of its
+stages (`make test-cc0`; the paged model, `CC_FLAGS=-p`, gives the same
+counts), then `cc.c` (`make test-cc`; `make test-cc-host` compiles on the
+host and gives the same).
 
 | After | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 | 09 | Total |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -180,17 +180,35 @@ counts (450 at the last run).
 | floating point | 32 | 12 | 88 | 29 | 52 | 67 | 17 | 97 | 46 | 440 |
 | typedef fix, nested designators | 32 | 12 | 88 | 31 | 53 | 70 | 17 | 97 | 48 | 448 |
 | a code-window fix (both code models) | 32 | 12 | 88 | 31 | 53 | 71 | 17 | 97 | 49 | 450 |
+| a spill before conditional branches | 32 | 12 | 88 | 31 | 53 | 71 | 17 | 97 | 49 | 450 |
+| **`cc.c`**, first run | 32 | 12 | 90 | 31 | 52 | 73 | 16 | 105 | 51 | 462 |
+| **`cc.c`**: labels, bit-field layout | 32 | 12 | 90 | 31 | 53 | 73 | 18 | 110 | 52 | 471 |
 
 ## Size
+
+`cc.c`: 4,600 lines of C. Compiled by itself: 89 KiB of code in 22 units
+(`cc.u`), and an image `cc` of 48 KiB: the 8 KiB library and 40 KiB of data.
+Compiled by the bootstrap compiler the same source is 98 KiB of code. The
+host program `strata-cc` is the same source and 130 lines of `host/host.c`.
 
 `cc.s` and the files it includes: 12,400 lines of assembly, of which the
 resident part is 3.8 KiB of code and the 27 code units 107 KiB; the D-LS
 section is the full 40 KiB (16 KiB symbols, 7 KiB types, 13 KiB variables
 and buffers). The library: 2,800 lines, 8 KiB of code and 3 KiB of data in
-every program. `cc.lib` is 128 KiB, `cc` 45 KiB.
+every program. `cc.lib` is 21 KiB; `cc0.lib`, with the bootstrap compiler's
+units, 128 KiB, `cc0` 45 KiB.
 
 ## Notes for whoever continues
 
+- **`cc.c` first.** Work on the compiler is work on `cc.c`: build
+  `build/strata-cc`, try it on the host (`make test-cc-host` runs the ladder
+  with it; compiling there with `-fsanitize=address,undefined` finds most
+  mistakes at once), then `make test-cc-boot`. What `cc.c` uses of C must
+  stay within what `cc.s` compiles, and within its tables: functions are
+  defined before they are used (a prototype costs the bootstrap compiler a
+  symbol per parameter), every function compiles to less than 4 KiB, and
+  the data must fit 40 KiB.
+- The rest of these notes is about `cc.s`.
 - **Units.** Code in a unit calls code in another (or anything that may
   leave the unit) with `la t6, f` / `xcall ra, c0, t6`; resident code with
   `jalr ra, gp, f-R`. A plain `call` is only for leaves of the same unit.

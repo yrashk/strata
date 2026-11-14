@@ -244,17 +244,79 @@ table, into one disk file, `cc.lib` (the disk's directory has 128 entries).
 
 ## 6. Bootstrap: `cc.s`, then `cc.c`
 
-The assembly compiler, `cc.s`, is the **bootstrap** compiler: it exists so
-that a C compiler can be built on a machine that has none. The **main**
-compiler is to be `cc.c`, written in the C that `cc.s` accepts, compiled by
-`cc.s` (in the paged code model) into `cc1`.
+There are two compilers.
 
-- `cc.c` does not have to emit what `cc.s` emits: it is free to generate
-  better code. The two only have to agree on the calling convention and on
-  the library.
-- The test of `cc.c` is its own fixed point: `cc1 = cc.s(cc.c)`,
-  `cc2 = cc1(cc.c)`, `cc3 = cc2(cc.c)`, and `cc2` and `cc3` are the same
-  bytes. (`cc1` and `cc2` differ whenever the two compilers generate
-  different code.)
-- `cc.s` therefore only needs to stay good enough to compile `cc.c`; new
-  language features go into `cc.c` first.
+- **`cc.c` is the compiler**: the `cc` of StrataOS, and, built for another
+  machine, the cross compiler `build/strata-cc`. It is written in the C it
+  compiles.
+- **`cc.s`**, in assembly, is the **bootstrap** compiler (`cc0` in
+  StrataOS): it exists so that `cc.c` can be compiled on a machine that has
+  no C compiler. It only has to stay good enough for that; new language
+  features go into `cc.c`.
+
+The two agree on the calling convention and on the library, not on the code
+they emit: `cc.c` generates somewhat tighter code and accepts more of C.
+
+### The fixed point
+
+`make test-cc-boot` runs the bootstrap inside StrataOS:
+
+```
+cc0 -p -h 0 -o cc1 cc.c        cc1: cc.c compiled by the bootstrap compiler
+cc1 -p -h 0 -o c2  cc.c        c2:  cc.c compiled by itself
+c2  -p -h 0 -o c3  cc.c        c3:  the same, once more
+```
+
+`c2` and `c3` are the same bytes: the compiler reproduces itself. (`cc1`
+differs: other compiler, other code.) They are also, byte for byte, the
+`cc` that the Makefile puts on the disk, which is `cc.c` compiled by
+`strata-cc` on the host: the cross compiler and the native one are one
+program and give one result.
+
+### `cc.c` on another machine
+
+`cc.c` uses three things of StrataOS: the arena (`far_read`, `far_write`),
+files (`open`, `read`, `write`, `close`), and the library's floating-point
+routines, with which it folds constants. `lang/cc/host/` supplies them on an
+ordinary 64-bit little-endian machine (an array for the arena, the host's
+files and doubles), and `make build/strata-cc` compiles the two together
+with the host's C compiler:
+
+```
+build/strata-cc [-o OUT] [-p] [-h KIB] FILE.c      # reads build/cc/cc.lib, or $CC_LIB
+```
+
+The image it writes runs in StrataOS as it is. The ordinary build makes
+`cc` this way (no emulator is needed to build the system); the bootstrap
+path is the test above.
+
+### How `cc.c` differs inside
+
+It is the same one-pass design as `cc.s` (section 4), with these changes:
+
+- **A program of its own size.** Its code is 90 KiB in 4 KiB units, more
+  than an image may hold beside its data, so the units are a second file,
+  `cc.u`, which the start-up code of every paged program loads when the
+  image says so (`__uload`). Its tables fill the 40 KiB of data: symbols
+  (700), types (600), the value stack; everything else is in the arena:
+  identifiers, macros, fixups, parameter types, the cases of open `switch`
+  statements, the image being built.
+- **The source is read as the scanner goes**, through a 64 KiB window of
+  the arena, so a source file may be larger than the arena has room for
+  (`cc.c` itself is 130 KiB). An array whose length its initialiser gives is
+  read twice; the window then keeps the text from where the initialiser
+  began.
+- **Comparisons and narrow results stay lazy.** A comparison is a value
+  that has not been made yet (two registers and a condition): a branch uses
+  it as it is. The result of 32-bit arithmetic is marked when its upper bits
+  are not yet the extension of the lower ones, and extended only where that
+  matters (a comparison, a wider use, an argument).
+- **What is in registers goes to the frame before a conditional branch** of
+  `?:`, `&&` and `||`: a store made on one path only would be lost on the
+  other.
+- Functions used before their definition, and the library's, are called
+  through fixups resolved when the image is closed; in the paged model the
+  call of a resident library function is patched to one instruction then.
+- Bit-fields are laid out as the usual ABIs do (a field starts at the next
+  free bit unless it would cross a unit of its type). Unnamed structure
+  members (C11) are accepted.

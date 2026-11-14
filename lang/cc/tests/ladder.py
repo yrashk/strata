@@ -8,9 +8,13 @@ BATCH = int(os.environ.get("CC_BATCH", "24"))      # tests per boot
 SECS = int(os.environ.get("CC_TIMEOUT", "60"))     # host seconds per boot
 FLAGS = os.environ.get("CC_FLAGS", "")              # e.g. "-p": the paged code model
 if FLAGS: FLAGS += " "
+HOST = os.environ.get("CC_HOST", "")               # e.g. build/strata-cc: compile on this machine, only run in the OS
+CC = os.environ.get("CC_NAME", "cc")                # the compiler in the OS: cc, or cc0, the bootstrap compiler
 PROMPT = "strata$ "
 BASE = ["-t", "sys"] + [B + "/prog/" + p for p in ("proc", "dev", "fs", "tty", "pipe")] + \
-       ["-t", "bin", B + "/prog/sh", B + "/prog/rm", B + "/prog/cc", B + "/cc/cc.lib"]
+       ["-t", "bin", B + "/prog/sh", B + "/prog/rm", B + "/prog/cc", B + "/prog/cc.u", B + "/cc/cc.lib"] + \
+       ([B + "/prog/" + CC, B + "/cc/" + CC + ".lib"] if CC != "cc" else [])
+EXPECT = "/ladder/EXPECT.tsv" if CC == "cc" else "/ladder/EXPECT-%s.tsv" % CC
 
 def tests(args, fast):
     """the tests to run: (rung, path) in ladder order"""
@@ -31,11 +35,23 @@ def boot(batch, tag):
     d = os.path.join(OUT, "disk-" + tag)
     shutil.rmtree(d, ignore_errors=True); os.makedirs(d)
     files, script = [], []
+    hres = {}
     for i, (rung, path) in enumerate(batch):
         n = "t%02d.c" % i
+        if HOST:
+            exe = d + "/t%02d" % i
+            c = subprocess.run([HOST] + FLAGS.split() + ["-o", exe, path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               env=dict(os.environ, CC_LIB=B + "/cc/cc.lib"))
+            hres[i] = (c.stdout.decode("latin-1"), c.returncode)
+            if c.returncode == 0:
+                files.append(exe)
+                if os.path.exists(exe + ".u"): files.append(exe + ".u")
+                script += ["t%02d" % i, "echo @@R%02d $?" % i]
+            continue
         shutil.copyfile(path, d + "/" + n); files.append(d + "/" + n)
-        script += ["cc %s-o t %s" % (FLAGS, n), "echo @@C%02d $?" % i, "t", "echo @@R%02d $?" % i, "rm t"]
+        script += ["%s %s-o t %s" % (CC, FLAGS, n), "echo @@C%02d $?" % i, "t", "echo @@R%02d $?" % i, "rm t"]
     script.append("halt")
+    boot.hres = hres
     open(d + "/in.txt", "w").write("\n".join(script) + "\n")
     open(d + "/rc", "w").write("")
     subprocess.run([B + "/mkdisk", "-o", d + "/disk.img", "-k", B + "/kernel.stx", "-t", "etc", d + "/rc"] + BASE +
@@ -56,7 +72,13 @@ def parse(out, n):
     """-> per test: (compile output, compile status, run output, run status), None where the session did not get that far"""
     res = []
     for i in range(n):
-        m = re.search(re.escape(PROMPT + "cc %s-o t t%02d.c\n" % (FLAGS, i)) + "(.*?)" + re.escape(PROMPT + "echo @@C%02d $?\n" % i) +
+        if HOST:
+            cout, cst = boot.hres[i]
+            r = re.search(re.escape(PROMPT + "t%02d\n" % i) + "(.*?)" + re.escape(PROMPT + "echo @@R%02d $?\n" % i) +
+                          r"@@R%02d (\d+)\n" % i, out, re.S)
+            res.append((cout, cst, clean(r.group(1)) if r else None, int(r.group(2)) if r else None))
+            continue
+        m = re.search(re.escape(PROMPT + "%s %s-o t t%02d.c\n" % (CC, FLAGS, i)) + "(.*?)" + re.escape(PROMPT + "echo @@C%02d $?\n" % i) +
                       r"@@C%02d (\d+)\n" % i, out, re.S)
         if not m: res.append(None); continue
         r = re.search(re.escape(PROMPT + "echo @@C%02d $?\n" % i) + r"@@C%02d \d+\n" % i + re.escape(PROMPT + "t\n") + "(.*?)" +
@@ -85,8 +107,8 @@ def main():
         i = args.index("-f"); fast = args[i + 1]; del args[i:i + 2]
     todo = tests(args, fast)
     expect = {}
-    if os.path.exists(T + "/ladder/EXPECT.tsv"):
-        for line in open(T + "/ladder/EXPECT.tsv"):
+    if os.path.exists(T + EXPECT):
+        for line in open(T + EXPECT):
             if line.strip() and not line.startswith("#"):
                 f = line.rstrip("\n").split("\t"); expect[f[0]] = f[1] if len(f) > 1 else ""
     os.makedirs(OUT, exist_ok=True)
@@ -116,7 +138,7 @@ def main():
                                            ", %d FAIL" % len(fails) if fails else ""))
         if verbose or fast:
             for r in fails: print("    %-6s %-32s %s" % (r[2], r[1], r[3]))
-        for x in xp: print("    passes but is listed in EXPECT.tsv: " + x)
+        for x in xp: print("    passes but is listed as expected to fail: " + x)
         bad += len(fails)
     print("%-24s %3d / %3d pass, %d expected to fail, %d unexpected" % ("total", tot[0], tot[1], tot[2], bad))
     sys.exit(1 if bad else 0)

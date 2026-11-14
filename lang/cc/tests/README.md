@@ -97,6 +97,7 @@ does not by itself put a test on the preprocessor rung.
 `ladder/EXPECT.tsv` records tests (as `rung/file`) that are not expected to pass, with the
 reason (a feature not implemented, or a program too large for the machine);
 the runner reports them separately and they do not fail a run.
+`ladder/EXPECT-cc0.tsv` is the same list for the bootstrap compiler.
 
 ## The runner
 
@@ -107,3 +108,10 @@ runs every test of the batch, and reads the results out of the console
 output. A test that hangs ends its boot at the step limit; the runner marks
 it and boots again for the rest of the batch. Results are also written to
 `out/results.tsv`.
+
+Environment: `CC_FLAGS=-p` compiles in the paged code model; `CC_NAME=cc0`
+uses the bootstrap compiler (`make test-cc0`); `CC_HOST=build/strata-cc`
+compiles on the host with the cross compiler and only runs the programs in
+StrataOS (`make test-cc-host`), which is the quick way to try a change to
+`cc.c`. `cmp.c` is the file comparison that `tools/test-cc-boot.sh` uses to
+check that the compiler reproduces itself.

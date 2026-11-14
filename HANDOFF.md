@@ -30,11 +30,14 @@ Unit, with capabilities for authority. The tree has:
   program (new code goes into kernel-paged code units) and as a StrataOS
   guest (`lang/forth/guest/`). `lang/forth/progs/` has 22 of the os/progs
   ported to Forth; `vi.fs` is the editor in Forth.
-- `lang/cc/`: `cc`, a C99 compiler in Strata assembly that runs in StrataOS
-  (`cc file.c` writes a program image; it needs `/bin/cc.lib`), its run-time
-  library and headers, and a ladder of 521 C test programs (`make test-cc`).
-  It is the bootstrap compiler for a compiler in C that is not written yet:
-  see `lang/cc/PLAN-cc.md`.
+- `lang/cc/`: `cc`, a C99 compiler that runs in StrataOS (`cc file.c`
+  writes a program image; it needs `/bin/cc.lib` and `/bin/cc.u`). The
+  compiler is `cc.c`; `cc.s` is the bootstrap compiler in assembly (`cc0`)
+  that compiles it, and `make test-cc-boot` checks that `cc.c` then
+  reproduces itself. `build/strata-cc` is `cc.c` built for the host, a cross
+  compiler, and what the Makefile makes the disk's `cc` with. Also here: the
+  run-time library and headers, and a ladder of 521 C test programs (`make
+  test-cc`). State and open items: `lang/cc/PLAN-cc.md`.
 - `dbg/` and `site/debug/`: the text debugger `strata-dbg` and the web
   debugger, both on the engine's JSON-lines protocol (`doc/debug-protocol.md`).
 - `conformance/`: 32 self-checking tests run on the interpreter, the JIT and
