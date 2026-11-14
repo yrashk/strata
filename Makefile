@@ -14,6 +14,7 @@
 #                   after it halts, e.g. make show-gfx (show-rtl-NAME: the RTL)
 #   make boot       boot StrataOS on the emulator and type at its shell
 #   make boot-ws    the same, with the window server started at boot (os/files-ws/rc)
+#   make boot-wdoom the same, straight into wdoom, the first-person shooter, in a window
 #   make boot-demo  boot StrataOS on the emulator with a scripted session
 #   make boot-rtl   boot StrataOS on the Verilog simulator (interactive)
 #   make boot-rtl-demo  the scripted session on the Verilog simulator
@@ -58,7 +59,7 @@ IMAGES  := $(patsubst examples/%.s,$(BUILD)/examples/%.stx,$(EXAMPLES))
 PROGS   := $(patsubst examples/%.s,$(BUILD)/prog/%,$(EXAMPLES))
 EMU     := $(BUILD)/strata-emu -c $(NCORES)
 
-.PHONY: all examples test test-small test-ls clean lint run run-emu boot boot-net boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
+.PHONY: all examples test test-small test-ls clean lint run run-emu boot boot-net boot-ws boot-wdoom boot-demo boot-rtl boot-rtl-demo os fpga-images manual
 
 all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl $(BUILD)/netrelay $(BUILD)/strata-dbg
 
@@ -299,6 +300,14 @@ $(WSPROGS): $(BUILD)/prog/%: os/progs/%.s $(wildcard os/ws/*.s) os/lib/gfx.s os/
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -I os/ws -I os/lib -g $@.map -o $@ $<
 
+# wdoom, the first-person shooter in a window (os/progs/wdoom.s, os/progs/wdoom/):
+# the program, and its data file, which tools/wdoom-assets.py makes from a
+# Freedoom checkout (the converted file is in the tree: os/progs/wdoom/wdoom.dat)
+WDOOM_DAT := os/progs/wdoom/wdoom.dat
+$(BUILD)/prog/wdoom: os/progs/wdoom.s $(wildcard os/progs/wdoom/*.s) os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -I os/lib -g $@.map -o $@ $<
+
 # vi, the editor: its keyword tables come from the assembler, the Forth README
 # and the site's highlighter (tools/vi-syntax.py writes them as an include)
 $(BUILD)/vi-syntax.s: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth/README.md site/hl.js
@@ -381,6 +390,9 @@ DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc
              $(BUILD)/forth-os/progs.pk \
              -t forth,demo $(wildcard lang/forth/demos/*.fs) \
              -t forth,net lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd-ps.fs -t forth,net,demo lang/forth/httpd.fs
+# wdoom and its data (tagged ws: the program opens /ws/wdoom.dat)
+DISK_FILES += $(BUILD)/prog/wdoom $(WDOOM_DAT)
+DISK_ARGS  += -t bin,ws $(BUILD)/prog/wdoom -t ws $(WDOOM_DAT)
 # the web site httpd serves (index.html at /, the stylesheet of every page)
 WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)
@@ -396,6 +408,12 @@ DISK_WS_ARGS := $(subst os/files/rc,os/files-ws/rc,$(DISK_ARGS))
 
 $(BUILD)/disk-ws.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) os/files-ws/rc
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WS_ARGS)
+
+# ... and with one that starts the window server with wdoom in it (make boot-wdoom)
+DISK_WDOOM_ARGS := $(subst os/files/rc,os/files-wdoom/rc,$(DISK_ARGS))
+
+$(BUILD)/disk-wdoom.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) os/files-wdoom/rc
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WDOOM_ARGS)
 
 # the emulator boots StrataOS with 12 cores; the RTL with NCORES
 BOOT_EMU := $(BUILD)/strata-emu -c 12
@@ -414,6 +432,10 @@ boot-net: boot
 
 boot-ws: $(BUILD)/strata-emu $(BUILD)/bootrom.stx $(BUILD)/disk-ws.img
 	@cp $(BUILD)/disk-ws.img $(BUILD)/disk-run.img
+	@$(BOOT_EMU) $(BOOT_NET) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
+
+boot-wdoom: $(BUILD)/strata-emu $(BUILD)/bootrom.stx $(BUILD)/disk-wdoom.img
+	@cp $(BUILD)/disk-wdoom.img $(BUILD)/disk-run.img
 	@$(BOOT_EMU) $(BOOT_NET) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
 
 boot-demo: $(BUILD)/strata-emu os
