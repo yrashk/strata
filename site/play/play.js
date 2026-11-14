@@ -26,7 +26,7 @@ const PRESETS = {
     args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
     fitScreen: true,
     sound: true,
-    about: "The boot ROM finds the disk, loads the kernel into every core's Local Stores, and StrataOS starts its servers and the shell on 12 cores. Try help, ls, ps, -n 3 mandel, or ws for the window server (click the screen; Alt+P launches programs, wdoom among them; Alt+Enter opens a terminal, Alt+? lists the keys).",
+    about: "The boot ROM finds the disk, loads the kernel into every core's Local Stores, and StrataOS starts its servers and the shell on 12 cores. Try help, ls, ps, -n 3 mandel, or ws for the window server (click the screen; Alt+P launches programs, wdoom among them; Alt+Enter opens a terminal, Alt+F makes a window full screen, Alt+? lists the keys).",
   },
   osws: {
     files: ["bootrom.stx", "disk-ws.img"],
@@ -34,7 +34,7 @@ const PRESETS = {
     fitScreen: true,
     screenKeys: true,
     sound: true,
-    about: "StrataOS on 12 cores with the window server started at boot (its rc runs ws): the real ws, its terminals running the real shell. A key help comes up after the splash; any key or click dismisses it. Alt+Enter opens a terminal, Alt+P the launch palette (try wdoom), a click focuses a tile, the wheel scrolls a terminal back, Alt+? shows the help again.",
+    about: "StrataOS on 12 cores with the window server started at boot (its rc runs ws): the real ws, its terminals running the real shell. A key help comes up after the splash; any key or click dismisses it. Alt+Enter opens a terminal, Alt+P the launch palette (try wdoom), Alt+F makes the focused window full screen and Alt+Z the only tile (again: back), a click focuses a tile, the wheel scrolls a terminal back, Alt+? shows the help again.",
   },
   kira: {
     files: ["bootrom.stx", "disk.img"],
@@ -44,6 +44,14 @@ const PRESETS = {
     sound: true,
     type: "ws kira\n",
     about: "Princess Kira: gentle games for a small child, written in Strata assembly as a client of the StrataOS window server (the page types ws kira at the shell's first prompt). No enemies, no timer, no way to lose. Click the screen and press a key to dismiss the key help. The mouse does everything; so do the keys: the arrows walk Kira or move a hand that Space presses, 1 to 4 choose a game, M goes back to the menu. Friends: find Kira's seven animal friends in a castle and garden that are new every game, and walk them to the picnic; Space looks through Kira's eyes. Garden: sow seeds and water them into flowers. Paint: three colouring pages. Music: a xylophone, the friends' voices and four songs. The page plays the sound once you have clicked or pressed a key.",
+  },
+  cc: {
+    files: ["bootrom.stx", "disk.img"],
+    args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
+    fitScreen: true,
+    sound: true,
+    type: "cc /src/hi.c && hi\n",
+    about: "StrataOS with its C compiler: the page types cc /src/hi.c && hi at the shell's first prompt, which compiles the program on the machine and runs it. Then try cat /src/hi.c, cc -o calc /src/calc.c, cc /src/asm.c, or write a program with vi. cc is written in C and compiles itself; cc0, the compiler in assembly that it was bootstrapped from, is on the disk too, with the source in /src/cc.c.",
   },
   wdoom: {
     files: ["bootrom.stx", "disk-wdoom.img"],

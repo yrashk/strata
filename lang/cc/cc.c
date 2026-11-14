@@ -5383,6 +5383,7 @@ int main(int argc, char **argv)
     predef("__STDC_VERSION__", "199901L");
     predef("__strata__", "1");
     predef("__STRATA_CC__", "1");
+    predef("__STRATA_VA__", "1");
     sf_fd = open(src_name, 0);
     if (sf_fd < 0) err("cannot open ", src_name);
     in_pos = A_SRC; in_end = A_SRC; sf_top = A_SRC;

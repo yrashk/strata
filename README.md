@@ -315,6 +315,7 @@ window's surface and gives the band back.
 Keys (Alt+key has bytes of its own, so Esc and then a key is just that:
 vi's Esc then `p` is a put): Alt+Enter a new terminal, Alt+P (or
 Alt+Space) the launch palette, Alt+1..4 and Alt+arrows focus, Alt+Q close,
+Alt+F the focused window full screen and Alt+Z the only tile (again: back),
 Alt+Shift+Q back to the shell, Alt+? the key help (also shown when the
 splash ends; any key or click dismisses it).
 
@@ -397,7 +398,7 @@ strata$ cc -o calc calc.c           # -o names the output; -h KIB sizes the heap
 ```
 
 - **Two compilers.** `cc.c` is the compiler, written in the C it compiles.
-  `cc.s` is the bootstrap compiler, 12,400 lines of Strata assembly, there
+  `cc.s` is the bootstrap compiler, 13,900 lines of Strata assembly, there
   so that `cc.c` can be compiled on a machine with no C compiler. `make
   test-cc-boot` does it inside StrataOS: the bootstrap compiler compiles
   `cc.c`, the result compiles `cc.c` again, and that one once more; the last
@@ -427,8 +428,8 @@ strata$ cc -o calc calc.c           # -o names the output; -h KIB sizes the heap
 - **Tested against existing C tests.** `lang/cc/tests/` holds 521 programs
   from the test suites of scc (ISC) and lacc (MIT), sorted into a ladder by
   the features they need; `make test-cc` compiles and runs each one inside
-  StrataOS and prints the score per rung (all 521 pass; with the bootstrap
-  compiler, `make test-cc0`, 452).
+  StrataOS and prints the score per rung (all 521 pass, and all 521 with the
+  bootstrap compiler too: `make test-cc0`).
 - **Assembly inside C.** `asm("ld t0, {x}\n addi t0, t0, 1\n sd t0, {x}");`
   is Strata assembly encoded in place, with `{name}` for C objects; at file
   scope its labels are functions. The instruction table is made from the
