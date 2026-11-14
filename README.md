@@ -325,6 +325,39 @@ under the pointer gets clicks, drags and the wheel, and `term` scrolls back
 through its history with the wheel. `make boot-ws` boots straight into the
 window server.
 
+![wdoom: a first-person shooter in a StrataOS window](site/img/wdoom.png)
+
+`wdoom` is a first-person shooter in the manner of Doom, written in Strata
+assembly as one more client of the window server: a textured grid
+raycaster with doors, three kinds of monster, a pistol, pickups and a
+status bar, using art and sounds from [Freedoom](https://freedoom.github.io/)
+(BSD 3-clause; `os/progs/wdoom/ATTRIBUTION.md`). A core's data store has 40
+KiB for a program, less than one 320 x 168 frame, so the picture is drawn
+in ten slabs of 32 columns; textures stay in far memory and are fetched a
+column at a time. Run `wdoom` from a shell or the palette, or `make
+boot-wdoom`; it is a preset on the play page. With the sound device (an
+optional PCM output: `strata-emu -a`, on in `make boot` and in the browser)
+it has sound. [`os/progs/PLAN-wdoom.md`](os/progs/PLAN-wdoom.md) has the
+design and what a frame costs.
+
+![kira: four of its pictures: the castle from above, the party seen through Kira's eyes, the garden, a colouring page](site/img/kira.png)
+
+`kira` is Princess Kira: four gentle games for a five-year-old, written in
+Strata assembly as one more client of the window server. There are no
+enemies, no timer and no way to lose, and the mouse and the keyboard both
+do everything. In Friends, Kira walks through her castle and its garden
+and finds her seven animal friends, who follow her in a parade to a
+picnic; every game has a newly made castle and garden, seen from above
+or, at the press of a button, through Kira's eyes (wdoom's raycaster with
+a floor for every cell and a sky). In Garden she sows seeds and waters
+them into flowers that butterflies visit, and the garden is kept in a
+file. Paint has three colouring pages, and Music a xylophone, the
+friends' voices and four songs. The art is original and is drawn by a
+script (`tools/kira-art.py`); the sounds are synthesised. Run `ws kira`
+from the shell, or `kira` from the palette; it is a preset on the play
+page.
+[`os/progs/PLAN-kira.md`](os/progs/PLAN-kira.md) has the design and the sizes.
+
 
 `make ws-demo` runs the same renderers on the bare machine against a
 simulated twelve-core system (no OS needed), and the site's play page has
@@ -537,9 +570,10 @@ the main points:
   when a program was waiting for input.
 - The file system has tags instead of directories (`ls /src/demo` lists
   the files tagged both `src` and `demo`, `ls /src/-demo` those tagged `src`
-  but not `demo`; subdirectories are facets: `ls /src` ends with `demo/`), but files are contiguous runs of
-  blocks, a deleted file's space comes back only if it was the last one, and
-  a disk holds at most 128 files and 64 tags.
+  but not `demo`; subdirectories are facets: `ls /src` ends with `demo/`), and the disk is a
+  copy-on-write store of B+trees with snapshots (`doc/strata-fs-proposal.md`):
+  files, names and tags have no limit but the disk's. Some older programs
+  still list through calls that cut a name to 24 bytes.
 - The shell has no globbing and no `2>`.
 - Strata Forth runs on the bare machine only, not yet as a StrataOS program.
 - With timer-driven preemption, the emulator and the RTL cannot be compared

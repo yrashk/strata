@@ -25,14 +25,33 @@ const PRESETS = {
     files: ["bootrom.stx", "disk.img"],
     args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
     fitScreen: true,
-    about: "The boot ROM finds the disk, loads the kernel into every core's Local Stores, and StrataOS starts its servers and the shell on 12 cores. Try help, ls, ps, -n 3 mandel, or ws for the window server (click the screen; Alt+P launches programs, Alt+Enter opens a terminal, Alt+? lists the keys).",
+    sound: true,
+    about: "The boot ROM finds the disk, loads the kernel into every core's Local Stores, and StrataOS starts its servers and the shell on 12 cores. Try help, ls, ps, -n 3 mandel, or ws for the window server (click the screen; Alt+P launches programs, wdoom among them; Alt+Enter opens a terminal, Alt+? lists the keys).",
   },
   osws: {
     files: ["bootrom.stx", "disk-ws.img"],
     args: ["-c", "12", "-d", "disk-ws.img", "bootrom.stx"],
     fitScreen: true,
     screenKeys: true,
-    about: "StrataOS on 12 cores with the window server started at boot (its rc runs ws): the real ws, its terminals running the real shell. A key help comes up after the splash; any key or click dismisses it. Alt+Enter opens a terminal, Alt+P the launch palette, a click focuses a tile, the wheel scrolls a terminal back, Alt+? shows the help again.",
+    sound: true,
+    about: "StrataOS on 12 cores with the window server started at boot (its rc runs ws): the real ws, its terminals running the real shell. A key help comes up after the splash; any key or click dismisses it. Alt+Enter opens a terminal, Alt+P the launch palette (try wdoom), a click focuses a tile, the wheel scrolls a terminal back, Alt+? shows the help again.",
+  },
+  kira: {
+    files: ["bootrom.stx", "disk.img"],
+    args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
+    fitScreen: true,
+    screenKeys: true,
+    sound: true,
+    type: "ws kira\n",
+    about: "Princess Kira: gentle games for a small child, written in Strata assembly as a client of the StrataOS window server (the page types ws kira at the shell's first prompt). No enemies, no timer, no way to lose. Click the screen and press a key to dismiss the key help. The mouse does everything; so do the keys: the arrows walk Kira or move a hand that Space presses, 1 to 4 choose a game, M goes back to the menu. Friends: find Kira's seven animal friends in a castle and garden that are new every game, and walk them to the picnic; Space looks through Kira's eyes. Garden: sow seeds and water them into flowers. Paint: three colouring pages. Music: a xylophone, the friends' voices and four songs. The page plays the sound once you have clicked or pressed a key.",
+  },
+  wdoom: {
+    files: ["bootrom.stx", "disk-wdoom.img"],
+    args: ["-c", "12", "-d", "disk-wdoom.img", "bootrom.stx"],
+    fitScreen: true,
+    screenKeys: true,
+    sound: true,
+    about: "wdoom, a first-person shooter written in Strata assembly, as a client of the StrataOS window server (the rc runs ws wdoom), with art and sounds from Freedoom. Click the screen and press a key to dismiss the key help. W S or the arrows walk and turn, A D step sideways, Space fires, E opens doors and throws the exit switch, Q quits; a click fires and dragging turns. The view is drawn in ten slabs of 32 columns, because a core's data store holds 40 KiB.",
   },
   ws: {
     files: ["wsdemo.stx"],
@@ -414,11 +433,52 @@ function statusLine() {
          (steps < 1e6 ? `${steps} instructions` : `${(steps / 1e6).toFixed(1)}M instructions`);
 }
 
+// The sound device: the worker posts the samples the guest wrote (mono, 16
+// bits); each batch is scheduled right after the one before, a little ahead
+// of now. A browser gives a page sound only after a key or a click on it:
+// until then the samples are dropped. If the machine runs ahead of the
+// clock, what would play more than half a second late is dropped too.
+let audioCtx = null, audioNext = 0;
+function audioWake() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  } catch (e) { audioCtx = null; }
+}
+for (const ev of ["keydown", "pointerdown"]) addEventListener(ev, audioWake, true);
+function playAudio(m) {
+  if (!audioCtx || audioCtx.state !== "running" || !m.data.length) return;
+  const now = audioCtx.currentTime;
+  if (audioNext < now + 0.03) audioNext = now + 0.03;
+  if (audioNext > now + 0.5) return;
+  const buf = audioCtx.createBuffer(1, m.data.length, m.rate);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < m.data.length; i++) ch[i] = m.data[i] / 32768;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(audioCtx.destination);
+  src.start(audioNext);
+  audioNext += m.data.length / m.rate;
+}
+
+let typeAtPrompt = null; // what the preset types once the shell prompts (and has not typed yet)
+let promptTail = "";     // the end of the console's output so far
+
 function onWorker(w, m) {
   if (w !== W) return; // a worker already replaced
   switch (m.t) {
-  case "out": term.write(m.data, () => term.scrollToBottom()); break;
+  case "out":
+    term.write(m.data, () => term.scrollToBottom());
+    if (typeAtPrompt) { // a preset's command, typed at the shell's first prompt
+      promptTail = (promptTail + new TextDecoder().decode(m.data)).slice(-16);
+      if (promptTail.includes("strata$ ")) {
+        w.postMessage({ t: "input", data: new TextEncoder().encode(typeAtPrompt) });
+        typeAtPrompt = null;
+      }
+    }
+    break;
   case "paint": paint(m); break;
+  case "audio": playAudio(m); break;
   case "started":
     last = { t: performance.now(), steps: 0 };
     runStart = last.t;
@@ -475,7 +535,8 @@ async function run(key) {
   const net = netChoice();
   const netArgs = ["-N", net.mode === "peer" ? "peer" : net.mode === "relay" ? "web,nat" : "web"];
   const args = rtl ? rtlArgs(p)
-             : [jitBox.checked ? "-J" : "-j", ...(p.fitScreen ? ["-r", screenGeometry()] : []), ...netArgs, ...p.args];
+             : [jitBox.checked ? "-J" : "-j", ...(p.fitScreen ? ["-r", screenGeometry()] : []), ...netArgs,
+                ...(p.sound ? ["-a"] : []), ...p.args];
   term.write("\x1bc"); // reset, in order with the writes still queued
   outText(`\x1b[2m$ ${rtl ? "strata-rtl" : "strata-emu"} ${args.join(" ")}\x1b[0m\n`);
 
@@ -485,6 +546,8 @@ async function run(key) {
     const w = new Worker("worker.js" + V);
     W = w;
     stopped = false;
+    typeAtPrompt = !rtl && p.type || null;
+    promptTail = "";
     w.onmessage = (e) => onWorker(w, e.data);
     w.onerror = (e) => { if (w === W) setStopped("error: " + (e.message || "the worker failed")); };
     // the module and the images are copied (structured clone), so Reset can reuse them

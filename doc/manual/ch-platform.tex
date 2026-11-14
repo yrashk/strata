@@ -53,6 +53,7 @@ register and window starts at a multiple of 8, so a capability can be cut to exa
 \hex{4100} & \hex{10} & pointer & \hex{4100} EVENT; \hex{4108} STATE\\
 \hex{4200} & \hex{20} & network interface & \hex{4200} TX; \hex{4208} RX; \hex{4210} STATUS;
                                             \hex{4218} CANCEL\\
+\hex{4300} & \hex{18} & sound (optional) & \hex{4300} PCM; \hex{4308} RATE; \hex{4310} STATUS\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -129,7 +130,7 @@ little-endian.
 \toprule
 \textbf{Offset} & \textbf{Type} & \textbf{Field} & \textbf{Meaning}\\\midrule
 0 & u16 & type & 1 memory, 2 console, 3 platform table, 4 block device, 5 framebuffer, 6 timer,
-  7 pointer, 8 network interface\\
+  7 pointer, 8 network interface, 9 sound\\
 2 & u16 & index & instance number among entries of the same type\\
 4 & u16 & space & far space of the resource (2, 3 or 4)\\
 6 & u16 & node & \insn{cgive} node number, or \hex{ffff} if the device takes no capabilities\\
@@ -156,6 +157,7 @@ little-endian.
 7 & pointer & bits 7:0 buttons present (bit 0 left, 1 right, 2 middle); bits 15:8 wheels present
   (bit 8 vertical, bit 9 horizontal): \hex{0307}\\
 8 & network interface & the MTU in bytes (1500)\\
+9 & sound & samples the device's queue holds (16384)\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -178,6 +180,9 @@ The prototype publishes nine entries:
 \bottomrule
 \end{tabular}
 \end{center}
+
+A machine with the sound device (Section~\ref{sec:sound}) publishes a tenth entry, of type 9, at
+\hex{4300} with size \hex{18}; its table is 352 bytes long.
 
 The framebuffer entry describes the framebuffer \emph{memory}: a region of system memory. The
 framebuffer controller's two registers are at the fixed device offset \hex{4000} and have no entry of
@@ -389,6 +394,33 @@ the link is down), a loopback plug (every packet sent is received back at once),
 that answers pings and echoes UDP datagrams to port~7, or a ``cable'' to another simulator made of host
 UDP datagrams, one per packet, so that two simulated machines can talk TCP to each other. The FPGA
 builds have no PHY yet: TX is dropped, RX waits for a CANCEL and STATUS reads 0.
+
+\section{Sound}\label{sec:sound}
+
+The sound device is a PCM output: a queue of mono, signed 16-bit samples that it plays at a set
+rate. It is optional. A machine that has it lists it in the platform table (type 9); software that
+finds no such entry goes without sound. The reference emulator has it when started with
+\texttt{-a} or \texttt{-A}; the RTL does not, so there the three offsets are unassigned.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Sound registers}\label{tab:sound}
+\begin{tabularx}{\linewidth}{@{}l l l X@{}}
+\toprule
+\textbf{Offset} & \textbf{Name} & \textbf{Access} & \textbf{Function}\\\midrule
+\hex{4300} & PCM & write (stream port) & the transfer's bytes are samples, low byte first, appended
+  to the queue; samples that find the queue full are dropped\\
+\hex{4308} & RATE & read, write & samples per second, 8000 to 48000 (a value outside is clamped);
+  11025 at power-on\\
+\hex{4310} & STATUS & read & bits 31:0 samples queued and not yet played; bits 63:32 samples dropped
+  since power-on\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The queue holds 16384 samples and empties at RATE in timer time; an empty queue plays silence.
+Software paces itself with STATUS: it keeps a fraction of a second queued and writes more as the
+queue runs down. Samples written by several cores are queued in the order their transfers arrive.
 
 \section{Block device}\label{sec:blkdev}
 

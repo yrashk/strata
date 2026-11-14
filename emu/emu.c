@@ -2,7 +2,8 @@
  *
  *   strata-emu [-c ncores] [-t trace.txt] [-m max_steps] [-d disk.img]
  *              [-i input.txt] [-b steps] [-T real|virtual] [-g none]
- *              [-F frame.ppm] [-z scale] [-r WxH] [-H] [-N mode] [-J|-j] image.stx
+ *              [-F frame.ppm] [-z scale] [-r WxH] [-H] [-N mode] [-a] [-A sound.wav]
+ *              [-J|-j] image.stx
  *
  * This is the ISA's sequential semantics written as code: every transfer
  * completes at the instant it issues, so tags are never busy and nothing
@@ -30,6 +31,7 @@
 #include "../common/stx.h"
 #include "../common/platform.h"
 #include "../common/display.h"
+#include "../common/sound.h"
 #include "../common/net.h"
 #include "jit/jit.h"
 
@@ -150,7 +152,8 @@ typedef struct {
 
 /* ------------------------------------------------------------ devices */
 
-static uint8_t plat_rom[PLAT_LEN];
+static uint8_t plat_rom[PLAT_LEN_MAX];
+static unsigned plat_len = PLAT_LEN; /* one entry longer with the sound device */
 static uint8_t blk_rom[BLK_IDENT_LEN];
 static uint8_t *disk;
 static uint64_t disk_blocks = 2048;
@@ -455,6 +458,11 @@ static void dev_write(uint64_t port, uint64_t i, uint8_t b, int from) {
     return;
   }
   if (port == DEV_NET + NET_TX) { net_tx_put(i, b); return; } /* the packet: sent when the transfer ends */
+  if (snd_present && port == DEV_SOUND + SND_PCM) { snd_pcm_byte(i, b, now_ticks()); return; } /* samples */
+  if (snd_present && a >= DEV_SOUND + SND_RATE && a < DEV_SOUND + SND_RATE + 8) {
+    snd_rate_byte((unsigned)(a & 7), b, now_ticks());
+    return;
+  }
   if (port == DEV_NET + NET_CANCEL) {        /* complete every waiting RX read with zeros */
     Core *c;
     Pending *p;
@@ -499,7 +507,9 @@ static uint8_t dev_read(uint64_t port, uint64_t i) {
     if (j == 0) ptr_lstate = host_ptr_state();
     return (uint8_t)(ptr_lstate >> (8 * j));
   }
-  if (a >= DEV_PLAT && a < DEV_PLAT + PLAT_LEN) return plat_rom[a - DEV_PLAT];
+  if (a >= DEV_PLAT && a < DEV_PLAT + plat_len) return plat_rom[a - DEV_PLAT];
+  if (snd_present && a >= DEV_SOUND + SND_RATE && a < DEV_SOUND + SND_WINDOW)
+    return snd_read((unsigned)(a - DEV_SOUND) & ~7u, (unsigned)(a & 7), now_ticks());
   if (a >= DEV_BLK0 + BLK_IDENT && a < DEV_BLK0 + BLK_IDENT + BLK_IDENT_LEN) return blk_rom[a - DEV_BLK0];
   if (port == DEV_BLK0 + BLK_CQ) {
     if (!cq_cnt) return 0; /* an empty completion queue reads as zeros */
@@ -793,6 +803,7 @@ static bool step(Core *c) {
       }
       if (sub == XF_PUT && far == DEV_FBCTL + FBC_PRESENT && len) host_present(t3 + FB_BASE);
       if (sub == XF_PUT && far == DEV_NET + NET_TX && len) net_tx_done(len); /* one transfer, one packet */
+      if (sub == XF_PUT && far == DEV_SOUND + SND_PCM) snd_flush(); /* its samples go to the host */
       fflush(stdout);
     } else {
       for (uint64_t i = 0; i < len; i += 8) {
@@ -1709,7 +1720,7 @@ static int round_idle(void) {
   "usage: strata-emu [-c ncores] [-t trace.txt] [-m max_steps] [-d disk.img] [-i input.txt]\n"       \
   "                  [-P pointer.txt] [-b steps] [-T real|virtual] [-g none] [-F frame.ppm]\n"             \
   "                  [-z scale] [-r WxH] [-S entries] [-X entries] [-L D[,I]]\n"                                 \
-  "                  [-H] [-N mode] [-J|-j] image.stx\n"                                                                     \
+  "                  [-H] [-N mode] [-a] [-A sound.wav] [-J|-j] image.stx\n"                                                                     \
   "  -c N        cores (1..15, default 4)\n"                                                          \
   "  -t FILE     write an instruction trace\n"                                                        \
   "  -m N        stop after N steps (timeout)\n"                                                      \
@@ -1730,6 +1741,9 @@ static int round_idle(void) {
   "  -r WxH      framebuffer size (default 1280x800; width a multiple of 8, 320x200..2560x1600)\n"   \
   "  -H          when every core has halted, keep the window open until it is closed\n"         \
   "  -N MODE     network: none (default), loop, peer, udp:LPORT:HOST:RPORT (common/net.h)\n" \
+  "  -a          the machine has the sound device (common/sound.h); it plays through the host's\n" \
+  "              audio when there is a window\n"                                                  \
+  "  -A FILE     the same, and what it plays is written to FILE as a WAV at exit\n"               \
   "  -J / -j     run with the JIT / only interpret (default: the JIT, except with -t or\n"     \
   "              -T virtual, which keep the exact one-instruction interleaving)\n"                \
   "  --debug WHERE  run under the debug engine, stopped at the first instruction: WHERE is\n"   \
@@ -1754,7 +1768,8 @@ static void press_break(void) {
 int main(int argc, char **argv) {
   const char *path = NULL, *in_path = NULL, *ppm = NULL;
   const char *disk_path = NULL;
-  bool gfx = true, hold = false;
+  bool gfx = true, hold = false, snd_opt = false;
+  const char *snd_wav_opt = NULL;
   unsigned fb_w = FB_DEF_WIDTH, fb_h = FB_DEF_HEIGHT;
   int scale = 1;
   int jit_opt = -1; /* -J 1, -j 0, else the default */
@@ -1808,7 +1823,9 @@ int main(int argc, char **argv) {
     } else if (!strcmp(argv[i], "-H")) hold = true;
     else if (!strcmp(argv[i], "-N") && more) {
       if (!net_host_open(argv[++i])) return 2;
-    } else if (dbg_option(argc, argv, &i)) continue;
+    } else if (!strcmp(argv[i], "-a")) snd_opt = true;
+    else if (!strcmp(argv[i], "-A") && more) { snd_opt = true; snd_wav_opt = argv[++i]; }
+    else if (dbg_option(argc, argv, &i)) continue;
     else if (!strcmp(argv[i], "-J")) jit_opt = 1;
     else if (!strcmp(argv[i], "-j")) jit_opt = 0;
     else if (argv[i][0] != '-' && !path) path = argv[i];
@@ -1830,6 +1847,10 @@ int main(int argc, char **argv) {
   disk = stx_disk_load(disk_path, &disk_blocks);
   plat_build_fb(plat_rom, ncores, disk_blocks, fb_w, fb_h, ctab_size, nxmap, (unsigned)(dls_size / 1024),
                 (unsigned)(ils_size / 1024));
+  if (snd_opt) { /* a machine with the sound device */
+    if (!snd_host_init(snd_wav_opt)) { perror(snd_wav_opt); return 2; }
+    plat_len = plat_add_sound(plat_rom);
+  }
   blk_ident(blk_rom, disk_blocks);
   t2 = img.t2;
   t3 = img.t3;

@@ -672,7 +672,7 @@ handles (CLEANUP) and completes the parent's WAIT.
   gives the file the path's tags. Reply: a file id; $-4$\\
 4 & CLOSE & handle. A file that was written is saved to disk when its last reference closes\\
 10 & DIR & data = a path of tags (none: every file; \texttt{-tag} excludes). Reply: the count of
-  files carrying them all, and 32-byte records: 24 bytes of name, u64 size (126 at most); the mode
+  files carrying them all, and 32-byte records: 24 bytes of name, u64 size (126 at most; QUERY has no such limit); the mode
   word holds the facets, a tag set of the other tags those files carry; $-4$ no such tag\\
 11 & UNLINK & data = a path; $-4$\\
 12 & TAG & data = a path, a zero byte, a tag name (created if new). $-4$; $-6$ no room in the file's record;

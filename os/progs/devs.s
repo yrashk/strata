@@ -10,12 +10,13 @@
 ; Asks the device manager (sys_devs) for the platform-table entries and
 ; prints one line per entry, as the firmware does at boot. Entry (32 bytes):
 ; u16 type, u16 index, u16 space, u16 node, u64 info, u64 base, u64 size.
-; Types: 1 memory, 2 console, 3 platform, 4 block, 5 fb, 6 timer, 7 pointer, 8 net.
+; Types: 1 memory, 2 console, 3 platform, 4 block, 5 fb, 6 timer, 7 pointer, 8 net,
+; 9 sound.
 
         .data                           ; data Local Store
         .align 8                        ; aligned buffer
 tab:    .space 32 * 16                  ; the entries
-names:  .ascii "?        memory   console  platform block    fb       timer    pointer  net      " ; 9 characters per type
+names:  .ascii "?        memory   console  platform block    fb       timer    pointer  net      sound    " ; 9 characters per type
 m_sp:   .ascii " space "                ; output text
 m_sp_e:                                 ; end of the text above
 m_base: .ascii " base 0x"               ; output text
@@ -45,7 +46,7 @@ start:
 entry:
         beqz  s0, done                  ; all printed
         lhu   t0, 0(s1)                 ; type
-        li    t1, 9                     ; known types are 1..8
+        li    t1, 10                    ; known types are 1..9
         bltu  t0, t1, known             ; ...
         li    t0, 0                     ; others print as "?"
 known:

@@ -141,6 +141,46 @@ file-scope model/counters and a `sim_cycle()` for this.
 - Limits: no idle detection (a waiting machine keeps a CPU busy), no
   network far end, `-T virtual` only (machine time = cycles / 100).
 
+## kira (added 2026-11-13)
+
+`kira` (`os/progs/kira.s`, `os/progs/kira/`, plan, decisions and sizes in
+`os/progs/PLAN-kira.md`) is Princess Kira: four games for a five-year-old
+as a window-server client, on the ordinary disk (`ws kira`, or `kira` from
+the palette) and a preset on the play page (the page types `ws kira` at
+the first prompt: a preset's `type`). Friends (a new world for every game,
+`kira/world.s`; seen from above, or through Kira's eyes, `kira/eyes.s`),
+Garden (kept in `/ws/kira.sav`), Paint, Music.
+- The art is drawn by `tools/kira-art.py` into `os/progs/kira/art/` (the
+  specification is `SPEC.md` there, with exact sizes and rectangles the
+  program relies on); `tools/kira-assets.py` converts it and synthesises
+  the sounds; `make kira-dat` runs both.
+- `tools/test-kira.sh` (in `make test`) compares the last frame of each
+  `kira demo N`. A change of art, of drawing, or of the order in which
+  random numbers are drawn needs new checksums, and may need the demos'
+  clicks moved (their worlds come from a fixed seed).
+- Limits it is near: 36.9 of the 40 KiB of D-LS, 23.7 of the 32 KiB of
+  code. Adding a file to the disk moves what `tools/test-files.sh` and
+  `tools/test-http.out` check.
+- Seen and heard: every game seen on the emulator and in a browser (the
+  play page built here); the sounds are checked only as samples in a WAV
+  file, not by ear.
+
+## wdoom and the sound device (added 2026-11-13, not yet deployed)
+
+`wdoom` (`os/progs/wdoom.s`, `os/progs/wdoom/`, plan and measurements in
+`os/progs/PLAN-wdoom.md`) is a first-person shooter as a window-server
+client, with a converted subset of Freedoom's art and sounds
+(`tools/wdoom-assets.py`, `os/progs/wdoom/wdoom.dat`). `make boot-wdoom`
+boots into it (`ws PROGRAM` is new); `tools/test-wdoom.sh` is in `make test`.
+- The sound device (`common/sound.h`, spec 1.2) exists only in the emulator
+  and only when asked for (`-a`, `-A FILE`; `make boot*` and the play page
+  ask), because the RTL has none and the sessions compared with it must
+  see the same platform table. Putting it into `rtl/strata_dev.sv` (a DPI
+  sink, as for the pointer) and then making it unconditional is open.
+- Heard in a browser (the play page): the sounds are right. The tests check
+  that the pistol's samples reach a WAV file. Not verified: the SDL path
+  beyond compiling.
+
 ## Formal verification (added 2026-11-13)
 
 `formal/` holds SymbiYosys proofs of the RTL: `make formal` (all, about 15

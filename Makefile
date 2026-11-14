@@ -14,6 +14,7 @@
 #                   after it halts, e.g. make show-gfx (show-rtl-NAME: the RTL)
 #   make boot       boot StrataOS on the emulator and type at its shell
 #   make boot-ws    the same, with the window server started at boot (os/files-ws/rc)
+#   make boot-wdoom the same, straight into wdoom, the first-person shooter, in a window
 #   make boot-demo  boot StrataOS on the emulator with a scripted session
 #   make boot-rtl   boot StrataOS on the Verilog simulator (interactive)
 #   make boot-rtl-demo  the scripted session on the Verilog simulator
@@ -58,7 +59,7 @@ IMAGES  := $(patsubst examples/%.s,$(BUILD)/examples/%.stx,$(EXAMPLES))
 PROGS   := $(patsubst examples/%.s,$(BUILD)/prog/%,$(EXAMPLES))
 EMU     := $(BUILD)/strata-emu -c $(NCORES)
 
-.PHONY: all examples test test-small test-ls clean lint run run-emu boot boot-net boot-ws boot-demo boot-rtl boot-rtl-demo os fpga-images manual
+.PHONY: all examples test test-small test-ls clean lint run run-emu boot boot-net boot-ws boot-wdoom boot-demo boot-rtl boot-rtl-demo os fpga-images manual
 
 all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl $(BUILD)/netrelay $(BUILD)/strata-dbg
 
@@ -82,7 +83,7 @@ JIT_SRC := emu/jit/jit.c emu/jit/jit_arm64.c emu/jit/jit_x86_64.c
 # the debug engine (--debug): included by emu/emu.c
 DBG_ENGINE := emu/debug.h emu/debug.c emu/debug_sym.c emu/debug_tt.c emu/debug_io.c common/json.h
 
-$(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) $(DBG_ENGINE) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/net.h common/netnat.h
+$(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) $(DBG_ENGINE) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
 
@@ -117,9 +118,12 @@ test: all examples os $(BUILD)/stdb test-stdb
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-vifs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-fs-progs.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-store.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) ./tools/test-files.sh $(BUILD)/bootrom.stx $(BUILD)/files-test/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-net.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-http.sh $(BUILD)/bootrom.stx $(BUILD)/http-test/disk.img
 	BUILD=$(BUILD) ./tools/test-ws.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) ./tools/test-wdoom.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	BUILD=$(BUILD) ./tools/test-kira.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-preempt.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-isolate.sh $(BUILD)/bootrom.stx $(BUILD)/isol-test/disk.img
 	BUILD=$(BUILD) NCORES=$(NCORES) ./tools/test-guest.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
@@ -312,6 +316,28 @@ $(WSPROGS): $(BUILD)/prog/%: os/progs/%.s $(wildcard os/ws/*.s) os/lib/gfx.s os/
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -I os/ws -I os/lib -g $@.map -o $@ $<
 
+# wdoom, the first-person shooter in a window (os/progs/wdoom.s, os/progs/wdoom/):
+# the program, and its data file, which tools/wdoom-assets.py makes from a
+# Freedoom checkout (the converted file is in the tree: os/progs/wdoom/wdoom.dat)
+WDOOM_DAT := os/progs/wdoom/wdoom.dat
+$(BUILD)/prog/wdoom: os/progs/wdoom.s $(wildcard os/progs/wdoom/*.s) os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -I os/lib -g $@.map -o $@ $<
+
+# kira, Princess Kira's games in a window (os/progs/kira.s, os/progs/kira/): the
+# program, and its data file, which tools/kira-assets.py makes from the art
+# that tools/kira-art.py draws into os/progs/kira/art (the converted file is
+# in the tree: os/progs/kira/kira.dat; `make kira-dat` makes both again)
+KIRA_DAT := os/progs/kira/kira.dat
+$(BUILD)/prog/kira: os/progs/kira.s $(wildcard os/progs/kira/*.s) os/progs/wdoom/sound.s os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -I os/lib -g $@.map -o $@ $<
+
+.PHONY: kira-dat
+kira-dat:
+	python3 tools/kira-art.py
+	python3 tools/kira-assets.py
+
 # vi, the editor: its keyword tables come from the assembler, the Forth README
 # and the site's highlighter (tools/vi-syntax.py writes them as an include)
 $(BUILD)/vi-syntax.s: tools/vi-syntax.py tools/web-code.py asm/sasm.c lang/forth/README.md site/hl.js
@@ -324,7 +350,7 @@ $(BUILD)/forth-os/vi-syntax.fs: tools/vi-syntax.py tools/web-code.py asm/sasm.c 
 	python3 tools/vi-syntax.py $@
 
 # the Forth ports of os/progs (lang/forth/progs/*.fs) and their library, packed into
-# one disk file (the directory has room for 128 files) behind a loader, lang/forth/progs.fs
+# one disk file (the directory had room for 128 files when they were written) behind a loader, lang/forth/progs.fs
 FORTH_PROGS := lang/forth/sys.fs $(sort $(wildcard lang/forth/progs/*.fs))
 $(BUILD)/forth-os/progs.pk: tools/forth-pack.py lang/forth/progs.fs $(FORTH_PROGS)
 	@mkdir -p $(BUILD)/forth-os
@@ -394,6 +420,13 @@ DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc
              $(BUILD)/forth-os/progs.pk \
              -t forth,demo $(wildcard lang/forth/demos/*.fs) \
              -t forth,net lang/forth/net.fs lang/forth/udp.fs lang/forth/httpd-ps.fs -t forth,net,demo lang/forth/httpd.fs
+# kira and its data (tagged ws: the program opens /ws/kira.dat)
+DISK_FILES += $(BUILD)/prog/kira $(KIRA_DAT)
+DISK_ARGS  += -t bin,ws $(BUILD)/prog/kira -t ws $(KIRA_DAT)
+
+# wdoom and its data (tagged ws: the program opens /ws/wdoom.dat)
+DISK_FILES += $(BUILD)/prog/wdoom $(WDOOM_DAT)
+DISK_ARGS  += -t bin,ws $(BUILD)/prog/wdoom -t ws $(WDOOM_DAT)
 # the web site httpd serves (index.html at /, the stylesheet of every page)
 WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)
@@ -410,8 +443,15 @@ DISK_WS_ARGS := $(subst os/files/rc,os/files-ws/rc,$(DISK_ARGS))
 $(BUILD)/disk-ws.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) os/files-ws/rc
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WS_ARGS)
 
-# the emulator boots StrataOS with 12 cores; the RTL with NCORES
-BOOT_EMU := $(BUILD)/strata-emu -c 12
+# ... and with one that starts the window server with wdoom in it (make boot-wdoom)
+DISK_WDOOM_ARGS := $(subst os/files/rc,os/files-wdoom/rc,$(DISK_ARGS))
+
+$(BUILD)/disk-wdoom.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) os/files-wdoom/rc
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WDOOM_ARGS)
+
+# the emulator boots StrataOS with 12 cores and the sound device (-a: the RTL
+# has none, so the sessions compared with it run without); the RTL with NCORES
+BOOT_EMU := $(BUILD)/strata-emu -c 12 -a
 # the network of the interactive boots: the real one through the emulator's
 # user-mode NAT (common/netnat.h), with the guest's web servers reachable
 # from the host: http://localhost:8080/ (httpd, port 80) and :8000 (Forth's
@@ -429,9 +469,23 @@ boot-ws: $(BUILD)/strata-emu $(BUILD)/bootrom.stx $(BUILD)/disk-ws.img
 	@cp $(BUILD)/disk-ws.img $(BUILD)/disk-run.img
 	@$(BOOT_EMU) $(BOOT_NET) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
 
+boot-wdoom: $(BUILD)/strata-emu $(BUILD)/bootrom.stx $(BUILD)/disk-wdoom.img
+	@cp $(BUILD)/disk-wdoom.img $(BUILD)/disk-run.img
+	@$(BOOT_EMU) $(BOOT_NET) -d $(BUILD)/disk-run.img $(BUILD)/bootrom.stx
+
+# test-kira: Princess Kira's demos (their last frames' checksums), the pointer, sound and q (part of make test)
+.PHONY: test-kira
+test-kira: $(BUILD)/strata-emu os
+	BUILD=$(BUILD) ./tools/test-kira.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+
+# test-wdoom: the game's demo (its last frame's checksum), its sound and q (part of make test)
+.PHONY: test-wdoom
+test-wdoom: $(BUILD)/strata-emu os
+	BUILD=$(BUILD) ./tools/test-wdoom.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+
 boot-demo: $(BUILD)/strata-emu os
 	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
-	@$(BOOT_EMU) -g none -d $(BUILD)/disk-run.img -i os/demo.txt $(BUILD)/bootrom.stx
+	@$(BUILD)/strata-emu -c 12 -g none -d $(BUILD)/disk-run.img -i os/demo.txt $(BUILD)/bootrom.stx
 
 boot-rtl: $(BUILD)/strata-rtl os
 	@cp $(BUILD)/disk.img $(BUILD)/disk-run.img
@@ -500,6 +554,16 @@ $(BUILD)/isol-test/dlsgap: tools/dlsgap.s os/lib/sys.s $(BUILD)/sasm
 $(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin,test $(BUILD)/isol-test/dlsgap
 test: $(BUILD)/isol-test/disk.img
+
+# the disk of tools/test-files.sh: the standard one plus 300 small files tagged
+# many (f000 .. f299, each holding its own name): more files than one window
+# of the file server's directory, or one DIR message, holds
+MANY := $(shell i=0; while [ $$i -lt 300 ]; do printf '$(BUILD)/files-test/many/f%03d ' $$i; i=$$((i + 1)); done)
+$(BUILD)/files-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
+	@mkdir -p $(BUILD)/files-test/many
+	@for f in $(MANY); do basename $$f > $$f; done
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) 2>&1 | cut -c1-200
+test: $(BUILD)/files-test/disk.img
 
 # the disk of `make test-forth`: the standard one plus the test files
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs) \
@@ -594,7 +658,7 @@ bench: $(BUILD)/strata-emu examples $(BUILD)/forth.stx
 #             interpreted and with the WebAssembly JIT (tools/test-wasm.sh)
 EMCC ?= emcc
 WEB := $(BUILD)/web
-WEB_IMAGES := $(BUILD)/bootrom.stx $(BUILD)/disk.img $(BUILD)/disk-ws.img $(BUILD)/forth.stx \
+WEB_IMAGES := $(BUILD)/bootrom.stx $(BUILD)/disk.img $(BUILD)/disk-ws.img $(BUILD)/disk-wdoom.img $(BUILD)/forth.stx \
               $(BUILD)/examples/gfx.stx $(BUILD)/examples/hello.stx $(BUILD)/examples/mandel.stx \
               $(BUILD)/ws/wsdemo.stx
 .PHONY: web-assets wasm web-code web-site test-wasm
@@ -606,12 +670,12 @@ test-wasm: $(WEB)/strata-emu.js $(BUILD)/strata-emu $(BUILD)/sasm examples $(BUI
 # one build for the page's worker and for node (tools/wasm-run.js, the tests)
 # (emu/jit/jit_wasm.c is the JIT: it generates WebAssembly at run time and
 # installs it in the module's function table, hence ALLOW_TABLE_GROWTH)
-$(WEB)/strata-emu.js: web/web.c emu/emu.c $(DBG_ENGINE) emu/jit/jit_wasm.c emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/net.h common/netnat.h
+$(WEB)/strata-emu.js: web/web.c emu/emu.c $(DBG_ENGINE) emu/jit/jit_wasm.c emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
 	@mkdir -p $(WEB)
 	$(EMCC) -std=gnu11 -O3 -Wall -DNO_SDL -o $@ web/web.c emu/jit/jit_wasm.c \
 	  -sMODULARIZE=1 -sEXPORT_NAME=createStrata -sENVIRONMENT=worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
 	  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=128MB -sALLOW_TABLE_GROWTH=1 \
-	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_jit_wasm_set_budget,_web_dbg,_web_dbg_run,_web_dbg_events,_web_dbg_repaint,_malloc,_free \
+	  -sEXPORTED_FUNCTIONS=_main,_web_run,_web_paint,_web_input,_web_break,_web_pointer,_web_pointer_used,_web_audio,_web_audio_rate,_web_stop,_web_finish,_web_stat,_jit_wasm_stat,_jit_wasm_set_hot,_jit_wasm_set_budget,_web_dbg,_web_dbg_run,_web_dbg_events,_web_dbg_repaint,_malloc,_free \
 	  -sEXPORTED_RUNTIME_METHODS=callMain,FS,HEAPU8,wasmMemory,wasmTable,UTF8ToString,stringToNewUTF8
 
 # wasm-rtl: the RTL simulator for the browser: build/web/strata-rtl.js + .wasm.
