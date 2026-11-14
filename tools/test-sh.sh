@@ -102,43 +102,58 @@ CW=$(printf '\027'); CL=$(printf '\014'); CD=$(printf '\004')
   printf 'fg\n'
   printf 'time sleep 0.1\n'
   printf 'sleep x\n'
-  # tags: files in several "directories" at once, intersections, tag paths
-  printf 'tags motd rc ls\n'
+  # tags are directories: a file is in each one it is tagged with (and only
+  # there: a name alone means the current directory, at first the root);
+  # intersections, tag paths
+  printf 'tags /doc/motd /etc/rc /bin/ls\n'
   printf 'echo alpha > n1; echo beta > /notes/n2; echo gamma > /notes/work/n3\n'
-  printf 'tag n1 notes\n'
+  printf 'ls -t; tag n1 notes; ls -t\n'
   printf 'ls -t /notes\n'
   printf 'ls /notes/work; ls /work//notes/; ls /work/n3\n'
-  printf 'tags n1 n2 n3 | upper\n'
-  printf 'cat /work/n3 /notes/n2 n1\n'
+  printf 'tags /notes/n1 /notes/n2 /work/n3 | upper\n'
+  printf 'cat /work/n3 /notes/n2 /notes/n1 n1\n'
   printf 'cat /work/n2 || cat /nosuch/n1\n'
   printf 'cat /notes/work/n%s\n' "$TAB"
   printf 'cat /work/n%s%s%s\n' "$TAB" "$TAB" "$CU"
-  printf 'echo more >> /work/n1; tags n1\n'
+  printf 'echo more >> /notes/work/n1; tags /notes/n1\n'
   printf 'cat /notes/n%s%s%s\n' "$TAB" "$TAB" "$CU"
   printf 'echo long > /work/a-name-of-more-than-twenty-four-bytes.txt\n'
   printf 'cat /work/a-na%s\n' "$TAB"
-  printf 'rm a-name-of-more-than-twenty-four-bytes.txt\n'
-  printf 'untag n3 work; untag n1 work; ls /work\n'
+  printf 'rm /work/a-name-of-more-than-twenty-four-bytes.txt\n'
+  printf 'untag /notes/n3 work; untag /notes/n1 work; ls /work\n'
   printf 'tags | grep notes\n'
-  printf 'tag n1 a/b; tag nosuch x; untag; tags nosuch\n'
+  printf 'tag /notes/n1 a/b; tag nosuch x; untag; tags nosuch\n'
   printf 'wc < /notes/n1 > /out/w1; ls -t /out; cat /out/w1\n'
-  printf 'rm /notes/n1 /notes/n2 n3 /out/w1; ls /notes; tags | grep notes\n'
+  printf 'rm /notes/n1 /notes/n2 /notes/n3 /out/w1; ls /notes; tags | grep notes\n'
+  # one name in two directories and in the root; a directory that has the
+  # name refuses the file; the last tag taken away leaves it in the root
+  printf 'echo here > /da/same; echo there > /db/same; echo top > same; cat /da/same /db/same same\n'
+  printf 'ls -t /da; ls -t /db; ls -t /da/db\n'
+  printf 'tag /da/same db; tag same da; untag /db/same db; cat same\n'
+  printf 'rm same; untag /db/same db; cat same; ls /db; tag same da/x; tag same db\n'
+  printf 'ls -t /db; ls -t /da; rm /da/same /db/same; ls /da\n'
+  # subdirectories: a directory in a directory is a narrower view; a file made
+  # there is in both
+  printf 'echo deep > /top/sub/deep; echo flat > /top/flat; ls /top; ls /top/sub; ls /sub\n'
+  printf 'cd /top; ls; cd sub; pwd; cat deep; echo more > deeper; cd ..; ls sub; cat sub/deeper; cd /\n'
+  printf 'rm /top/deep /top/flat /top/sub/deeper; ls /top\n'
   # file utilities: facets (tags as subdirectories), exclusion, tag completion,
-  # cp, mv, touch, retag
+  # cp, mv (a move), touch, retag
   printf 'echo one > /proj/p1; echo two > /proj/todo/p2; touch /proj/done/p3\n'
   printf 'ls /proj; ls /proj/-done/-todo; ls /proj/todo/-done; ls /proj/-nosuch/p1\n'
-  printf 'ls -t /-proj/-bin/-src/-sys/-demo/-ws/-forth\n'
+  printf 'ls -t /proj/-todo\n'
   printf 'cat /proj%sp2\n' "$TAB"
   printf 'cat /proj/t%s%s\n' "$TAB" "$TAB"
   printf 'ls /proj/%s%s%s\n' "$TAB" "$TAB" "$CU"
-  printf 'cp /proj/p1 /copy/p4; cp -t p2 /copy/p5; ls -t /copy; cat p4 p5\n'
-  printf 'cp p1 /copy/p1; cp nosuch p6; cp p1; cp /todo/p1 p6\n'
-  printf 'mv p4 /done/; echo old > p6; mv p5 p6; ls -t /done; tags p6; cat p6\n'
-  printf 'mv nosuch p7; mv p6 /a/-b/p7; mv p6\n'
-  printf 'touch p1 /proj/p8 /proj/-done/p9 a_name_longer_than_24_bytes; ls -t /proj; cat p1; rm a_name_longer_than_24_bytes\n'
-  printf 'touch /extra/p2; tags p2; cat p2\n'
-  printf 'retag p6 x y; tags p6; retag p6 y; tags p6; retag p6; tags p6; retag nosuch\n'
-  printf 'rm p1 p2 p3 p4 p6 p8; ls /proj\n'
+  printf 'cp /proj/p1 /copy/p4; cp -t /proj/p2 /copy/p5; ls -t /copy; cat /copy/p4 /copy/p5\n'
+  printf 'cp /proj/p1 /copy/p1; cat /copy/p1; cp nosuch p6; cp /proj/p1; cp /todo/p1 p6\n'
+  printf 'mv /copy/p4 /done/; echo old > /copy/p6; mv /copy/p5 /copy/p6; ls -t /done; tags /copy/p6; cat /copy/p6\n'
+  printf 'mv nosuch p7; mv /copy/p6 /a/-b/p7; mv /copy/p6\n'
+  printf 'mv /proj/p2 /proj/p3; mv /copy/p1 p1b; ls -t /copy; mv /copy/p1b /; ls -t\n'
+  printf 'touch /proj/p1 /proj/p8 /proj/-done/p9 a_name_longer_than_24_bytes; ls -t /proj; cat /proj/p1; rm a_name_longer_than_24_bytes\n'
+  printf 'touch /proj/extra/p8; tags /proj/p8; cat /extra/p8\n'
+  printf 'retag /copy/p6 x y; tags /x/p6; retag /y/p6 y; tags /y/p6; retag /y/p6; tags p6; retag nosuch\n'
+  printf 'rm /proj/p1 /proj/p2 /proj/p3 /done/p4 p6 /proj/p8 p1b; ls /proj\n'
   # the current tag path: cd, pwd, relative names under it (also for child
   # programs and shells), creating there, exclusions, completion
   printf 'echo one > /cdt/c1; echo two > /cdt/sub/c2; echo five > /other/c5; pwd\n'

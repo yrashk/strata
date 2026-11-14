@@ -50,7 +50,7 @@ lphaX -;
 delta epsilon EP;
 iota;
 strata$ vi /src/hello.s
-strata$ vi gfx.fs
+strata$ vi /forth/gfx.fs
 strata$ vi m.fs
 strata$ rm f2 w1 n1 p1 big m.fs
 strata$ echo bye

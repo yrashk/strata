@@ -33,25 +33,25 @@ x seq: seq 0
 x seq: seq
 x seq: seq 3000 | wc
 x seq: seq 12abc
-x cat: cat motd about
-x cat: cat nosuch motd
+x cat: cat /doc/motd /doc/about
+x cat: cat nosuch /doc/motd
 x cat: seq 30 | cat
-x cat: cat < about
+x cat: cat < /doc/about
 x cat: cat /src/as.s | wc
-x cat: cat about > c1; cat c1 c1; rm c1
-x upper: upper < motd
+x cat: cat /doc/about > c1; cat c1 c1; rm c1
+x upper: upper < /doc/motd
 x upper: seq 3 | upper
 x upper: cat /src/hello.s | upper | wc
-x wc: wc < motd
+x wc: wc < /doc/motd
 x wc: wc < /src/sh.s
 x wc: seq 5000 | wc
-x wc: wc < about
-x grep: grep the < motd
-x grep: grep < about
-x grep: grep vi /src/hello.s < motd
+x wc: wc < /doc/about
+x grep: grep the < /doc/motd
+x grep: grep < /doc/about
+x grep: grep vi /src/hello.s < /doc/motd
 x grep: seq 100 | grep 7
 x grep: cat /src/sh.s | grep ecall | wc
-x grep: grep nothing-like-this < motd
+x grep: grep nothing-like-this < /doc/motd
 x hexdump: hexdump 0
 x hexdump: hexdump 1
 x hexdump: hexdump
@@ -71,31 +71,31 @@ X cp: cp t1 /tt/t1
 X cp: cp nope z
 X cp: cp a
 X cp: cp a b c
-X cp: tags h1 t3 nope
-X cp: wc < h1
-X mv: mv h1 /demo/
-X mv: mv h1 h2
+X cp: tags /src/h1 /demo/h1 t3 nope
+X cp: wc < /demo/h1
+X mv: mv /src/h1 /demo/
+X mv: mv /demo/h1 h2
 X mv: mv nope z
 X mv: mv a
 X ls: ls /demo
 X ls: ls -t /tt
 X ls: ls /nope
-X ls: ls h2
-X ls: ls -t h2
+X ls: ls /demo/h2
+X ls: ls -t /demo/h2
 X ls: ls /src/-demo
 X tag: tag t3 tg1 tg2
 X tag: tag t3 bad/tag
 X tag: tag nope tg1
 X tag: tag t3
-X tag: tags t3
-X tag: untag t3 tg1
-X tag: tags t3
-X tag: retag t3 tg3 tg4
-X tag: tags t3
-X tag: retag t3
+X tag: tags /tg1/t3
+X tag: untag /tg2/t3 tg1
+X tag: tags /tg2/t3
+X tag: retag /tg2/t3 tg3 tg4
+X tag: tags /tg4/t3
+X tag: retag /tg3/t3
 X tag: tags t3
 X tags: tags
-X rm: rm t1 t2 t3 h2 nope
+X rm: rm t1 t2 t3 /demo/h2 /tt/t1 nope
 X rm: rm
 X rm: ls
 x df: df
