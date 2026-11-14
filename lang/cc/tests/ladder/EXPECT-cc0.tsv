@@ -1,70 +1,10 @@
-# rung/test	why it is not expected to pass (the runner reports these apart; a test that passes anyway is flagged)
-03-pointers-arrays/lacc-declarator-parens.c	old-style (K&R) function definitions are not implemented
-03-pointers-arrays/lacc-string-conversion.c	not analysed yet: status 130, expected 6
-03-pointers-arrays/scc-0259-multichar.c	wide and multi-character constants
-03-pointers-arrays/scc-0265-wchar.c	wide and multi-character constants
-04-structs/lacc-prototype-scope-enum.c	not analysed yet: redefined: FOO
-04-structs/scc-0047-anonexport.c	anonymous struct and union members (C11) are not implemented
-05-preproc/lacc-preprocess-expression.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-05-preproc/scc-0170-line.c	#line and _Pragma are not implemented
-05-preproc/scc-0178-include.c	needs a header file of its suite, which is not kept here
-05-preproc/scc-0232-cppmacro.c	needs a header file of its suite, which is not kept here
-05-preproc/scc-0273-cpp.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-06-init/lacc-identifier.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-06-init/lacc-include.c	needs a header file of its suite, which is not kept here
-06-init/scc-0051-inits.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
-06-init/scc-0189-cpp.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-07-funcptr-switch-goto/lacc-declarator-complex.c	not analysed yet: incomplete type
-08-c99-misc/lacc-_Pragma.c	#line and _Pragma are not implemented
-08-c99-misc/lacc-anonymous-members.c	anonymous struct and union members (C11) are not implemented
-08-c99-misc/lacc-anonymous-struct.c	anonymous struct and union members (C11) are not implemented
-08-c99-misc/lacc-bitfield-basic.c	bit-fields: packing and promotion differ from the reference compiler
-08-c99-misc/lacc-bitfield-immediate-assign.c	bit-fields: packing and promotion differ from the reference compiler
-08-c99-misc/lacc-bitfield-initialize-zero.c	bit-fields: packing and promotion differ from the reference compiler
-08-c99-misc/lacc-bitfield-pack-next.c	bit-fields: packing and promotion differ from the reference compiler
-08-c99-misc/lacc-bitfield-packing.c	bit-fields: packing and promotion differ from the reference compiler
-08-c99-misc/lacc-bitfield-trailing-zero.c	bit-fields: packing and promotion differ from the reference compiler
-08-c99-misc/lacc-bitfield-types-init.c	bit-fields: packing and promotion differ from the reference compiler
-08-c99-misc/lacc-bitfield-types.c	bit-fields: packing and promotion differ from the reference compiler
-08-c99-misc/lacc-bitfield-unsigned-promote.c	bit-fields: packing and promotion differ from the reference compiler
-08-c99-misc/lacc-bitfield.c	bit-fields: packing and promotion differ from the reference compiler
-08-c99-misc/lacc-comment.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-08-c99-misc/lacc-conditional.c	not analysed yet: output differs
-08-c99-misc/lacc-designator-array.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
-08-c99-misc/lacc-initialize-array.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
-08-c99-misc/lacc-initialize-call.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
-08-c99-misc/lacc-initialize-object.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
-08-c99-misc/lacc-initialize-string.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
-08-c99-misc/lacc-line-continuation.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-08-c99-misc/lacc-macro-recursive.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-08-c99-misc/lacc-macro-skip-expand.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-08-c99-misc/lacc-old-param-decay.c	old-style (K&R) function definitions are not implemented
-08-c99-misc/lacc-old-style-declaration.c	old-style (K&R) function definitions are not implemented
-08-c99-misc/lacc-old-style-definition.c	old-style (K&R) function definitions are not implemented
-08-c99-misc/lacc-return-bitfield.c	bit-fields: packing and promotion differ from the reference compiler
-08-c99-misc/lacc-trigraph.c	trigraphs are not implemented
-08-c99-misc/lacc-vararg-complex-1.c	structures and floating values through va_arg
-08-c99-misc/lacc-vararg-complex-2.c	structures and floating values through va_arg
-08-c99-misc/lacc-vararg.c	structures and floating values through va_arg
-08-c99-misc/lacc-vla-arg.c	variable-length arrays are not implemented
-08-c99-misc/lacc-vla-block-declaration.c	variable-length arrays are not implemented
-08-c99-misc/lacc-vla-compatibility.c	variable-length arrays are not implemented
-08-c99-misc/lacc-vla-old-param.c	variable-length arrays are not implemented
-08-c99-misc/lacc-vla-pointer.c	variable-length arrays are not implemented
-08-c99-misc/lacc-vla-static-pointer.c	variable-length arrays are not implemented
-08-c99-misc/lacc-vla.c	variable-length arrays are not implemented
-08-c99-misc/scc-0166-desig.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
-08-c99-misc/scc-0200-cpp.c	needs a header file of its suite, which is not kept here
-08-c99-misc/scc-0202-variadic.c	structures and floating values through va_arg
-08-c99-misc/scc-0262-macro.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-09-float/lacc-bool.c	float kept as 4 bytes but computed in double: results differ in the last place, or a conversion is missing
-09-float/lacc-convert-float-int.c	float kept as 4 bytes but computed in double: results differ in the last place, or a conversion is missing
-09-float/lacc-convert-float-unsigned.c	float kept as 4 bytes but computed in double: results differ in the last place, or a conversion is missing
-09-float/lacc-deref-compare-float.c	hexadecimal floating constants are not implemented
-09-float/lacc-designator-struct.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
-09-float/lacc-designator-union.c	initialiser forms not handled (ranges of designators, braces elided around designated subobjects)
-09-float/lacc-float-arithmetic.c	float kept as 4 bytes but computed in double: results differ in the last place, or a conversion is missing
-09-float/lacc-macro-keyword-define.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-09-float/lacc-stringify.c	a preprocessor corner case (rescanning, spacing of stringified text, splices inside tokens)
-09-float/lacc-vla-sizeof.c	variable-length arrays are not implemented
-09-float/lacc-vla-ternary-length.c	variable-length arrays are not implemented
+# rung/test	why it is not expected to pass with the bootstrap compiler cc0 (cc.s); the runner reports these apart and flags a test that passes anyway
+08-c99-misc/lacc-vla-arg.c	variable-length arrays are not in the bootstrap compiler yet
+08-c99-misc/lacc-vla-block-declaration.c	variable-length arrays are not in the bootstrap compiler yet
+08-c99-misc/lacc-vla-compatibility.c	variable-length arrays are not in the bootstrap compiler yet
+08-c99-misc/lacc-vla-old-param.c	variable-length arrays are not in the bootstrap compiler yet
+08-c99-misc/lacc-vla-pointer.c	variable-length arrays are not in the bootstrap compiler yet
+08-c99-misc/lacc-vla-static-pointer.c	variable-length arrays are not in the bootstrap compiler yet
+08-c99-misc/lacc-vla.c	variable-length arrays are not in the bootstrap compiler yet
+09-float/lacc-vla-sizeof.c	variable-length arrays are not in the bootstrap compiler yet
+09-float/lacc-vla-ternary-length.c	variable-length arrays are not in the bootstrap compiler yet

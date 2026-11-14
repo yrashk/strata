@@ -124,7 +124,18 @@ section 6).
       `cc` built on the host (`make test-cc-boot`, part of `make test`)
 - [x] `cc.c` on the host: `lang/cc/host/`, `build/strata-cc`; the Makefile
       builds the `cc` of the disk with it
-- [x] `cc.c` passes the ladder: all 521 (the bootstrap compiler: 452)
+- [x] `cc.c` passes the ladder: all 521
+- [x] the bootstrap compiler follows: 512 of 521. Ported to `cc.s`:
+      trigraphs, `#line`, `_Pragma`, `#include` of a macro, macros named
+      like keywords, the never-expand-again mark, stringified blanks and
+      escapes, comments in macro arguments, `\u` and `L'x'`, hexadecimal
+      floating constants, bit-field layout and promotion, old-style
+      definitions, unnamed members, designators that continue and the
+      other initialiser forms, parenthesised declarators, `va_start` and
+      `va_arg` as builtins, float arithmetic rounded to float, an enum in
+      a parameter list, `extern` in a block. Its code window is 1 KiB now
+      (it was 2): that freed the data these needed
+- [ ] the bootstrap compiler's last nine: variable-length arrays
 - [x] found on the way, fixed in `cc.s`: a register stored to the frame
       inside one arm of `?:`, `&&`, `||` was read back on the other path
 - [x] in `cc.c` beyond the bootstrap compiler: variable-length arrays and
@@ -202,6 +213,7 @@ host and gives the same).
 | **`cc.c`**: variable-length arrays | 32 | 12 | 92 | 33 | 56 | 74 | 18 | 138 | 59 | 514 |
 | **`cc.c`**: `#include` of a macro, `strtod` | 32 | 12 | 93 | 33 | 58 | 75 | 18 | 139 | 61 | 521 |
 | the bootstrap compiler now (headers kept, `strtod`) | 32 | 12 | 89 | 31 | 53 | 71 | 17 | 97 | 50 | 452 |
+| the bootstrap compiler, all but variable-length arrays | 32 | 12 | 93 | 33 | 58 | 75 | 18 | 132 | 59 | 512 |
 
 ## Size
 

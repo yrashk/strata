@@ -428,7 +428,7 @@ strata$ cc -o calc calc.c           # -o names the output; -h KIB sizes the heap
   from the test suites of scc (ISC) and lacc (MIT), sorted into a ladder by
   the features they need; `make test-cc` compiles and runs each one inside
   StrataOS and prints the score per rung (all 521 pass; with the bootstrap
-  compiler, `make test-cc0`, 452).
+  compiler, `make test-cc0`, 512).
 - **Assembly inside C.** `asm("ld t0, {x}\n addi t0, t0, 1\n sd t0, {x}");`
   is Strata assembly encoded in place, with `{name}` for C objects; at file
   scope its labels are functions. The instruction table is made from the
