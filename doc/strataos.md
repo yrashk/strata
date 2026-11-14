@@ -1049,6 +1049,21 @@ shows the files tagged src, then `demo/`; `ls /src/demo` narrows to both;
 no facets. The shell's Tab completes facets in a path like folders (`cat
 /sr` Tab gives `/src/`, with no space after it).
 
+**`cc`** (`lang/cc/`, its design in `lang/cc/DESIGN.md`) is a C99 compiler
+on the disk: `cc [-o OUT] [-h KIB] FILE.c` reads the file through `fs`,
+writes a StrataOS program image (an STX2 file with the `"SYS2"` marker, the
+run-time library at the start of both Local Store sections, the heap inside
+the data section so that a context switch keeps it) and exits with status 1
+after printing `file:line: message` for the first error; `-p` pages the
+program's code in 4 KiB units. It needs its own code units, `/bin/cc.u`,
+which its start-up code loads into the arena and the dispatcher pages from
+there, and `/bin/cc.lib` (the library, its headers, the instruction table
+of `asm("...")`). `cc` is `lang/cc/cc.c` compiled by itself. The bootstrap
+compiler in assembly, `cc0` (with `/bin/cc0.lib`), and the compiler's
+source, `/src/cc.c`, are on the disk too, beside the C examples (`hi.c`,
+`calc.c`, `asm.c`, `cmp.c`): `cc0 -p -h 0 -o cc1 /src/cc.c` compiles the
+compiler on the machine.
+
 Utilities: `ls [-t] [PATH]` (files, then facets as `tag/`; `-t` adds each
 file's tags; no PATH: the current tag path), `cat`, `cp [-t] SRC DST` (a copy; DST's path gives it tags,
 `-t` also copies SRC's; names are unique, so DST must name another file),
