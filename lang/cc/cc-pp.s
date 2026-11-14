@@ -26,10 +26,11 @@ MK_PAR   = 0x80                         ; + n: parameter n
 MK_STR   = 0xC0                         ; + n: # parameter n
 MK_CAT   = 0xFF                         ; ##
 MAXPAR   = 32                           ; parameters of a macro
-XBSZ     = 2048                         ; bytes of arguments being expanded at one time
-NARGS    = 64                           ; arguments of all the expansions in progress
+XBSZ     = 1536                         ; bytes of arguments being expanded at one time
+NARGS    = 48                           ; arguments of all the expansions in progress
 
         .data                           ; the preprocessor's variables
+        .align 8                        ; (words first)
 if_sp:    .dword 0                      ; conditionals open
 xb_top:   .dword 0                      ; bytes of XBUF in use
 IFSTK:    .space 32                     ; per open conditional: 1 = a group of it was taken

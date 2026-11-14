@@ -2,6 +2,7 @@
 ; cc-main.s: the driver: command line, the library file, the image
 ; =============================================================================
         .data                           ; this unit's strings
+        .align 8                        ; (words first)
 m_ltext:  .asciz "libc.text"            ; its members
 m_ldata:  .asciz "libc.data"            ; ...
 m_lsym:   .asciz "libc.sym"             ; ...

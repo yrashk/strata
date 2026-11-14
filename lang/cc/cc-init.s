@@ -10,6 +10,7 @@
 ; initialiser's first token, for real.
 
         .data                           ; the initialiser being read
+        .align 8                        ; (words first)
 ini_static: .dword 0                    ; 1: a static object (constants into the data image)
 ini_base: .dword 0                      ; its D-LS address, or its frame offset
 ini_dry:  .dword 0                      ; 1: the dry run

@@ -161,6 +161,7 @@ SC_PARAM = 8                            ; a parameter of a prototype (not in sco
 SF_DEF   = 1                            ; defined (a function's body, an object's storage)
 SF_S0    = 2                            ; a local addressed from s0, not sp
 SF_EXT   = 4                            ; declared extern, no address yet
+SF_REF   = 8                            ; a local whose frame word holds the object's address (a structure parameter)
 NSYMS    = 1000                         ; records in the table
 
 ; ---- value stack entry (32 bytes) --------------------------------------------------------
@@ -262,12 +263,12 @@ INSZ     = 40                           ; entry size
 ; The large tables are at fixed D-LS addresses above the variables (which
 ; must stay below 0x8000 to be reached from the zero register); the data
 ; section is extended over them at the end of this file.
-CW       = 0x3000                       ; code window (CWSZ bytes)
-IOB      = 0x3800                       ; file transfer buffer (1 KiB and a word)
-STRBUF   = 0x3C10                       ; the string literal being scanned (STRMAX and a word)
-TYPES    = 0x4020                       ; type table
-SYMS     = TYPES + NTYPES * TYSZ        ; symbol table
-SYMEND   = SYMS + NSYMS * SYSZ          ; its end (below 0xA000)
+SYMEND   = 0xA000                       ; the end of the symbol table: the end of a program's D-LS
+SYMS     = SYMEND - NSYMS * SYSZ        ; symbol table
+TYPES    = SYMS - NTYPES * TYSZ         ; type table
+STRBUF   = TYPES - 1040                 ; the string literal being scanned (STRMAX and a word)
+IOB      = STRBUF - 1040                ; file transfer buffer (1 KiB and a word)
+CW       = IOB - CWSZ                   ; code window
 
 ; =============================================================================
         .text                           ; the program's first two words (lib/rt.s, included
@@ -323,6 +324,9 @@ wb_pos:   .dword 0                      ; writer: arena offset of the next byte
 fn_sym:   .dword 0                      ; its symbol
 fn_ret:   .dword 0                      ; its return type
 fn_start: .dword 0                      ; address of its first instruction
+fn_pro:   .dword 0                      ; address of the two prologue instructions patched at its end
+fn_s0:    .dword 0                      ; 1: its parameters are at 8 * i (s0)
+fn_sret:  .dword 0                      ; frame offset (from sp, or s0) of the word holding the address for a structure result
 fr_cur:   .dword 0                      ; frame bytes in use now
 fr_max:   .dword 0                      ; the most used
 fr_tmp:   .dword 0                      ; frame bytes in use by declared objects (temporaries are above)
