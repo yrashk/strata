@@ -11,6 +11,8 @@ a conformance suite that holds them all to the same behaviour.
   emulator as WebAssembly; boot StrataOS, draw into the framebuffer, type
   Forth
 - **[Architecture Reference Manual](https://yrashk.github.io/strata/Strata-Architecture-Reference-Manual.pdf)** (PDF)
+- **[StrataOS](https://yrashk.github.io/strata/os/)**: the operating system's
+  architecture, its kernel and a catalogue of its servers and their messages
 - **[Source browser](https://yrashk.github.io/strata/code/)**: every
   assembly and Forth source, syntax-coloured
 
@@ -73,7 +75,7 @@ a conformance suite that holds them all to the same behaviour.
 | `tools/` | The tests (`tests.sh`: the list; `run-tests.sh`: runs them; `compare.sh`, `compare-boot.sh`, `test-*.sh`), `build-cache.sh`, `mkdisk` (bootable disks), `mkhex` (FPGA memory images), `bench-jit.sh`, `web-code.py` |
 | `fpga/` | Synthesis script, LiteDRAM adapter, a board top, pin constraints |
 | `web/` | The WebAssembly builds for the site's play page: the emulator (`web.c`), and the RTL simulator (`web_rtl.cpp`: Verilator's C++ compiled with Emscripten, `make wasm-rtl`) |
-| `site/` | The project site: the landing page, `play/` (the in-browser emulator), `debug/` (the web debugger) and `code/` (the source browser) |
+| `site/` | The project site: the landing page, `os/` (StrataOS: its message tables are made from the servers' sources by `tools/web-os.py`), `play/` (the in-browser emulator), `debug/` (the web debugger) and `code/` (the source browser) |
 | `doc/` | The manual's LaTeX sources (`doc/manual/`), the StrataOS design specification (`doc/strataos.md`), schematics |
 | `.github/workflows/` | CI: builds the manual, the WebAssembly emulator and the site, and publishes them |
 
