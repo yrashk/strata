@@ -376,8 +376,8 @@ and finds her seven animal friends, who follow her in a parade to a
 picnic; every game has a newly made castle and garden, seen from above
 or, at the press of a button, through Kira's eyes (wdoom's raycaster with
 a floor for every cell and a sky). In Garden she sows seeds and waters
-them into flowers that butterflies visit, and the garden is kept in a
-file. Paint has three colouring pages, and Music a xylophone, the
+them into flowers that butterflies visit; the garden is kept in a file,
+and a button (with a tick and a cross to answer) starts it over. Paint has three colouring pages, and Music a xylophone, the
 friends' voices and four songs. The art is original and is drawn by a
 script (`tools/kira-art.py`); the sounds are synthesised. Run `ws kira`
 from the shell, or `kira` from the palette; it is a preset on the play

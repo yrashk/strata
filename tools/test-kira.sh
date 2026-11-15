@@ -32,6 +32,17 @@
 #              another game. Besides the checksum, the page's picture is
 #              checked to be black and white only: it has no paint yet, so
 #              any colour in it is something left over it.
+#      demo a  Garden as it is on the first day (three patches planted)
+#      demo b  Garden: a daisy is grown to bloom and a butterfly comes; the
+#              button for a new garden, and the cross: nothing changes; the
+#              button again, and the tick: the garden starts over. The
+#              demo's random numbers are started over just before, so the
+#              three patches planted are those of demo a, and the picture
+#              must be demo a's to the pixel: nothing of the old garden,
+#              its butterfly or its tools is left. (Both frames are taken
+#              three tics after the garden appears.)
+#      demo c  Garden: the question "a new garden?" in the bar: the spade, a
+#              tick and a cross
 #    (A demo's random numbers start from a fixed seed, so its worlds, its
 #    butterflies and its song are always the same ones.)
 # 2. `ws kira` on a machine with the sound device (-A: what it plays goes
@@ -48,7 +59,7 @@ set -e
 BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
-KIRA_CRC="1:10875dd2:6 2:b28d0fb6:4 3:a4a6212e:6 4:e8e347e2:6 5:e654c81a:4 6:8ac2eeac:4 7:453116f1:4 8:bb71d3b4:40 9:18e7ed29:6"
+KIRA_CRC="1:10875dd2:6 2:b28d0fb6:4 3:a4a6212e:6 4:e8e347e2:6 5:890cfe4e:4 6:8ac2eeac:4 7:453116f1:4 8:bb71d3b4:80 9:18e7ed29:6 a:a59e724a:6 b:a59e724a:6 c:6ac57d78:6"
 T=$BUILD/test-kira
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W
@@ -81,6 +92,9 @@ print("demo %s: frame %dx%d: game picture crc %08x (expected %s)" % (sys.argv[3]
 sys.exit(0 if (w, h) == (1280, 800) and "%08x" % crc == sys.argv[2] else 1)
 PY
 done
+# (each demo's picture had its expected checksum, so demo b's is demo a's if the two are one number)
+case " $KIRA_CRC" in *" a:$(echo "$KIRA_CRC" | sed 's/.* b:\([0-9a-f]*\):.*/\1/'):"*) ;; *)
+  fail "the garden started over is not the garden of the first day: demos a and b must have one checksum" outb ;; esac
 python3 - $T/frame9.ppm <<'PY' || fail "something of the party lies over the colouring page (demo 9)" out9
 import sys
 b = open(sys.argv[1], 'rb').read()
