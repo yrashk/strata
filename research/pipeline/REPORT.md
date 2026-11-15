@@ -7,7 +7,17 @@ It builds on `research/smart-memory/REPORT.md` (branch
 `claude/smart-memory-research-4e7a72`, not merged), whose stream fetch
 (`STREAM`) already overlaps fetch with execute.
 
-**The answer in six lines.**
+**Measured since (section 9):** the stream fetch and `LS_1P` are merged and
+the parallel overlay search (stage 1 below) is in `rtl/`. In place and route
+it did **not** raise the clock: on the ECP5 18.82 MHz before it and 18.93
+after (the same run-to-run noise), on GF180MCU 3.3 V 22.4 MHz; on both the
+critical path starts at the decoded instruction and does not touch the
+overlay map, and on the ECP5 85% of it is wire. The gate model's clock
+estimates (items 2 to 4 below, sections 2.3, 2.4 and the clock column of
+section 3) do not hold for the real flows. The cycle estimates do: the
+cycle model reproduces the measured core. Section 9 says what that changes.
+
+**The answer in six lines** (as first written; see above).
 
 1. "Not pipelined" was mostly a cycles-per-instruction problem, and `STREAM`
    has already solved most of it: the StrataOS session went from 3.22 to
@@ -743,3 +753,70 @@ area and fit on an FPGA.
 contention (one fetch and about 0.17 data accesses per instruction for four
 threads: two ports or banking by thread); the profile is one session of one
 OS build, with mostly idle cores.
+
+## 9. Measured: the merge and stage 1 in place and route
+
+The stream fetch and `LS_1P` were merged into main (`STREAM = 1` by
+default), and stage 1, the parallel overlay search, went into
+`rtl/strata_core.sv` (cycle for cycle the same machine; `make test` and
+`make formal` pass). Then the kept flows were run on it, and the ECP5 flow
+also on the merge commit just before stage 1, so that the two differ in
+the overlay search alone. One run each; the logs' timing parts are in
+`results/runs/`.
+
+| | ECP5-85F (nextpnr, routed) | GF180MCU 3.3 V cells (typical corner) |
+|---|---|---|
+| kept results: RTL before the stream fetch | 20.02 MHz, 44,253 logic cells | 24.5 MHz (40.8 ns) |
+| merge commit 79bb1f9: `STREAM`, `LS_1P`, before stage 1 | **18.82 MHz**, 52,289 logic cells | not run |
+| 858a4f7: with stage 1 | **18.93 MHz**, 52,992 logic cells | **22.4 MHz** (44.6 ns; worst slack -4.58 ns against 40 ns) |
+
+- **Stage 1 bought nothing measurable.** 18.82 against 18.93 MHz is within
+  what nextpnr varies between runs of the same design. The critical paths
+  before and after start at the decoded instruction (`u_dec`, `d[72]` on
+  GF180MCU) and run through the trap and next-state logic (`s_tval`,
+  `u_cause`), the integer register file, the `ltag` sequencer and the
+  stream fetch's buffers; none passes through the overlay map. On the ECP5
+  44 to 45 ns of the 53 ns are wire.
+- **Why the gate model was wrong.** It has no wires, and it maps without
+  the timing-driven restructuring the real flows do. The chain it found
+  deepest was deep in gates but short in distance; the real limit is how
+  far the execute cycle's results and decisions travel across the core
+  (register file, trap CSRs, fetch buffers, granule table copy). The
+  paths the model ranked next (decoded instruction to pc, to the trap
+  CSRs, 150 to 200 FO4) are the ones the real runs show, so the model is
+  right about *which* logic is critical once the outlier is gone, and
+  wrong about how much an outlier mattered.
+- **The stream fetch costs clock**: 20.0 -> 18.8 MHz on the ECP5 (6%), with
+  18% more logic cells (`STREAM`, the `LS_1P` paths that exist even when it
+  is off, and what main gained since the kept run); 24.5 -> 22.4 MHz on
+  GF180MCU (9%, without a clean baseline). Against 1.84x fewer cycles per
+  instruction it is still a 1.7x gain in time.
+- The published results (`fpga/results/`, `asic/results/`, the site, the
+  manual's tables) are of the RTL before the stream fetch and say so; they
+  were not replaced.
+
+**What this changes in the recommendation.**
+
+1. The cycle side stands: the trace model reproduces the measured cycles
+   per instruction to the second decimal, and its gains do not depend on
+   the clock. A 3-stage core (option 2/3) is still worth building, in the
+   form that adds no long path: loads overlapped, the redirect registered
+   (two cycles, as now) and a branch predictor. Estimated about 1.23
+   cycles per instruction on the session against 1.75 (p3b with a
+   two-cycle redirect: the predictor is wrong 0.35 M and misses its target
+   buffer 1.68 M times in 64.6 M instructions, 2 cycles each, 0.063 against
+   p3b's 0.032), about 1.4x at the same clock.
+2. The 5-stage case rested on the clock, and nothing measured supports it
+   now. Before any design work on it, one cheap experiment: register the
+   operands and the operand capability before execute (as `ROADMAP.md`
+   already suggests, as a throwaway change) and rerun the ECP5 flow; if the
+   clock does not move clearly, deeper pipelining is not worth its cost
+   here.
+3. On the FPGA the clock is a placement and wire problem: the core is 63%
+   of an 85F and its execute cycle fans out across all of it. Smaller
+   logic (the granule table copy as block RAM, section 5.5 of the
+   smart-memory report) or registering the trap and next-state decisions
+   are the levers there, more than logic depth.
+4. Stage 1 stays in: it costs nothing in cycles, little in gates, and
+   removes a path that a timing-driven flow could otherwise hit after the
+   others are fixed.
