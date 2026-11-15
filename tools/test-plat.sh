@@ -44,6 +44,10 @@
 #              snapshot (/@plat1-1900/ws/plat-1.sav): the map must be the
 #              one first saved, not the second. It ends in December: dusk,
 #              the windows lit (demos 3 and 6 end in December too)
+#      demo 15 a scenario from its panel (C): Cinderford, its town made at
+#              once from demo 13's keys, its treasury set low; four months,
+#              and its old coal plant fails (demos 12 to 14 are the
+#              scenarios' towns: not run here as demos)
 #    (An adviser's portrait and words are in the bar in most of them.)
 #    (A demo's land comes from a fixed seed, so it is always the same land.)
 # 2. `ws plat` on a machine with the sound device (-A: what it plays goes
@@ -65,7 +69,7 @@ BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
 # demo:frame checksum:map checksum:funds:seconds it is given
-PLAT_CRC="1:b82894d8:fe18a8eb:19072:6 2:b1aac2a8:84ce65ce:20000:6 3:16e5185d:52a65110:0:40 4:2a163da0:66999b66:19770:6 5:5c915d00:626c5e68:19016:12 6:cda9d0dd:68551d85:16659:10 7:db807031:f90434e1:9373:14 8:c71c66c2:626c5e68:19016:12 9:5c447860:626c5e68:19016:12 10:9a63a970:7e88cac3:15694:16 11:9bc62554:68551d85:16659:14"
+PLAT_CRC="1:b82894d8:fe18a8eb:19072:6 2:b1aac2a8:84ce65ce:20000:6 3:16e5185d:52a65110:0:40 4:2a163da0:66999b66:19770:6 5:5c915d00:626c5e68:19016:12 6:cda9d0dd:68551d85:16659:10 7:db807031:f90434e1:9373:14 8:c71c66c2:626c5e68:19016:12 9:5c447860:626c5e68:19016:12 10:9a63a970:7e88cac3:15694:16 11:9bc62554:68551d85:16659:14 15:44756b51:8af309d1:1372:14"
 T=$BUILD/test-plat
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W

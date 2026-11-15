@@ -42,7 +42,8 @@
 ; the town, O shows the towns kept (four places: 1..4 opens one, or makes
 ; new land there), N makes new land; V the events (1..5 call one down, 6
 ; turns them off by chance or on); Y the town's past years (a snapshot of
-; the disk at each year's end and at each S: plat/years.s); Q quits (and
+; the disk at each year's end and at each S: plat/years.s); C the
+; scenarios (a town, a trouble, a goal: plat/scen.s); Q quits (and
 ; saves). In December the map is drawn at dusk, the windows lit. The town of the
 ; first place (/ws/plat-1.sav, plat/file.s) is loaded at the start.
 ;
@@ -65,7 +66,8 @@ K_RIGHT  = 4                            ; ...
 DK_LOOP  = 0xfb                         ; in a demo: what follows, up to DK_END, N times (N, 0 follow)
 DK_END   = 0xfc                         ; ...
 NDLOOP   = 4                            ; loops a demo may nest
-NDEMO    = 11                           ; demos (tools/plat-assets.py: DEMOS)
+SEED0    = 20261115                     ; the random numbers' first state: a demo's land
+NDEMO    = 15                           ; demos (tools/plat-assets.py: DEMOS)
 MSG_TICS = 245                          ; a message stays seven seconds
 FUNDS0   = 20000                        ; the treasury at the start
 TAX0     = 7                            ; the tax rate at the start (per cent)
@@ -93,6 +95,7 @@ _start: j     main                      ; skip the marker
         .include "plat/gallery.s"       ; several towns
         .include "plat/events.s"        ; floods, storms, earthquakes; the land made again
         .include "plat/years.s"         ; the town's past years: snapshots
+        .include "plat/scen.s"          ; scenarios
         .include "wdoom/sound.s"        ; the sounds: wdoom's mixer
         .include "../lib/sys.s"         ; the program library
         .include "../lib/wsclient.s"    ; the window server's protocol
@@ -104,7 +107,7 @@ KEEP     = ((F_SIZE + 4095) & ~4095) + MAPB + CMB ; the top of the arena: plat.d
 g:                                      ; the globals (gp points here)
 g_tic:    .dword 0                      ; tics since the start
 g_last:   .dword 0                      ; the clock at the last tic
-g_seed:   .dword 20261115               ; the random numbers' state
+g_seed:   .dword SEED0                  ; the random numbers' state
 g_quit:   .dword 0                      ; time to go
 g_paused: .dword 0                      ; the window lost the focus (or a demo is over)
 g_esc:    .dword 0                      ; keys: 1 after ESC, 2 after ESC [
@@ -177,6 +180,10 @@ g_keep:   .dword 0                      ; the year that ended is to be kept (yea
 g_lpath:  .dword sv_name                ; the file a town is loaded from (file.s)
 g_llen:   .dword SV_NAME_L              ; ...
 g_cpal:   .dword res + R_PAL            ; the map's palette: the day's, or dusk's (draw.s)
+g_scen:   .dword 0                      ; the scenario being played (scen.s: 1..3; 0: none)
+g_send:   .dword 0                      ; ... the year it ends in
+g_smon:   .dword 0                      ; ... months since it began
+g_sprob:  .dword 0                      ; ... its trouble (SC_*)
 g_fx0:    .dword 0                      ; the placement's preview: its cells [x0, x1) x
 g_fy0:    .dword 0                      ;   [y0, y1) (empty: x0 >= x1) and its colour
 g_fx1:    .dword 0                      ; ...
@@ -1241,6 +1248,9 @@ dk_ld:  li    t0, 'o'                   ; O: the towns kept (gallery.s)
         beq   s0, t0, dk_ld1            ; ...
         li    t0, 'y'                   ; Y: the town's past years (years.s)
         li    t1, MD_YEARS              ; ...
+        beq   s0, t0, dk_ld1            ; ...
+        li    t0, 'c'                   ; C: the scenarios (scen.s)
+        li    t1, MD_SCEN               ; ...
         bne   s0, t0, dk_nw             ; ...
 dk_ld1: mv    t0, t1                    ; ...
         sd    t0, g_modal - g(gp)       ; ...

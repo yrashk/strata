@@ -423,4 +423,15 @@ Original art avoids both.
       demo 11
 - [x] Dusk: in December the map is drawn with a second palette from the
       data file (darker, bluer; the windows' glass lit warm)
-- [ ] Tier 3, still open: scenarios
+- [x] Scenarios (`plat/scen.s`): C lists three, 1..3 starts one (the
+      town played is saved and kept first). Its town is made on the
+      demos' land by a list of keys like a demo's (DEMOS 12..14), played
+      at once from resident code (its months page in more code units than
+      there are slots); then its trouble (Ferrybank: floods, 40 in 1,000
+      a month; Cinderford: 900 in the treasury, the plant fails in month
+      4; Hollow Reach: no line to the plant, tax 12 %) and its goal
+      (residents or the treasury, by a year). Each month the goal is
+      looked at: met, or the years up; each January the bar says how far.
+      The save's header (PLATSAV2) keeps the scenario; PLATSAV1 files
+      still load. Demo 15
+- [ ] Not done: frame rates on a quiet machine are still to be measured

@@ -149,6 +149,40 @@ DEMOS = {
         "5 =,3 =,{12,30 .,},5 0,5 s,"
         "5 b,3 ^,{6,1 L,},3 ^,"
         "5 =,3 =,3 =,{12,30 .,},5 0,5 s,5 y,5 1",
+    # the scenarios' towns (scen.s), played at once when one starts; not
+    # demos of their own, but they play as demos too. Ferrybank: demo 5's
+    # town built nearer the river, and a year
+    12: "{14,1 L,},"
+        "5 p,3 _,{4,1 L,},{4,1 D,},3 r,3 ^,{40,1 R,},3 ^,"
+        "{33,1 L,},{3,1 U,},3 l,3 ^,{3,1 R,},{5,1 D,},3 ^,"
+        "{2,1 R,},{4,1 U,},3 1,3 _,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 2,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 3,{15,1 L,},{4,1 D,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 1,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "{10,1 U,},3 _,"
+        "5 =,3 =,{12,30 .,},5 0",
+    # Cinderford: demo 5's town and a year (its treasury is then set low)
+    13: "5 p,3 _,{4,1 L,},{4,1 D,},3 r,3 ^,{40,1 R,},3 ^,"
+        "{33,1 L,},{3,1 U,},3 l,3 ^,{3,1 R,},{5,1 D,},3 ^,"
+        "{2,1 R,},{4,1 U,},3 1,3 _,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 2,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 3,{15,1 L,},{4,1 D,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 1,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "{10,1 U,},3 _,"
+        "5 =,3 =,{12,30 .,},5 0",
+    # Hollow Reach: demo 5's town with no power line to its plant, and the
+    # tax rate at 12 %
+    14: "5 p,3 _,{4,1 L,},{4,1 D,},3 r,3 ^,{40,1 R,},3 ^,"
+        "{33,1 L,},{3,1 U,},{3,1 R,},{5,1 D,},"
+        "{2,1 R,},{4,1 U,},3 1,3 _,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 2,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 3,{15,1 L,},{4,1 D,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 1,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "{10,1 U,},3 _,"
+        "5 ],5 ],5 ],5 ],5 ]",
+    # a scenario from the panel: Cinderford; four months, and its old
+    # plant fails
+    15: "5 c,10 2,5 =,3 =,3 =,{5,30 .,},5 0,10 .",
 }
 KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '_': 32, '^': 13, '}': 0xfc}
 
@@ -336,7 +370,7 @@ def build(art, outdir):
     # ---- the demos
     demodir = bytearray()
     demos = bytearray()
-    ndemo = 11
+    ndemo = 15
     for n in range(1, ndemo + 1):
         demodir += struct.pack('<H', 2 * ndemo + len(demos))
         for step in DEMOS.get(n, "1 .").split(','):
@@ -368,7 +402,7 @@ def build(art, outdir):
              ('R_SPR', pad8(bytes(sprdir)), 'sprites: u32 far offset, u16 w, h (rows of (w + 7) & ~7 bytes)'),
              ('R_SND', pad8(bytes(snddir)), 'sounds: u32 far offset, u32 samples'),
              ('R_AVG', pad8(bytes(avg)), 'each cell picture\'s colour, the nearest to its mean (the minimap)'),
-             ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: eleven u16 offsets from here, then '
+             ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: fifteen u16 offsets from here, then '
               'u8 tics, u8 key (1..4: up, down, left, right; 0xfb: a loop begins, its count and 0 follow; '
               '0xfc: it ends) each; 0 ends one')]
     res = bytearray()

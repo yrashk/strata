@@ -408,7 +408,9 @@ the events panel calls one down. The land can be made again (water,
 woods, plain land) before building on it. Every year's end (and every
 save) is kept as a snapshot of the file system, and the town can be taken
 back to any of its last eight years from them; December falls at dusk,
-with the windows lit. Five zoom
+with the windows lit. Three scenarios (a flooding river town, a town in
+debt with a failing plant, an unlit and overtaxed one) each set a goal
+and a few years to meet it. Five zoom
 levels (at the smallest the whole map is in view), a minimap, tooltips on
 the buttons,
 and the town is kept in a file with its population, year and funds as
