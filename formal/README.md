@@ -78,10 +78,10 @@ Bitwuzla takes 5 to 8.)
 | `bus` | prove, prove5 | induction (k = 3) | one grant, round-robin, ownership, one start per transaction, beats neither lost nor made up, a retry returns the bus; 3 and 5 masters |
 | `bus` | live | induction (k = 20) | a request is granted within NM·(T + 2) cycles when targets answer within T |
 | `bus` | cover | 30 cycles | |
-| `tu` | prove | induction (k = 4) | queue and tag invariants, status outputs, hazards (both directions), Local Store writes, put data, no command lost, retire order and the rotation rule |
-| `tu` | cover | 40 cycles | every kind of transfer retires, a rotation with a full queue, a retry half way |
+| `tu` | prove | induction (k = 4) | queue and tag invariants, status outputs, hazards (both directions), Local Store writes, put data, no command lost, retire order and the rotation rule; a read answered retry is parked off the bus until a wake, which unparks it |
+| `tu` | cover | 40 cycles | every kind of transfer retires, a rotation with a full queue, a retry half way, a parked read woken and one rotated |
 | `mem` | prove, cover | induction (k = 3) | a memory target keeps to the burst: exactly `beats` beats, done with the last; read, write and far-atomic data for any word; a read is done LAT + 2 + beats cycles after start. 64 words, LAT = 3 |
-| `dev` | prove, cover | induction (k = 3) | the device space keeps to the burst on every port: at most `beats` beats, done with the last, retry only in a read before the first beat. Two cores, a 64-word disk |
+| `dev` | prove, cover | induction (k = 3) | the device space keeps to the burst on every port: at most `beats` beats, done with the last, retry only in a read before the first beat; a core's wake line is raised only while it has a read waiting, and always when one would complete now. Two cores, a 64-word disk |
 | `core` | base | induction (k = 2) | x0; the shape of every capability register (in its space, aligned, never writable and copyable in memory, ...); the core's "live" equals the specification's; what `tu` and `top` assume of a core; the core's granule table copy holds what the top level wrote |
 | `core` | traps | induction (k = 2) | the listed traps are delivered as the emulator's `trap()`: bank, epc, cause, tval, mode, next pc or halt |
 | `core` | prec | induction (k = 2) | a cycle that retires nothing changes no architectural state and takes nothing from the rest of the machine |
