@@ -672,15 +672,18 @@ module strata_core
   // So a key K hits entry F when K >> xslot == F >> xslot: per entry an
   // FW-bit equality under a mask (an entry's far address is below the
   // space's size), with one shared check that K has no bits above FW - 1 at
-  // or above xslot; no carry chains. The hit entry is muxed out and the
-  // target, its I-LS address plus K's offset in the slot, computed once in
-  // 64 bits, so a fetch fault on it reports the exact pc.
+  // or above xslot; no carry chains. Every entry is compared at once and
+  // the lowest matching one wins: its one-hot bit (m & -m) selects its
+  // fields by AND-OR. (Written as a loop over "no earlier entry matched",
+  // the 16 compares form one chain, the core's deepest path.) The target,
+  // the hit entry's I-LS address plus K's offset in the slot, is computed
+  // once in 64 bits, so a fetch fault on it reports the exact pc.
   logic          xm_hit, xm_inslot;
   logic [63:0]   xm_target, xc_key, xm_link, xs_hmask64;
   logic [FW-1:0] xs_hmask, xm_far_lk, xm_lk_far;
   logic [15:0]   xm_ils_sel, xm_ils_lk, xl_mask;
   logic          xk_hi_ok;
-  logic [XW-1:0] xm_i, xm_li;
+  logic [NXMAP-1:0] xm_m, xm_mi, xm_m1, xm_mi1;   // matching entries, in-slot entries; the first of each
   logic [16:0]   xm_lk_off;
   assign xc_key     = d.flag ? {1'b0, ra[62:0]} : 64'(xcap.base + ra[FW-1:0]);   // ra < len: exact
   assign xs_hmask64 = ~64'd0 << xslot;                              // the slot number's bits
@@ -689,30 +692,30 @@ module strata_core
   assign xk_hi_ok   = (xc_key[63:FW] & xs_hmask64[63:FW]) == 0;       // F >> xslot has no such bits
   always_comb begin
     logic [16:0] dl;
-    xm_hit = 0;
-    xm_i   = '0;
-    for (int i = 0; i < NXMAP; i++)
-      if (!xm_hit && xm_v[i] && (d.flag || xm_sp[i] == xcap.space) && xk_hi_ok &&
-          ((xc_key[FW-1:0] ^ xm_far[i]) & xs_hmask) == 0) begin
-        xm_hit = 1;
-        xm_i   = XW'(i);
-      end
-    // the link an xcall leaves: a far address when called from inside a
-    // mapped unit (pc < ILS_SIZE here: the fetch checked it)
-    xm_inslot = 0;
-    xm_li     = '0;
     for (int i = 0; i < NXMAP; i++) begin
-      dl = {1'b0, pc[15:0]} - {1'b0, xm_ils[i]};
-      if (xslot != 0 && !xm_inslot && xm_v[i] && !dl[16] && (dl[15:0] & xl_mask) == 0) begin
-        xm_inslot = 1;
-        xm_li     = XW'(i);
-      end
+      xm_m[i]  = xm_v[i] && (d.flag || xm_sp[i] == xcap.space) && xk_hi_ok &&
+                 ((xc_key[FW-1:0] ^ xm_far[i]) & xs_hmask) == 0;
+      // the link an xcall leaves: a far address when called from inside a
+      // mapped unit (pc < ILS_SIZE here: the fetch checked it)
+      dl       = {1'b0, pc[15:0]} - {1'b0, xm_ils[i]};
+      xm_mi[i] = xslot != 0 && xm_v[i] && !dl[16] && (dl[15:0] & xl_mask) == 0;
     end
   end
-  assign xm_ils_sel = xm_ils[xm_i];
+  assign xm_m1     = xm_m & (~xm_m + 1'b1);
+  assign xm_mi1    = xm_mi & (~xm_mi + 1'b1);
+  assign xm_hit    = |xm_m;
+  assign xm_inslot = |xm_mi;
+  always_comb begin
+    xm_ils_sel = '0;
+    xm_far_lk  = '0;
+    xm_ils_lk  = '0;
+    for (int i = 0; i < NXMAP; i++) begin
+      xm_ils_sel = xm_ils_sel | (xm_m1[i] ? xm_ils[i] : '0);
+      xm_far_lk  = xm_far_lk  | (xm_mi1[i] ? xm_far[i] : '0);
+      xm_ils_lk  = xm_ils_lk  | (xm_mi1[i] ? xm_ils[i] : '0);
+    end
+  end
   assign xm_target  = 64'(xm_ils_sel) + (xc_key & ~xs_hmask64);
-  assign xm_far_lk  = xm_far[xm_li];
-  assign xm_ils_lk  = xm_ils[xm_li];
   assign xm_lk_off  = {1'b0, pc[15:0]} + 17'd4 - {1'b0, xm_ils_lk};      // pc + 4 - its slot's start
   assign xm_lk_far  = (xm_far_lk & xs_hmask) + FW'(xm_lk_off);         // the unit's far start + that
   assign xm_link    = xm_inslot ? {1'b1, 63'(xm_lk_far)} : pc4;
