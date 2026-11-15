@@ -442,10 +442,16 @@ greater length.
     It is the only holder of the kernel's endpoint apart from `dev`.
   - `dev` — the device manager: holds the device root capability,
     describes the platform, hands out device capabilities (the console's
-    ports to `tty`, the disk's ports and node to `fs`, the framebuffer and
+    ports to `tty`, the disk's ports and node to `blk`, the framebuffer and
     its controller to `ws`), halts the machine.
-  - `fs` — the file server. Owns the block device. Files, directory,
-    program images.
+  - `fs` — the file server. Files, names, tags, the index, program
+    images; a client of `db`.
+  - `db` — the store (pid 5): the page cache, the trees, commits,
+    snapshots, the boot manifest, the store for programs. Reaches the
+    disk through `blk` only. The second server of `dev`'s core.
+  - `blk` — the block device (pid 4): runs of blocks into and out of a
+    lent buffer, no cache. The second server of `pipe`'s core.
+    (`doc/fs-split.md`: the interfaces, and what the split costs.)
   - `tty` — the console server. Owns the console device (output, input,
     break). Line discipline (cooked/raw), the foreground process, Ctrl-C.
     Because it keeps device reads in flight, it is alone on its core.
@@ -455,14 +461,28 @@ greater length.
   - `net` — the network server (2.10), started on demand (`net ADDRESS`,
     or by the first program that uses the network). Owns the network
     interface; alone on its core, like `tty`.
-- **Boot order.** The kernel itself loads `proc`, `dev` and `fs` from the
-  disk (with the firmware's block routines: `fs` must exist before anything
-  can be loaded through it) and creates them on cores 1, 2 and 3. `proc`
-  then starts `tty` and `pipe` as servers on the next free cores, then
-  `sh -l` (restarted, with the console back in cooked mode, whenever it
-  exits). So the system needs **at least 6 cores**: the system core and
-  five server cores; the shell and other programs share server cores when
-  there are no others. `make boot` uses 12.
+- **Boot order.** The kernel itself loads `dev`, `blk`, `db`, `fs` and
+  `proc` from the disk (with the firmware's block routines: `fs`, and the
+  store under it, must exist before anything can be loaded through it) and
+  creates them: `proc` on core 1, `dev` and `db` on core 2, `fs` on core
+  3, `blk` on core 5 (`db` and `blk` as their core's second server, index
+  1). One that sends to another before that one runs asks again until it
+  does (a request to a server that is not there yet comes back -1).
+  `proc` then starts `tty` and `pipe` as servers on the next cores without
+  a server (4 and 5), then `sh -l` (restarted, with the console back in
+  cooked mode, whenever it exits). So the system needs **at least 6
+  cores**: the system core and five server cores; the shell and other
+  programs share server cores when there are no others. `make boot` uses
+  12.
+- **Several servers on a core.** A core keeps up to four servers, by
+  index (CREATE's flags, bits 12..13). A request names its server in
+  header word 48: `0x53 << 56 | index` (byte 7 is 'S'; anything else means
+  index 0, the server the core is known by, so a client of one server per
+  core never sets it). Each server has its own count of queued requests
+  and its own request held in c6 (PARK), and only its own queued and parked
+  requests go back with -1 when it ends. A server of index 1..3 does not
+  keep a server of index 0 away from its core, nor count as a process when
+  a program is placed (servers mostly wait).
 - **Every process time-shares worker cores**, preemptively; there are no
   exclusive cores. A StrataOS program (second code word `"SYS2"`) is one
   thread with no core window. A **multi-threaded process** (`-n N`, and
@@ -693,7 +713,8 @@ stack of its own in its data).
 A message is a **lent buffer capability**. A program owns a 4 KiB message
 buffer (the last 4 KiB of its arena, `c5`): request header 0 op, 8 handle,
 16 length, 24 mode, 32 result, **40 the sender's pid** (stamped by the
-receiving core's dispatcher, so servers can trust it), 48..63 reserved,
+receiving core's dispatcher, so servers can trust it), 48 which of the core's servers it is for
+(2.1: `0x53 << 56 | index`; anything else is the first), 56..63 reserved,
 data from 64 (≤ 4032 bytes). A reply is the same buffer coming back with
 the result filled in.
 
@@ -750,11 +771,12 @@ the result filled in.
   4. a capability sent by a core inside the window of a local
      multi-threaded process: a gift between its threads, queued (with its
      sender) for the emulated `ctake`;
-  5. a 4 KiB memory capability otherwise: a request for the core's server.
-     It is queued (8 at most) with any attachment waiting from the same
-     sender, and the sender's pid is stamped into its header. On a core
-     without a server, or with a full queue, it is given back at once with
-     result -1;
+  5. a 4 KiB memory capability otherwise: a request for the server of
+     the core its header word 48 names (2.1, "Several servers on a core").
+     It is queued (16 at most, for all the core's servers) with any
+     attachment waiting from the same sender, and the sender's pid is
+     stamped into its header. On a core without that server, or with a
+     full queue, it is given back at once with result -1;
   6. anything else: an attachment. It travels with the next message from
      the same sending core.
 
@@ -896,7 +918,7 @@ CLEANUP to the servers and completes the parent's WAIT.
 | 23 | DEVS | count; data: the platform table's 32-byte entries |
 | 24 | HALT | asks the kernel to stop every core (does not return) |
 | 26 | GRANT_FB | 0, the framebuffer memory (the whole 16 MiB window) in the caller's c6 and a device capability for the controller's ports 0x4000..0x400F in c7. -5 unless the caller is the process registered as "ws" (`dev` asks `proc`: WHOIS); -7 while a live process holds it; -1 if the machine has none. There is no operation to give it back: the kernel revokes it when the holder ends, however it ends, and the next `ws` gets a fresh one |
-| 30 | GETDISK | (for `fs`) a window on the block device's ports (c6) and a send-only endpoint to the device's node (c7) |
+| 30 | GETDISK | (for `blk`) a window on the block device's ports (c6) and a send-only endpoint to the device's node (c7) |
 | 31 | GETCON | (for `tty`) a window on the console's ports 0x0000..0x00FF (c6) |
 | 21 | GETPTR | (for `tty`) a window on the pointer's ports 0x4100..0x410F (c6); -1 if the machine has none |
 | 22 | GETSND | (for any program) a window on the sound device's ports 0x4300..0x4317 (c6); -1 if the machine has none |
@@ -984,7 +1006,10 @@ records, are gone: no program used them any more. Every call answers -5 when
 the disk cannot be read as a store or a page of it fails its checksum.
 
 **The disk is a store.** `fs` keeps nothing on the disk but trees of the
-store it is built on (`os/servers/store.s`, `storew.s`, `sblob.s`;
+store it is built on, which is another server's, `db` (`os/servers/db.s`,
+with `store.s`, `storew.s`, `sblob.s`; `db` reaches the disk through `blk`;
+`fs`'s calls of the store are messages to `db`, `os/servers/dbcall.s`, and
+`doc/fs-split.md` has the interfaces and what the split costs;
 `doc/strata-fs-proposal.md` has the design, `tools/stdb/store.c` and
 `fsl.h` the format): ordered key-value B+trees, copy-on-write, in
 namespaces. Its own namespace, `fs`, holds the files' records by object
@@ -1002,9 +1027,11 @@ holds the bytes of one writer at most: when another program writes, or
 anything else changes, they are committed first. So when the disk fills
 up, the file that did not fit is given up (it stays as it was, its space
 comes back when it is closed) and nothing else is lost. The
-server works on trees larger than its Local Stores through a cache of 124
-pages in far memory and three page buffers in its D-LS. A boot object
-(`proc`, `dev`, `fs`: what the boot manifest lists) can be written from
+store's server, `db`, works on trees larger than its Local Stores through a
+cache of 124 pages in far memory and three page buffers in its D-LS; `fs`
+reads ahead (a walk over a tree is answered from one SCAN of up to 4 KiB of
+records) and sends its puts and deletes with its next call. A boot object
+(`proc`, `dev`, `fs`, `blk`, `db`: what the boot manifest lists) can be written from
 inside the OS (`cp new-fs /sys/fs`): at its close its contents are brought
 into one run of pages and the manifest is written anew, in the same
 commit, so the next boot loads the old server or the new one. It cannot be
@@ -1580,7 +1607,8 @@ in `os/ws/`).
   its two meta pages, the kernel's images follow, then its trees and the
   files. The kernel does not walk trees: the newer good meta block names
   one page, the **boot manifest**, which lists the boot objects (`mkdisk
-  -B`, by default `proc,dev,fs`) as {name[16], first page, bytes}, each
+  -B`, by default `proc,dev,fs,blk,db`, files tagged `sys`: `/bin/db` is a
+  program of the server's name) as {name[16], first page, bytes}, each
   kept in one run of pages; `u_disk` checks both checksums and loads the
   servers from it. `mkdisk` fails when a boot object is not among its
   files. `mkdisk -t tag,tag...` tags the files named after it (a tag name

@@ -603,13 +603,23 @@ handles (CLEANUP) and completes the parent's WAIT.
 
 \input{gen-os-ops-fs}
 
-\texttt{fs} drives the block device entirely from user mode (Section~\ref{sec:blkdev}): it writes a
-command to the submission port through its device capability, lends the device its I/O buffer with
-\insn{csend} through the endpoint to the device's node, and waits with WAIT\_REPLY for the buffer's
-base. The device's return of the buffer arrives at the core's inbox like any reply. Program images are
-read straight into the arena \texttt{proc} lends; the data never passes through \texttt{fs}'s Local
-Store. The disk is a store of copy-on-write B+trees (\texttt{doc/strata-fs-proposal.md}); a file
-has no size limit but the disk's, and a change is on the disk whole or not at all.
+The disk is a store of copy-on-write B+trees (\texttt{doc/strata-fs-proposal.md}); a file has no
+size limit but the disk's, and a change is on the disk whole or not at all. Three servers share the
+work (\texttt{doc/fs-split.md}): \texttt{fs} keeps the file system (files, names, tags, the index) as a
+client of \texttt{db}, which keeps the store (its page cache, the trees, commits, snapshots, the boot
+manifest), and \texttt{db} reaches the disk only through \texttt{blk}. \texttt{blk} drives the block
+device entirely from user mode (Section~\ref{sec:blkdev}): it writes a command to the submission port
+through its device capability, lends the device the buffer it was lent with the request
+(\texttt{db}'s page frames, or a program's arena) with \insn{csend} through the endpoint to the
+device's node, and waits with WAIT\_REPLY for the buffer's base. Program images are read straight
+into the arena \texttt{proc} lends, passed on from \texttt{fs} to \texttt{db} to \texttt{blk}; the data
+never passes through a server's Local Store. \texttt{db} and \texttt{blk} are the second servers of
+\texttt{dev}'s and \texttt{pipe}'s cores: a request names a core's server by header word 48
+($\texttt{0x53} \ll 56 \mid$ index; anything else is index 0).
+
+\input{gen-os-ops-db}
+
+\input{gen-os-ops-blk}
 
 \input{gen-os-ops-tty}
 

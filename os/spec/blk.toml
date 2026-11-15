@@ -1,0 +1,129 @@
+# blk: the messages of os/servers/blk.s (format: os/spec/README.md)
+
+[server]
+key = "blk"
+title = "blk"
+role = "the block device"
+reached = "db holds an endpoint to its core (index 1, header word 48); fs too, for READBLK"
+core = "core 5, beside pipe (its server of index 1)"
+holds = "a window on the block device's ports (c1) and an endpoint to its node (c2), from dev (GETDISK); in a guest StrataOS the RAM disk (c1)"
+sources = ["os/servers/blk.s"]
+dispatch = { file = "os/servers/blk.s", first = ";\\s*dispatch", last = "^bad:" }
+calls = "message"
+note = """pid 4, made by the kernel at boot. The only program that talks to the block device. It keeps no \
+cache (db caches the store's pages): a run of blocks goes to the device in commands of at most 256 \
+blocks, and the device moves the bytes straight into the buffer lent with the request (db's page \
+frames, or the arena of a program being loaded), so nothing is copied. BREAD, BWRITE, WRITEV and \
+FLUSH are taken from db only (its pid); anyone that reaches blk may READBLK. A request names blk by \
+header word 48 = 0x53 << 56 | 1 (doc/fs-split.md)."""
+
+[[op]]
+num = 1
+name = "BREAD"
+summary = "A run of blocks into the lent buffer"
+from = "db only"
+
+[op.request]
+handle = "the first block"
+length = "the blocks (any number)"
+mode = "the byte offset in the buffer"
+attachment = "the buffer, lent for the call"
+
+[op.reply]
+result = "0, or the device's status (not 0) of the first command that failed"
+attachments = { c6 = "the buffer, back" }
+
+[op.errors]
+"-1" = "not from db, no buffer, or a run past the disk's end"
+
+[[op]]
+num = 2
+name = "BWRITE"
+summary = "A run of blocks out of the lent buffer"
+from = "db only"
+
+[op.request]
+handle = "the first block"
+length = "the blocks (any number)"
+mode = "the byte offset in the buffer"
+attachment = "the buffer, lent for the call"
+
+[op.reply]
+result = "0, or the device's status (not 0) of the first command that failed"
+attachments = { c6 = "the buffer, back" }
+
+[op.errors]
+"-1" = "not from db, no buffer, or a run past the disk's end"
+
+[[op]]
+num = 3
+name = "FLUSH"
+summary = "What the device holds back, to the disk"
+from = "db only"
+
+[op.request]
+
+[op.reply]
+result = "0, or the device's status"
+
+[op.errors]
+"-1" = "not from db"
+
+[[op]]
+num = 4
+name = "INFO"
+summary = "The disk's size"
+
+[op.request]
+
+[op.reply]
+result = "2"
+length = "16"
+data = [
+  { type = "u64", name = "blocks" },
+  { type = "u64", name = "1 for a RAM disk (a guest StrataOS), else 0" },
+]
+
+[[op]]
+num = 5
+name = "WRITEV"
+summary = "Several runs of blocks out of the lent buffer, then a flush"
+from = "db only"
+note = "db lists the writes of a commit (its dirty page frames) and sends them in one request with the flush that follows them."
+
+[op.request]
+length = "the runs' bytes (24 each, at most 4032)"
+mode = "bit 0: then FLUSH"
+attachment = "the buffer, lent for the call"
+data = [
+  { repeat = "per run", fields = [
+    { type = "u64", name = "the first block" },
+    { type = "u64", name = "blocks" },
+    { type = "u64", name = "the byte offset in the buffer" },
+  ] },
+]
+
+[op.reply]
+result = "0, or the device's status (not 0) of the first command that failed (the rest are not done)"
+attachments = { c6 = "the buffer, back" }
+
+[op.errors]
+"-1" = "not from db, no buffer, too many runs, or a run past the disk's end"
+
+[[op]]
+num = 33
+name = "READBLK"
+summary = "A raw block of the disk"
+note = "fs passes its READBLK on to blk and the block back (`db`, `wdb` and `fsck` read the store so)."
+
+[op.request]
+handle = "the block"
+
+[op.reply]
+result = "512"
+length = "512"
+data = [{ type = "bytes", name = "the block's 512 bytes" }]
+
+[op.errors]
+"-1" = "past the disk's end"
+"-5" = "the device refused the read"

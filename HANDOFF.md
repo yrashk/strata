@@ -21,7 +21,8 @@ Unit, with capabilities for authority. The tree has:
 - `os/`: StrataOS 0.1. A microkernel (core 0 plus a dispatcher per worker
   core) that pages its own code units from T2; user-mode servers (`proc`,
   `dev`, `fs`, `tty`, `pipe`, `net`); a shell with job control and `cd`;
-  utilities; a tag file system; TCP/IP with DNS and `httpd` (the emulator
+  utilities; a tag file system (on this branch, `fs-split-blk-db`: three
+  servers, `fs` on `db` on `blk`, see "The file server split" below); TCP/IP with DNS and `httpd` (the emulator
   gives it a user-mode NAT with `-N nat`, the browser a relay); the window
   server `ws` with a terminal and demo clients; `vi`; guests (co-existing
   OSes on whole cores, `os/guests/`, `guest` command).
@@ -307,6 +308,22 @@ built from. The kernel boots from a boot manifest (`u_disk` in
   transactions over several requests for other programs, terms answered
   from the index, facets beyond 64 tags (the reply's tag set;
   `ls` works them out from the files' tag ids instead).
+
+## The file server split (branch `fs-split-blk-db`, 2026-11-15; not on `main`)
+
+`fs` is split in three: `blk` (`os/servers/blk.s`: the block device, no
+cache), `db` (`os/servers/db.s` with the store files, `dbsnap.s`,
+`dbprog.s`: the page cache, trees, values by part, commits, snapshots, the
+boot manifest, the store for programs) and `fs` (the file system; its
+store calls are messages, `dbcall.s`, with a read-ahead and puts sent
+later in batches). Programs see the same ops. The kernel keeps up to four
+servers per core (`w_srv`, header word 48 names one); `db` and `blk` are
+the second servers of `dev`'s and `pipe`'s cores, so 6 cores still do.
+`doc/fs-split.md` has the interfaces, the numbers before and after and
+the recommendation; `make bench-store` and `tools/bench/store-test.sh`
+measure. The server `db` is built to `build/sys/db` (`build/prog/db` is
+the program); the debugger picks a process's symbols by name, so it shows
+the program's for the server.
 
 ## Open work
 

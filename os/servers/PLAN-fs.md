@@ -234,3 +234,24 @@ was tagged with, could not tell `/src/x` from `/src/demo/x`.)
 - [ ] The FPGA disk (128 KiB) is too small for the kernel's images and a
       store: `mkdisk -B ""` writes it with the kernel only (it had no
       servers before either)
+
+## Stage 11: three servers (branch `fs-split-blk-db`; `doc/fs-split.md`)
+- [x] Kernel: up to four servers on a core, a request names one in header
+      word 48; placement: a server of index 1..3 joins a core's server
+- [x] `blk`: BREAD, BWRITE, WRITEV, FLUSH, INFO, READBLK; the RAM disk of a
+      guest
+- [x] `db`: the store's calls by handle (TREE, GET, SEEK, PUT, DEL, SCAN),
+      values by part (VSIZE, VREAD, VWRITE, VTRUNC, VDEL, VLOAD), COMMIT,
+      ABORT, INFO, SNAP, SNAPT, BOOT; DBGET, DBSCAN, DBBATCH; batches of
+      puts and deletes with any call; its writes to `blk` in WRITEVs
+- [x] `fs` on `db` (`dbcall.s`): the store's routines as messages, a
+      read-ahead (SCAN), puts and deletes later; READBLK, the program
+      store, SNAP, the boot manifest through `db` / `blk`
+- [x] Boot: the kernel makes dev, blk, db, fs, proc; mkdisk's boot objects
+      (`/sys` only); StrataOS as a guest (6 cores) boots with them
+- [x] Specs (`os/spec/db.toml`, `blk.toml`), the site and the manual
+- [ ] Transactions for clients other than fs (a guest's): a client's
+      changes in the middle of another's request (today fs is db's only
+      writer; a guest's batch would commit fs's half-done change)
+- [ ] The debugger's symbols for the server `db` (it takes the program's)
+

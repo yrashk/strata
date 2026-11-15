@@ -442,6 +442,8 @@ bs_n:
 ; hold pages next to each other go in one command (a session of small files
 ; and one large one: 171 write commands became 102)
 c_write:
+        li    t0, 1                     ; (its writes may wait for the flush or the next
+        sd    t0, pw_on(zero)           ;   read in db's list: no frame is reused before)
         addi  sp, sp, -32               ; frame
         sd    ra, 0(sp)                 ; ...
         sd    s1, 8(sp)                 ; ...

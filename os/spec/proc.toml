@@ -12,7 +12,8 @@ dispatch = { file = "os/servers/proc.s", first = "^lp_proc:", last = "^\\s*li\\s
 calls = "message"
 note = """pid 1, made first by the kernel. It is the only process that asks the kernel to create and \
 destroy processes. It keeps the process tree (64 records), exit statuses, interrupt flags and the \
-name registry (8 names: proc, dev, fs, tty and pipe take five). At start it spawns tty, pipe and \
+name registry (8 names: proc, dev, fs, tty and pipe take five; blk (pid 4) and db (pid 5), made by the \
+kernel, are in the table but not the registry). At start it spawns tty, pipe and \
 the login shell (`/bin/sh -l`, started again whenever it ends). Pids are 4..239, given round robin; \
 240..255 are guest ids. A request that needs the kernel or another server waits parked in the \
 kernel meanwhile. From the kernel (sender pid 0) proc takes only op 7, EXITED."""

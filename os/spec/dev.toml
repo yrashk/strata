@@ -113,7 +113,7 @@ attachments = { c6 = "the framebuffer memory (the whole 16 MiB window at 0x30000
 num = 30
 name = "GETDISK"
 summary = "The block device's ports and an endpoint to its node"
-from = "fs (dev does not check: any program that asks gets them)"
+from = "blk (dev does not check: any program that asks gets them)"
 
 [op.request]
 

@@ -19,7 +19,7 @@ import tomllib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SPEC = os.path.join(ROOT, "os", "spec")
-ORDER = ["svc", "kernel", "proc", "dev", "fs", "tty", "pipe", "net", "ws", "system"]
+ORDER = ["svc", "kernel", "proc", "dev", "fs", "db", "blk", "tty", "pipe", "net", "ws", "system"]
 SYSTEM_OPS = (36, 37, 38)               # proc -> every server: described in system.toml
 TYPES = {"u8": 1, "u16": 2, "u32": 4, "u64": 8, "s64": 8, "bytes": None, "text": None, "pad": None}
 SERVER_KEYS = {"key", "title", "role", "reached", "core", "holds", "sources", "dispatch", "calls", "note"}

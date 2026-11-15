@@ -6,8 +6,9 @@
 ; "The store for programs"): in a namespace, in named trees of keys and
 ; values (bytes, in key order; a key of 1 to 480 bytes, a value of up to
 ; about 1,000, with 4 KiB pages). A namespace and a tree are made by the
-; first write to them. These are the file server's calls DBGET, DBSCAN and
-; DBBATCH (os/servers/fsops.s) for one tree at a time:
+; first write to them. These are the calls DBGET, DBSCAN and DBBATCH, sent
+; to the file server, which hands them to the store's server, db
+; (os/servers/dbprog.s), for one tree at a time:
 ;
 ;   kv_open(text, length)     the tree "NAMESPACE/TREE" is the one at work ->
 ;                             a0 = 0, or -1 (no "/", a name too long)

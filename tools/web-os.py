@@ -44,6 +44,8 @@ LATEX = {
     "proc": ("tab:os-proc", "Operations of \\texttt{proc} (endpoint \\reg{c1})"),
     "dev": ("tab:os-dev", "Operations of \\texttt{dev} (through LOOKUP)"),
     "fs": ("tab:os-fs", "Operations of \\texttt{fs} (endpoint \\reg{c2})"),
+    "db": ("tab:os-db", "Operations of \\texttt{db} (from \\texttt{fs})"),
+    "blk": ("tab:os-blk", "Operations of \\texttt{blk} (from \\texttt{db})"),
     "tty": ("tab:os-tty", "Operations of \\texttt{tty} (endpoint \\reg{c3})"),
     "pipe": ("tab:os-pipe", "Operations of \\texttt{pipe} (endpoint \\reg{c4})"),
     "net": ("tab:os-net", "Operations of \\texttt{net} (through LOOKUP)"),
