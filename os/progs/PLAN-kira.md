@@ -133,14 +133,14 @@ measured.
 - From above the screen flips at its edges and does not scroll.
 - The friends walk straight to their places in the parade, through
   whatever is in the way.
-- A garden has no end, so it has a button to start over (a spade in fresh
-  soil, the bar's last; a frame blinks around it once every patch is in
-  bloom). Because the garden is kept, it asks first, in pictures: the
-  spade, a tick and a cross. The tick makes a garden as the first one was
-  made; anything else, or ten seconds, leaves it. Friends starts over only
-  after its party (a key or a click then), not in the middle of a game;
-  a colouring page cannot be made blank again; Music has nothing to start
-  over.
+- Friends, Garden and Paint can be started over: a button in the bar, an
+  arrow that goes round (in a garden where every patch is in bloom a frame
+  blinks around it). Because a garden is kept, a page takes long to paint
+  and a game of Friends may be nearly won, it asks first, in pictures:
+  the arrow, a tick and a cross. The tick starts the game over as it first
+  was (a new world; a garden as the first one was made; the blank page);
+  anything else, or ten seconds, leaves it. Friends also starts over by
+  itself after its party. Music has nothing to start over.
 - The garden is written when it is left or the program is quit with Q or
   by closing its tile; not when the machine is halted under it.
 - The colouring pages keep their colours only while the program runs.

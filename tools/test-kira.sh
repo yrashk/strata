@@ -32,17 +32,24 @@
 #              another game. Besides the checksum, the page's picture is
 #              checked to be black and white only: it has no paint yet, so
 #              any colour in it is something left over it.
+#      Every game but Music can be started over: a button in its bar (an
+#      arrow that goes round) asks, in pictures, and the tick does it. A
+#      game started over must be the game as it first was, to the pixel:
+#      each pair of demos below has one checksum.
 #      demo a  Garden as it is on the first day (three patches planted)
 #      demo b  Garden: a daisy is grown to bloom and a butterfly comes; the
-#              button for a new garden, and the cross: nothing changes; the
-#              button again, and the tick: the garden starts over. The
-#              demo's random numbers are started over just before, so the
-#              three patches planted are those of demo a, and the picture
-#              must be demo a's to the pixel: nothing of the old garden,
-#              its butterfly or its tools is left. (Both frames are taken
-#              three tics after the garden appears.)
-#      demo c  Garden: the question "a new garden?" in the bar: the spade, a
-#              tick and a cross
+#              button, and the cross: nothing changes; the button again,
+#              and the tick: the garden of the first day (the demo starts
+#              its random numbers over just before, so the three patches
+#              planted are those of demo a)
+#      demo c  Garden: the question in the bar: the arrow, a tick, a cross
+#      demo d  Paint: a page as it is first opened
+#      demo e  Paint: another paint, two regions filled; the button, the
+#              cross; the button, the tick: the blank page, the first paint
+#      demo f  Friends: the first game's world
+#      demo g  Friends: three steps; the button, the cross; the button, the
+#              tick: the first world again (the demo's random numbers are
+#              put back to where they were before the first game)
 #    (A demo's random numbers start from a fixed seed, so its worlds, its
 #    butterflies and its song are always the same ones.)
 # 2. `ws kira` on a machine with the sound device (-A: what it plays goes
@@ -59,7 +66,7 @@ set -e
 BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
-KIRA_CRC="1:10875dd2:6 2:b28d0fb6:4 3:a4a6212e:6 4:e8e347e2:6 5:890cfe4e:4 6:8ac2eeac:4 7:453116f1:4 8:bb71d3b4:80 9:18e7ed29:6 a:a59e724a:6 b:a59e724a:6 c:6ac57d78:6"
+KIRA_CRC="1:02a2c7c8:6 2:114f571a:6 3:07647982:6 4:e2b9337b:6 5:eba2f954:6 6:83f9e54b:6 7:453116f1:6 8:18b38b18:80 9:c1331316:6 a:c7307550:6 b:c7307550:6 c:4cbe9c13:6 d:c1331316:6 e:c1331316:6 f:97cff4b9:6 g:97cff4b9:6"
 T=$BUILD/test-kira
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W
@@ -92,9 +99,13 @@ print("demo %s: frame %dx%d: game picture crc %08x (expected %s)" % (sys.argv[3]
 sys.exit(0 if (w, h) == (1280, 800) and "%08x" % crc == sys.argv[2] else 1)
 PY
 done
-# (each demo's picture had its expected checksum, so demo b's is demo a's if the two are one number)
-case " $KIRA_CRC" in *" a:$(echo "$KIRA_CRC" | sed 's/.* b:\([0-9a-f]*\):.*/\1/'):"*) ;; *)
-  fail "the garden started over is not the garden of the first day: demos a and b must have one checksum" outb ;; esac
+# (each demo's picture had its expected checksum, so a game started over is the
+# game as it first was if the two demos of each pair have one number)
+for pair in a:b d:e f:g; do
+  x=$(echo " $KIRA_CRC" | sed "s/.* ${pair%%:*}:\\([0-9a-f]*\\):.*/\\1/")
+  y=$(echo " $KIRA_CRC" | sed "s/.* ${pair##*:}:\\([0-9a-f]*\\):.*/\\1/")
+  [ "$x" = "$y" ] || fail "a game started over is not the game as it first was: demos $pair must have one checksum" out${pair##*:}
+done
 python3 - $T/frame9.ppm <<'PY' || fail "something of the party lies over the colouring page (demo 9)" out9
 import sys
 b = open(sys.argv[1], 'rb').read()
