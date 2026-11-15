@@ -280,6 +280,7 @@ canvas.addEventListener("pointerup", (e) => { if (e.button <= 2) sendPtr(2, BUTT
 canvas.addEventListener("pointerenter", (e) => { sendPtr(4, 0, 0); sendPtr(1, ...ptrAt(e)); });
 canvas.addEventListener("pointerleave", () => sendPtr(5, 0, 0));
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+canvas.addEventListener("selectstart", (e) => e.preventDefault()); // (iPad: a long press selects otherwise)
 let wheelY = 0, wheelX = 0; // pixel deltas, one notch per 100 px (one line = one notch)
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();

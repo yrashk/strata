@@ -67,6 +67,12 @@ button:disabled { opacity: 0.4; cursor: default; }
    chosen scale (1x, 2x) is wider than the panel. */
 .screen { scroll-margin-top: 66px; }  /* below the sticky nav */
 .screen-box { overflow-x: auto; background: #000; }
+/* a long press on a touch screen is the guest's (a held button), not the
+   browser's: no text selection or its tint, no callout, no tap highlight */
+.screen-box, .screen-box canvas {
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+}
 .screen-box canvas {
   display: block; background: #000; outline: none;
   image-rendering: crisp-edges; image-rendering: pixelated;
