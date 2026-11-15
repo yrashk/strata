@@ -14,6 +14,11 @@
 //              reset under it, which strata_core does not do: it is reset
 //              only when its Transfer Unit is quiet); it ends the
 //              transaction
+//   wake       a core's wake line is raised only for a core that has a
+//              read waiting (one that was answered retry); and it is
+//              raised, the next cycle, whenever a core's waiting read on
+//              the break port, the console input, WAIT, VSYNC, EVENT or RX
+//              would complete if tried now
 //
 // Assumed (the bus: proved for strata_bus):
 //   - reset in the first cycle
@@ -74,10 +79,33 @@
     end
   end
 
+  // ---- wake
+  logic [NCORES-1:0] f_waits, f_now;   // per core: a read waits; one would complete now
+  always_comb
+    for (int c = 0; c < NCORES; c++) begin
+      f_waits[c] = brk_wait[c] || in_wait[c] || tw_wait[c] || vs_armed[c] || ptr_wait[c] || net_wait[c];
+      // each port's completion condition as the read path (above) tests it
+      // for this core, with the per-core state of the read that waits
+      f_now[c] = (brk_wait[c] && (brk_rel[c] || brk_cnt != 0)) ||
+                 (in_wait[c] && (in_rel[c] || rx_ok)) ||
+                 (tw_wait[c] && now >= deadline) ||
+                 (vs_armed[c] && frame > vs_from[c]) ||
+                 (ptr_wait[c] && (ptr_rel[c] || ptr_have)) ||
+                 (net_wait[c] && (net_rel[c] || (net_open && 32'(net_core) == c)));
+    end
+  always_ff @(posedge clk)
+    if (f_past && f_rstd && !$past(rst))
+      for (int c = 0; c < NCORES; c++) begin
+        if (wake[c]) assert ($past(f_waits[c]));
+        if ($past(f_now[c])) assert (wake[c]);
+      end
+
   // ---- not vacuous
   always_comb begin
     cover (f_rstd && f_busy && done && !f_we && f_beats == 24'd3);
     cover (f_rstd && f_busy && done && f_we && f_beats == 24'd2);
     cover (f_rstd && f_busy && retry);
     cover (f_rstd && f_busy && retry && f_n != 0);    // (only with a core reset under the transaction)
+    cover (f_rstd && wake[0] && brk_wait[0]);
+    cover (f_rstd && wake[1] && tw_wait[1]);
   end

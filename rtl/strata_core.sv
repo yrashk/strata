@@ -58,6 +58,7 @@ module strata_core
   input  logic        tu_rvalid,
   input  logic        tu_done,
   input  logic        tu_retry,
+  input  logic        tu_wake,      // the device space: a device read of this core that waits may now complete
 
   // far-atomic far-bus master
   output logic        am_req,
@@ -473,7 +474,7 @@ module strata_core
     .b_req(tu_req), .b_we(tu_we), .b_space(tu_space), .b_addr(tu_addr), .b_beats(tu_beats),
     .b_byte(tu_byte), .b_wvalid(tu_wvalid), .b_wdata(tu_wdata), .b_gnt(tu_gnt),
     .b_wready(tu_wready), .b_rvalid(tu_rvalid), .b_rdata(bus_rdata), .b_done(tu_done),
-    .b_retry(tu_retry)
+    .b_retry(tu_retry), .wake(tu_wake)
   );
 
   // ================================================================ capability helpers

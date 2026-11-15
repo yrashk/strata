@@ -43,7 +43,8 @@ waits until a byte is available, without blocking the rest of the machine:
 other cores keep running, the timer keeps counting, the window keeps
 refreshing. In the emulator it is a pending device read like the break port
 (satisfied from an input queue fed by the `-i` file, the terminal, or the
-window's keyboard); in the RTL it is the existing retry. At the end of a
+window's keyboard); in the RTL it is answered retry and waits, parked, until
+the device sees a byte. At the end of a
 `-i` file the port returns 0x04 forever, as now.
 
 **Device reads that wait** (console input, the break port, timer WAIT,
@@ -326,7 +327,10 @@ table: 64, 16, 64, 64); 28..31 reserved.
 
 ## 2. StrataOS 0.1: a microkernel with preemptive multitasking
 
-The sources state the details: the header of `os/kernel.s` (design
+The sources state the details: `os/spec/*.toml` (every message and `svc`
+call, field by field, checked against the servers' dispatch code by the
+test `web-os`; the site's server catalogue and the manual's tables are
+made from them), the header of `os/kernel.s` (design
 summary, memory maps, shared state), `os/kunits/ops.s` (the kernel's
 operations), the headers of `os/servers/*.s` (each server's operations),
 `os/lib/sys.s` (the program library) and `os/lib/srv.s` (the server

@@ -1,0 +1,177 @@
+# ws: the messages of the window server, os/ws/ws.s and os/ws/hw_os.s (format: os/spec/README.md)
+
+[server]
+key = "ws"
+title = "ws"
+role = "the window server"
+reached = "LOOKUP \"ws\""
+core = "the lowest empty core; others may share it"
+holds = "the framebuffer window (c0) and the controller's ports (c4), from GRANT_FB; a second buffer lent to tty for keys"
+sources = ["os/ws/ws.s"]
+dispatch = { file = "os/ws/ws.s", first = "^rq_serve:", last = ";\\s*----\\s*TITLE" }
+calls = "message"
+note = """At most 4 windows, tiled by the server: a client does not choose its size. Each window's \
+surface (pixels of 4 bytes in the framebuffer's format) lives in the server, in the framebuffer \
+window after the screen. A client draws into a band of its own arena and lends it with DAMAGE; the \
+server copies it into the surface and gives it back with the reply. Every op but CREATE names a \
+window by its id, and answers −1 if the caller has no window with that id. A band that comes with \
+any request goes back with the reply (one that comes with an EVENT that waits is dropped). Windows whose process has ended are removed at the next tick."""
+
+[[op]]
+num = 40
+name = "CREATE"
+summary = "Open a window"
+note = """The new window takes the focus, and the tiling changes (a window shown alone is tiled \
+again). With mode bit 0 the server SIGNALs the client's process while events wait and no EVENT \
+is waiting, at most every 200 ms (the window is drawn as a terminal's)."""
+
+[op.request]
+mode = "bit 0: interrupt me (SIGNAL) when events wait and I am not in EVENT"
+data = [
+  { type = "u64", name = "width", note = "ignored: the tile decides" },
+  { type = "u64", name = "height", note = "ignored" },
+  { type = "bytes", name = "title", note = "8 bytes, shown in the window's tag" },
+]
+
+[op.reply]
+result = "the window id (1..4)"
+data = [
+  { type = "u64", name = "width", note = "of the surface, in pixels" },
+  { type = "u64", name = "height" },
+]
+
+[op.errors]
+"-7" = "4 windows are open, or the boot splash is still showing"
+
+[[op]]
+num = 41
+name = "DAMAGE"
+summary = "Copy a band of pixels into the window, or redraw part of it"
+note = """With a band: its w x h pixels, from the band's offset 0 with rows `stride` bytes apart, \
+are copied to (x, y) of the surface, and that rectangle is redrawn on the screen. A rectangle \
+that does not fit the surface (a band drawn for the size before a resize) is ignored, with 0. \
+Without a band the rectangle is only redrawn."""
+
+[op.request]
+handle = "the window id"
+attachment = "the band (memory), lent for the call and given back with the reply"
+data = [
+  { type = "u64", name = "x", note = "even" },
+  { type = "u64", name = "y" },
+  { type = "u64", name = "w", note = "even, > 0" },
+  { type = "u64", name = "h", note = "> 0" },
+  { type = "u64", name = "stride", note = "bytes between rows: at least w * 4, a multiple of 8; 0 = w * 4" },
+]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "the band, given back" }
+
+[op.errors]
+"-1" = "no such window of the caller's; or, with a band: x or w odd, w or h not above 0, a stride below w * 4 or not a multiple of 8, or a band shorter than stride * h"
+
+[[op]]
+num = 42
+name = "TEXT"
+summary = "Draw text into the window"
+note = "In the 8 x 16 body font, at most 160 characters (the rest is cut)."
+
+[op.request]
+handle = "the window id"
+length = "32 + the string's bytes"
+data = [
+  { type = "u64", name = "x", note = "pixels" },
+  { type = "u64", name = "y" },
+  { type = "u64", name = "fg", note = "XRGB" },
+  { type = "u64", name = "bg", note = "XRGB; -1: no background" },
+  { type = "bytes", name = "the string" },
+]
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "no such window of the caller's, or no string (a length of 32 or less)"
+
+[[op]]
+num = 43
+name = "FILL"
+summary = "Fill a rectangle of the window with a colour"
+
+[op.request]
+handle = "the window id"
+data = [
+  { type = "u64", name = "x" },
+  { type = "u64", name = "y" },
+  { type = "u64", name = "w" },
+  { type = "u64", name = "h" },
+  { type = "u64", name = "colour", note = "XRGB" },
+]
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "no such window of the caller's"
+
+[[op]]
+num = 44
+name = "EVENT"
+summary = "Wait for the window's next event"
+note = """Events queue per window, 8 at most: keys that follow each other share an event (up to 8 \
+bytes); a second resize is not queued (the one queued carries the latest size); a move after a \
+move replaces it; with the queue full an event is dropped, but a close replaces the last one. \
+Kinds: 1 key (the focused window), 2 resize (draw again at the new size), 3 close (Alt+Q: the \
+process is killed 400 ms later), 4 focus in, 5 focus out, 6 pointer, 7 wheel. Pointer events go \
+to the window under the pointer: presses and releases, moves while a button is held, and the wheel. \
+One EVENT waits per window."""
+
+[op.request]
+handle = "the window id"
+length = "the timeout in clock ticks (microseconds; 0: none)"
+mode = "bit 0: do not block"
+
+[op.reply]
+result = "0"
+data = [
+  { type = "u64", name = "kind", note = "1 key, 2 resize, 3 close, 4 focus in, 5 focus out, 6 pointer, 7 wheel" },
+  { type = "u64", name = "value", note = "a key: its bytes, the first in the low byte. Pointer and wheel: bits 0-15 x and 16-31 y in the surface, 32-39 buttons, 40-47 wheel y (signed, > 0: away from the user), 48-55 wheel x (signed), 56-63 the device's kind (1 move, 2 button, 3 wheel). Others: 0" },
+  { type = "u64", name = "width", note = "a key: the number of bytes; others: the surface's width now" },
+  { type = "u64", name = "height", note = "the surface's height now" },
+]
+
+[op.errors]
+"-1" = "no such window of the caller's, or the window was closed (DESTROY) while the EVENT waited"
+"-3" = "no event, with mode bit 0"
+"-7" = "another EVENT is waiting on this window, or the kernel has no room to hold the request"
+"-8" = "the timeout passed"
+
+[[op]]
+num = 45
+name = "DESTROY"
+summary = "Close a window"
+note = "Answered first; the other windows close ranks, and an EVENT waiting on the window gets −1."
+
+[op.request]
+handle = "the window id"
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "no such window of the caller's"
+
+[[op]]
+num = 46
+name = "TITLE"
+summary = "Change a window's title"
+
+[op.request]
+handle = "the window id"
+data = [{ type = "bytes", name = "title", note = "8 bytes" }]
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "no such window of the caller's"

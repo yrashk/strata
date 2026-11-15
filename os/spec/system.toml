@@ -1,0 +1,79 @@
+# system: what proc sends to every server that keeps something per process, and
+# what the kernel sends proc (format: os/spec/README.md)
+
+[server]
+key = "system"
+title = "from proc and the kernel"
+role = "messages between the system's own parts"
+reached = "sent by proc to the servers (36–38), by the kernel to proc (7)"
+sources = ["os/lib/srv.s", "os/servers/proc.s", "os/kunits/events.s"]
+calls = "message"
+note = """proc sends DUPS to the servers of the handles a child inherits, CLEANUP to fs, tty and \
+pipe, CANCEL to tty and pipe. The servers do not check that these come from proc. net answers all \
+three and ws answers CLEANUP, but proc sends them none: they find ended processes themselves, \
+through proc's PS. dev answers all three with 0 and does nothing."""
+
+[[op]]
+num = 7
+name = "EXITED"
+summary = "A process has ended"
+from = "the kernel, to proc"
+note = """proc takes it only from the kernel (sender pid 0). It frees the arena if it came (writing an \
+old program's output to its file first), sends CLEANUP to the servers, records the status for the \
+parent's WAIT, and restarts the login shell if it was that one. The kernel keeps at most 10 EXITED \
+messages waiting to be sent; one more is lost."""
+
+[op.request]
+handle = "the pid"
+length = "the exit status: bits 0–31 the code, bit 62 killed, bit 63 faulted (the cause in bits 0–7)"
+attachment = "the process's arena, when CREATE asked to have it back (an old bare-metal program's output)"
+
+[op.reply]
+result = "0"
+
+[[op]]
+num = 36
+name = "DUPS"
+summary = "A process now holds these handles too"
+from = "proc, to fs, tty and pipe, while it spawns"
+note = "Sent for the handles a child inherits, before CREATE; the server counts the new references. If CREATE fails, proc sends CLEANUP for the child to undo them."
+
+[op.request]
+length = "64, whatever the count (not read)"
+data = [
+  { type = "u64", name = "owner pid", note = "the child" },
+  { type = "u64", name = "count", note = "at most 3 from proc; a server reads 6 at most" },
+  { repeat = "per handle", fields = [{ type = "u64", name = "the server's id for it" }] },
+]
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "fs or pipe: its table of references (64) is full; the ones counted before stay"
+
+[[op]]
+num = 37
+name = "CLEANUP"
+summary = "A process ended: drop everything it held"
+from = "proc, to fs, tty and pipe"
+note = "Its handles and waiting requests go (fs also forgets its tag path). At tty, the console comes back if that process, or the guest of that id, had it."
+
+[op.request]
+handle = "the pid"
+
+[op.reply]
+result = "0"
+
+[[op]]
+num = 38
+name = "CANCEL"
+summary = "A process was interrupted: answer its waiting requests"
+from = "proc, to tty and pipe"
+note = "The requests the server holds for that process (a READ of an empty pipe, a WRITE to a full one, a console READ) are answered with −2. At tty, the console also comes back if that process had it."
+
+[op.request]
+handle = "the pid"
+
+[op.reply]
+result = "0"

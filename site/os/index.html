@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StrataOS — a microkernel for an explicit machine</title>
+<meta name="description" content="StrataOS 0.1: a preemptive microkernel in Strata assembly. A system core, a dispatcher on every worker core, servers as processes, messages as lent buffer capabilities, context switches whose cost is counted.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="os.css">
+</head>
+<body>
+
+<nav class="top">
+  <a class="mark" href="../">STRATA</a>
+  <div class="links">
+    <a href="../#idea">Idea</a>
+    <a href="../arch/">Architecture</a>
+    <a href="../isa/">Instructions</a>
+    <a href="./" aria-current="page">OS</a>
+    <a href="../forth/">Forth</a>
+    <a href="../c/">C</a>
+    <a href="../hardware/">Hardware</a>
+    <a href="../play/">Play</a>
+    <a href="../debug/">Debug</a>
+    <a href="../code/">Source</a>
+    <a class="pill" href="../Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
+    <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
+  </div>
+</nav>
+
+<main class="os">
+
+<header class="os-hero">
+  <p class="kicker">StrataOS 0.1</p>
+  <h1>STRATAOS</h1>
+  <p class="lede">A preemptive microkernel in Strata assembly, for a machine that hides nothing:
+    memory is a transfer you ask for, every right is a capability, and a context switch is
+    bytes you can count.</p>
+  <div class="cta">
+    <a class="btn" href="../play/?run=os">Boot it in your browser</a>
+    <a class="btn ghost" href="../code/#os/kernel.s">Read the kernel</a>
+  </div>
+  <ul class="os-pages">
+    <li><a href="./" aria-current="page">Overview</a></li>
+    <li><a href="kernel.html">The kernel</a></li>
+    <li><a href="messages.html">Messages</a></li>
+    <li><a href="servers.html">Servers</a></li>
+    <li><a href="fs.html">The file system</a></li>
+    <li><a href="ws.html">The window server</a></li>
+  </ul>
+</header>
+
+<section id="principles" class="section">
+  <h2><span class="num">01</span>What it is built on</h2>
+  <p class="intro">StrataOS runs on Strata's machine as it is, not on an imitation of a
+    conventional one. The four things a conventional kernel hides are each in plain view.</p>
+  <div class="cards">
+    <article class="card">
+      <h3>Memory is explicit I/O</h3>
+      <p>A core's loads and stores reach only its own 64&nbsp;KiB Local Stores. A process's
+        far memory is its <b>arena</b>, 1&nbsp;MiB by default; reading or writing it is a
+        <code>tget</code> or <code>tput</code>. Saving a process at a switch is a transfer of
+        exactly the bytes it uses, and the kernel counts them.</p>
+    </article>
+    <article class="card">
+      <h3>Capabilities name everything</h3>
+      <p>An arena, a message buffer, a window of device ports, an endpoint to a server's core:
+        each is a capability in a register, and nothing else grants access. Writable memory is
+        <b>linear</b>, never copied; it moves. Revocation by address takes back an arena and
+        everything cut from it in one step.</p>
+    </article>
+    <article class="card">
+      <h3>A microkernel that passes messages</h3>
+      <p>The kernel creates processes, hands out memory, keeps time and moves messages. Files,
+        the console, pipes, the network, windows and process management are <b>servers</b>:
+        user processes. A message is a 4&nbsp;KiB buffer <em>lent</em> to the server and given
+        back with the answer.</p>
+    </article>
+    <article class="card accent">
+      <h3>Preemption with a visible price</h3>
+      <p>Every 2&nbsp;ms (configurable from 100&nbsp;&micro;s to 100&nbsp;ms) the system core
+        stops each worker that has more than one thread to run. A switch copies the outgoing
+        thread's Local Store out and the next one's in: the cache flush other CPUs hide.
+        <code>ps</code>, <code>cores</code> and the window server show the switches and the
+        kilobytes moved.</p>
+    </article>
+  </div>
+  <p class="refs">In the manual: <a class="pdf" data-pdf="ch:os" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=chapter.18">Chapter 18, StrataOS</a> ·
+    the specification: <a class="srcpath" href="https://github.com/yrashk/strata/blob/main/doc/strataos.md">doc/strataos.md</a></p>
+</section>
+
+<section id="cores" class="section">
+  <h2><span class="num">02</span>Cores and their roles</h2>
+  <p class="intro">The kernel is not one program on one core. It is the <b>system core</b>
+    (core&nbsp;0), which runs no programs, and a <b>dispatcher</b> on every other core, the
+    supervisor code that runs that core's threads. The two halves share one table in the
+    cluster store and talk through job records and doorbells.</p>
+  <figure class="diagram">
+    <div class="frame">
+<svg viewBox="0 0 760 350" role="img" aria-labelledby="cm-t">
+  <title id="cm-t">The cores of a 12-core machine after boot: core 0 the system core; cores 1 to 5 hold the servers proc, dev, fs, tty and pipe; cores 6 to 11 hold no server and take threads; all share the kernel table in T2.</title>
+  <defs>
+    <marker id="cm-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arra"/></marker>
+  </defs>
+  <text class="h" x="10" y="24">SYSTEM CORE</text>
+  <text class="h" x="180" y="24">SERVER CORES · ONE SERVER EACH</text>
+  <text class="h" x="180" y="166">WORKER CORES WITHOUT A SERVER</text>
+  <rect class="box sys" x="10" y="34" width="150" height="232"/>
+  <text class="ma" x="22" y="56">core 0</text>
+  <text class="t" x="22" y="78">system core</text>
+  <text class="s" x="22" y="102">creates, destroys and</text>
+  <text class="s" x="22" y="118">places processes</text>
+  <text class="s" x="22" y="140">hands out arenas,</text>
+  <text class="s" x="22" y="156">revokes them</text>
+  <text class="s" x="22" y="178">owns the timer:</text>
+  <text class="s" x="22" y="194">preemption, timeouts</text>
+  <text class="s" x="22" y="216">pages its own code</text>
+  <text class="s" x="22" y="238">runs no programs</text>
+  <g>
+    <rect class="box srv" x="180" y="34" width="108" height="104"/>
+    <text class="mc" x="190" y="52">core 1</text><text class="t" x="190" y="74">proc</text><text class="s" x="190" y="92">pid 1 · alone</text>
+    <rect class="filld" x="180" y="116" width="108" height="22"/><text class="m" x="190" y="131">dispatcher</text>
+    <rect class="box srv" x="294" y="34" width="108" height="104"/>
+    <text class="mc" x="304" y="52">core 2</text><text class="t" x="304" y="74">dev</text><text class="s" x="304" y="92">pid 2 · + sh</text>
+    <rect class="filld" x="294" y="116" width="108" height="22"/><text class="m" x="304" y="131">dispatcher</text>
+    <rect class="box srv" x="408" y="34" width="108" height="104"/>
+    <text class="mc" x="418" y="52">core 3</text><text class="t" x="418" y="74">fs</text><text class="s" x="418" y="92">pid 3 · shared</text>
+    <rect class="filld" x="408" y="116" width="108" height="22"/><text class="m" x="418" y="131">dispatcher</text>
+    <rect class="box srv" x="522" y="34" width="108" height="104"/>
+    <text class="mc" x="532" y="52">core 4</text><text class="t" x="532" y="74">tty</text><text class="s" x="532" y="92">pid 4 · alone</text>
+    <rect class="filld" x="522" y="116" width="108" height="22"/><text class="m" x="532" y="131">dispatcher</text>
+    <rect class="box srv" x="636" y="34" width="108" height="104"/>
+    <text class="mc" x="646" y="52">core 5</text><text class="t" x="646" y="74">pipe</text><text class="s" x="646" y="92">pid 5 · shared</text>
+    <rect class="filld" x="636" y="116" width="108" height="22"/><text class="m" x="646" y="131">dispatcher</text>
+  </g>
+  <g>
+    <rect class="box dim" x="180" y="176" width="88" height="90"/>
+    <text class="mc" x="190" y="194">core 6</text><text class="t" x="190" y="214">ws, net</text><text class="s" x="190" y="232">on demand</text>
+    <rect class="box" x="274" y="176" width="88" height="90"/>
+    <text class="mc" x="284" y="194">core 7</text><text class="s" x="284" y="218">threads</text><text class="s" x="284" y="234">of -n N</text>
+    <rect class="box" x="368" y="176" width="88" height="90"/>
+    <text class="mc" x="378" y="194">core 8</text><text class="s" x="378" y="218">threads</text>
+    <rect class="box" x="462" y="176" width="88" height="90"/>
+    <text class="mc" x="472" y="194">core 9</text><text class="s" x="472" y="218">threads</text>
+    <rect class="box" x="556" y="176" width="88" height="90"/>
+    <text class="mc" x="566" y="194">core 10</text><text class="s" x="566" y="218">threads</text>
+    <rect class="box" x="650" y="176" width="94" height="90"/>
+    <text class="mc" x="660" y="194">core 11</text><text class="s" x="660" y="218">threads</text>
+    <rect class="filld" x="180" y="244" width="564" height="22"/><text class="m" x="190" y="259">a dispatcher on each · up to 16 threads per core</text>
+  </g>
+  <rect class="box amb" x="10" y="296" width="734" height="42"/>
+  <text class="t" x="22" y="316">KST · the kernel shared table · 32 KiB in T2</text>
+  <text class="m" x="22" y="332">per-core counters · published thread slots · exit events · job records · deadlines — far atomics only</text>
+  <path class="lna" d="M85,266 V294" marker-end="url(#cm-a)"/>
+</svg>
+    </div>
+    <figcaption>StrataOS on 12 cores (<code>make boot</code>), as <code>cores</code> and <code>ps</code>
+      report it after boot. The boot servers sit on cores 1–5; <code>proc</code> and
+      <code>tty</code> are alone on theirs. A one-thread program goes to the least loaded core,
+      preferring cores that hold a server (the shell landed on core 2), so that the server-free
+      cores stay free for multi-threaded processes. <code>ws</code> and <code>net</code> become the
+      server of the lowest empty core when they start. StrataOS needs at least 6 cores.</figcaption>
+  </figure>
+  <h3>Who runs where</h3>
+  <ul class="ticks">
+    <li><b>System core</b> (core 0): creates and destroys processes, places them on cores,
+      cuts arenas out of the pool and revokes them, holds the only DEADLINE register (the
+      preemption tick and every timed wait), answers the operations of its endpoint, which only
+      <code>proc</code> and <code>dev</code> hold.</li>
+    <li><b>Dispatchers</b> (every worker core): run that core's threads, take every capability
+      that arrives in the core's inbox and hand it to the right process, emulate the inbox
+      instructions user code may not execute (<code>ctake</code>, <code>cpoll</code>,
+      <code>tany</code>), and page code units in on a miss.</li>
+    <li><b>Server cores</b>: a core can have one server, which receives every request that
+      arrives there. <code>proc</code>, <code>dev</code> and <code>fs</code> are created by the
+      kernel on cores 1, 2 and 3; <code>proc</code> starts <code>tty</code> and <code>pipe</code>
+      on the next free ones. Servers are ordinary time-shared processes; other programs share
+      their cores, except where a server keeps a device read waiting (<code>tty</code>,
+      <code>net</code>) and must be alone.</li>
+    <li><b>Threads</b>: a StrataOS program is one thread. A program run with <code>-n N</code>,
+      or a bare-metal example, gets N threads (at most 6) on N contiguous cores without a server,
+      seen through the <code>corebase</code>/<code>corecount</code> window exactly as on the
+      bare machine; <code>cgive</code> between them goes straight from core to core.</li>
+  </ul>
+</section>
+
+<section id="memory" class="section">
+  <h2><span class="num">03</span>Where everything lives</h2>
+  <p class="intro">Three tiers, each with a fixed purpose: system memory (T3) for arenas and the
+    framebuffer, the cluster store (T2) for what is the kernel's for good, and each core's Local
+    Stores for the code and data that run now.</p>
+  <figure class="diagram">
+    <div class="frame">
+<svg viewBox="0 0 760 470" role="img" aria-labelledby="mm-t">
+  <title id="mm-t">Memory map: T3 system memory of 64 MiB with message buffers, the arena pool in two parts, the load area and the framebuffer window; T2 with the kernel shared table and a copy of the kernel's code units; the Local Stores of a worker core and of the system core.</title>
+  <text class="h" x="10" y="18">T3 · SYSTEM MEMORY · 64 MiB</text>
+  <g>
+    <rect class="filld" x="10" y="28" width="230" height="26"/><text class="s" x="20" y="45">unused (the KST's place without T2)</text><text class="m" x="244" y="38">0</text>
+    <rect class="filla" x="10" y="54" width="230" height="26"/><text x="20" y="71">core 0's message buffers</text><text class="m" x="244" y="64">32 KiB</text>
+    <rect class="filld" x="10" y="80" width="230" height="22"/><text class="s" x="20" y="95">unused</text><text class="m" x="244" y="90">64 KiB</text>
+    <rect class="fillc" x="10" y="102" width="230" height="74"/><text class="t" x="20" y="126">arena pool, low part</text><text class="s" x="20" y="146">256 KiB granules, one</text><text class="s" x="20" y="162">revocable region</text><text class="m" x="244" y="112">1 MiB</text>
+    <rect class="filla" x="10" y="176" width="230" height="40"/><text x="20" y="194">load area: OS images,</text><text class="s" x="20" y="209">the kernel's far image (c12)</text><text class="m" x="244" y="186">15 MiB</text>
+    <rect class="fillc" x="10" y="216" width="230" height="122"/><text class="t" x="20" y="244">arena pool, high part</text><text class="s" x="20" y="264">c13 from the boot ROM</text><text class="s" x="20" y="284">46 MiB of arenas in all</text><text class="m" x="244" y="226">16 MiB</text>
+    <rect class="filld" x="10" y="338" width="230" height="90"/><text class="t" x="20" y="362">framebuffer window</text><text class="s" x="20" y="382">the screen, then the windows'</text><text class="s" x="20" y="398">surfaces; lent to ws only</text><text class="m" x="244" y="348">48 MiB</text>
+    <text class="m" x="244" y="428">64 MiB</text>
+  </g>
+  <text class="h" x="300" y="18">T2 · CLUSTER STORE · 256 KiB</text>
+  <g>
+    <rect class="filla" x="300" y="28" width="170" height="60"/><text class="t" x="310" y="52">KST</text><text class="s" x="310" y="70">shared kernel table</text><text class="m" x="474" y="38">0</text>
+    <rect class="fillc" x="300" y="88" width="170" height="80"/><text x="310" y="112">kernel code units</text><text class="s" x="310" y="130">a copy, paged from</text><text class="s" x="310" y="146">here after boot</text><text class="m" x="474" y="98">32 KiB</text>
+    <rect class="filld" x="300" y="168" width="170" height="80"/><text class="s" x="310" y="192">unused</text>
+    <text class="s" x="300" y="272">one revocation granule:</text>
+    <text class="s" x="300" y="288">only the kernel's for good</text>
+  </g>
+  <text class="h" x="540" y="18">LOCAL STORES · PER CORE</text>
+  <g>
+    <text class="mc" x="540" y="40">worker I-LS</text>
+    <rect class="filld" x="540" y="48" width="200" height="20"/><text class="s" x="548" y="62">boot ROM</text><text class="m" x="700" y="62">0</text>
+    <rect class="filla" x="540" y="68" width="200" height="30"/><text x="548" y="88">resident kernel</text><text class="m" x="690" y="88">4000</text>
+    <rect class="fillc" x="540" y="98" width="200" height="40"/><text x="548" y="116">program code</text><text class="s" x="548" y="131">+ its code-unit cache</text><text class="m" x="690" y="116">8000</text>
+    <text class="mc" x="540" y="162">worker D-LS</text>
+    <rect class="fillc" x="540" y="170" width="200" height="44"/><text x="548" y="190">program data</text><text class="s" x="548" y="206">(at most 40 KiB)</text><text class="m" x="700" y="190">0</text>
+    <rect class="filla" x="540" y="214" width="200" height="26"/><text x="548" y="232">dispatcher data</text><text class="m" x="690" y="232">A000</text>
+    <rect class="fillc" x="540" y="240" width="200" height="26"/><text x="548" y="258">program stack</text><text class="m" x="690" y="258">E000</text>
+    <text class="ma" x="540" y="292">core 0 I-LS</text>
+    <rect class="filla" x="540" y="300" width="200" height="30"/><text x="548" y="320">resident · own code 7700</text>
+    <rect class="filla" x="540" y="330" width="200" height="30"/><text x="548" y="350">kernel code cache</text><text class="m" x="690" y="350">8000</text>
+    <text class="ma" x="540" y="384">core 0 D-LS</text>
+    <rect class="filla" x="540" y="392" width="200" height="30"/><text x="548" y="412">kernel tables</text><text class="m" x="700" y="412">0</text>
+    <rect class="filla" x="540" y="422" width="200" height="26"/><text x="548" y="440">kernel data, stack</text><text class="m" x="690" y="440">A000</text>
+  </g>
+</svg>
+    </div>
+    <figcaption>Not to scale. The arena pool is two revocable regions: a revoker for each part
+      stays with the system core with a bitmap of its granules. T2's copy of the kernel's code
+      units is made only if it fits beside the KST (not in the FPGA builds' 64&nbsp;KiB T2, where
+      the units are paged from T3). Local Store addresses are hexadecimal; the layout needs
+      64&nbsp;KiB of each, and every core checks the platform table at entry.</figcaption>
+  </figure>
+
+  <h3>A process</h3>
+  <p>A process owns one <b>arena</b>: a run of whole 256&nbsp;KiB granules, 1&nbsp;MiB unless
+    the spawner asked for more (the shell's <code>-m N</code>), zeroed when it is handed out. The
+    program's memory is its <code>c0</code>; the parts the kernel needs sit at the arena's top.
+    When the process ends the system core revokes the arena by address: every capability based
+    there, whatever was cut from it or lent out, dies at once.</p>
+  <figure class="diagram">
+    <div class="frame">
+<svg viewBox="0 0 760 210" role="img" aria-labelledby="ar-t">
+  <title id="ar-t">The 1 MiB arena of a one-thread process: program memory up to 0xD0000 with the start-up block at 0x7F000, the program image, thread 0's save area and the message buffer at 0xFF000.</title>
+  <text class="h" x="10" y="20">AN ARENA · ONE THREAD · OFFSETS FROM ITS BASE</text>
+  <rect class="fillc" x="10" y="34" width="460" height="64"/>
+  <text class="t" x="20" y="58">program memory · c0</text>
+  <text class="s" x="20" y="78">832 KiB: its .far section, heap, buffers</text>
+  <rect class="filla" x="240" y="34" width="10" height="64"/>
+  <rect class="filld" x="470" y="34" width="120" height="64"/>
+  <text class="t" x="478" y="58">image</text><text class="s" x="478" y="78">as fs loaded it</text>
+  <rect class="fillc" x="590" y="34" width="84" height="64"/>
+  <text class="t" x="598" y="58">save</text><text class="s" x="598" y="78">area</text>
+  <rect class="filld" x="674" y="34" width="26" height="64"/>
+  <rect class="filla" x="700" y="34" width="50" height="64"/>
+  <text class="t" x="706" y="58">c5</text><text class="s" x="706" y="78">4 KiB</text>
+  <text class="m" x="10" y="116">0</text>
+  <text class="ma" x="216" y="116">7F000</text>
+  <text class="m" x="454" y="116">D0000</text>
+  <text class="m" x="572" y="116">F0000</text>
+  <text class="m" x="656" y="116">FC000</text>
+  <text class="m" x="706" y="116">FF000</text>
+  <path class="lna" d="M245,124 V146"/><text class="s" x="252" y="146">the start-up block proc writes: pid, parent, handles, command line</text>
+  <path class="lnd" d="M530,124 V170"/><text class="s" x="300" y="174">each dispatcher keeps a read-only share; code is reloaded from it</text>
+  <path class="lnd" d="M632,124 V194"/><text class="s" x="300" y="198">the D-LS a thread uses (data extent + live stack), 48 KiB at most</text>
+</svg>
+    </div>
+    <figcaption>With N threads, threads N−1…1 have their save areas just below 0xD0000 and the
+      program memory ends N−1 × 48&nbsp;KiB earlier. An arena larger than 1&nbsp;MiB by E bytes
+      keeps this layout at its top: the program's memory grows downwards by E. A program can ask
+      <code>proc</code> for more far memory while it runs (MORE) and give it back (LESS).</figcaption>
+  </figure>
+  <p class="refs">In the manual: <a class="pdf" data-pdf="sec:os-mem" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.18.2">Section 18.2, Memory</a> ·
+    <a class="pdf" data-pdf="sec:memmap" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.16.1">Section 16.1, System memory map</a> ·
+    <a class="pdf" data-pdf="ch:memory" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=chapter.3">Chapter 3, Local Stores and the Transfer Unit</a></p>
+</section>
+
+<section id="boot" class="section">
+  <h2><span class="num">04</span>From the boot ROM to the shell</h2>
+  <p class="intro">Every core starts in the boot ROM. Core 0 brings the system up far enough
+    to load the file server, and the file server loads everything else.</p>
+  <figure class="diagram">
+    <div class="frame">
+<svg viewBox="0 0 760 580" role="img" aria-labelledby="bt-t">
+  <title id="bt-t">The boot sequence in lanes: core 0 loads the images and gives shares to every core; every core copies the kernel into its Local Stores; core 0 becomes the system core and runs start-up while the workers become dispatchers; core 0 creates proc, dev and fs on cores 1 to 3; proc starts tty and pipe on cores 4 and 5 and then the login shell.</title>
+  <defs>
+    <marker id="bt-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arrc"/></marker>
+    <marker id="bt-b" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arra"/></marker>
+  </defs>
+  <text class="ma" x="20" y="20">core 0</text>
+  <text class="mc" x="268" y="20">core 1</text>
+  <text class="mc" x="358" y="20">core 2</text>
+  <text class="mc" x="448" y="20">core 3</text>
+  <text class="mc" x="538" y="20">cores 4, 5</text>
+  <text class="mc" x="650" y="20">cores 6–11</text>
+  <path class="life" d="M120,28 V568 M300,28 V568 M390,28 V568 M480,28 V568 M580,28 V568 M690,28 V568"/>
+  <rect class="box amb" x="10" y="36" width="220" height="94"/>
+  <text class="h" x="20" y="54">BOOT ROM</text>
+  <text x="20" y="74">platform table, block device 0,</text>
+  <text x="20" y="92">boot header "STBOOT01";</text>
+  <text x="20" y="110">kernel images + far image → T3</text>
+  <rect class="box" x="250" y="52" width="500" height="40"/>
+  <text x="262" y="70">every other core waits in the boot ROM</text>
+  <text class="s" x="262" y="86">for read-only shares of the images</text>
+  <path class="lnc" d="M230,112 H740" marker-end="url(#bt-a)"/>
+  <text class="s" x="470" y="108">shares (+ device root); c12 stays on core 0</text>
+  <rect class="box" x="10" y="140" width="740" height="40"/>
+  <text x="20" y="158">every core copies the kernel into its Local Stores (code at I-LS 4000, data at D-LS A000)</text>
+  <text class="s" x="20" y="174">and enters it with a0 = its core number</text>
+  <rect class="box sys" x="10" y="192" width="220" height="132"/>
+  <text class="h" x="20" y="210">SYSTEM CORE</text>
+  <text x="20" y="230">start-up unit (paged in):</text>
+  <text class="s" x="20" y="248">the KST in T2 · a core-control</text>
+  <text class="s" x="20" y="264">capability per worker · the arena</text>
+  <text class="s" x="20" y="280">pool made revocable · the store's</text>
+  <text class="s" x="20" y="296">boot manifest, read with the</text>
+  <text class="s" x="20" y="312">firmware: the kernel's only disk read</text>
+  <rect class="box" x="250" y="192" width="500" height="44"/>
+  <text x="262" y="212">workers become dispatchers and wait in tany</text>
+  <text class="s" x="262" y="228">a gift in the inbox, or a doorbell, wakes them</text>
+  <rect class="box sys" x="10" y="336" width="220" height="58"/>
+  <text x="20" y="356">loads proc, dev, fs from the</text>
+  <text x="20" y="374">disk itself and CREATEs them</text>
+  <text class="s" x="20" y="388">fs must exist to load anything else</text>
+  <path class="lnc" d="M230,352 H292" marker-end="url(#bt-a)"/>
+  <path class="lnc" d="M230,366 C320,366 330,366 382,366" marker-end="url(#bt-a)"/>
+  <path class="lnc" d="M230,380 C380,380 420,380 472,380" marker-end="url(#bt-a)"/>
+  <rect class="box srv" x="262" y="404" width="76" height="30"/><text class="t" x="274" y="424">proc</text>
+  <rect class="box srv" x="352" y="404" width="76" height="30"/><text class="t" x="366" y="424">dev</text>
+  <rect class="box srv" x="442" y="404" width="76" height="30"/><text class="t" x="460" y="424">fs</text>
+  <path class="lna" d="M470,434 C456,452 414,452 402,438" marker-end="url(#bt-b)"/>
+  <text class="s" x="412" y="466">GETDISK</text>
+  <path class="lnc" d="M300,494 H530" marker-end="url(#bt-a)"/>
+  <text class="s" x="312" y="488">SPAWN as servers</text>
+  <rect class="box srv" x="534" y="479" width="92" height="30"/><text class="t" x="544" y="499">tty, pipe</text>
+  <path class="lnc" d="M300,434 V544 H330" marker-end="url(#bt-a)"/>
+  <rect class="box hot" x="334" y="530" width="150" height="30"/><text class="t" x="346" y="550">sh -l</text><text class="s" x="390" y="550">runs /etc/rc</text>
+  <text class="s" x="494" y="550">restarted whenever it exits</text>
+</svg>
+    </div>
+    <figcaption>The boot ROM reads the platform table, opens the disk and loads the kernel's code,
+      data and far image (its code units) into system memory; every core then copies the kernel
+      into its own Local Stores. The disk is a store: the system core reads only its boot
+      manifest, which lists the boot objects <code>proc</code>, <code>dev</code> and
+      <code>fs</code>, each kept in one run of pages. From then on every program is loaded by
+      <code>fs</code> straight into a new arena (LOADIMG).</figcaption>
+  </figure>
+  <ol class="steps">
+    <li><b>Boot ROM, core 0.</b> Verifies the platform table, finds block device&nbsp;0, checks
+      the boot header, checks that the images fit the machine's Local Stores, and loads them.
+      On any failure it says why and every core halts.</li>
+    <li><b>Boot ROM, every core.</b> Takes read-only shares of the images, copies the kernel
+      to I-LS&nbsp;0x4000 and D-LS&nbsp;0xA000, and jumps to it. Core 0 alone keeps a share of
+      the kernel's far image in <code>c12</code>, from which it pages its own code.</li>
+    <li><b>The system core</b> makes the framebuffer window and the arena pool revocable regions,
+      builds the KST, gives each worker a copy with a core-control capability and the clock,
+      and reads the boot manifest.</li>
+    <li><b>The servers.</b> The kernel creates <code>proc</code>, <code>dev</code> and
+      <code>fs</code> on cores 1, 2 and 3; <code>dev</code> gets the device root, <code>fs</code>
+      asks it for the disk; <code>proc</code> starts <code>tty</code> and <code>pipe</code> on
+      the next free cores, then the login shell, which runs <code>/etc/rc</code>.</li>
+  </ol>
+  <p class="refs">In the manual: <a class="pdf" data-pdf="sec:os-boot" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.18.15">Section 18.15, Boot</a> ·
+    <a class="pdf" data-pdf="sec:boot" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.17.2">Section 17.2, Boot protocol</a> ·
+    source: <a class="srcpath" href="../code/#firmware/bootrom.s">firmware/bootrom.s</a>,
+    <a class="srcpath" href="../code/#os/kunits/boot.s">os/kunits/boot.s</a></p>
+</section>
+
+<section id="more" class="section">
+  <h2><span class="num">05</span>The rest of this section</h2>
+  <div class="cards three">
+    <a class="card" href="kernel.html"><h3>The kernel</h3>
+      <p>svc calls and the system core's operations, scheduling, the context switch, demand
+        paging of code units, capabilities, endpoints, revocation, interrupts as device reads.</p>
+      <span class="more">The kernel →</span></a>
+    <a class="card" href="messages.html"><h3>Messages</h3>
+      <p>The 4&nbsp;KiB buffer and its header, attachments, a request and its reply from core to
+        core, doorbells, parking, and what a round trip costs.</p>
+      <span class="more">Messages →</span></a>
+    <a class="card" href="servers.html"><h3>Servers</h3>
+      <p>proc, dev, fs, tty, pipe, net and ws: where each runs, what it holds, and every message it
+        answers, generated from the servers' sources.</p>
+      <span class="more">The catalogue →</span></a>
+    <a class="card" href="fs.html"><h3>The file system</h3>
+      <p>A copy-on-write store of ordered trees, where a directory is the set of a file's tags.</p>
+      <span class="more">The file system →</span></a>
+    <a class="card" href="ws.html"><h3>The window server</h3>
+      <p>The one process that touches the screen: clients lend it bands of pixels.</p>
+      <span class="more">The window server →</span></a>
+    <a class="card accent" href="../play/?run=os"><h3>Try it</h3>
+      <p>Boot StrataOS on 12 cores in your browser; type <code>cores</code>, <code>ps</code>,
+        <code>ws</code>.</p>
+      <span class="more">Play →</span></a>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="bands small" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+  <p>StrataOS 0.1 — <a href="../code/#os/kernel.s">os/kernel.s</a> ·
+    <a href="https://github.com/yrashk/strata/blob/main/doc/strataos.md">the specification</a> ·
+    <a href="../Strata-Architecture-Reference-Manual.pdf">Architecture Reference Manual</a> ·
+    <a href="../">Strata</a> ·
+    <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
+</footer>
+
+</body>
+</html>

@@ -16,6 +16,8 @@
 //   end            done (one cycle) when the burst is complete, or retry
 //                  (one cycle, before any data) when a device has nothing to
 //                  give yet; the master asks again later, freeing the bus
+//                  (a core's Transfer Unit: once the device space raises the
+//                  core's wake line, strata_dev)
 
 module strata_bus
   import strata_pkg::*;
