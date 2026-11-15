@@ -1,0 +1,83 @@
+# pipe: the messages of os/servers/pipe.s (format: os/spec/README.md)
+
+[server]
+key = "pipe"
+title = "pipe"
+role = "pipes"
+reached = "c4 of every process"
+core = "core 5, shared"
+holds = "nothing but its own memory: the rings are in its Local Store"
+sources = ["os/servers/pipe.s"]
+dispatch = { file = "os/servers/pipe.s", first = ";\\s*dispatch", last = "^\\s*li\\s+a0,\\s*-1\\s*;\\s*unknown" }
+calls = "message"
+note = """Up to 8 pipes, each a 2 KiB ring in the server's own data memory. The read end of pipe p \
+is id 2p + 1, the write end 2p + 2. The ends are counted per process: a pipe sees the end of its \
+input when no writer is left, and a writer gets −1 when no reader is left. Each pipe holds at most \
+one waiting reader and one waiting writer."""
+
+[[op]]
+num = 1
+name = "READ"
+summary = "Read from the read end of a pipe"
+note = "A reader with nothing to read waits (the request is parked) until a writer writes or the last writer closes."
+
+[op.request]
+handle = "the read end's id"
+length = "the most bytes wanted"
+mode = "bit 0: do not block"
+
+[op.reply]
+result = "the bytes read: at most the length, 4032 and what the ring holds; 0 at the end (no writer is left)"
+data = [{ type = "bytes", name = "the bytes read" }]
+
+[op.errors]
+"-1" = "not the read end of a pipe in use"
+"-2" = "interrupted while waiting (CANCEL)"
+"-3" = "nothing to read, with mode bit 0"
+"-7" = "another reader is already waiting on this pipe, or the kernel has no room to hold the request"
+
+[[op]]
+num = 2
+name = "WRITE"
+summary = "Write to the write end of a pipe"
+note = "A writer waits while the ring is full; it is answered with what was taken, at least one byte. The library writes the rest."
+
+[op.request]
+handle = "the write end's id"
+length = "the bytes"
+mode = "bit 0: do not block"
+data = [{ type = "bytes", name = "the bytes to write" }]
+
+[op.reply]
+result = "the bytes taken: at most the length, 4032 and the room in the ring; at least 1 unless the length is 0"
+
+[op.errors]
+"-1" = "not the write end of a pipe in use, or no reader is left"
+"-2" = "interrupted while waiting (CANCEL)"
+"-3" = "the ring is full, with mode bit 0"
+"-7" = "another writer is already waiting on this pipe, or the kernel has no room to hold the request"
+
+[[op]]
+num = 4
+name = "CLOSE"
+summary = "Close one end of a pipe"
+note = "It drops one of the caller's references to that end; an id the caller does not hold changes nothing. A pipe with no reference left is free again."
+
+[op.request]
+handle = "the end's id"
+
+[op.reply]
+result = "0, always"
+
+[[op]]
+num = 8
+name = "PIPE"
+summary = "Make a pipe"
+
+[op.request]
+
+[op.reply]
+result = "read id | write id << 8: the ids of the two ends, both the caller's"
+
+[op.errors]
+"-6" = "every pipe is in use, or the server's table of references is full"

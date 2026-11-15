@@ -621,10 +621,11 @@ holds pending device reads, \texttt{tty} is alone on its core.
 
 \input{gen-os-ops-pipe}
 
-Three further operations go from \texttt{proc} to every server that keeps handles: 36 DUPS (a process
-now holds these handles too), 37 CLEANUP (a process ended: drop everything it held) and 38 CANCEL
-(answer the requests held for a process with $-2$). The ends of files and pipes are reference-counted
-per process, which is how a pipe's reader sees end of input when the last writer exits.
+Three further operations go from \texttt{proc} to every server that keeps something per process, and
+the kernel sends \texttt{proc} one of its own (Table~\ref{tab:os-sysops}). The ends of files and pipes are
+reference-counted per process, which is how a pipe's reader sees end of input when the last writer exits.
+
+\input{gen-os-ops-system}
 
 \subsection{Tags instead of directories}\label{sec:os-tags}
 
