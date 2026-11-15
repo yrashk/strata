@@ -295,7 +295,22 @@ static uint64_t le(const uint8_t *p, int n) {
   return v;
 }
 
+#ifdef STRATA_MSGSTATS
+/* make bench-store: the messages each core sent (4 KiB buffers put into an
+ * inbox, requests and replies) and the commands to the block device, printed
+ * at exit when STRATA_MSGSTATS is set (tools/bench-store.sh) */
+static unsigned long long st_msgs[64], st_blk;
+static void st_dump(void) {
+  unsigned long long t = 0;
+  fprintf(stderr, "msgstats:");
+  for (int i = 0; i < 16; i++) { t += st_msgs[i]; fprintf(stderr, " %llu", st_msgs[i]); }
+  fprintf(stderr, " total %llu blk %llu\n", t, st_blk);
+}
+#endif
 static bool inbox_push(Core *dst, Cap cap, int from) {
+#ifdef STRATA_MSGSTATS
+  if (cap.space == SP_T3 && cap.len == 4096 && from >= 0 && from < 64) st_msgs[from]++;
+#endif
   if (dst->iq_cnt[from] == SQ) return false;
   dst->inbox[from][dst->iq_cnt[from]++] = cap;
   if (dbg_on) dbg_inbox(dst, &cap, from); /* (StrataOS's messages: emu/debug_msg.c) */
@@ -1271,6 +1286,9 @@ static bool step(Core *c) {
       if (!live(e) || e.space != SP_EP || !(e.perms & P_W)) { trap(c, C_CAPINV, cd); return true; }
       if (!live(g)) { trap(c, C_CAPINV, src); return true; }
       uint64_t n = e.base;
+#ifdef STRATA_MSGSTATS
+      if (n == (uint64_t)ncores) st_blk++;
+#endif
       if (n > (uint64_t)ncores || (n < (uint64_t)ncores && cores[n].halted)) { trap(c, C_CAPOP, n); return true; }
       if (n == (uint64_t)ncores) {
         if (bi_cnt == IQ) return false;
@@ -1847,6 +1865,9 @@ static void press_break(void) {
 
 
 int main(int argc, char **argv) {
+#ifdef STRATA_MSGSTATS
+  if (getenv("STRATA_MSGSTATS")) atexit(st_dump);
+#endif
   const char *path = NULL, *in_path = NULL, *ppm = NULL;
   const char *disk_path = NULL;
   bool gfx = true, hold = false, snd_opt = false;

@@ -722,6 +722,22 @@ $(BUILD)/files-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	@for f in $(MANY); do basename $$f > $$f; done
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) 2>&1 | cut -c1-200
 
+# make bench-store: what the file system and the store cost (tools/bench-store.sh,
+# doc/fs-split.md): an emulator that counts messages, and a disk with the
+# files of test-files, dbbench and a script that writes 100 small files
+.PHONY: bench-store
+$(BUILD)/strata-emu-stats: emu/emu.c $(JIT_SRC) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
+	$(CC) $(CFLAGS) -DSTRATA_MSGSTATS $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
+$(BUILD)/bench/dbbench: tools/bench/dbbench.s os/lib/sys.s os/lib/kv.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/bench
+	$(BUILD)/sasm -T 0x8000 -o $@ $<
+$(BUILD)/bench/disk.img: $(BUILD)/files-test/disk.img $(BUILD)/bench/dbbench
+	@i=0; while [ $$i -lt 100 ]; do echo "echo $$i > /sm/f$$i"; i=$$((i + 1)); done > $(BUILD)/bench/small
+	@$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) -t bin $(BUILD)/bench/dbbench \
+	  -t bench $(BUILD)/bench/small 2>&1 | cut -c1-200
+bench-store: $(BUILD)/strata-emu-stats $(BUILD)/bootrom.stx $(BUILD)/bench/disk.img
+	tools/bench-store.sh $(BUILD)/strata-emu-stats $(BUILD) $(BUILD)/bench/disk.img
+
 # the disk of `make test-forth`: the standard one plus the test files
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs) \
                               $(wildcard lang/forth/tests/http/*)
