@@ -1,0 +1,10 @@
+panel E8E4D1
+panel_light FFF4DC
+panel_dark B4B5A3
+text 34494A
+text_dim 738275
+good 41916A
+bad C4574B
+res 41916A
+com 479FB9
+ind E5A34A
