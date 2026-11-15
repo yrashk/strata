@@ -178,6 +178,10 @@ DATAMAX  = 0xA000                       ; programs' data ends below the kernel's
 STACKLO  = 0xE000                       ; programs' stack: 0xE000..0xFFFF
 
 KST_SIZE = 0x8000                       ; the kernel shared table: 32 KiB
+NRINGS   = 64                           ; console rings in T2 after the KST: one per arena slot
+RHDR     = 64                           ; their header: RH_MAX = rings used so far (+1)
+RMIN     = 256                          ; a ring's size: RMIN.. RMAXSZ, as T2 allows
+RMAXSZ   = 1024                         ; ...
 KST_SPACE = 2                           ; ... in T2 when T2 has room (the debug engine reads it there)
 G_NCORES = 0x00                         ; cores
 G_SWITCH = 0x08                         ; context switches, all cores
@@ -191,6 +195,8 @@ G_CTAB   = 0x40                         ; capability save-table slots per core (
 G_NSLOT  = 0x48                         ; threads a worker core takes (w_params)
 G_NXMAP  = 0x50                         ; overlay map entries per core (platform table)
 G_GCORES = 0x58                         ; bit c: core c is a guest's (or lost to one): see "Guests"
+G_RSZ    = 0x60                         ; a console ring's size (0: no rings in T2)
+G_RGIVEN = 0x68                         ; 1: the rings went to tty (RINGS)
 G_GPID   = 0x100                        ; 256 words: the process owning pool granule g (0: none)
 NGPID    = 256                          ; (64 MiB of pool at most)
 NARENA   = 64                           ; arena slots (K0_AR); every process has one
@@ -260,6 +266,7 @@ F_PRIV   = 8                            ; may mint endpoints in REPLY (proc, dev
 F_DEVCAPS = 16                          ; gets the device root (c6) and framebuffer (c2): dev
 F_SOLO   = 32                           ; alone on its core (pending device reads: tty)
 F_GUEST  = 128                          ; a guest: whole cores in supervisor mode (core 0's records)
+F_RING   = 256                          ; job: a console ring in T2 comes too (thread 0 -> c6)
 CF_GUEST = 8                            ; core flags (K0_CORE): a guest's core
 
 ; ---- worker capability save table -----------------------------------------------
@@ -384,7 +391,7 @@ S_TANY   = 8                            ; in an emulated tany
 NEED_P   = 1                            ; job capabilities: the program's memory
 NEED_S   = 2                            ; this thread's save area
 NEED_B   = 4                            ; the message buffer
-NEED_FB  = 8                            ; the framebuffer (dev)
+NEED_R   = 8                            ; its console ring (T2, the only piece there) -> c6
 NEED_I   = 16                           ; a share of the image
 
 TG_K     = 14                           ; the dispatcher's transfer tag
@@ -3108,6 +3115,9 @@ wnj_thr:
         beqz  t3, wnj_fb                ; ...
         ori   t1, t1, NEED_B            ; ...
 wnj_fb:                                 ; (the framebuffer is lent by FBLEND now, not given at start)
+        andi  t3, t0, F_RING            ; and its console ring
+        beqz  t3, wnj_need              ; ...
+        ori   t1, t1, NEED_R            ; ...
 wnj_need:
         sd    t1, PR_NEED(s2)           ; ...
         andi  t3, t0, F_SERVER          ; the core's server?
@@ -3159,13 +3169,15 @@ wjc_l:
         li    a1, 5                     ; ...
         li    t2, NEED_B                ; ...
         beq   t5, t1, wjc_have          ; ...
-        li    t1, FB_BASE0              ; the framebuffer (dev) -> c2
-        li    a1, 2                     ; ...
-        li    t2, NEED_FB               ; ...
-        ld    t3, PR_NEED(s2)           ; (only if dev)
+        cperms t1, c8                   ; R: the console ring, the one piece in T2 -> c6
+        srli  t1, t1, 8                 ; ...
+        li    t4, 2                     ; ...
+        li    a1, 6                     ; ...
+        li    t2, NEED_R                ; ...
+        ld    t3, PR_NEED(s2)           ; (only if one comes)
         and   t3, t3, t2                ; ...
         beqz  t3, wjc_n                 ; ...
-        beq   t5, t1, wjc_have          ; ...
+        beq   t1, t4, wjc_have          ; ...
 wjc_n:
         addi  s1, s1, 1                 ; next
         j     wjc_l                     ; ...

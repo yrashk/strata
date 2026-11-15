@@ -100,7 +100,7 @@ cp_full:
 ; 8-aligned, with room for the length rounded up to a word), a3 = most
 ; bytes accepted) -> a0 = the record's length (consumed), 0 if the ring is
 ; empty, -1 if it is damaged or the record is longer than a3 (nothing
-; consumed; chan_reset starts it again)
+; consumed; chan_reset starts it again); a1 = TAIL afterwards
 chan_get:
         mv    a6, a0                    ; a6 = the ring
         tamo.add a4, c10, a6, zero      ; a4 = HEAD
@@ -141,13 +141,16 @@ cg_done:
         add   t1, a5, t2                ; TAIL past it: the room is the producer's again
         addi  t0, a6, CH_TAIL           ; ...
         tamo.swap zero, c10, t0, t1     ; ...
+        mv    a1, t1                    ; ...
         mv    a0, t3                    ; its length
-        ret                             ; done
+        ret                             ; done (a1 = TAIL)
 cg_empty:
         li    a0, 0                     ; empty
+        mv    a1, a5                    ; ...
         ret                             ; done
 cg_bad:
         li    a0, -1                    ; damaged, or too long
+        mv    a1, a5                    ; ...
         ret                             ; done
 
 ; chan_sleep(a0 = ring offset, a1 = value): set the SLEEP word

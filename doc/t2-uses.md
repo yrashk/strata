@@ -1,7 +1,7 @@
 # Designing for T2: uses that change how software is written
 
-Status: proposal; the console rings of 4.1 and the ring part of 4.2 are
-built (in T3), the rest is not. Written 2026-11-14. Builds on
+Status: proposal; the console rings of 4.1 (in T2) and the ring part of
+4.2 are built, the rest is not. Written 2026-11-14. Builds on
 `doc/t2-proposal.md` (what T2 holds and carries, measured; the ownership
 models A to D; the T2 lane and finer granules), which this document does
 not repeat.
@@ -24,9 +24,9 @@ not repeat.
   messages stay for what needs the kernel (capabilities, lending memory,
   blocking).
 - Counted in the shell session (`os/demo.txt`, 12 cores): 1,658 requests
-  to servers and about 90 to the kernel. **1,086 (65%) go to `tty`, almost
-  all of them WRITEs of about 50 bytes.** Each costs its writer at least
-  33,000 cycles of waiting, about 36 M cycles in all, and four dispatcher
+  to servers and about 90 to the kernel. **1,086 (65%) go to `tty`: 470
+  WRITEs of about 26 bytes, 416 READs, the rest process control.** Each
+  costs its sender at least 33,000 cycles of waiting, and four dispatcher
   passes (about 190 KST atomics, 1,300 bus cycles: round trips account for
   more than half of the session's KST traffic).
 - Most of these protocols work in T3 as well, today, with no kernel
@@ -83,7 +83,7 @@ core):
 
 | Server | Requests | Mostly |
 |---|---|---|
-| `tty` | 1,086 | WRITE, about 50 bytes |
+| `tty` | 1,086 | 470 WRITE (about 26 bytes), 416 READ, ~200 CLEANUP, SETFG, CONMODE |
 | `fs` | 242 | OPEN, READ, STAT, LOADIMG |
 | `pipe` | 198 | READ and WRITE of pipes |
 | `proc` | 127 | SPAWN, WAIT, the registry |
@@ -210,8 +210,8 @@ not all of it on a session's critical path.
 ### 4.1 Console output through rings (`tty`)
 
 - **Now:** every `sys_write` to the console is a message to `tty` and a
-  wait for its reply: 1,086 requests in the shell session, about 36 M
-  cycles of waiting, plus four dispatcher passes each.
+  wait for its reply: 470 in the shell session (of 1,086 requests to
+  `tty`), about 16 M cycles of waiting, plus four dispatcher passes each.
 - **Design:** each process that writes to the console gets a ring of, say,
   256 to 1,024 bytes in T2 shared with `tty` (head and tail words, data in
   words). A write copies its bytes into the ring with atomics and returns;
@@ -224,8 +224,9 @@ not all of it on a session's critical path.
   foreground process's ring.
 - **Gain:** a 50-byte write becomes about 10 atomics: 70 bus cycles and a
   few hundred core cycles instead of 33,000; in the shell session, about
-  35 M cycles of writers' waiting, about 4,300 dispatcher passes and
-  200,000 KST atomics (1.4 M bus cycles, 8% of the session's bus).
+  16 M cycles of writers' waiting, about 1,900 dispatcher passes and
+  90,000 KST atomics (0.6 M bus cycles, 4% of the session's bus;
+  measured below: -14% to -17% of the KST atomics).
   In T3 the ring costs 230 bus cycles per write, still a hundred times
   cheaper than the message.
 - **Ownership:** the ring is the writer's (T3 stand-in: a piece of its
@@ -240,25 +241,39 @@ not all of it on a session's critical path.
   console; a program killed with output in its ring loses it unless the
   exit path drains it. Guests keep the message path.
 
-- **Built, in T3** (`os/lib/chan.s`, `os/servers/tty.s`, `sys_write`;
-  `doc/strataos.md` 2.3, "Console rings"). Two differences from the
-  design above. A program has no capability register that survives a
-  switch and is free (c0..c7 are all spoken for, c8..c15 are lost), so the
-  ring lives in c6 and is checked before every use; a reply's attachment
-  replaces it, and the next WRITE by message brings it back. And the ring
-  is cut from `tty`'s memory, not the writer's: `tty` is the only party
-  that keeps it, and a copy that outlives its process can do nothing a
-  program cannot do anyway (model B, harmless for the console).
-- **Measured.** RTL, 8 cores: a 50-byte write costs the writer 2,134
-  cycles through the ring against 37,134 by message (17 times less).
-  Shell session (emulator, 12 cores): requests to `tty` 1,086 to 639, KST
-  atomics 554,357 to 457,776 (-17%), memory bus cycles 16.9 M to 16.8 M
-  (the ring's own atomics, in T3, are 200,000 of them). The requests left
-  are almost all a process's first write, the one that fetches the ring:
-  most commands write once, at exit. Keeping `tty` awake throughout
-  changes nothing (637), so the wake-ups are not the limit. Giving a
-  process its ring when it is created would take the rest; that needs
-  the kernel or `proc` to hand it a capability at start.
+- **Built.** First in T3, from `tty`'s memory, handed out with a WRITE's
+  reply; then in T2, given to each program at its start
+  (`doc/strataos.md` 2.3, "Console rings"). Differences from the design
+  above: a program has no capability register that survives a switch and
+  is free (c0..c7 are spoken for, c8..c15 are lost), so the ring lives in
+  c6 and is checked before every use; a reply's attachment replaces it,
+  and the next WRITE by message brings it back. The rings are the
+  kernel's, one per arena slot, after the KST in the KST's atomic segment
+  (model A for the memory, model B for `tty`, which gets all of them once
+  through `dev`); a copy that outlives its process can do nothing a
+  program cannot do anyway. The dispatcher's change fits in the resident
+  code's last 24 bytes by reusing the framebuffer-piece branch of the job
+  code, which no longer had a use.
+- **Measured.** RTL, 8 cores, a 50-byte write, the writer's cycles:
+
+  | | by message | ring in T3 | ring in T2, given at start |
+  |---|---|---|---|
+  | cycles per write | 37,134 / 35,353 | 2,134 | 1,995 |
+
+  (the message column for each build). Shell session (emulator, 12
+  cores): WRITE messages to `tty` 470, then about 20 (T3), then 5 (T2:
+  outputs longer than a ring); all requests to `tty` 1,086, 639, 624: the
+  rest are READs (416) and process control (CLEANUP at every exit, SETFG,
+  CONMODE). KST atomics -14% to -17% (fewer dispatcher passes). The
+  rings' own atomics: 8,725 in T3 (201,000 bus cycles), 23,836 in T2
+  (167,000): `tty` reading one HEAD per ring handed out on every look,
+  and setting all 64 SLEEP words when it sleeps, makes three times as
+  many atomics, which T2's lower start-up latency more than pays for.
+  An earlier reading of the T3 figures, that the requests left were
+  first writes, was wrong: they were READs and control.
+- **Found on the way:** the debugger named one of two labels at the same
+  address by the order `qsort` happened to leave them in; it now keeps
+  file order (`emu/debug_sym.c`).
 - **Found on the way:** the system core gave a new process's arena pieces
   to its core before ringing that core's doorbell. An inbox holds two
   gifts from one sender, so with a busy single thread on the core (one
@@ -402,7 +417,7 @@ Kira's bus; the larger gain would be STATs answered without `fs` (4.5).
 
 | # | Use | Gain | Effort | Risk | ISA / hardware |
 |---|---|---|---|---|---|
-| 1 | Console output rings (4.1) | about 35 M cycles of writers' waiting and 8% of the bus in the shell session; 100x per write | medium | medium (output semantics) | none; W optional |
+| 1 | Console output rings (4.1), built | WRITE messages 470 to 5 in the shell session, KST atomics -14%; 18x per write on the RTL | medium | medium (output semantics) | none; W optional |
 | 2 | Channel library (4.2) | a word in 35 bus cycles instead of a trap; the base of 1, 3, 4 | small | low | none |
 | 3 | Per-process T2 by confinement (model E, 3.1) | lets 1 to 4 move from T3 to T2: 3x less bus per atomic | medium (kernel) | medium (a new rule on the receive path) | none |
 | 4 | Pipes as rings (4.4) | 66,000 cycles per transfer to hundreds | medium | medium | none |
@@ -423,9 +438,9 @@ Kira's bus; the larger gain would be STATs answered without `fs` (4.5).
    moves.
 2. **Console output rings (1)**, still in T3: the largest single gain in
    the measured sessions, in one server and the library. Decide the
-   output semantics first (question 3). Done in T3 (4.1): 17 times
-   cheaper per write on the RTL, 41% fewer requests to `tty` in the shell
-   session; output is buffered until the next request, the process's
+   output semantics first (question 3). Done (4.1), in T2: 18 times
+   cheaper per write on the RTL, WRITE messages in the shell session from
+   470 to 5; output is buffered until the next request, the process's
    end, or `tty`'s next look (at most 500 µs while output flows).
 3. **Then model E (3)**, to move the rings into T2, and measure the
    difference against T3: it is the T2-specific step, and it is worth
