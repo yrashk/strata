@@ -154,7 +154,7 @@ library:
 |---|---|---|
 | D-LS for a program's data | 40 KiB, of which `sys.s` takes 13 KiB | The map (32 KiB) and the coarse maps (about 25 KiB) live in far memory; a step fetches the rows it works on. |
 | I-LS for code | 32 KiB from 0x8000; `sys.s` and `wsclient.s` take 7 KiB | Tier 1 fits (kira is 4,700 lines and 23.7 KiB of code). Tier 2 will not: the simulation's passes, the budget, saving and the events become code units paged in by the kernel (`os/progs/units.s` shows how: `.far`, `xcall`, about 600 cycles a miss on the RTL, nothing after that). |
-| The arena (c0) | 832 KiB | It is the band. The art, the map and the coarse maps go into an extra arena from `proc` (MORE, 1 MiB), so the band keeps the whole arena: 166 rows of a 1280-pixel window. |
+| The arena (c0) | 832 KiB | The data file's far block (177 KiB) and the map (32 KiB) are at its top; the rest is the band, 124 rows of a 1280-pixel window. If the coarse maps of tier 2 make the band too small, they go into an extra arena from `proc` (MORE). |
 | DAMAGE | a rectangle (x, y, w, h, stride) of the band | Changed cells are sent as rectangles, not whole rows; a step that changes ten buildings sends ten small rectangles, not the window. |
 | Pointer | presses, releases, moves while a button is held, the wheel | Tools act on press and drag; no outline under a pointer that is only moving (see tier 3). |
 | Keyboard | a byte stream, no key-up | Everything the mouse does the keys do too: arrows move a cell cursor, Space applies the tool. |
@@ -177,12 +177,11 @@ are palette indices (256 bytes a cell picture, at most 1,024 pictures,
 16 rows, turned into pixels through the palette (or an overlay's palette:
 a map overlay is a second palette and a tint, not new art) and sent into
 the band with `tput`. Three ways a frame starts:
-- a scroll or zoom: everything, in strips (the band holds about 166 rows, so
-  five DAMAGE rectangles for a full window);
-- a simulation step: only the cells whose picture changed; the map keeps
-  a "drawn" copy of each visible cell's picture, and a changed cell is a
-  16 x 16 (or 32 x 32) rectangle, merged with its neighbours into a few
-  rectangles;
+- a scroll or zoom: everything, in pieces of as many rows of cells as the
+  band holds (seven at 16 pixels a cell: seven DAMAGE rectangles for a
+  full window);
+- a tool or a simulation step: only the cells it changed, as the one
+  rectangle that holds them all;
 - the bar and the tools: their own rectangles.
 Nothing is drawn when nothing changed.
 
@@ -225,17 +224,20 @@ emulator, a fraction of a second on the RTL. At "fast" a month passes in
 about a second.
 
 **Tools and keys.** The tool column holds icons; the left button applies
-the tool (a click for a building, a drag for a road or a line, a dragged
-rectangle for zones), the right button drags the map, the wheel scrolls
-(with Shift sideways), and a click on the mini-map jumps. Keys: arrows
-move the cell cursor (with Shift the view), Space applies, `B` bulldoze,
-`R` road, `L` power line, `1` `2` `3` the zones, `P` plant, `Q` query
-(as kira's `Q` quits, quitting moves to `Esc` then `Y`), `Z` zoom, `Tab`
-the next overlay, `0` pause, `-` `=` slower and faster, `S` save.
+the tool (a click for a building, a drag for a road or a line, cell by
+cell, a dragged rectangle for zones), the right button drags the map, the
+wheel scrolls, and a click on the mini-map jumps. Keys: arrows move the
+cell cursor (the view follows it), Space applies the tool once, Enter
+puts the pen down (the tool is applied on every cell the cursor moves
+to) or lifts it, `B` bulldoze, `R` road, `L` power line, `I` or `?` ask,
+`1` `2` `3` the zones, `P` plant, `Z` zoom, `Tab` the next overlay, `0`
+pause, `-` `=` slower and faster, `S` save, `Q` quit (as in wdoom and
+kira; Esc is the start of the arrows' sequences and cannot be a key of
+its own).
 
-**Text.** Numbers, messages and the budget need words: the system font
-(`os/lib/font`) drawn by the game in its own colours, in a panel over the
-bar. The icons carry no text.
+**Text.** Numbers, messages and the budget need words: the server's font
+(`wc_text`), over the panel's colour, in the bar; only the text that
+changed is sent. The icons carry no text.
 
 **Sound.** Synthesised by the asset tool, as kira's: a tool click, a
 road's crunch, a zone placed, the bulldozer, coins at a month's end, a
@@ -304,22 +306,47 @@ Original art avoids both.
 - **Measured and written here:** frame rates (JIT, interpreter, wasm),
   the cost of a month in instructions, sizes.
 
+## Stage 1 as built
+
+- The map is 16-bit cells holding a picture's number; the kind of a
+  picture (road, water, ...) is a table in the data file. A road's or a
+  line's picture is chosen by the neighbours it joins (16 of each), and
+  water's by its eight neighbours (47 pictures); a tool remakes the cell
+  and its four neighbours. Bridges and lines over the water have a
+  picture for each of the 47 water cells (the asset tool lays the
+  bridge's or the line's own pixels over each), so a crossing keeps its
+  banks.
+- A road crosses a power line, and a line a road, only where the other
+  runs straight, and across it.
+- The land: a river from the top edge to the bottom one, one to three
+  lakes, 16 to 25 clumps of woods; the random numbers start from the
+  clock, a demo's from a fixed seed.
+- Sizes: the program is 49.2 KiB on the disk: 18.1 KiB of code (of the 32
+  KiB a program may have; 7 KiB of it `sys.s` and `wsclient.s`, 1 KiB
+  wdoom's mixer; about 2,800 lines of its own) and 31.1 KiB of D-LS data
+  (of 40 KiB): the library 13 KiB, the row of pixels 5 KiB, sixteen cell
+  pictures 4 KiB, the land's two bitmaps 4 KiB, the resident block of
+  `plat.dat` 2.3 KiB. `plat.dat` is 177 KiB: 582 cell pictures 146 KiB,
+  sprites 16 KiB, six sounds 14 KiB.
+
 ## Plan
 
 - [x] Read wdoom, kira, the client library, DAMAGE, code units; this
       proposal
 - [x] The name (Plat) and the style (B)
-- [ ] The map size and the play page (128 x 128 and a preset unless said otherwise)
+- [x] The map size (128 x 128) and the play page (a preset)
 - [x] `os/progs/plat/art/SPEC.md`
 - [x] `tools/plat-art.py` by Codex (Astra); contact sheets shown
-- [ ] The art approved
-- [ ] `tools/plat-assets.py`: palette, cell pictures, icons, sounds,
-      tables; `plat.dat`, `dat.s`
-- [ ] Stage 1: the window, the map from a seed, scrolling and zoom, the
-      tool column and the bar; roads, lines, bulldozer; funds;
-      `plat demo`; `tools/test-plat.sh`
+- [x] The art approved
+- [x] `tools/plat-assets.py`: palette, cell pictures, icons, sounds,
+      tables, demos; `plat.dat`, `dat.s`
+- [x] Stage 1: the window, the map from a seed, scrolling and zoom, the
+      tool column and the bar; roads (bridges), lines, bulldozer; funds;
+      the calendar at three speeds and the pause; `plat demo`;
+      `tools/test-plat.sh`; `ws plat`, the palette, the shell's help, the
+      play page's preset
 - [ ] Stage 2: zones, power plants, power, growth and decline, the
-      census, demand bars, time speeds and pause
+      census, demand bars
 - [ ] Stage 3: taxes, upkeep, the yearly summary, messages, sounds
 - [ ] Stage 4: saving and loading one city, with attributes; the round
       trip in the test

@@ -45,6 +45,15 @@ const PRESETS = {
     type: "ws kira\n",
     about: "Princess Kira: gentle games for a small child, written in Strata assembly as a client of the StrataOS window server (the page types ws kira at the shell's first prompt). No enemies, no timer, no way to lose. Click the screen and press a key to dismiss the key help. The mouse does everything; so do the keys: the arrows walk Kira or move a hand that Space presses, 1 to 4 choose a game, M goes back to the menu. Friends: find Kira's seven animal friends in a castle and garden that are new every game, and walk them to the picnic; Space looks through Kira's eyes. Garden: sow seeds and water them into flowers. Paint: three colouring pages. Music: a xylophone, the friends' voices and four songs. The page plays the sound once you have clicked or pressed a key.",
   },
+  plat: {
+    files: ["bootrom.stx", "disk.img"],
+    args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
+    fitScreen: true,
+    screenKeys: true,
+    sound: true,
+    type: "ws plat\n",
+    about: "Plat: a city-building game in its first stage, written in Strata assembly as a client of the StrataOS window server (the page types ws plat at the shell's first prompt). Click the screen and press a key to dismiss the key help. Every game has new land: a river, lakes, woods. Lay roads (a road over the water is a bridge) and power lines, and clear land with the bulldozer; each costs money from the treasury. The mouse: the left button uses the tool (drag for a line of cells), the right button drags the map, the wheel scrolls it, a click picks a tool or a speed. The keys: the arrows move a cursor, Space uses the tool, Enter puts the pen down or lifts it, B R L I pick the bulldozer, a road, a power line, asking; Z zooms, 0 pauses, - and = change the speed, Q quits. Zones, power plants and a growing town come in the next stages.",
+  },
   nav: {
     files: ["bootrom.stx", "disk.img"],
     args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
