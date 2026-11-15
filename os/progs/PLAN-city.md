@@ -415,4 +415,12 @@ Original art avoids both.
       woods planted, A plain land, on open land, woods and water (20 a
       cell, dragged or with the pen); the water's edges, bridges and
       lines over it are drawn again round the cell
-- [ ] Tier 3, still open: scenarios, history through snapshots, dusk
+- [x] History through snapshots (`plat/years.s`): at each year's end
+      (and at S) the town is saved and the disk kept as the snapshot
+      platN-YYYY (one of the same year is replaced; a town keeps its last
+      eight, the older are deleted); Y lists the town's years (SNAP, mode
+      2) and 1..8 reads that year's town from /@platN-YYYY/ws/plat-N.sav;
+      demo 11
+- [x] Dusk: in December the map is drawn with a second palette from the
+      data file (darker, bluer; the windows' glass lit warm)
+- [ ] Tier 3, still open: scenarios

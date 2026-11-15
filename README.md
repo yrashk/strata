@@ -405,7 +405,10 @@ the Plat Ledger, and the mayor's approval. Fires start now and then and
 spread where the fire stations' cover is thin; floods, storms,
 earthquakes and a coal plant's failure strike now and then too, or when
 the events panel calls one down. The land can be made again (water,
-woods, plain land) before building on it. Five zoom
+woods, plain land) before building on it. Every year's end (and every
+save) is kept as a snapshot of the file system, and the town can be taken
+back to any of its last eight years from them; December falls at dusk,
+with the windows lit. Five zoom
 levels (at the smallest the whole map is in view), a minimap, tooltips on
 the buttons,
 and the town is kept in a file with its population, year and funds as

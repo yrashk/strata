@@ -140,6 +140,15 @@ DEMOS = {
         "5 =,3 =,{14,30 .,},5 0,"
         "5 v,5 3,10 .,5 v,5 4,10 .,5 v,5 5,10 .,"
         "5 =,3 =,3 =,{2,25 .,},5 0,5 v,5 2,10 .",
+    # the town's past years: demo 6's town; a year; saved and kept (a
+    # snapshot); bulldozed; another year; kept again; the years' panel,
+    # and the first year's town back from its snapshot (the map must be
+    # the one first saved)
+    11: "5 p,3 _,{4,1 R,},3 r,3 ^,{12,1 R,},3 ^,"
+        "{13,1 L,},1 U,3 l,3 ^,{8,1 R,},3 ^,{2,1 R,},1 U,3 1,3 _,"
+        "5 =,3 =,{12,30 .,},5 0,5 s,"
+        "5 b,3 ^,{6,1 L,},3 ^,"
+        "5 =,3 =,3 =,{12,30 .,},5 0,5 s,5 y,5 1",
 }
 KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '_': 32, '^': 13, '}': 0xfc}
 
@@ -327,7 +336,7 @@ def build(art, outdir):
     # ---- the demos
     demodir = bytearray()
     demos = bytearray()
-    ndemo = 10
+    ndemo = 11
     for n in range(1, ndemo + 1):
         demodir += struct.pack('<H', 2 * ndemo + len(demos))
         for step in DEMOS.get(n, "1 .").split(','):
@@ -347,13 +356,19 @@ def build(art, outdir):
         m = [sum(px[c] for r in rows for px in r) / 256 for c in range(3)]
         avg.append(min(range(ncol), key=lambda i: sum((rgb[i][c] - m[c]) ** 2 for c in range(3))))
     palb = b''.join(bytes((b, g, r, 0)) for r, g, b in rgb)
+    # dusk: the same colours late on a December day: darker and bluer, and
+    # the windows' glass lit from inside
+    lit = {(0x4c, 0x96, 0x9e): (0xf0, 0xb0, 0x40), (0x9b, 0xd0, 0xc5): (0xff, 0xd8, 0x70)}
+    dusk = [lit.get((r, g, b), (r * 2 // 5, g * 9 // 20, min(255, b * 3 // 5 + 24))) for r, g, b in rgb]
+    duskb = b''.join(bytes((b, g, r, 0)) for r, g, b in dusk)
     parts = [('R_PAL', palb, 'the palette (XRGB8888)'),
+             ('R_DUSK', duskb, 'the palette at dusk (December): darker, the windows lit'),
              ('R_KIND', pad8(bytes(kinds)), 'the kind of each cell picture (K_*)'),
              ('R_BLOB', blob, 'water: a cell\'s 8-neighbour mask -> its picture after T_WATER'),
              ('R_SPR', pad8(bytes(sprdir)), 'sprites: u32 far offset, u16 w, h (rows of (w + 7) & ~7 bytes)'),
              ('R_SND', pad8(bytes(snddir)), 'sounds: u32 far offset, u32 samples'),
              ('R_AVG', pad8(bytes(avg)), 'each cell picture\'s colour, the nearest to its mean (the minimap)'),
-             ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: ten u16 offsets from here, then '
+             ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: eleven u16 offsets from here, then '
               'u8 tics, u8 key (1..4: up, down, left, right; 0xfb: a loop begins, its count and 0 follow; '
               '0xfc: it ends) each; 0 ends one')]
     res = bytearray()

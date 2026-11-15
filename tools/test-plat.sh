@@ -38,6 +38,12 @@
 #              panel: a storm, an earthquake and the coal plant's failure
 #              (rubble, fires, the plant burning); two months; a flood at
 #              the water nearest the town
+#      demo 11 the town's past years: demo 6's town, a year, saved and kept
+#              as a snapshot; bulldozed; another year, kept again; the
+#              years' panel, and the first year's town back from its
+#              snapshot (/@plat1-1900/ws/plat-1.sav): the map must be the
+#              one first saved, not the second. It ends in December: dusk,
+#              the windows lit (demos 3 and 6 end in December too)
 #    (An adviser's portrait and words are in the bar in most of them.)
 #    (A demo's land comes from a fixed seed, so it is always the same land.)
 # 2. `ws plat` on a machine with the sound device (-A: what it plays goes
@@ -59,7 +65,7 @@ BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
 # demo:frame checksum:map checksum:funds:seconds it is given
-PLAT_CRC="1:b82894d8:fe18a8eb:19072:6 2:b1aac2a8:84ce65ce:20000:6 3:952d5eea:52a65110:0:40 4:2a163da0:66999b66:19770:6 5:5c915d00:626c5e68:19016:12 6:2a25c001:68551d85:16659:10 7:db807031:f90434e1:9373:14 8:c71c66c2:626c5e68:19016:12 9:5c447860:626c5e68:19016:12 10:9a63a970:7e88cac3:15694:16"
+PLAT_CRC="1:b82894d8:fe18a8eb:19072:6 2:b1aac2a8:84ce65ce:20000:6 3:16e5185d:52a65110:0:40 4:2a163da0:66999b66:19770:6 5:5c915d00:626c5e68:19016:12 6:cda9d0dd:68551d85:16659:10 7:db807031:f90434e1:9373:14 8:c71c66c2:626c5e68:19016:12 9:5c447860:626c5e68:19016:12 10:9a63a970:7e88cac3:15694:16 11:9bc62554:68551d85:16659:14"
 T=$BUILD/test-plat
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W
@@ -85,6 +91,11 @@ for d in $PLAT_CRC; do
     fail "demo $n did not end with funds $funds and map $map" out$n
   if [ $n = 6 ]; then                   # the saved town came back as it was saved
     grep -q "^plat: saved: map $map\$" $T/out$n.txt || fail "demo 6 did not load the town it saved" out$n
+  fi
+  if [ $n = 11 ]; then                  # the first year kept came back, not the last
+    [ "$(grep -c '^plat: saved: map' $T/out$n.txt)" = 2 ] || fail "demo 11 did not save twice" out$n
+    grep '^plat: saved: map' $T/out$n.txt | head -1 | grep -q "map $map\$" ||
+      fail "demo 11 did not bring back the first year's town" out$n
   fi
   [ -s $T/frame$n.ppm ] || fail "no frame was presented" out$n
   python3 - $T/frame$n.ppm $crc $n <<'PY' || fail "the last frame of demo $n is not the expected picture" out$n
