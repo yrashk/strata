@@ -1539,7 +1539,7 @@ window whose process ends is removed.
   be shown over the town. The simulation, the tools, the budget and the
   file are code units of 2 KiB paged in by the kernel; the band sits
   above them, and the arena is split there (`csplit`) to lend it for
-  DAMAGE. The town is kept in `/ws/plat.sav`, with its population, year
+  DAMAGE. The town is kept in `/ws/plat-1.sav (one of four places)`, with its population, year
   and funds as attributes; buttons have tooltips (the window asks `ws`
   for the pointer's moves with no button held: CREATE mode bit 1). It
   draws XRGB8888 at the window's own size, with cells of 4 to 64 pixels,

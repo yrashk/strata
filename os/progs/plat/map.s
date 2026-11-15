@@ -44,8 +44,6 @@ D_NS     = 1                            ; ... north-south
         .data                           ; D-LS
         .align 8                        ; dwords
 m_word:   .dword 0                      ; the word of the map that holds a cell
-m_water:  .space MAPN * MAPN / 8        ; gen_land: a bit a cell: water
-m_woods:  .space MAPN * MAPN / 8        ; ... woods
 maprow:   .space MAPN * 2               ; a row of the map
         .text                           ; code
 

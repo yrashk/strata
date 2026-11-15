@@ -2,7 +2,7 @@
 ; file.s: Plat's town in a file: saving it, loading it, a new one
 ; =============================================================================
 ;
-; The town is kept in /ws/plat.sav: a header (SV_* below: the state of the
+; The town is kept in /ws/plat-N.sav (N its place: gallery.s): a header (SV_* below: the state of the
 ; random numbers, the date, the treasury, the tax rate, the census, the
 ; demand, the year's money so far) and the map's 32 KiB, which go through
 ; rowbuf a piece at a time. The file then gets attributes, so that a query
@@ -32,8 +32,9 @@ SV_PIECE = 2048                         ; bytes of the map written or read at a 
         .data                           ; D-LS
         .align 8                        ; dwords
 sv_magic: .ascii "PLATSAV1"             ; the header's first word
-sv_name:  .ascii "/ws/plat.sav"         ; the file
+sv_name:  .ascii "/ws/plat-1.sav"       ; the file (its place's digit: sv_slot)
 sv_name_e:                              ; (its end)
+SV_NAME_L = sv_name_e - sv_name         ; ...
 sv_fs:    .ascii "fs"                   ; the file server's name
 sv_ws:    .ascii "ws"                   ; the window server's
 sv_a_pop: .ascii "population\0"         ; the file's attributes
@@ -47,6 +48,13 @@ msg_nofile: .ascii "The town could not be saved.\0" ; a message
 p_dsave:  .ascii "plat: saved: map \0"  ; what a demo says when it saves
         .align 8                        ; ...
         .text                           ; resident code
+; sv_slot(a0 = place 1..4): the town's file is that place's
+sv_slot:
+        addi  a0, a0, '0'               ; ...
+        la    t0, sv_name + 9           ; ...
+        sb    a0, 0(t0)                 ; ...
+        ret                             ; done
+
 town_reset:
         li    t0, FUNDS0                ; ...
         sd    t0, g_funds - g(gp)       ; ...

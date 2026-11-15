@@ -92,7 +92,7 @@ DEMOS = {
     6: "5 p,3 _,{4,1 R,},3 r,3 ^,{12,1 R,},3 ^,"
        "{13,1 L,},1 U,3 l,3 ^,{8,1 R,},3 ^,{2,1 R,},1 U,3 1,3 _,"
        "5 =,3 =,{12,30 .,},5 0,5 s,"
-       "5 b,3 ^,{6,1 L,},3 ^,5 ],5 ],10 o,10 .",
+       "5 b,3 ^,{6,1 L,},3 ^,5 ],5 ],10 o,5 1,10 .",
     # the fuller city: a coal plant, a road, a line, homes, a police
     # station, shops, a fire station, industry, a park, rail across the
     # road, a solar plant; two years; the budget (less for the police and

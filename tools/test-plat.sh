@@ -25,7 +25,8 @@
 #              grows, and the census says how much
 #      demo 6  the town in a file: built, a year, saved (the demo says the
 #              map's checksum), bulldozed and taxed differently, the saved
-#              town loaded again: the map must be the one that was saved
+#              town opened again from the gallery: the map must be the one
+#              that was saved
 #      demo 7  the fuller city: rail across a road, police and fire
 #              stations, a park, a solar plant beside the zones; two
 #              years; the budget (less for the police and the fire
@@ -53,7 +54,7 @@ BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
 # demo:frame checksum:map checksum:funds:seconds it is given
-PLAT_CRC="1:b82894d8:fe18a8eb:19072:6 2:b1aac2a8:84ce65ce:20000:6 3:76a06f9d:52a65110:0:40 4:39915aa9:66999b66:19770:6 5:5d98837e:ea29c68a:17576:12 6:f0ab5e1e:68551d85:16652:10 7:34dadb25:92a2abb7:9077:14 8:81d79295:ea29c68a:17576:12 9:e6e6574a:ea29c68a:17576:12"
+PLAT_CRC="1:b82894d8:fe18a8eb:19072:6 2:b1aac2a8:84ce65ce:20000:6 3:952d5eea:52a65110:0:40 4:2a163da0:66999b66:19770:6 5:c81c0689:ea29c68a:17576:12 6:790c88c0:68551d85:16652:10 7:3fa5c3b6:92a2abb7:9077:14 8:81d79295:ea29c68a:17576:12 9:e6e6574a:ea29c68a:17576:12"
 T=$BUILD/test-plat
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W
@@ -98,7 +99,7 @@ done
 # ---- 2. the pointer, sound, q, and the window server after it
 cp "$DISK" $T/disk.img
 START="ws plat\n$W$W$W$W $W"
-printf "$START$W$W$W$W$W${W}q$W$W${W}echo plat-q-ok > pmark\n$W${AQ}cat pmark\nattr /ws/plat.sav\n" > $T/keys
+printf "$START$W$W$W$W$W${W}q$W$W${W}echo plat-q-ok > pmark\n$W${AQ}cat pmark\nattr /ws/plat-1.sav\n" > $T/keys
 N=$(printf "$START" | wc -c | tr -d ' ')
 N1=$((N + 10)) N2=$((N + 20)) N3=$((N + 30)) N4=$((N + 40))   # (one Alt+Shift+W later, two, ...)
 cat > $T/ptr <<EOF

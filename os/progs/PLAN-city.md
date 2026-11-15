@@ -395,7 +395,13 @@ Original art avoids both.
 - [x] Tier 3: the cell under the pointer outlined (the pointer's moves
       with no button held, from `ws`); fires that start by chance, spread,
       burn out to rubble, kept down by fire cover, put out by the bulldozer
+- [x] The D-LS freed: the work buffers in the library's standard input
+      and output buffers (plat reads none, and writes unbuffered)
+- [x] The placement's preview: the tool's footprint at the cursor or the
+      pointer, green if it can be used there (and paid for), red if not
+- [x] Several towns: four places (/ws/plat-1.sav .. -4.sav) and a
+      gallery (O): how many are kept (a query, /ws/year>0) and each
+      one's attributes (GETATTR)
 - [ ] Tier 3, still open: other events (flood, earthquake, a plant's
-      failure, a storm), scenarios, a terrain editor, several cities and a
-      gallery, history through snapshots, dusk. The D-LS is nearly full
-      (39.5 of 40 KiB): what follows needs data moved out of it first
+      failure, a storm), scenarios, a terrain editor, history through
+      snapshots, dusk
