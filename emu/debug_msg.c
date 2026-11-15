@@ -151,6 +151,8 @@ typedef struct {
   uint64_t pos;                  /* its header and data in the pool */
   uint32_t n;
 } MHalf;
+enum { MK_KERNEL, MK_SERVER, MK_PROC };
+static const char *const mk_names[] = {"kernel", "server", "process"};
 typedef struct {
   uint64_t seq, ver;
   uint64_t base;                 /* the buffer (T3) */
@@ -159,6 +161,7 @@ typedef struct {
   char rname[16];
   char srv[8];                   /* the table its op is named from */
   bool replied;
+  uint8_t qkind;                 /* the sender: MK_KERNEL, MK_SERVER (some core's server), MK_PROC */
   MHalf q, r;
 } Msg;
 static Msg *msg_ring;            /* MSG_N of them */
@@ -379,6 +382,7 @@ static void dbg_inbox(const Core *dst, const Cap *k, int from) {
   m->rpid = (int16_t)(dst->id == 0 ? 0 : msg_server_of(dst->id));
   msg_who(m->rpid, m->rname, sizeof m->rname);
   m->q.pid = (int16_t)pid;
+  m->qkind = pid == 0 ? MK_KERNEL : pid > 0 && pid == msg_server_of(from) ? MK_SERVER : MK_PROC;
   msg_who(pid, m->q.name, sizeof m->q.name);
   m->q.op = t3_word(k->base);
   msg_srv(m);
@@ -507,6 +511,14 @@ static void msg_summary(const Msg *m, bool reply, char *o, size_t n) {
   if (k >= n) o[n - 1] = 0;
 }
 
+/* Names not known when a message moved (a server's, early in the boot, before
+ * proc's table has it), looked up again when it is shown. */
+static void msg_fill(Msg *m) {
+  if (m->q.name[0] == '?' && m->q.pid > 0) msg_who(m->q.pid, m->q.name, sizeof m->q.name);
+  if (m->rname[0] == '?' && m->rpid > 0) msg_who(m->rpid, m->rname, sizeof m->rname);
+  if (m->replied && m->r.name[0] == '?' && m->r.pid > 0) msg_who(m->r.pid, m->r.name, sizeof m->r.name);
+}
+
 static void jw_att(JW *w, const MHalf *h) {
   if (!h->natt) return;
   jw_arr(w, "att");
@@ -537,9 +549,14 @@ static void msg_json(JW *w, const char *key, const Msg *m, bool hex) {
   jw_uint(w, "seq", m->seq);
   jw_hex(w, "buf", m->base);
   jw_str(w, "server", m->srv);
+  jw_int(w, "from", m->q.pid);
+  jw_str(w, "fromname", m->q.name);
+  jw_str(w, "fromkind", mk_names[m->qkind]);
+  jw_int(w, "fromcore", m->q.core);
   jw_int(w, "to", m->rpid);
   jw_str(w, "toname", m->rname);
   jw_int(w, "tocore", m->dcore);
+  jw_str(w, "tokind", m->rpid == 0 ? "kernel" : "server");
   jw_uint(w, "op", m->q.op);
   if (op) jw_str(w, "name", op->name);
   jw_half(w, m, &m->q, false);
@@ -559,11 +576,21 @@ static void msg_json(JW *w, const char *key, const Msg *m, bool hex) {
   jw_oend(w);
 }
 
-/* the filters of `msgs` and `msgstats`: server, pid (or a process's name), op (number or name), core */
-typedef struct { const char *server, *proc, *opname; int pid, op, core; bool waiting; } MFilter;
+/* the filters of `msgs` and `msgstats`: from (the sender), to (the receiver), server (the
+ * receiver or its table), pid (either side; a pid or a name), op (number or name), core */
+typedef struct { const char *server, *proc, *opname, *fromname, *toname; int pid, op, core, frompid, topid; bool waiting; } MFilter;
+/* a pid, or a name (kernel: pid 0) */
+static void mwho(const JVal *v, const char **name, int *pid) {
+  if (!v) return;
+  if (v->t == J_STR && !strcasecmp(v->s, "kernel")) *pid = 0;
+  else if (v->t == J_STR && !isdigit((unsigned char)v->s[0])) *name = v->s;
+  else *pid = json_int(v, -1);
+}
 static void mfilter(const JVal *rq, MFilter *f) {
   memset(f, 0, sizeof *f);
-  f->pid = f->op = f->core = -1;
+  f->pid = f->op = f->core = f->frompid = f->topid = -1;
+  mwho(json_get(rq, "from"), &f->fromname, &f->frompid);
+  mwho(json_get(rq, "to"), &f->toname, &f->topid);
   f->server = json_str(json_get(rq, "server"), NULL);
   const JVal *p = json_get(rq, "pid"), *o = json_get(rq, "op");
   if (p && p->t == J_STR && !isdigit((unsigned char)p->s[0])) f->proc = p->s;
@@ -574,6 +601,10 @@ static void mfilter(const JVal *rq, MFilter *f) {
   f->waiting = json_bool(json_get(rq, "waiting"), false);
 }
 static bool mfilter_ok(const MFilter *f, const Msg *m) {
+  if (f->frompid >= 0 && m->q.pid != f->frompid) return false;
+  if (f->fromname && strcasecmp(f->fromname, m->q.name)) return false;
+  if (f->topid >= 0 && m->rpid != f->topid) return false;
+  if (f->toname && strcasecmp(f->toname, m->rname) && strcasecmp(f->toname, m->srv)) return false;
   if (f->server && strcasecmp(f->server, m->rname) && strcasecmp(f->server, m->srv)) return false;
   if (f->pid >= 0 && m->q.pid != f->pid && m->rpid != f->pid) return false;
   if (f->proc && strcmp(f->proc, m->q.name) && strcmp(f->proc, m->rname)) return false;
@@ -587,7 +618,7 @@ static bool mfilter_ok(const MFilter *f, const Msg *m) {
   return true;
 }
 
-/* `msgs {since, max, server, pid, op, core, waiting}` */
+/* `msgs {since, max, from, to, server, pid, op, core, waiting}` */
 static void msgs_json(JW *w, const JVal *rq) {
   uint64_t since = json_u64(json_get(rq, "since"), 0), max = json_u64(json_get(rq, "max"), 500);
   MFilter f;
@@ -600,7 +631,8 @@ static void msgs_json(JW *w, const JVal *rq) {
   /* the newest `max` of those changed since `since` */
   uint64_t start = msg_seq, cnt = 0;
   while (start > msg_lo && cnt < max) {
-    const Msg *m = &msg_ring[(start - 1) % MSG_N];
+    Msg *m = &msg_ring[(start - 1) % MSG_N];
+    msg_fill(m);
     if (m->ver > since && mfilter_ok(&f, m)) cnt++;
     start--;
   }
@@ -618,24 +650,27 @@ static void msgs_json(JW *w, const JVal *rq) {
   jw_aend(w);
 }
 
-/* `msgstats {server, pid, op, core}`: per receiver and op */
+/* `msgstats {from, to, server, pid, op, core}`: per sender, receiver and op */
 static void msgstats_json(JW *w, const JVal *rq) {
   MFilter f;
   mfilter(rq, &f);
-  typedef struct { char srv[8], to[16]; uint64_t op, n, replied, errors, rt, rtmax; } St;
+  typedef struct { char srv[8], from[16], to[16]; uint8_t fkind; uint64_t op, n, replied, errors, rt, rtmax; } St;
   static St st[512];
   int ns = 0;
   for (uint64_t s = msg_lo; s < msg_seq; s++) {
-    const Msg *m = &msg_ring[s % MSG_N];
+    Msg *m = &msg_ring[s % MSG_N];
+    msg_fill(m);
     if (!mfilter_ok(&f, m)) continue;
     int i;
     for (i = 0; i < ns; i++)
-      if (st[i].op == m->q.op && !strcmp(st[i].to, m->rname) && !strcmp(st[i].srv, m->srv)) break;
+      if (st[i].op == m->q.op && !strcmp(st[i].to, m->rname) && !strcmp(st[i].srv, m->srv) && !strcmp(st[i].from, m->q.name)) break;
     if (i == ns) {
       if (ns == (int)(sizeof st / sizeof *st)) continue;
       memset(&st[ns], 0, sizeof *st);
       snprintf(st[ns].srv, sizeof st[ns].srv, "%s", m->srv);
       snprintf(st[ns].to, sizeof st[ns].to, "%s", m->rname);
+      snprintf(st[ns].from, sizeof st[ns].from, "%s", m->q.name);
+      st[ns].fkind = m->qkind;
       st[ns++].op = m->q.op;
     }
     st[i].n++;
@@ -647,10 +682,11 @@ static void msgstats_json(JW *w, const JVal *rq) {
       if ((int64_t)m->r.result < 0) st[i].errors++;
     }
   }
-  /* by receiver, then op */
+  /* by receiver, then op, then sender */
   for (int i = 1; i < ns; i++)
     for (int j = i; j > 0; j--) {
       int c = strcmp(st[j - 1].to, st[j].to);
+      if (c == 0 && st[j - 1].op == st[j].op) c = strcmp(st[j - 1].from, st[j].from) <= 0 ? -1 : 1;
       if (c < 0 || (c == 0 && st[j - 1].op <= st[j].op)) break;
       St t = st[j]; st[j] = st[j - 1]; st[j - 1] = t;
     }
@@ -660,6 +696,8 @@ static void msgstats_json(JW *w, const JVal *rq) {
   for (int i = 0; i < ns; i++) {
     const MOp *op = mop_find(st[i].srv, (int)st[i].op);
     jw_obj(w, NULL);
+    jw_str(w, "from", st[i].from);
+    jw_str(w, "fromkind", mk_names[st[i].fkind]);
     jw_str(w, "to", st[i].to);
     jw_str(w, "server", st[i].srv);
     jw_uint(w, "op", st[i].op);

@@ -11,7 +11,9 @@
 # build/msgops.txt), paired with its reply: the shell's SPAWN to proc,
 # proc's CREATE to the kernel and the kernel's EXITED back, the QUERY of ls,
 # cat's OPEN and READ of the file (the bytes it read), the pipe made by the
-# shell, seq's WRITE into it and wc's READ of the same bytes. Then live mode
+# shell, seq's WRITE into it and wc's READ of the same bytes; servers sending
+# to servers (proc to fs, tty) and the kernel sending (EXITED); the filters by
+# sender and receiver, and the summary per sender, receiver and op. Then live mode
 # while the machine runs on; going back in time drops the messages after the
 # new position, and running forward again to the same stop gives the same
 # ones.
@@ -33,6 +35,8 @@ msgs 400
 msgs stats
 msg op PIPE
 msgs 3 server pipe
+msgs 4 from proc to fs
+msgs 30 from sh
 reverse-step-round 20000
 msgs 1
 continue
@@ -46,7 +50,7 @@ EOF
 # pause ends it, after a few seconds; a session that hangs is ended after 300 s)
 ( sleep 300 & echo $! > "$tmp/guard"; wait; pkill -f "strata-emu.*$tmp/disk.img" ) 2>/dev/null &
 (
-  cat "$tmp/cmd" | head -n 14
+  cat "$tmp/cmd" | head -n 16
   sleep 3
   printf 'quit\n'
 ) | "$b/strata-dbg" -c 8 -j -T virtual -g none -d "$tmp/disk.img" --os "$b" "$rom" > "$tmp/out" 2>&1 &
@@ -83,43 +87,52 @@ def find(frm, to, op, data=None, reply=None):
            (data is None or re.search(data, r[11])) and (reply is None or re.search(reply, r[12])):
             return r
     bad.append("%s -> %s %s%s%s" % (frm, to, op, " " + data if data else "", " => " + reply if reply else ""))
-find(r"sh\(\d+\)", r"proc\(1\)", "SPAWN", None, r"^\d+ ")
-find(r"proc\(1\)", "kernel", "CREATE", r"pid=\d+", r"^0 +first_core=\d")
-find(r"proc\(1\)", "kernel", "MEMORY", None, r"^0 +base=0x[0-9a-f]+ size=0x100000 +\+live t3")
-find(r"proc\(1\)", r"fs\(3\)", "LOADIMG", r'path="ls"', r'"/bin/ls"')
-find(r"kernel\(0\)", r"proc\(1\)", "EXITED", None, r"^0 ")
-find(r"ls\(\d+\)", r"fs\(3\)", "QUERY", r'path="/etc"', r"^\d+ ")
-find(r"cat\(\d+\)", r"fs\(3\)", "OPEN", r'path="/doc/motd"', r"^1 ")
-find(r"cat\(\d+\)", r"fs\(3\)", "READ", None, r'^\d+ +bytes_read="')
-find(r"cat\(\d+\)", r"tty\(4\)", "WRITE", r'bytes_to_write="')
-find(r"sh\(\d+\)", r"pipe\(5\)", "PIPE", None, r"^\d+ ")
-find(r"seq\(\d+\)", r"pipe\(5\)", "WRITE", r'bytes_to_write="1\\n2\\n3\\n"', r"^6 ")
-find(r"wc\(\d+\)", r"pipe\(5\)", "READ", None, r'^6 +bytes_read="1\\n2\\n3\\n"')
-find(r"sh\(\d+\)", r"tty\(4\)", "READ", None, r'^1 +bytes_read="p"')
+find(r"sh\(\d+\)", "proc", "SPAWN", None, r"^\d+ ")
+find("proc", "kernel", "CREATE", r"pid=\d+", r"^0 +first_core=\d")
+find("proc", "kernel", "MEMORY", None, r"^0 +base=0x[0-9a-f]+ size=0x100000 +\+live t3")
+find("proc", "fs", "LOADIMG", r'path="ls"', r'"/bin/ls"')
+find("kernel", "proc", "EXITED", None, r"^0 ")
+find("proc", "tty", "DUPS", r"owner_pid=\d+", r"^0 ")
+find(r"ls\(\d+\)", "fs", "QUERY", r'path="/etc"', r"^\d+ ")
+find(r"cat\(\d+\)", "fs", "OPEN", r'path="/doc/motd"', r"^1 ")
+find(r"cat\(\d+\)", "fs", "READ", None, r'^\d+ +bytes_read="')
+find(r"cat\(\d+\)", "tty", "WRITE", r'bytes_to_write="')
+find(r"sh\(\d+\)", "pipe", "PIPE", None, r"^\d+ ")
+find(r"seq\(\d+\)", "pipe", "WRITE", r'bytes_to_write="1\\n2\\n3\\n"', r"^6 ")
+find(r"wc\(\d+\)", "pipe", "READ", None, r'^6 +bytes_read="1\\n2\\n3\\n"')
+find(r"sh\(\d+\)", "tty", "READ", None, r'^1 +bytes_read="p"')
 # every reply comes from the receiver (or the kernel), after its request
 for r in rows:
     m = re.search(r"\[(\S+)\(\d+\) core (\d+), (\d+) ticks", r[12])
-    if m and r[5] != "kernel" and not r[5].startswith(m.group(1) + "("):
+    if m and m.group(1) != r[5]:
         bad.append("#%s: the reply comes from %s, not %s" % (r[0], m.group(1), r[5]))
 waiting = [r for r in rows if r[12].startswith("(waiting)")]
 if len(waiting) > 2:
     bad.append("%d requests without a reply" % len(waiting))
 # the summary, the whole message, filters
-need("stats", r"^pipe +PIPE 8 +1 +1 +0 ")
-need("stats: tty READ", r"^tty +READ 1 +\d+ +\d+ +0 ")
+need("stats", r"^ +sh -> pipe +PIPE 8 +1 +1 +0 ")
+need("stats: tty READ", r"^ +sh -> tty +READ 1 +\d+ +\d+ +0 ")
+need("stats: a server to a server", r"^ +proc -> fs +LOADIMG 28 +\d+ +\d+ +0 ")
+need("stats: the kernel to a server", r"^ +kernel -> proc +EXITED 7 +\d+ ")
+# filters by sender and receiver
+fl = t[t.find("(sdb) msgs 4 from proc to fs"):]
+fl = fl[:fl.find("(sdb)", 5)]
+if len(re.findall(r"^#\d+ .* proc -> fs ", fl, re.M)) != 4 or re.search(r"^#\d+ (?!.* proc -> fs )", fl, re.M):
+    bad.append("msgs from proc to fs")
+need("msgs from sh", r"^#\d+ .* sh\(\d+\) -> pipe +PIPE 8")
 need("msg op PIPE", r"^request: buffer t3 0x[0-9a-f]+, 0 data bytes kept")
 need("msg op PIPE: the header", r"^  0000  08 00 00 00 00 00 00 00 ")
 need("msg op PIPE: the reply", r"^reply: tick \d+")
 need("msgs server pipe", r"\(3 shown; ")
 # time travel: fewer messages back there, the same ones again at the same stop
 counts = [int(n) for n in re.findall(r"\(\d+ shown; (\d+) messages since power-on", t)]
-if len(counts) < 4 or not (counts[2] < counts[0] and counts[3] == counts[0]):
+if len(counts) < 6 or not (counts[-2] < counts[0] and counts[-1] == counts[0]):
     bad.append("messages through time travel: %s" % counts)
 # live, while ps runs to its end: the kernel's EXITED for it, and the reply to
 # the shell's SPAWN of it (listed before the stop, answered since)
 need("live", r"while the machine runs: StrataOS's messages are shown every 250 ms")
 live = t[t.find("while the machine runs: StrataOS"):]
-need("live: EXITED", r"kernel\(0\) +-> proc\(1\) +EXITED 7", live)
+need("live: EXITED", r"kernel +-> proc +EXITED 7", live)
 need("live: the SPAWN's reply", r"^#\d+ +<= \d+ +\[proc\(1\) core 1", live)
 if bad:
     print("test-dbg-msgs: FAILED: " + "; ".join(bad))

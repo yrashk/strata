@@ -2287,7 +2287,8 @@ static void dbg_request(const char *line, size_t len, JW *w) {
     else if (!strcmp(cmd, "msgs")) msgs_json(w, rq);
     else if (!strcmp(cmd, "msgstats")) msgstats_json(w, rq);
     else {
-      const Msg *m = msg_get(json_u64(json_get(rq, "seq"), ~0ull));
+      Msg *m = msg_get(json_u64(json_get(rq, "seq"), ~0ull));
+      if (m) msg_fill(m);
       if (!m) snprintf(err, sizeof err, "no message %llu (kept: %llu..%llu)", (unsigned long long)json_u64(json_get(rq, "seq"), 0),
                        (unsigned long long)msg_lo, (unsigned long long)(msg_seq ? msg_seq - 1 : 0));
       else {

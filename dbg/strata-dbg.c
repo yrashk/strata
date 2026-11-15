@@ -915,13 +915,17 @@ static void live_tick(void) {
 static char msgs_filt[512]; /* for the live printout: `"server":"fs",...` */
 static unsigned long long msgs_since, msgs_upto; /* the version shown; the messages printed whole (seq) */
 
-/* Parses filters from args into w (server|to NAME, pid|proc N|NAME, op N|NAME, core N, waiting);
+/* Parses filters from args into w (from N|NAME, to N|NAME, server NAME, pid|proc N|NAME, op N|NAME,
+ * core N, waiting);
  * a word that is none of them is returned (NULL: none). */
 static char *msgs_filters(char **args, JW *w) {
   char *k;
   while ((k = word(args))) {
     char *v;
-    if ((!strcmp(k, "server") || !strcmp(k, "to")) && (v = word(args))) jw_str(w, "server", v);
+    if ((!strcmp(k, "from") || !strcmp(k, "to")) && (v = word(args))) {
+      if (isdigit((unsigned char)v[0])) jw_int(w, k, atoi(v));
+      else jw_str(w, k, v);
+    } else if (!strcmp(k, "server") && (v = word(args))) jw_str(w, "server", v);
     else if ((!strcmp(k, "pid") || !strcmp(k, "proc") || !strcmp(k, "process")) && (v = word(args))) {
       if (isdigit((unsigned char)v[0])) jw_int(w, "pid", atoi(v));
       else jw_str(w, "pid", v);
@@ -953,16 +957,20 @@ static void msg_reply_line(const JVal *m, const char *lead) {
           json_int(json_get(r, "core"), 0), (unsigned long long)json_u64(json_get(r, "rt"), 0),
           (unsigned long long)json_u64(json_get(r, "rt_rounds"), 0));
 }
+/* who sent or received a message: a process as name(pid), a server by its name, the kernel */
+static void msg_party(char *b, size_t n, const char *name, int pid, const char *kind) {
+  if (!strcmp(kind, "process")) snprintf(b, n, "%s(%d)", name, pid);
+  else snprintf(b, n, "%s", name);
+}
 /* a message: the request on one line, the reply on the next */
 static void msg_line(const JVal *m) {
   char op[48];
   if (*S(m, "name")) snprintf(op, sizeof op, "%s %llu", S(m, "name"), (unsigned long long)json_u64(json_get(m, "op"), 0));
   else snprintf(op, sizeof op, "op %llu", (unsigned long long)json_u64(json_get(m, "op"), 0));
   char from[40], to[40];
-  snprintf(from, sizeof from, "%s(%d)", S(m, "proc"), json_int(json_get(m, "pid"), 0));
-  if (json_int(json_get(m, "to"), -1) > 0) snprintf(to, sizeof to, "%s(%d)", S(m, "toname"), json_int(json_get(m, "to"), 0));
-  else snprintf(to, sizeof to, "%s", S(m, "toname"));
-  fprintf(out, "#%-6llu t %-10llu core %d->%d  %-10s -> %-9s %-12s h %lld len %lld mode %lld", (unsigned long long)json_u64(json_get(m, "seq"), 0),
+  msg_party(from, sizeof from, S(m, "fromname"), json_int(json_get(m, "from"), 0), S(m, "fromkind"));
+  msg_party(to, sizeof to, S(m, "toname"), json_int(json_get(m, "to"), 0), S(m, "tokind"));
+  fprintf(out, "#%-6llu t %-10llu core %d->%d  %10s -> %-7s %-12s h %lld len %lld mode %lld", (unsigned long long)json_u64(json_get(m, "seq"), 0),
           (unsigned long long)json_u64(json_get(m, "tick"), 0), json_int(json_get(m, "core"), 0), json_int(json_get(m, "tocore"), 0),
           from, to, op, (long long)json_u64(json_get(m, "handle"), 0), (long long)json_u64(json_get(m, "len"), 0),
           (long long)json_u64(json_get(m, "mode"), 0));
@@ -989,12 +997,12 @@ static void cmd_msgs(char *args) {
     JVal *r = request(&w);
     free(w.p);
     if (ok(r)) {
-      fprintf(out, "%-9s %-12s %7s %7s %6s %12s %12s\n", "to", "op", "sent", "replied", "errors", "avg ticks", "max ticks");
+      fprintf(out, "%10s    %-7s %-12s %7s %7s %6s %12s %12s\n", "from", "to", "op", "sent", "replied", "errors", "avg ticks", "max ticks");
       const JVal *st = json_get(r, "stats");
       for (const JVal *e = st ? st->kid : NULL; e; e = e->next) {
         char op[48];
         snprintf(op, sizeof op, "%s %llu", *S(e, "name") ? S(e, "name") : "op", (unsigned long long)json_u64(json_get(e, "op"), 0));
-        fprintf(out, "%-9s %-12s %7llu %7llu %6llu %12llu %12llu\n", S(e, "to"), op, (unsigned long long)json_u64(json_get(e, "n"), 0),
+        fprintf(out, "%10s -> %-7s %-12s %7llu %7llu %6llu %12llu %12llu\n", S(e, "from"), S(e, "to"), op, (unsigned long long)json_u64(json_get(e, "n"), 0),
                 (unsigned long long)json_u64(json_get(e, "replied"), 0), (unsigned long long)json_u64(json_get(e, "errors"), 0),
                 (unsigned long long)json_u64(json_get(e, "avg_rt"), 0), (unsigned long long)json_u64(json_get(e, "max_rt"), 0));
       }
@@ -1037,7 +1045,7 @@ static void cmd_msgs(char *args) {
   jw_int(&w, "max", n);
   char *bad = msgs_filters(&a, &w);
   jw_oend(&w);
-  if (bad) { fprintf(out, "msgs: what is %s? (msgs [N] [server NAME] [pid N|NAME] [op NAME|N] [core N] [waiting])\n", bad); free(w.p); return; }
+  if (bad) { fprintf(out, "msgs: what is %s? (msgs [N] [from N|NAME] [to N|NAME] [pid N|NAME] [op NAME|N] [core N] [waiting])\n", bad); free(w.p); return; }
   JVal *r = request(&w);
   free(w.p);
   if (ok(r)) {
@@ -1481,10 +1489,11 @@ static void help(void) {
         "                          (in the split screen: the view is redrawn, changed pieces in yellow)\n"
         "StrataOS's messages (each request to the kernel or a server, and its reply)\n"
         "  msgs [N] [FILTERS]      the last N (20): sender -> receiver, op, header, data; => the reply\n"
-        "                          FILTERS: server NAME, pid N|NAME, op NAME|N, core N, waiting\n"
+        "                          FILTERS: from N|NAME (the sender: a process, a server, kernel),\n"
+        "                          to NAME|N (the receiver), pid N|NAME (either), op NAME|N, core N, waiting\n"
         "  msgs live [on|off|MS] [FILTERS]   while the machine runs: messages as they come, replies\n"
         "                          to earlier ones as `#SEQ <= ...`;  msgs pause, msgs resume\n"
-        "  msgs stats [FILTERS]    per receiver and op: how many, replied, errors, round-trip ticks\n"
+        "  msgs stats [FILTERS]    per sender, receiver and op: how many, replied, errors, round trips\n"
         "  msg SEQ | msg FILTERS   one message whole (or the newest that matches): its header and\n"
         "                          data in hex, both ways\n"
         "  x/N[bhwgsi] [dls:|ils:|t2:|t3:|disk:]ADDR|LOC\n"

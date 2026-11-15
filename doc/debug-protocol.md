@@ -317,23 +317,28 @@ file, messages come without names or decoded data (`names: false`).
 
 | Request | Answer |
 |---|---|
-| `msgs {since, max, server, pid, op, core, waiting}` | the messages that are new or newly answered since version `since` (0: all kept), the newest `max` (500) of them, oldest first: `version` (pass it as the next `since`), `first` (the oldest kept), `next` (the next sequence number: a front-end drops what it has from `next` on, after time travel), `moved`, `names`, `truncated` (more changed than `max`), `msgs`. Filters: `server` (the receiver's name or table: kernel, proc, fs, ...), `pid` (a pid or a process name, sender or receiver), `op` (a number or a name), `core` (sending or receiving), `waiting` (only those without a reply). Answered while the machine runs. |
+| `msgs {since, max, from, to, server, pid, op, core, waiting}` | the messages that are new or newly answered since version `since` (0: all kept), the newest `max` (500) of them, oldest first: `version` (pass it as the next `since`), `first` (the oldest kept), `next` (the next sequence number: a front-end drops what it has from `next` on, after time travel), `moved`, `names`, `truncated` (more changed than `max`), `msgs`. Filters: `from` (the sender: a pid, a process's or a server's name, or `kernel`), `to` (the receiver: the same), `server` (the receiver's name or the table its op is named from: kernel, proc, fs, ..., system), `pid` (a pid or a name, sender or receiver), `op` (a number or a name), `core` (sending or receiving), `waiting` (only those without a reply). Answered while the machine runs. |
 | `msg {seq}` | `msg`: one message, as below, with `hex`: its header and data (request and reply), as kept |
-| `msgstats {server, pid, op, core}` | `stats`: per receiver and op, `to`, `server`, `op`, `name`, `n`, `replied`, `errors` (negative results), `avg_rt`, `max_rt` (round trips in ticks), over the messages kept |
+| `msgstats {from, to, server, pid, op, core}` | `stats`: per sender, receiver and op, `from`, `fromkind`, `to`, `server`, `op`, `name`, `n`, `replied`, `errors` (negative results), `avg_rt`, `max_rt` (round trips in ticks), over the messages kept |
 
 A message:
 
 ```json
-{"seq":69,"buf":"0x7ff000","server":"fs","to":3,"toname":"fs","tocore":3,"op":3,"name":"OPEN",
+{"seq":69,"buf":"0x7ff000","server":"fs","from":8,"fromname":"cat","fromkind":"process","fromcore":3,
+ "to":3,"toname":"fs","tocore":3,"tokind":"server","op":3,"name":"OPEN",
  "tick":8876699,"round":1109588,"instret":431207,"core":3,"pid":8,"proc":"cat",
  "handle":0,"len":10,"mode":0,"data":"path=\"/doc/about\"","bytes":10,
  "reply":{"result":1,"tick":8953827,"round":1119227,"instret":...,"core":3,"pid":3,"proc":"fs",
           "handle":0,"len":0,"mode":0,"bytes":0,"rt":77128,"rt_rounds":9639}}
 ```
 
-The request's `core`, `pid` and `proc` are the sender's (pid 0: the
-kernel), `to` / `toname` / `tocore` the receiver (the server of that core,
-or the kernel); the reply's are the process that answered. `handle`, `len`,
+`from` / `fromname` / `fromcore` are the sender (also the request's `pid`,
+`proc`, `core`): its pid (0: the kernel), its name, its core; `fromkind`
+says what it is: `kernel`, `server` (the server of the core it sent from:
+servers send to each other and to the kernel, as proc asks fs to load a
+program or tty asks dev for the console) or `process`. `to` / `toname` /
+`tocore` / `tokind` are the receiver: the server of the core it went to, or
+the kernel. The reply's `pid`, `proc`, `core` are the process that answered. `handle`, `len`,
 `mode` are header words 8, 16, 24; `result` is word 32 of the reply, with
 `error` (its meaning) when it is negative. `att`: the capabilities attached
 (as in `caps`). `rt`: the round trip in ticks, `rt_rounds` in rounds

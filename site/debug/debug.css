@@ -223,13 +223,16 @@ main.dbg.docked { max-width: 2200px; }
 .msgfilt { padding: 8px 18px 0; }
 .msgbox { max-height: 340px; overflow: auto; margin: 8px 0 0; }
 .msgtab { width: 100%; border-collapse: collapse; font: 12px/1.45 var(--mono); }
-.msgtab th { position: sticky; top: 0; background: rgba(12, 22, 38, 0.98); color: var(--dim); font-weight: 400; text-align: left; padding: 2px 8px; }
+.msgtab th { white-space: nowrap; position: sticky; top: 0; background: rgba(12, 22, 38, 0.98); color: var(--dim); font-weight: 400; text-align: left; padding: 2px 8px; }
 .msgtab td { padding: 1px 8px; white-space: nowrap; max-width: 30ch; overflow: hidden; text-overflow: ellipsis; }
 .msgtab tr { cursor: pointer; }
 .msgtab tbody tr:hover { background: rgba(77, 225, 255, 0.06); }
 .msgtab tr.sel { background: rgba(255, 179, 71, 0.14); }
 .msgtab .k { color: var(--cyan); }
 .msgtab .opn { color: #fff; font-weight: 600; }
+.msgtab td.who { color: #fff; }
+.msgtab .srv { color: var(--cyan); font-weight: 600; }
+.msgtab .kern { color: var(--amber); font-weight: 600; }
 .msgtab .err { color: #ff6b6b; }
 .msgtab .wait { color: var(--amber); }
 .msgtab .d { color: var(--dim); }

@@ -187,7 +187,7 @@ function arrange() {
   // (the messages: over the page's lower right, the rest as below)
   const msg = all.find((f) => f.kind === "msgs"), auto = all.filter((f) => f.kind !== "msgs");
   if (msg) {
-    const w = Math.min(1100, innerWidth - 48), h = Math.min(460, innerHeight * 0.48);
+    const w = Math.min(1200, innerWidth - 48), h = Math.min(720, innerHeight * 0.72);
     msg.put({ x: innerWidth - w - 24, y: innerHeight - h - 24, w, h });
   }
   if (!auto.length) return;
@@ -1147,14 +1147,14 @@ addEventListener("keydown", (e) => {
 const MSG_KEEP = 2000;
 let msgSince = 0, msgRows = new Map(), msgSel = -1, msgPaused = false, msgSum = false;
 function msgFilter() {
-  const f = {}, srv = $("mf-server").value, p = $("mf-proc").value.trim(), o = $("mf-op").value.trim();
-  if (srv) f.server = srv;
-  if (p) f.pid = /^\d+$/.test(p) ? +p : p;
+  const f = {}, to = $("mf-server").value, fr = $("mf-from").value.trim(), o = $("mf-op").value.trim();
+  if (to) f.to = to;
+  if (fr) f.from = /^\d+$/.test(fr) ? +fr : fr;
   if (o) f.op = /^\d+$/.test(o) ? +o : o.toUpperCase();
   if ($("mf-wait").checked) f.waiting = true;
   return f;
 }
-const MSG_HEAD = "<tr><th>#</th><th>tick</th><th>from</th><th>to</th><th>op</th><th title=\"handle · length · mode\">h · len · mode</th><th>data</th><th>reply</th><th>reply data</th><th>rt</th></tr>";
+const MSG_HEAD = "<tr><th>#</th><th>tick</th><th>from (sender)</th><th>to (receiver)</th><th>op</th><th title=\"handle · length · mode\">h · len · mode</th><th>data</th><th>reply</th><th>reply data</th><th>rt</th></tr>";
 function msgReset() { $("msghead").innerHTML = MSG_HEAD; msgSince = 0; msgRows = new Map(); msgSel = -1; $("msglist").textContent = ""; $("msghex").textContent = ""; }
 async function refreshMsgs() {
   if (!hello || !hello.msgs || msgPaused || !conn) return;
@@ -1168,7 +1168,9 @@ async function refreshMsgs() {
   while (msgRows.size > MSG_KEEP) msgRows.delete(msgRows.keys().next().value);
   drawMsgs(r);
 }
-const who = (name, pid) => esc(name) + (pid > 0 ? `<span class="d">(${pid})</span>` : "");
+// a process as name(pid); a server by its name (bold); the kernel
+const who = (name, pid, kind) => (kind === "name" ? esc(name) : kind === "process" ? esc(name) + `<span class="d">(${pid})</span>` :
+  `<span class="${kind === "kernel" ? "kern" : "srv"}">${esc(name)}</span>`);
 function drawMsgs(r) {
   const box = $("msgbox"), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
   const rows = [...msgRows.values()].sort((a, b) => a.seq - b.seq);
@@ -1180,7 +1182,7 @@ function drawMsgs(r) {
       `<td class="${p.result < 0 ? "err" : "k"}" title="${esc(p.error || "")}">${p.result}${p.error ? " " + esc(p.error) : ""}</td>` +
       `<td title="${esc((p.data || "") + att(p.att))}">${esc(p.data || "")}${esc(att(p.att))}</td><td class="rn" title="${p.rt_rounds} rounds">${p.rt}</td>`;
     html += `<tr data-seq="${m.seq}"${m.seq === msgSel ? ' class="sel"' : ""}><td class="d">${m.seq}</td><td class="d rn">${m.tick}</td>` +
-      `<td>${who(m.proc, m.pid)} <span class="d">c${m.core}</span></td><td>${who(m.toname, m.to)} <span class="d">c${m.tocore}</span></td>` +
+      `<td class="who">${who(m.fromname, m.from, m.fromkind)} <span class="d">c${m.fromcore}</span></td><td class="who">→ ${who(m.toname, m.to, m.tokind)} <span class="d">c${m.tocore}</span></td>` +
       `<td><span class="opn">${esc(m.name || "op")}</span> <span class="d">${m.op}</span></td><td class="d">${m.handle} · ${m.len} · ${m.mode > 0xffff ? h(m.mode) : m.mode}</td>` +
       `<td title="${esc((m.data || "") + att(m.att))}">${esc(m.data || "")}${esc(att(m.att))}</td>${res}</tr>`;
   }
@@ -1191,8 +1193,9 @@ function drawMsgs(r) {
 async function refreshMsgSum() {
   const r = await conn.request("msgstats", msgFilter());
   if (!r.ok) return;
-  $("msghead").innerHTML = "<tr><th>to</th><th>op</th><th>sent</th><th>replied</th><th>errors</th><th>average round trip (ticks)</th><th>longest</th></tr>";
-  $("msglist").innerHTML = r.stats.map((s) => `<tr><td>${esc(s.to)}</td><td><span class="opn">${esc(s.name || "op")}</span> <span class="d">${s.op}</span></td>` +
+  $("msghead").innerHTML = "<tr><th>from (sender)</th><th>to (receiver)</th><th>op</th><th>sent</th><th>replied</th><th>errors</th><th>average round trip (ticks)</th><th>longest</th></tr>";
+  $("msglist").innerHTML = r.stats.map((s) => `<tr><td class="who">${who(s.from, 0, s.fromkind === "process" ? "name" : s.fromkind)}</td>` +
+    `<td class="who">→ ${who(s.to, 0, s.to === "kernel" ? "kernel" : "server")}</td><td><span class="opn">${esc(s.name || "op")}</span> <span class="d">${s.op}</span></td>` +
     `<td class="rn">${s.n}</td><td class="rn">${s.replied}</td><td class="rn ${s.errors ? "err" : "d"}">${s.errors}</td>` +
     `<td class="rn">${s.avg_rt}</td><td class="rn d">${s.max_rt}</td></tr>`).join("");
   $("msginfo").textContent = `summary of the ${r.next - r.first} messages kept`;
@@ -1220,7 +1223,8 @@ async function showMsg(seq) {
   if (!r.ok) { $("msghex").textContent = r.error; return; }
   const m = r.msg, p = m.reply;
   const caps = (a) => (a || []).map((k) => `  attached: ${k.space} ${h(k.base)}+${h(k.len)} ${k.perms}${k.id ? " #" + k.id : ""}\n`).join("");
-  let s = `#${m.seq}  ${esc(m.proc)}(${m.pid}) on core ${m.core} → ${esc(m.toname)} on core ${m.tocore}: ${esc(m.name || "op")} ${m.op}` +
+  const party = (name, pid, kind) => (kind === "process" ? `${esc(name)}(${pid})` : kind === "kernel" ? "the kernel" : `the server ${esc(name)}`);
+  let s = `#${m.seq}  ${party(m.fromname, m.from, m.fromkind)} on core ${m.fromcore} → ${party(m.toname, m.to, m.tokind)} on core ${m.tocore}: ${esc(m.name || "op")} ${m.op}` +
     `  handle ${m.handle} length ${m.len} mode ${m.mode}  buffer t3 ${m.buf}\n  tick ${m.tick} · round ${m.round} · ${esc(m.data || "")}\n` + caps(m.att);
   s += hexLines(m.hex || "", `request (${m.bytes} data bytes)`);
   if (p) {
