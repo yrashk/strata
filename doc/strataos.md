@@ -1236,7 +1236,8 @@ takes a timeout and a tag mask. `ws` and `sh` never busy-wait the CPU.
 - An interrupt to a process that does not catch interrupts kills it
   (DESTROY). To one that catches them (CATCH 1): `proc` answers the WAIT it
   holds for that process with -2, or remembers the interrupt for its next
-  WAIT; sends CANCEL to `tty` and `pipe`, whose held reads return -2; and
+  WAIT; sends CANCEL to `tty`, `pipe` and `net`, whose held requests
+  return -2; and
   sends NOTIFY to the kernel, which wakes a sleep or NOTIFY_WAIT.
 - The shell catches interrupts, gives the console to a foreground job with
   SETFG and takes it back after, and SIGNALs the job when interrupted while
@@ -1633,9 +1634,13 @@ TCP/IP is a server, `os/servers/net.s`, like `fs`, `tty` and `pipe`:
   TIME-WAIT 500 ms; FIN-WAIT-2 gives up after 10 s; listen/accept,
   connect, half-close (CLOSE mode bit 0).
 - **Ownership.** A socket belongs to the process that made it (ACCEPT: the
-  one that accepted it); others get -1. `proc` does not send CLEANUP to
-  `net`, so every 2 s while sockets are open `net` asks `proc` for the
-  process list (PS) and closes the sockets of processes that have ended.
+  one that accepted it); others get -1. `proc` sends `net` CLEANUP when a
+  process ends (its sockets close) and CANCEL when one that catches
+  interrupts is interrupted (its socket waits, PINGs and RESOLVEs return
+  -2). `proc` has no register for `net`'s endpoint: it keeps the one
+  CREATE gave it parked in the kernel and unparks it to send. Since `proc`
+  waits for the answer, it sends only after `net`'s REGISTER mode 1 at the
+  end of its start: from then on `net` makes no calls to `proc`.
 - D-LS: 39,096 bytes of data with the library, measured (0x98B8: rings,
   send buffers, packet buffers, the resolver's names), under the 40 KiB
   data extent; the loopback queue and the DNS cache are in the arena.
