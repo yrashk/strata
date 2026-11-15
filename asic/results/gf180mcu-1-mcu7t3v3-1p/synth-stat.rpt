@@ -1,0 +1,66 @@
+176. Printing statistics.
+
+=== strata_core ===
+
+        +----------Local Count, excluding submodules.
+        |        +-Local Area, excluding submodules.
+        |        | 
+   174937        - wires
+   175596        - wire bits
+    13936        - public wires
+    14595        - public wire bits
+       53        - ports
+      712        - port bits
+   173499 3.76E+06 cells
+      532 8.17E+03   gf180mcu_as_sc_mcu7t3v3__and2_2
+        1   21.952   gf180mcu_as_sc_mcu7t3v3__and2_4
+     5762 1.39E+05   gf180mcu_as_sc_mcu7t3v3__ao211_2
+     2581 5.67E+04   gf180mcu_as_sc_mcu7t3v3__ao21_2
+        2   57.075   gf180mcu_as_sc_mcu7t3v3__ao21_4
+     2803 6.77E+04   gf180mcu_as_sc_mcu7t3v3__ao22_2
+        1   30.733   gf180mcu_as_sc_mcu7t3v3__ao22_4
+     3982 8.74E+04   gf180mcu_as_sc_mcu7t3v3__ao31_2
+        2   57.075   gf180mcu_as_sc_mcu7t3v3__ao31_4
+     4060 1.25E+05   gf180mcu_as_sc_mcu7t3v3__aoi211_2
+      184 1.01E+04   gf180mcu_as_sc_mcu7t3v3__aoi211_4
+     8723 1.91E+05   gf180mcu_as_sc_mcu7t3v3__aoi21_2
+      153 6.38E+03   gf180mcu_as_sc_mcu7t3v3__aoi21_4
+      792 2.26E+04   gf180mcu_as_sc_mcu7t3v3__aoi21b_2
+       39  1.8E+03   gf180mcu_as_sc_mcu7t3v3__aoi21b_4
+      909 2.79E+04   gf180mcu_as_sc_mcu7t3v3__aoi22_2
+      846  2.6E+04   gf180mcu_as_sc_mcu7t3v3__aoi31_2
+        2   114.15   gf180mcu_as_sc_mcu7t3v3__aoi31_4
+    21086 2.78E+05   gf180mcu_as_sc_mcu7t3v3__buff_2
+      978 1.93E+04   gf180mcu_as_sc_mcu7t3v3__buff_4
+      464 1.83E+04   gf180mcu_as_sc_mcu7t3v3__buff_8
+    11556 6.85E+05   gf180mcu_as_sc_mcu7t3v3__dfxtp_2
+    14857  1.3E+05   gf180mcu_as_sc_mcu7t3v3__inv_2
+       35  537.824   gf180mcu_as_sc_mcu7t3v3__inv_4
+        1   21.952   gf180mcu_as_sc_mcu7t3v3__inv_6
+      476 1.25E+04   gf180mcu_as_sc_mcu7t3v3__maj3_2
+    11495 3.03E+05   gf180mcu_as_sc_mcu7t3v3__mux2_2
+    38459 5.91E+05   gf180mcu_as_sc_mcu7t3v3__nand2_2
+      172 4.91E+03   gf180mcu_as_sc_mcu7t3v3__nand2_4
+     6355  1.4E+05   gf180mcu_as_sc_mcu7t3v3__nand2b_2
+       75  2634.24   gf180mcu_as_sc_mcu7t3v3__nand2b_4
+     7905 1.91E+05   gf180mcu_as_sc_mcu7t3v3__nand3_2
+     3168 9.74E+04   gf180mcu_as_sc_mcu7t3v3__nand4_2
+    14930 2.29E+05   gf180mcu_as_sc_mcu7t3v3__nor2_2
+       30  856.128   gf180mcu_as_sc_mcu7t3v3__nor2_4
+     1562 3.43E+04   gf180mcu_as_sc_mcu7t3v3__nor2b_2
+        1   35.123   gf180mcu_as_sc_mcu7t3v3__nor2b_4
+      907 2.19E+04   gf180mcu_as_sc_mcu7t3v3__nor3_2
+     5303 1.75E+05   gf180mcu_as_sc_mcu7t3v3__oai211_2
+      515 7.91E+03   gf180mcu_as_sc_mcu7t3v3__or2_2
+        4   87.808   gf180mcu_as_sc_mcu7t3v3__or2_4
+       86  755.149   gf180mcu_as_sc_mcu7t3v3__tiel_4
+     1438 4.42E+04   gf180mcu_as_sc_mcu7t3v3__xnor2_2
+       11        -   gf180mcu_fd_ip_sram__sram256x8m8wm1
+      256        -   gf180mcu_fd_ip_sram__sram512x8m8wm1
+
+   Area for cell type \gf180mcu_fd_ip_sram__sram512x8m8wm1 is unknown!
+   Area for cell type \gf180mcu_fd_ip_sram__sram256x8m8wm1 is unknown!
+
+   Chip area for module '\strata_core': 3757438.227200
+     of which used for sequential elements: 684928.742400 (18.23%)
+

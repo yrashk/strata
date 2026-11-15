@@ -36,12 +36,42 @@ timing repair.
 The real wall time was more than a day: the first floorplans did not
 route, and several steps had to be worked around (below).
 
-## One single-port memory, and a denser macro: prepared, not routed
+## One single-port memory: routed
 
-The RTL can now keep both Local Stores of a core in one single-port memory
-(`LS_1P = 1`, `rtl/strata_ram1.sv`), which is what the macros are. The flow
-has it as an option; nothing of it has been placed or routed yet, so the
-table is the floorplan the scripts make and a synthesis on the host
+`asic/results/gf180mcu-1-mcu7t3v3-1p/` (`ASIC_SCL=gf180mcu_as_sc_mcu7t3v3
+ASIC_LS1P=1 ASIC_DRT_STRICT=0 asic/run.sh 1`): one core with `LS_1P = 1`,
+its two Local Stores in one single-port memory of the same 256 macros
+(`asic/rtl/gf180mcu/strata_ram1.sv`: the RTL's memory exactly, so the
+first caveat below does not apply to this run), the 3.3 V cells, the
+floorplan and settings of the 3.3 V run above it. The earlier run is of
+the RTL before the stream fetch, so the two differ by that as well.
+
+| | 3.3 V cells, two stores (stand-in), earlier RTL | 3.3 V cells, one single-port memory |
+|---|---|---|
+| Die | 93.6 mm2 | 93.6 mm2 (the same floorplan) |
+| Standard cells | 5.99 mm2 (454,808 cells) | 6.48 mm2 (474,161): flip-flops 0.69, combinational 2.63, buffers and inverters 0.45, timing-repair buffers 1.55 |
+| Flip-flops | 11,390 | 11,556 |
+| Routing | 0 DRC violations, 3 antenna | 0 DRC violations, 4 antenna; wire length 57.7 m (49.4 m) |
+| Clock, typical (25 C, 3.3 V) | 40.80 ns = 24.5 MHz | 41.86 ns = 23.9 MHz |
+| Clock, fast (-40 C, 3.6 V) | 32.91 ns = 30.4 MHz | 33.28 ns = 30.0 MHz |
+| Hold | worst -1.77 ns, not repaired | worst -1.84 ns, not repaired |
+| Critical path | flip-flop -> flip-flop, 134 cells | an `ir` bit -> the store data input of a memory macro (`g_1p.m_wdata`), 124 cells, 37.7 ns in cells and 2.9 in wires |
+| Power (OpenSTA's estimate, typical) | 0.66 W | 0.73 W |
+| Flow time | 1 h 58 min | 3 h 36 min (detailed routing 1:58, the post-route STA 0:44) |
+
+The clock is 2.5% slower and the critical path now ends at the memory:
+with one port the core's store data and address, the Transfer Unit's and
+the reset sequencer's share one multiplexer in front of all 256 macros.
+A core at 23.9 MHz and 1.78 cycles per instruction (the StrataOS session
+on this configuration) runs 13.4 million instructions a second; the
+earlier run's 24.5 MHz at 3.22 was 7.6. No pictures of this run: the
+drawing scripts know only the two stores' names.
+
+## One single-port memory with a denser macro: prepared, not routed
+
+With the 1024 x 8 macro below the memory is 128 macros instead of 256.
+That configuration has not been placed or routed, so its table is the
+floorplan the scripts make and a synthesis on the host
 (`asic/area.sh`: Yosys `synth; dfflibmap; abc` to the 5 V cells, which
 gives 2.51 mm2 where LibreLane's synthesis step gave 3.03 for the earlier
 RTL of the results above; compare the rows with each other, not with those
@@ -69,9 +99,9 @@ results).
   routed), and is now half the die. The memory is 19.9 + 1.6 (save table)
   of the 53.5 mm2. What decides the next step in area is how densely the
   logic can be placed, which only a routed run says.
-- Not done: any LibreLane step with these options. The 1024 x 8 macro's
-  LEF, GDS and liberty are not in the PDK `asic/pdk.sh` fetches, so
-  `asic/run.sh` stops before LibreLane with it; the pictures' and reports'
+- Not done: any LibreLane step with the 1024 x 8 macro. Its LEF, GDS and
+  liberty are not in the PDK `asic/pdk.sh` fetches, so `asic/run.sh` stops
+  before LibreLane with it; the pictures' and reports'
   scripts (`annotate.py`, `zoombox.py`, `summarize.py`) know only the two
   stores' names. The save table stays in the PDK's 256 x 8 macros.
 

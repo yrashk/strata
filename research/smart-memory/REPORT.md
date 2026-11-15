@@ -829,3 +829,37 @@ channel, a logic strip between the two blocks).
   PDK the scripts fetch); the reports' and pictures' scripts for the new
   instance names; the save table in the denser 256 x 8 macro.
 
+## 12. The single-port core, placed and routed
+
+`asic/results/gf180mcu-1-mcu7t3v3-1p/`: one core with `LS_1P = 1` and the
+stream fetch, the 3.3 V cells, the PDK's 512 x 8 macros, the floorplan
+and settings of the kept 3.3 V run (which is of the RTL before any of
+this work, with the two-store stand-in). Measured by the flow:
+
+| | kept 3.3 V run | single-port core |
+|---|---|---|
+| Die | 93.6 mm² | 93.6 mm² (the same floorplan) |
+| Standard cells | 5.99 mm² | 6.48 mm² (+8%) |
+| Routing | 0 DRC violations | 0 DRC violations |
+| Clock, typical | 40.80 ns, 24.5 MHz | 41.86 ns, 23.9 MHz (-2.5%) |
+| Clock, fast | 30.4 MHz | 30.0 MHz |
+| Critical path | flip-flop to flip-flop | `ir` -> store data input of a memory macro |
+| Cycles per instruction, StrataOS session | 3.22 | 1.78 |
+| Instructions per second at the typical clock | 7.6 M | 13.4 M (1.76x) |
+
+- The memory is now a real one (one port, as the macros have), it routes
+  with no violations in the same floorplan, and the core is 1.76 times as
+  fast as the kept run's in instructions per second.
+- Section 1.3 said no path through a Local Store was critical and that the
+  path to the D-LS address was half the deepest. With one port that is no
+  longer so: the core's store data and address, the Transfer Unit's and
+  the reset sequencer's go through one multiplexer to 256 macros, and the
+  critical path ends at a macro's data input. The clock lost 2.5%. A
+  register in front of the memory (stores one cycle later) or a dedicated
+  write path would take it off the critical path; not tried.
+- The 8% more cells are the stream fetch (section 9: 4% of gates), the
+  single-port arbitration and second read-ahead word, and 0.3 mm² more
+  timing-repair buffers.
+- Not run: the 1024 x 8 macro (its views are not in the PDK), so the 53.5
+  mm² die of section 11 is still a floorplan, not a routed result.
+
