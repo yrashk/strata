@@ -3,8 +3,8 @@
 A proposal and a checkbox plan for a city-building simulation as a client
 of `ws`, in the genre the 1989 classic began: the player zones land, lays
 roads and power lines, and a city grows by itself from what it is given.
-The game has its own name, art, text and identity. Until a name is chosen
-this file calls it **the game** and its program `city`.
+The game has its own name, art, text and identity: it is **Plat**, the
+program `plat`, drawn in bright top-down pixel art (style B below).
 
 Nothing here is built yet. The open questions are at the end.
 
@@ -64,7 +64,8 @@ anything else, so this is the first thing shown before any building):
   colours. Closer to what players of the genre expect, and therefore
   closer to the original; easier to drift into imitation.
 
-Recommendation: **Plat, with style A.**
+Chosen: **Plat, with style B**, made our own by its palette, its
+buildings and its icons (`os/progs/plat/art/SPEC.md`).
 
 **Voice:** messages come from a small cast of our own (a town clerk who
 reports the numbers, an engineer for power and roads, a shopkeeper for
@@ -112,7 +113,7 @@ art, an asset tool, a test; four or five stages):
   yearly summary;
 - pause and three speeds, a dozen messages, a few sounds;
 - saving and loading one city to the file system;
-- `city demo N` and the test.
+- `plat demo N` and the test.
 
 **Tier 2: the fuller city** (about 5,000 lines more; three or four
 stages; needs code paging, see below):
@@ -251,17 +252,17 @@ name, population, year, funds. Writing follows kira's garden (`kira/garden.s`,
 `gd_save`): look up `fs`, write, close, back to `ws`. The gallery
 (tier 3) is a QUERY on the tag with those attributes.
 
-**Code.** Assembly, as wdoom and kira, in `os/progs/city.s` and
-`os/progs/city/`; the art drawn by `tools/city-art.py`, converted with
-the sounds and tables by `tools/city-assets.py` into `city.dat` and
+**Code.** Assembly, as wdoom and kira, in `os/progs/plat.s` and
+`os/progs/plat/`; the art drawn by `tools/plat-art.py`, converted with
+the sounds and tables by `tools/plat-assets.py` into `plat.dat` and
 `dat.s`. From tier 2 the passes of the simulation, the budget, saving
 and loading, and the events are code units in `.far`.
 
 ## Art
 
 Original pixel art made for this game, drawn by one deterministic script
-(`tools/city-art.py`, Python 3, standard library), as kira's is. The
-specification is written first (`os/progs/city/art/SPEC.md`: sizes,
+(`tools/plat-art.py`, Python 3, standard library), as kira's is. The
+specification is written first (`os/progs/plat/art/SPEC.md`: sizes,
 palette, style, every picture and its frames, contact sheets), and the
 script is made from it by Codex with the Astra model (`codex exec -m
 gpt-6-astra`), asked for high precision and quality. The contact sheets
@@ -283,12 +284,12 @@ Original art avoids both.
 
 ## Testing
 
-- **Deterministic simulation.** `city demo N` starts from a fixed seed,
+- **Deterministic simulation.** `plat demo N` starts from a fixed seed,
   plays a recorded list of keys (a cell cursor and tool keys, so the
   keyboard builds the town) one per frame, then runs a given number of
   months as fast as it goes, prints the census (residents, shops,
   industry, funds, date) to standard output, and stands still.
-  `tools/test-city.sh` (one line in `tools/tests.sh`) builds a small
+  `tools/test-plat.sh` (one line in `tools/tests.sh`) builds a small
   town (a road grid, power, zones), checks the census after a year and
   after five, and the CRC of the window in the frame, as the wdoom and
   kira tests do.
@@ -307,14 +308,16 @@ Original art avoids both.
 
 - [x] Read wdoom, kira, the client library, DAMAGE, code units; this
       proposal
-- [ ] The answers: name, style, map size, the play page
-- [ ] `os/progs/city/art/SPEC.md`; `tools/city-art.py` by Codex (Astra);
-      contact sheets shown and approved
-- [ ] `tools/city-assets.py`: palette, cell pictures, icons, sounds,
-      tables; `city.dat`, `dat.s`
+- [x] The name (Plat) and the style (B)
+- [ ] The map size and the play page (128 x 128 and a preset unless said otherwise)
+- [x] `os/progs/plat/art/SPEC.md`
+- [x] `tools/plat-art.py` by Codex (Astra); contact sheets shown
+- [ ] The art approved
+- [ ] `tools/plat-assets.py`: palette, cell pictures, icons, sounds,
+      tables; `plat.dat`, `dat.s`
 - [ ] Stage 1: the window, the map from a seed, scrolling and zoom, the
       tool column and the bar; roads, lines, bulldozer; funds;
-      `city demo`; `tools/test-city.sh`
+      `plat demo`; `tools/test-plat.sh`
 - [ ] Stage 2: zones, power plants, power, growth and decline, the
       census, demand bars, time speeds and pause
 - [ ] Stage 3: taxes, upkeep, the yearly summary, messages, sounds
