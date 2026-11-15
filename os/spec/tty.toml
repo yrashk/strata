@@ -29,19 +29,18 @@ a program that polls sees the rest of an escape sequence (`vi` telling Esc from 
 becomes LF in both. A reader waits while there is nothing (up to 8 readers, answered in turn); a \
 guest's READ waits while StrataOS has the console, and StrataOS's while a guest has it. \
 With mode bit 1 (raw mode, the window server) the READ is also answered when pointer events wait: \
-they come after the data at offset 32 and the reply's mode word says how many, so the reader asks \
-for at most 32 bytes (more key bytes would be overwritten by the events). Without a pointer, \
-bit 1 is ignored and the reply's mode word is the request's. A cooked READ shorter than the line \
+they come after the data at offset 32 and the reply's mode word says how many, so such a READ \
+gives at most 32 key bytes. Without a pointer, bit 1 is ignored. A cooked READ shorter than the line \
 takes its start; the rest is given only once another line is typed."""
 
 [op.request]
 handle = "0 (not checked)"
-length = "the most bytes wanted (at most 4032 are given)"
+length = "the most bytes wanted (at most 4032 are given; with mode bit 1 and a pointer, 32)"
 mode = "bit 0: do not block; bit 1: the pointer's events too"
 
 [op.reply]
 result = "the key bytes read; 0 at the end of input (with mode bit 1, 0 may also come with pointer events)"
-mode = "with mode bit 1 and a pointer: the pointer events after offset 32 (0..8); otherwise the request's mode"
+mode = "the pointer events after offset 32 (0..8); 0 without mode bit 1 or without a pointer (an error leaves the request's mode)"
 data = [
   { type = "bytes", name = "the bytes read", note = "with mode bit 1: at most 32, the events start at 32" },
   { repeat = "per pointer event, from offset 32 (the mode word says how many)", fields = [
