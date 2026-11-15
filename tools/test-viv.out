@@ -1,0 +1,1240 @@
+---- session 1
+one two three
+four five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq
+---- session 2, visual mode 1
+one «two three »
+«four »five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL --  c1                                              2,5
+---- session 2
+one five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq
+---- session 3, visual mode 1
+one «two three »
+«four »five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL --  c2                                              2,5
+---- session 3
+two three
+four one two three
+four five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words heretwo three
+four
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq
+---- session 4, visual mode 1
+one «two» three
+four five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL --  c3                                              1,7
+---- session 4
+one TWO three
+TWOr five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq
+---- session 5, visual mode 1
+«one two three»
+four five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL --  c4                                              1,13
+---- session 5, visual mode 2
+ONE TWO THREE
+four five six
+seven eight nine
+ten eleven twelve
+«Mixed Case_words here»
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL --  c4 [+]                                          5,21
+---- session 5, visual mode 3
+ONE TWO THREE
+«fo»ur five six
+seven eight nine
+ten eleven twelve
+mIXED cASE_WORDS HERE
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL --  c4 [+]                                          2,2
+---- session 5, visual mode 4
+ONE «T»WO THREE
+**ur five six
+seven eight nine
+ten eleven twelve
+mIXED cASE_WORDS HERE
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL --  c4 [+]                                          1,5
+---- session 5
+ONE tWO THREE
+**ur five six
+seven eight nine
+ten eleven twelve
+mIXED cASE_WORDS HERE
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq
+---- session 6, visual mode 1
+one two three
+«four five six »
+«seven eight nine »
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL LINE --  c5                                         3,1
+---- session 6, visual mode 2
+«one two three »
+«ten eleven twelve »
+four five six
+seven eight nine
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL LINE --  c5 [+]                                     2,1
+---- session 6, visual mode 3
+«                one two three »
+«                ten eleven twelve »
+four five six
+seven eight nine
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL LINE --  c5 [+]                                     2,3
+---- session 6, visual mode 4
+        one two three
+        ten eleven twelve
+«four five six »
+«seven eight nine »
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL LINE --  c5 [+]                                     3,1
+---- session 6
+        one two three
+        ten eleven twelve
+four five six seven eight nine
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq
+---- session 7, visual mode 1
+o«ne» two three
+f«ou»r five six
+s«ev»en eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL BLOCK --  c6                                        3,3
+---- session 7, visual mode 2
+«o»ne two three
+«f»our five six
+«s»even eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL BLOCK --  c6                                        3,1
+---- session 7, visual mode 3
+«# one two three»
+«# four five six»
+«# seven eight nine»
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL BLOCK --  c6 [+]                                    3,18
+---- session 7, visual mode 4
+# one two three;
+# four five six;
+# seven eight nine;
+«ten e»leven twelve
+«Mixed» Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL BLOCK --  c6 [+]                                    5,5
+---- session 7
+# one two three;
+# four five six;
+# seven eight nine;
+[X]leven twelve
+[X] Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq
+---- session 8, visual mode 1
+«on»e two three
+«fo»ur five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL BLOCK --  c7                                        2,2
+---- session 8
+onone two three
+fofour five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words hereon
+                     fo
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq
+---- session 9, visual mode 1
+one two three
+«four five six »
+«seven eight nine »
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL LINE --  c8                                         3,1
+---- session 9, visual mode 2
+«one two three »
+«ten eleven twelve »
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL LINE --  c8 [+]                                     2,1
+---- session 9, visual mode 3
+«one two three »
+«ten eleven twelve »
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL LINE --  c8 [+]                                     2,1
+---- session 9, visual mode 4
+«one two three »
+«ten eleven twelve »
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL LINE --  c8 [+]                                     2,1
+---- session 9
+Mixed Case_words here
+one two three
+ten eleven twelve
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq
+---- session 10, visual mode 1
+one two three
+four «five» six
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL --  c9                                              2,9
+---- session 10, visual mode 2
+one two three
+four two six
+«seven eight nine »
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL LINE --  c9 [+]                                     3,1
+---- session 10, visual mode 3
+one two three
+four two six
+two
+ten eleven twelve
+«Mixed Case_words here »
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL LINE --  c9 [+]                                     5,1
+---- session 10
+one two three
+four two six
+two
+ten eleven twelve
+one two three
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq
+---- session 11, visual mode 1
+one two three
+«four five six »
+«se»ven eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL --  c10                                             3,2
+---- session 11, visual mode 2
+one two three
+«four five six »
+«se»ven eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL --  c10                                             3,2
+---- session 11, visual mode 3
+one« two» three
+en eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL --  c10 [+]                                         1,4
+---- session 11
+one three
+en eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq
+---- session 12, visual mode 1
+one two three
+four «five six »
+«sev»en eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL --  c11                                             3,3
+---- session 12
+ne two three
+four en eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq
+---- session 13, visual mode 1
+one «two three »
+«four »five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL --  c12                                             2,5
+---- session 13, visual mode 2
+«one two three»
+«four five six»
+«seven eight nine»
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL BLOCK --  c12                                       3,16
+---- session 13
+one two three
+four five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:q
+---- session 14, visual mode 1
+«one two three »
+«four five six »
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL LINE --  c13                                        2,1
+---- session 14, visual mode 2
+«s»even eight nine
+«t»en eleven twelve
+Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+-- VISUAL BLOCK --  c13 [+]                                   2,1
+---- session 14
+> seven eight nine
+> ten eleven twelve
+> Mixed Case_words here
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+{94}~
+:wq
+---- session 15, visual mode 1
+{97}msg{}:    {34}.ascii {35}"Hello from Strata core " {90}; the greeting, without a trailing newl
+{97}msg_end{}:                                {90}; label just past the greeting, used for
+{97}of{}:     {34}.ascii {35}" of "                   {90}; text between the two numbers
+{97}of_end{}:                                 {90}; end of the text above
+
+        {34}.text                           {90}; instruction Local Store; execution sta
+{97}_start{}:
+        {31}csrr  {37}s0{}, {91}coreid                {90}; s0 = this core's number
+        {31}csrr  {37}s1{}, {91}ncores                {90}; s1 = how many cores there are
+        {95}beqz  {37}s0{}, speak                 {90}; core 0 speaks first, right away
+        {96}addi  {37}t0{}, {37}s0{}, -{32}1                {90}; t0 = the core before us
+        {93}ctake c3{}, {37}t0                    {90}; wait for its token (only a gift from t
+{97}speak{}:
+        {36}la    {37}a0{}, msg                   {90}; a0 = D-LS address of the greeting
+        {36}li    {37}a1{}, msg_end - msg         {90}; a1 = its length in bytes
+        {95}call  {}print_str                 {90}; print the greeting
+        {36}mv    {37}a0{}, {37}s0                    {90}; a0 = our core number
+        {95}call  {}print_dec                 {90}; print it in decimal
+        {36}la    {37}a0{}, of                    {90}; " of "
+        {36}li    {37}a1{}, of_end - of           {90}; its length
+        {95}call  {}print_str                 {90}; print it
+«        {36}mv    {37}a0{}, {37}s1                    {90}; the core count »
+«        {95}call  {}print_dec                 {90}; print it »
+-- VISUAL LINE --  /src/demo/hello.s                          46,9
+---- session 15
+{97}msg{}:    {34}.ascii {35}"Hello from Strata core " {90}; the greeting, without a trailing newl
+{97}msg_end{}:                                {90}; label just past the greeting, used for
+{97}of{}:     {34}.ascii {35}" of "                   {90}; text between the two numbers
+{97}of_end{}:                                 {90}; end of the text above
+
+        {34}.text                           {90}; instruction Local Store; execution sta
+{97}_start{}:
+        {31}csrr  {37}s0{}, {91}coreid                {90}; s0 = this core's number
+        {31}csrr  {37}s1{}, {91}ncores                {90}; s1 = how many cores there are
+        {95}beqz  {37}s0{}, speak                 {90}; core 0 speaks first, right away
+        {96}addi  {37}t0{}, {37}s0{}, -{32}1                {90}; t0 = the core before us
+        {93}ctake c3{}, {37}t0                    {90}; wait for its token (only a gift from t
+{97}speak{}:
+        {36}la    {37}a0{}, msg                   {90}; a0 = D-LS address of the greeting
+        {36}li    {37}a1{}, msg_end - msg         {90}; a1 = its length in bytes
+        {95}call  {}print_str                 {90}; print the greeting
+        {36}mv    {37}a0{}, {37}s0                    {90}; a0 = our core number
+        {95}call  {}print_dec                 {90}; print it in decimal
+        {36}la    {37}a0{}, of                    {90}; " of "
+        {36}li    {37}a1{}, of_end - of           {90}; its length
+        {95}call  {}print_str                 {90}; print it
+        {36}mv    {37}a0{}, {37}s1                    {90}; the core count
+        {95}call  {}print_dec                 {90}; print it
+:q
+---- the files
+strata$ cat c1 c1u; cat c2; cat c3; cat c4; cat c5; cat c6; cat c7; cat c8 part
+one five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+one two three
+four five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+two three
+four one two three
+four five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words heretwo three
+four 
+one TWO three
+TWOr five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words here
+ONE tWO THREE
+**ur five six
+seven eight nine
+ten eleven twelve
+mIXED cASE_WORDS HERE
+	one two three
+	ten eleven twelve
+four five six seven eight nine
+Mixed Case_words here
+# one two three;
+# four five six;
+# seven eight nine;
+[X]leven twelve
+[X] Case_words here
+onone two three
+fofour five six
+seven eight nine
+ten eleven twelve
+Mixed Case_words hereon
+                     fo
+Mixed Case_words here
+one two three
+ten eleven twelve
+one two three
+ten eleven twelve
+strata$ cat c9; cat c10; cat c11; cat c13
+one two three
+four two six
+two
+ten eleven twelve
+one two three
+one three
+en eight nine
+ten eleven twelve
+Mixed Case_words here
+ne two three
+four en eight nine
+ten eleven twelve
+Mixed Case_words here
+> seven eight nine
+> ten eleven twelve
+> Mixed Case_words here

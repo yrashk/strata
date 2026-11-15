@@ -49,6 +49,8 @@ t nav-ws       mid  build-main "emu os" "tools/test-nav.sh -w $OS"
 t vic          fast build-main "emu os" "tools/test-vic.sh $OS"
 t vifs         mid  build-main "emu os" "tools/test-vifs.sh $OS"
 t vicfs        mid  build-main "emu os" "tools/test-vic.sh -f $OS"
+t viv          fast build-main "emu os" "tools/test-viv.sh $OS"
+t vivfs        mid  build-main "emu os" "tools/test-viv.sh -f $OS"
 t fs-progs     mid  build-main "emu os" "tools/test-fs-progs.sh $OS"
 t store        mid  build-main "emu os stdb" "tools/test-store.sh $OS"
 t files        fast "build-main build-test-disks" "emu stdb" 'tools/test-files.sh $B/bootrom.stx $B/files-test/disk.img'
