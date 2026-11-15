@@ -69,7 +69,9 @@ succeeded. `make test` builds everything and runs, several at a time
   the JIT, the framebuffer;
 - the JIT, the debuggers, the conformance suite;
 - `test-small` (the 8-entry overlay map), `test-ls` (Local Stores at 32/32,
-  16/4 and 4/32 KiB, and StrataOS refusing them);
+  16/4 and 4/32 KiB, and StrataOS refusing them), `test-nostream` (the
+  fetch without the stream: examples, conformance), `test-ls1p` (one
+  single-port memory per core: examples, conformance, the session);
 - `test-wasm` (needs node and emcc).
 
 It takes 7 to 8 minutes on 18 cores (the longest test, a StrataOS session
@@ -139,13 +141,19 @@ Not verified:
   more cycles per instruction with it (1.78 against 1.75). The far bus has
   a ready for read beats (`rready`) that only such a core's Transfer Unit
   ever lowers; the board's DRAM adapter does not honour `ext_t3_rready`
-  yet, which matters only with `LS_1P`. `make
-  BUILD=build/ls1p LS_1P=1 test` passes. The ASIC flow has it as an option
+  yet, which matters only with `LS_1P`. `make test` runs the examples,
+  the conformance suite and the StrataOS session on such an RTL
+  (`ls1p-*`). The ASIC flow has it as an option
   (`ASIC_LS1P=1`, and `ASIC_SRAM=ocd1024` for a 1024 x 8 macro): prepared
   and synthesized on the host, 19.9 mm² of stores and a 53.5 mm² die by
   the floorplan, not placed or routed (`asic/README.md`). One core alone in generic gates: 4% more
   gates, 98 more flip-flops, no new deepest path; not placed and routed
   (`research/smart-memory/REPORT.md`, section 9).
+- The overlay map's two searches (`xm_hit`, `xm_inslot` in
+  `rtl/strata_core.sv`) compare all entries at once and pick the lowest
+  match as a one-hot vector. Written as a loop over "no earlier entry
+  matched" they were one chain of 16 compares and the core's deepest path
+  (`research/pipeline/REPORT.md`: whether and how to pipeline the core).
 
 **ASIC** (`asic/README.md`, `asic/results/`, site page `hardware/asic/`)
 - One core through LibreLane 3.0.17 (its arm64 Docker image, run under

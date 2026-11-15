@@ -376,6 +376,8 @@
   logic [63:0] f_iret;
   always_ff @(posedge clk) f_iret <= csr_instret;
   assign f_ret = csr_instret != f_iret;
+  logic f_next;                   // the state after a retire
+  assign f_next = state == S_F0 || (STREAM && (state == S_F1 || state == S_EX));
   always_ff @(posedge clk) begin
     if (F_G2 && f_step && !f_ret && $past(state) != S_RST) begin
       assert (x[f_xi] == $past(x[f_xi]));
@@ -406,13 +408,14 @@
     // a far atomic granted is completed (it cannot be taken back)
     if (F_G2 && f_step && $past(am_req && am_gnt)) assert (state == S_AM);
     // a gift accepted retires the instruction and empties a linear source;
-    // a gift taken retires and is in cd
+    // a gift taken retires and is in cd (the next instruction is fetched,
+    // or with STREAM may come from the kept words: F1 or EX)
     if (F_G2 && f_step && $past(give_valid && give_ack)) begin
-      assert (f_ret && state == S_F0);
+      assert (f_ret && f_next);
       if (!$past(f_ks.perms[P_D])) assert (caps[$past(f_is)] == CAP_NULL);
     end
     if (F_G2 && f_step && $past(take_pop)) begin
-      assert (f_ret && state == S_F0);
+      assert (f_ret && f_next);
       assert (caps[$past(f_id)] == $past(take_cap));
     end
     // a transfer issued is retired

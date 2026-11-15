@@ -28,7 +28,7 @@ from the cache), while other checkouts were testing too.
 |---|---|---|---|
 | fast | `make test-fast` | the examples on emulator and RTL, instruction by instruction (all but `gfx`); the conformance suite on interpreter, JIT and RTL; the shell, `vi`, files, preemption, the Forth under StrataOS (`forth-os`: `lang/forth/tests/run-os.sh`) on the emulator; the JIT against the interpreter; the store with small pages | 12 s |
 | mid | `make test-mid` | the fast tier, and: a short StrataOS session in lockstep with the RTL (`os/demo-short.txt`); `gfx` and the framebuffer on the RTL; the rest of the OS tests on the emulator (`vi.fs`, the Forth ports, the store, network, HTTP, the window server, wdoom, wdb, isolation, guests, the C compiler (part of its ladder, its examples, its bootstrap), the session under the JIT); the debuggers; the store against its model and with a million files | 1 min |
-| full | `make test`, `make test-cached` | the mid tier, and: the two StrataOS sessions in lockstep with the RTL (`os/demo.txt`, `os/guest-demo.txt`); Ctrl-C on both machines; the process limits; kira; the small configuration (`small-*`: 8 overlay map entries, examples and session); the smaller Local Stores (`ls*`) and the reproductions of what the proofs found (`formal-repro`); the WebAssembly builds under node (`wasm`, `wasm-rtl`) | 7.5 min |
+| full | `make test`, `make test-cached` | the mid tier, and: the two StrataOS sessions in lockstep with the RTL (`os/demo.txt`, `os/guest-demo.txt`); Ctrl-C on both machines; the process limits; kira; the small configuration (`small-*`: 8 overlay map entries, examples and session); the smaller Local Stores (`ls*`); the fetch without the stream (`nostream-*`: examples, conformance) and one single-port memory per core (`ls1p-*`: examples, conformance, the session); and the reproductions of what the proofs found (`formal-repro`); the WebAssembly builds under node (`wasm`, `wasm-rtl`) | 7.5 min |
 
 A tier is a set of tests, not a different way of running them: a test does
 the same thing in every tier. What decides a test's tier is how long it
@@ -37,7 +37,7 @@ takes; the longest (the sessions on the RTL: 160 million cycles at about
 of `make test`, since nothing runs longer than the longest test once there
 are enough processors for the rest.
 
-`make test-small`, `make test-ls`, `make test-wasm`, `make test-wasm-rtl`,
+`make test-small`, `make test-ls`, `make test-nostream`, `make test-ls1p`, `make test-wasm`, `make test-wasm-rtl`,
 `make test-jit`, `make test-dbg`, `make test-kira`, `make test-wdoom`,
 `make test-stdb` and `make conformance` are still there. `make test-forth`
 and `make formal` are not part of `make test`; the StrataOS half of
