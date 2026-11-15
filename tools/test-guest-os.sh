@@ -1,7 +1,7 @@
 #!/bin/sh
 # StrataOS as a guest of StrataOS (doc/strataos.md, "StrataOS as a guest").
-# Boots StrataOS on 15 cores (the most the machine has: the host needs 6 of
-# them, the guest 6 more), starts the guest StrataOS (`guest -p strataos 6 24`:
+# Boots StrataOS on 12 cores (as `make boot`: the host's servers take cores
+# 1..5, the guest the 6 empty ones), starts the guest StrataOS (`guest -p strataos 6 24`:
 # the kernel and a RAM disk in one image, os/guests/strataos/) with the console
 # attached to it, and checks:
 #   * the guest's kernel boots on its 6 cores (its banner), its servers start
@@ -34,7 +34,7 @@ cp "$2" "$tmp/d.img"
   printf '\035cores\nguest stop 240\ncores\n-c 6 hello\n-c 11 hello\n'
   printf 'guest -p strataos 6 24\nhalt\nguest stop 240\ncat /doc/motd\nhalt\n'
 } >"$tmp/in.txt"
-"$b/strata-emu" -c 15 -T virtual -g none -m 6000000000 -d "$tmp/d.img" -i "$tmp/in.txt" "$1" >"$tmp/o" 2>/dev/null
+"$b/strata-emu" -c 12 -T virtual -g none -m 6000000000 -d "$tmp/d.img" -i "$tmp/in.txt" "$1" >"$tmp/o" 2>/dev/null
 
 ok=1
 check() { # $1 = what, $2 = count wanted at least, $3 = count

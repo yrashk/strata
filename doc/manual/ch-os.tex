@@ -1259,8 +1259,8 @@ cuts its memory from the arena, talks to \texttt{tty} through the console endpoi
 the clock, and runs its multicore words on its own cores. It has no framebuffer, files or network.
 
 \paragraph{StrataOS as a guest.} StrataOS itself runs as a guest: \texttt{guest -p strataos 6 24} boots
-its kernel, servers and shell on six cores with a 24~MiB arena (on a machine of 15 cores, the most there
-are: the host keeps six). The image is the kernel with a RAM disk (an ordinary disk, a section of the
+its kernel, servers and shell on six cores with a 24~MiB arena (on a machine of 12 cores: the host keeps
+six). The image is the kernel with a RAM disk (an ordinary disk, a section of the
 image that the loader copies into the guest's memory). The kernel recognises a guest by what it was
 given (core control where the device root would be) and stands in for the devices it lacks: core~0
 polls its inbox and the clock instead of waiting on the timer, \texttt{fs} copies the RAM disk's

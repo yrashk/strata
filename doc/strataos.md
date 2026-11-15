@@ -2314,8 +2314,8 @@ have is stood in for as follows (`os/kunits/gmode.s` has the kernel's side):
   the guest's code (until then the host's dispatcher on that core would drop
   what the guest's core 0 gives it).
 
-Limits: it needs 6 cores for itself besides the host's 6, so a 15-core machine
-(the most there is: `strata-emu -c 15`; not the RTL's 8); its core 0 is always
+Limits: it needs 6 cores for itself besides the host's 6, so a 12-core machine
+(as `make boot`; not the RTL's 8); its core 0 is always
 busy; the disk is a RAM disk of 3 MiB, lost when it stops, with the servers and
 a few programs (no `vi`, compilers or sources); there is no Ctrl-C (the host's
 Ctrl-C detaches the console), no framebuffer, network or sound in it; it runs

@@ -111,7 +111,8 @@ Not verified:
 - **Parallel agents** worked in git worktrees (`.claude/worktrees/`), each on
   its own branch, merged into main by hand after review and a full test.
   When two branches touch `os/kernel.s`, check the worker's resident code
-  still ends below K0TEXT (0x7700): it ends at 0x76E8 now, 24 bytes to spare.
+  still ends below K0TEXT (0x7700): it ends at 0x76D0 now, 48 bytes to spare;
+  core 0's own resident code (K0TEXT..0x8000) has 4 bytes to spare.
   Anything new on the worker side should go into a kernel unit
   (`os/kunits/`), not the resident part.
 - Commit messages end with a `Co-Authored-By:` line naming the model that
@@ -340,7 +341,7 @@ built from. The kernel boots from a boot manifest (`u_disk` in
 - `lang/forth/demos/gfx.fs` cannot run in a guest (no framebuffer).
 - StrataOS as a guest of StrataOS: `guest -p strataos 6 24` (doc/strataos.md,
   "StrataOS as a guest"; `os/kunits/gmode.s`, `tools/test-guest-os.sh`).
-  Needs a 15-core machine (the emulator only); its core 0 polls (no timer
+  Needs 12 cores (the emulator: `make boot`); its core 0 polls (no timer
   of its own); its disk is a RAM disk, lost when it stops; no Ctrl-C,
   framebuffer, network or sound in it; no guests of its own.
 

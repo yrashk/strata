@@ -173,6 +173,21 @@
 ; with `la t6, f; jalr ra, t6, 0`, other units with xcall, and return with
 ; `xret ra` (a far return link pages the caller back in if it was evicted).
 ;
+; ---- Guest mode ------------------------------------------------------------------------------
+; This kernel also runs as a guest of itself (`guest -p strataos`: doc/strataos.md,
+; "StrataOS as a guest"; the units are os/kunits/gmode.s). kentry tells a guest
+; by c3: core control over its own cores (based at 8 * corebase) where the boot
+; ROM gives the device root (based at 0). Core 0 (k0_main) moves what the
+; host's loader gave it where the boot ROM's would be (the clock stands for the
+; device root and the console) and sets k_guest; the units then use a RAM disk
+; (RD_OFF in its memory), poll for the time slice, revoke through the host,
+; and print through the host's tty. Workers (wb_guest) keep the guest's window
+; (w_cbase, w_ccount): the trap entry restores it where the host's kernel sets
+; corebase and corecount to 0, a process's window is relative to it, an
+; endpoint's node is a core of ours + w_cbase (wnj_ep, svr_mint; sv_send takes
+; it off), and w_drain takes gifts from outside the window (the host's tty
+; answering), which cpoll does not show. In the host's kernel all of this is 0.
+
 ; ---- Shared state -----------------------------------------------------------------------
 ; KST (c6 on core 0, save-table slot 59 on workers; atomic access only):
 
