@@ -75,7 +75,7 @@ result = "the id (1..16): the caller holds a reference to it"
 [op.errors]
 "-1" = "a bad path (too long, a bare `-`, a name or a tag over 255 bytes, more than 16 tags), no name in it, an exclusion or a term in a path that writes, writing in a snapshot, or the disk is full"
 "-4" = "reading: no such file or tag; either mode: no such snapshot"
-"-6" = "16 files are open already, or the path would make more than 16 new tags"
+"-6" = "16 files are open already, the path would make more than 16 new tags, or fs has no room for the caller's reference (64 in all; the file is closed again, a new one stays, empty)"
 
 [[op]]
 num = 4
@@ -115,7 +115,7 @@ name = "TAG"
 summary = "Give a file tags: it moves to the directory of its tags and these"
 note = """The file keeps its name. Tags that do not exist yet are made. A name `/` empties the set at that \
 point (`/` first, then the new tags: `retag`). One commit; refused when the new directory has a file of \
-that name."""
+that name. A request that fails leaves no new tags."""
 
 [op.request]
 length = "the data's bytes"
@@ -413,7 +413,7 @@ data = [
 result = "0"
 
 [op.errors]
-"-1" = "a missing zero byte, an empty or bad name, a value over 255 bytes, a bad path or one without a name"
+"-1" = "a missing zero byte, an empty or bad name, a name or a value over 255 bytes, a bad path or one without a name"
 "-4" = "no such file or tag"
 "-6" = "the file's record has no room for the value"
 
@@ -469,7 +469,7 @@ result = "modes 0, 1, 3: 0; mode 2: the records (100 at most)"
 data = [
   { repeat = "mode 2: per snapshot, oldest first", fields = [
     { type = "u64", name = "its commit" },
-    { type = "bytes", name = "its name", note = "32 bytes" },
+    { type = "bytes", name = "its name", note = "32 bytes, zero-padded" },
   ] },
 ]
 
@@ -538,7 +538,7 @@ result = "the value's length"
 data = [{ type = "bytes", name = "the value" }]
 
 [op.errors]
-"-1" = "a bad request (lengths, a tree name starting with `.`), a private namespace, or a value kept as a stream"
+"-1" = "a bad request (lengths, a key that does not lie inside the data, a tree name starting with `.`), a private namespace, or a value kept as a stream"
 "-4" = "no such namespace, tree or key"
 
 [[op]]
@@ -576,7 +576,7 @@ data = [
 ]
 
 [op.errors]
-"-1" = "a bad request, or a private namespace"
+"-1" = "a bad request (lengths, a key that does not lie inside the data, a tree name starting with `.`), or a private namespace"
 "-4" = "no such namespace or tree"
 
 [[op]]

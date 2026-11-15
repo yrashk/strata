@@ -641,7 +641,7 @@
 <a href="#fs-66"><span class="n">66</span><code>DBBATCH</code><span>Puts and deletes in a program&#x27;s tree, in one commit</span></a>
 </div>
 <article class="op" id="fs-1">
-<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/fsops.s:87"><code>READ</code></a><span class="sum">Read from an open file</span></h4>
+<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/fsops.s:99"><code>READ</code></a><span class="sum">Read from an open file</span></h4>
 <p>Reads at the file&#x27;s position and moves it on. A file opened in a snapshot is read as the snapshot has it.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -657,7 +657,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-2">
-<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/fsops.s:182"><code>WRITE</code></a><span class="sum">Write to a file open for writing or appending</span></h4>
+<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/fsops.s:194"><code>WRITE</code></a><span class="sum">Write to a file open for writing or appending</span></h4>
 <p>The bytes go after what was written before; a long write is committed every MiB. Mode 1: they become the file&#x27;s contents at the last CLOSE. Mode 2: they go to the contents where they are, and the file&#x27;s size is set at the last CLOSE.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -689,11 +689,11 @@
 <tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
 <tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>a bad path (too long, a bare <code>-</code>, a name or a tag over 255 bytes, more than 16 tags), no name in it, an exclusion or a term in a path that writes, writing in a snapshot, or the disk is full</td></tr>
 <tr><td class="k"><abbr title="no such file or program">−4</abbr></td><td class="at"></td><td class="ty"></td><td>reading: no such file or tag; either mode: no such snapshot</td></tr>
-<tr><td class="k"><abbr title="no memory">−6</abbr></td><td class="at"></td><td class="ty"></td><td>16 files are open already, or the path would make more than 16 new tags</td></tr>
+<tr><td class="k"><abbr title="no memory">−6</abbr></td><td class="at"></td><td class="ty"></td><td>16 files are open already, the path would make more than 16 new tags, or fs has no room for the caller&#x27;s reference (64 in all; the file is closed again, a new one stays, empty)</td></tr>
 </tbody>
 </table></div></article>
 <article class="op" id="fs-4">
-<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/fsops.s:207"><code>CLOSE</code></a><span class="sum">Drop a reference to an open file</span></h4>
+<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/fsops.s:219"><code>CLOSE</code></a><span class="sum">Drop a reference to an open file</span></h4>
 <p>The last reference finishes the file: a written file gets its new contents and size, in one commit; a boot object is also brought into one run of pages and the boot manifest is written anew in the same commit.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -707,7 +707,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-11">
-<h4><span class="n">11</span><a class="opname" href="../code/#os/servers/fsops.s:303"><code>UNLINK</code></a><span class="sum">Delete a file</span></h4>
+<h4><span class="n">11</span><a class="opname" href="../code/#os/servers/fsops.s:318"><code>UNLINK</code></a><span class="sum">Delete a file</span></h4>
 <p>One commit. The path may exclude tags and hold terms; the file must carry the path&#x27;s tags and none it excludes.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -723,8 +723,8 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-12">
-<h4><span class="n">12</span><a class="opname" href="../code/#os/servers/fsops.s:765"><code>TAG</code></a><span class="sum">Give a file tags: it moves to the directory of its tags and these</span></h4>
-<p>The file keeps its name. Tags that do not exist yet are made. A name <code>/</code> empties the set at that point (<code>/</code> first, then the new tags: <code>retag</code>). One commit; refused when the new directory has a file of that name.</p>
+<h4><span class="n">12</span><a class="opname" href="../code/#os/servers/fsops.s:780"><code>TAG</code></a><span class="sum">Give a file tags: it moves to the directory of its tags and these</span></h4>
+<p>The file keeps its name. Tags that do not exist yet are made. A name <code>/</code> empties the set at that point (<code>/</code> first, then the new tags: <code>retag</code>). One commit; refused when the new directory has a file of that name. A request that fails leaves no new tags.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">length</td><td class="at"></td><td class="ty"></td><td>the data&#x27;s bytes</td></tr>
@@ -744,7 +744,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-13">
-<h4><span class="n">13</span><a class="opname" href="../code/#os/servers/fsops.s:768"><code>UNTAG</code></a><span class="sum">Take tags from a file: it moves to the directory without them</span></h4>
+<h4><span class="n">13</span><a class="opname" href="../code/#os/servers/fsops.s:783"><code>UNTAG</code></a><span class="sum">Take tags from a file: it moves to the directory without them</span></h4>
 <p>As TAG. A name the file does not carry, or that is no tag, is passed over; <code>/</code> takes every tag away (the file goes to the root).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -765,7 +765,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-15">
-<h4><span class="n">15</span><a class="opname" href="../code/#os/servers/fsops.s:771"><code>RENAME</code></a><span class="sum">Move a file to a new path&#x27;s directory and name</span></h4>
+<h4><span class="n">15</span><a class="opname" href="../code/#os/servers/fsops.s:786"><code>RENAME</code></a><span class="sum">Move a file to a new path&#x27;s directory and name</span></h4>
 <p>The file&#x27;s tags become the new path&#x27;s (made if new; none: the root). A new path with no <code>/</code> changes only the name and leaves the file where it is. A file of the new name there is deleted. The contents and attributes stay. One commit. The new path holds no exclusion of its own and no term.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -784,7 +784,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-20">
-<h4><span class="n">20</span><a class="opname" href="../code/#os/servers/fsops.s:780"><code>CWD</code></a><span class="sum">Get or set the caller&#x27;s current tag path</span></h4>
+<h4><span class="n">20</span><a class="opname" href="../code/#os/servers/fsops.s:795"><code>CWD</code></a><span class="sum">Get or set the caller&#x27;s current tag path</span></h4>
 <p>The current path is read in front of every path that does not start with <code>/</code>. A new path is resolved against the current one (<code>..</code>, <code>a/b</code>, <code>-x</code>); each of its components must be a tag that exists, or <code>-</code> and one, and at least one file must be in that view (no empty views). Up to 64 processes may be away from <code>/</code>. A process starts in its parent&#x27;s path.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -805,7 +805,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-27">
-<h4><span class="n">27</span><a class="opname" href="../code/#os/servers/fsops.s:315"><code>STAT</code></a><span class="sum">A file&#x27;s size</span></h4>
+<h4><span class="n">27</span><a class="opname" href="../code/#os/servers/fsops.s:330"><code>STAT</code></a><span class="sum">A file&#x27;s size</span></h4>
 <p>The path may exclude tags, hold terms and start with <code>@SNAP</code>.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -821,7 +821,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-28">
-<h4><span class="n">28</span><a class="opname" href="../code/#os/servers/fsops.s:366"><code>LOADIMG</code></a><span class="sum">Copy a file&#x27;s contents into an attached arena</span><span class="from">any program; <code>proc</code> when it spawns</span></h4>
+<h4><span class="n">28</span><a class="opname" href="../code/#os/servers/fsops.s:381"><code>LOADIMG</code></a><span class="sum">Copy a file&#x27;s contents into an attached arena</span><span class="from">any program; <code>proc</code> when it spawns</span></h4>
 <p>A program image is loaded so. A relative path is read from the starter&#x27;s current path. A name with no <code>/</code> that is not found there is looked for in <code>/bin</code>, then in <code>/sys</code>; the reply then carries the path it was found by. The path may start with <code>@SNAP</code>.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -843,7 +843,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-32">
-<h4><span class="n">32</span><a class="opname" href="../code/#os/servers/fsops.s:325"><code>STATFS</code></a><span class="sum">The disk&#x27;s blocks and files</span></h4>
+<h4><span class="n">32</span><a class="opname" href="../code/#os/servers/fsops.s:340"><code>STATFS</code></a><span class="sum">The disk&#x27;s blocks and files</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -856,7 +856,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-33">
-<h4><span class="n">33</span><a class="opname" href="../code/#os/servers/fsops.s:343"><code>READBLK</code></a><span class="sum">A raw block of the disk</span></h4>
+<h4><span class="n">33</span><a class="opname" href="../code/#os/servers/fsops.s:358"><code>READBLK</code></a><span class="sum">A raw block of the disk</span></h4>
 <p>Answered even when the disk is not a store (<code>db</code>, <code>wdb</code> and <code>fsck</code> read the store so).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -871,7 +871,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-34">
-<h4><span class="n">34</span><a class="opname" href="../code/#os/servers/fsops.s:466"><code>READALL</code></a><span class="sum">An open file, whole, into an attached arena</span></h4>
+<h4><span class="n">34</span><a class="opname" href="../code/#os/servers/fsops.s:481"><code>READALL</code></a><span class="sum">An open file, whole, into an attached arena</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the id from OPEN (mode 0)</td></tr>
@@ -888,7 +888,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-35">
-<h4><span class="n">35</span><a class="opname" href="../code/#os/servers/fsops.s:494"><code>WRITEALL</code></a><span class="sum">Bytes of an attached arena written to a file open for writing</span></h4>
+<h4><span class="n">35</span><a class="opname" href="../code/#os/servers/fsops.s:509"><code>WRITEALL</code></a><span class="sum">Bytes of an attached arena written to a file open for writing</span></h4>
 <p>As WRITE, without the 4032-byte limit: the bytes go after what was written before.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -906,7 +906,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-40">
-<h4><span class="n">40</span><a class="opname" href="../code/#os/servers/fsops.s:759"><code>QUERY</code></a><span class="sum">List the files of a directory, part by part</span></h4>
+<h4><span class="n">40</span><a class="opname" href="../code/#os/servers/fsops.s:774"><code>QUERY</code></a><span class="sum">List the files of a directory, part by part</span></h4>
 <p>The path names tags (the directory), <code>-tag</code> exclusions and terms: <code>NAME=VALUE</code>, <code>NAME&lt;VALUE</code>, <code>NAME&gt;VALUE</code> over an attribute, <code>size</code> or <code>modified</code> (digits compare as numbers, anything else as bytes), and as its last component <code>PREFIX*</code>. A last component that is no tag, term or exclusion names one file, and only that file is answered. With tags in the path, the files of deeper directories (those with more tags than the path) come as records without a name; their other tags are the facets: the subdirectories. With no tag, the root&#x27;s own files are answered; but with a term other than <code>PREFIX*</code>, or mode bit 1, every file that matches is, each with its name. A path starting with <code>@SNAP</code> lists the snapshot. Ask again with the cursor until it is 0.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -940,7 +940,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-41">
-<h4><span class="n">41</span><a class="opname" href="../code/#os/servers/fsops.s:762"><code>TAGS2</code></a><span class="sum">List every tag, or a file&#x27;s tags, part by part</span></h4>
+<h4><span class="n">41</span><a class="opname" href="../code/#os/servers/fsops.s:777"><code>TAGS2</code></a><span class="sum">List every tag, or a file&#x27;s tags, part by part</span></h4>
 <p>With no path (or <code>/</code>), every tag by id; with a path, the tags of the file it names (any last component is read as a file&#x27;s name). The path may start with <code>@SNAP</code>. Ask again with the cursor until it is 0.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -966,7 +966,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-42">
-<h4><span class="n">42</span><a class="opname" href="../code/#os/servers/fsops.s:774"><code>SETATTR</code></a><span class="sum">Set or take away one of a file&#x27;s attributes</span></h4>
+<h4><span class="n">42</span><a class="opname" href="../code/#os/servers/fsops.s:789"><code>SETATTR</code></a><span class="sum">Set or take away one of a file&#x27;s attributes</span></h4>
 <p>A value in digits is kept as a number, any other as a string. An attribute name gets an id at its first use. One commit.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -981,13 +981,13 @@
 <tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
 </tbody>
 <tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
-<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>a missing zero byte, an empty or bad name, a value over 255 bytes, a bad path or one without a name</td></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>a missing zero byte, an empty or bad name, a name or a value over 255 bytes, a bad path or one without a name</td></tr>
 <tr><td class="k"><abbr title="no such file or program">−4</abbr></td><td class="at"></td><td class="ty"></td><td>no such file or tag</td></tr>
 <tr><td class="k"><abbr title="no memory">−6</abbr></td><td class="at"></td><td class="ty"></td><td>the file&#x27;s record has no room for the value</td></tr>
 </tbody>
 </table></div></article>
 <article class="op" id="fs-43">
-<h4><span class="n">43</span><a class="opname" href="../code/#os/servers/fsops.s:777"><code>GETATTR</code></a><span class="sum">A file&#x27;s attributes</span></h4>
+<h4><span class="n">43</span><a class="opname" href="../code/#os/servers/fsops.s:792"><code>GETATTR</code></a><span class="sum">A file&#x27;s attributes</span></h4>
 <p>The path may exclude tags and hold terms. Records that do not fit 4032 bytes are left out.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1014,7 +1014,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-45">
-<h4><span class="n">45</span><a class="opname" href="../code/#os/servers/fsops.s:756"><code>SNAP</code></a><span class="sum">Take, delete, list or restore snapshots</span></h4>
+<h4><span class="n">45</span><a class="opname" href="../code/#os/servers/fsops.s:771"><code>SNAP</code></a><span class="sum">Take, delete, list or restore snapshots</span></h4>
 <p>A snapshot is the whole disk as of a commit, under a name; taking one copies nothing. A path whose first component is <code>@NAME</code> reads it (OPEN for reading, STAT, LOADIMG, QUERY, TAGS2); OPEN for writing given such a path answers −1, any other call −4; every call answers −4 when there is no snapshot of that name. Restoring makes the file system what the snapshot shows, in one commit; the snapshots stay. A mode above 3 deletes, as mode 1.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1029,7 +1029,7 @@
 <tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>modes 0, 1, 3: 0; mode 2: the records (100 at most)</td></tr>
 <tr><td class="k">data</td><td class="at"></td><td class="ty"></td><td>mode 2: per snapshot, oldest first:</td></tr>
 <tr><td class="k"></td><td class="at">  +0</td><td class="ty">u64</td><td>its commit</td></tr>
-<tr><td class="k"></td><td class="at">  +8</td><td class="ty">bytes</td><td>its name — 32 bytes</td></tr>
+<tr><td class="k"></td><td class="at">  +8</td><td class="ty">bytes</td><td>its name — 32 bytes, zero-padded</td></tr>
 </tbody>
 <tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
 <tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>a name of 0 or more than 32 bytes; take: one of that name exists; restore: a file is open for writing</td></tr>
@@ -1037,7 +1037,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-46">
-<h4><span class="n">46</span><a class="opname" href="../code/#os/servers/fsops.s:783"><code>FIND</code></a><span class="sum">Files across the whole file system by name, part by part</span></h4>
+<h4><span class="n">46</span><a class="opname" href="../code/#os/servers/fsops.s:798"><code>FIND</code></a><span class="sum">Files across the whole file system by name, part by part</span></h4>
 <p>Mode 0 seeks the names&#x27; tree directory by directory, so it reads only the names that begin with the text (case counts). Mode 1 reads the records in object order, 384 at most per part, comparing letters in any case: a part may hold no file and still have a cursor, so the asker can stop between parts. Ask again with the cursor until it is 0.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1068,7 +1068,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-64">
-<h4><span class="n">64</span><a class="opname" href="../code/#os/servers/fsops.s:793"><code>DBGET</code></a><span class="sum">A value from a program&#x27;s tree</span></h4>
+<h4><span class="n">64</span><a class="opname" href="../code/#os/servers/fsops.s:808"><code>DBGET</code></a><span class="sum">A value from a program&#x27;s tree</span></h4>
 <p>The store for programs: trees of keys and values (bytes, compared unsigned) in namespaces of their own. Namespaces made by DBBATCH are public; <code>fs</code> is private and refused.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1086,12 +1086,12 @@
 <tr><td class="k">data</td><td class="at">+0</td><td class="ty">bytes</td><td>the value</td></tr>
 </tbody>
 <tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
-<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>a bad request (lengths, a tree name starting with <code>.</code>), a private namespace, or a value kept as a stream</td></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>a bad request (lengths, a key that does not lie inside the data, a tree name starting with <code>.</code>), a private namespace, or a value kept as a stream</td></tr>
 <tr><td class="k"><abbr title="no such file or program">−4</abbr></td><td class="at"></td><td class="ty"></td><td>no such namespace, tree or key</td></tr>
 </tbody>
 </table></div></article>
 <article class="op" id="fs-65">
-<h4><span class="n">65</span><a class="opname" href="../code/#os/servers/fsops.s:796"><code>DBSCAN</code></a><span class="sum">Records of a program&#x27;s tree, in key order</span></h4>
+<h4><span class="n">65</span><a class="opname" href="../code/#os/servers/fsops.s:811"><code>DBSCAN</code></a><span class="sum">Records of a program&#x27;s tree, in key order</span></h4>
 <p>The first record is the nearest on the mode&#x27;s side of the key; those after it follow in key order, as many as fit. Ask again with the last key and mode 1.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1121,12 +1121,12 @@
 <tr><td class="k"></td><td class="at"></td><td class="ty">pad</td><td>padding to the next multiple of 8</td></tr>
 </tbody>
 <tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
-<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>a bad request, or a private namespace</td></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>a bad request (lengths, a key that does not lie inside the data, a tree name starting with <code>.</code>), or a private namespace</td></tr>
 <tr><td class="k"><abbr title="no such file or program">−4</abbr></td><td class="at"></td><td class="ty"></td><td>no such namespace or tree</td></tr>
 </tbody>
 </table></div></article>
 <article class="op" id="fs-66">
-<h4><span class="n">66</span><a class="opname" href="../code/#os/servers/fsops.s:799"><code>DBBATCH</code></a><span class="sum">Puts and deletes in a program&#x27;s tree, in one commit</span></h4>
+<h4><span class="n">66</span><a class="opname" href="../code/#os/servers/fsops.s:814"><code>DBBATCH</code></a><span class="sum">Puts and deletes in a program&#x27;s tree, in one commit</span></h4>
 <p>Every item is checked before any is done: all of them reach the disk, or none. The namespace and the tree are made by the first write (a namespace or tree made by a refused batch stays, empty).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
