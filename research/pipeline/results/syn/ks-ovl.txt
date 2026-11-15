@@ -1,0 +1,162 @@
+probe                bits  arrives     then    total   (FO4)
+d                     166     35.0    150.5    150.5
+ra                     64     36.7    111.1    146.1
+rb                     64     36.7    115.5    150.5
+rc                     64     35.1     59.1     93.5
+cap_a                  81     40.0     76.5    116.3
+cd_cap                 81      8.0     76.1     83.5
+ka                     81     45.5     72.9    116.3
+kd                     81     37.2     72.3    107.8
+g_a                    17     55.4     61.6    116.3
+g_d                    17     46.9     61.1    107.8
+live_a                  1     65.7     50.5    116.3
+live_cd                 1     54.7     53.1    107.8
+xc_key                 63     66.2     53.2     99.9
+xm_inslot               1      0.0     26.4     26.4
+xm_li                   4      0.0     69.9     69.9
+xm_lk_off              17     32.0     57.7     69.9
+xm_lk_far              27     49.8     25.0     68.7
+xm_i                    4      0.0     58.9     58.9
+alu_y                  64     94.1     56.6    150.5
+br_taken                1     89.3     16.7    106.0
+maddr                  64     94.1     56.6    150.5
+mok                     1     99.9     19.0    118.9
+mload                  64    107.3      4.2    111.5
+xm_hit                  1      0.0     32.5     32.5
+xm_target              64     85.7     15.8     99.9
+xm_link                28     50.1     26.4     50.1
+xf_fault                3     92.3     24.0    116.3
+amo_fault               3     75.7     21.3     96.9
+csr_rv                 64     19.0      8.2     27.2
+pc_br                  64     51.9     12.9     58.5
+pc4                    17     16.4     64.7     66.6
+give_valid              1    104.7      0.0    104.7
+tu_iss_valid            1     94.4      0.0     94.4
+held                    1      7.2     41.7     48.9
+hz_rd_stall             1    131.8     18.7    150.5
+
+130269 gates, 25164 end points; delays in FO4 (tau / 5), fanout capped at 6
+   FO4 gates  from                     to                           worst end point
+ 150.5   104  other: d                 CSRs, tag lookup             u_epc[1]
+ 150.0   112  other: d                 other: ia_addr               ia_addr[5]
+ 149.3   104  ir (instruction)         CSRs, tag lookup             u_epc[1]
+ 148.9   104  other: d                 other: inbox_priv            inbox_priv
+ 148.7   102  other: d                 D-LS port B (unit)           u_dls.mem:WR_EN:B
+ 148.7   112  ir (instruction)         other: ia_addr               ia_addr[5]
+ 148.6   104  other: d                 state / phase                state[1]
+ 148.4   104  other: d                 pc                           pc[50]
+ 147.7   104  ir (instruction)         other: inbox_priv            inbox_priv
+ 147.5   102  ir (instruction)         D-LS port B (unit)           u_dls.mem:WR_EN:B
+ 147.3   104  ir (instruction)         state / phase                state[1]
+ 147.1   104  ir (instruction)         pc                           pc[50]
+ 146.7   102  other: d                 D-LS port A addr/data/we     u_dls.mem:RD_ADDR:A
+ 145.5   102  ir (instruction)         D-LS port A addr/data/we     u_dls.mem:RD_ADDR:A
+ 139.8    95  other: cd_i              CSRs, tag lookup             u_epc[1]
+ 139.3   103  other: cd_i              other: ia_addr               ia_addr[5]
+ 138.9    80  other: d                 other: mul_p                 mul_p[125]
+ 138.2    95  other: cd_i              other: inbox_priv            inbox_priv
+ 138.0    93  other: cd_i              D-LS port B (unit)           u_dls.mem:WR_EN:B
+ 137.9    95  other: cd_i              state / phase                state[1]
+ 137.7    95  other: cd_i              pc                           pc[50]
+ 137.7    80  ir (instruction)         other: mul_p                 mul_p[125]
+ 136.0    93  other: cd_i              D-LS port A addr/data/we     u_dls.mem:RD_ADDR:A
+ 129.2    93  other: d                 capability registers         caps[2][0]
+ 128.2    71  other: cd_i              other: mul_p                 mul_p[125]
+ 127.9    93  ir (instruction)         capability registers         caps[2][0]
+ 123.9    85  integer registers x      CSRs, tag lookup             u_epc[1]
+ 123.3    93  integer registers x      other: ia_addr               ia_addr[5]
+ 122.3    85  integer registers x      other: inbox_priv            inbox_priv
+ 122.1    83  integer registers x      D-LS port B (unit)           u_dls.mem:WR_EN:B
+ 121.9    85  integer registers x      state / phase                state[1]
+ 121.7    85  integer registers x      pc                           pc[50]
+ 120.1    83  integer registers x      D-LS port A addr/data/we     u_dls.mem:RD_ADDR:A
+ 119.1    64  state / phase            other: mul_p                 mul_p[125]
+ 118.5    84  other: cd_i              capability registers         caps[2][0]
+ 112.3    61  integer registers x      other: mul_p                 mul_p[125]
+ 111.5    80  other: d                 integer registers x          x[31][61]
+ 110.2    80  ir (instruction)         integer registers x          x[31][61]
+ 110.0    59  mul / div                other: mul_p                 mul_p[125]
+ 109.5    76  CSRs, tag lookup         integer registers x          x[31][61]
+ 108.3    75  D-LS read data           integer registers x          x[31][61]
+ 106.6    79  other: d                 Transfer Unit                u_tu.q_end[3][14]
+ 104.7    74  other: d                 outputs                      OUT:give_valid
+ 104.4    79  ir (instruction)         Transfer Unit                u_tu.q_end[3][14]
+ 104.3    79  state / phase            integer registers x          x[31][62]
+ 103.4    74  ir (instruction)         outputs                      OUT:give_valid
+ 102.5    74  integer registers x      capability registers         caps[2][0]
+ 100.7    71  other: cd_i              integer registers x          x[31][61]
+  99.7    75  other: d                 other: tag_busy              tag_busy[14]
+  99.6    82  other: d                 overlay map                  xm_far[14][0]
+  97.5    75  ir (instruction)         other: tag_busy              tag_busy[14]
+  97.4    82  ir (instruction)         overlay map                  xm_far[14][0]
+  94.9    70  other: cd_i              Transfer Unit                u_tu.q_end[3][14]
+  93.9    65  other: cd_i              outputs                      OUT:give_valid
+  93.4    69  CSRs, tag lookup         CSRs, tag lookup             lt_ebase[62]
+  93.3    68  CSRs, tag lookup         capability registers         caps[2][0]
+  88.0    66  other: cd_i              other: tag_busy              tag_busy[14]
+  87.9    73  other: cd_i              overlay map                  xm_far[14][0]
+  86.9    66  CSRs, tag lookup         other: ia_addr               ia_addr[5]
+  85.1    63  CSRs, tag lookup         pc                           pc[16]
+
+worst path by start class:
+ 150.5   104  other: d                 -> CSRs, tag lookup
+ 149.3   104  ir (instruction)         -> CSRs, tag lookup
+ 139.8    95  other: cd_i              -> CSRs, tag lookup
+ 123.9    85  integer registers x      -> CSRs, tag lookup
+ 119.1    64  state / phase            -> other: mul_p
+ 110.0    59  mul / div                -> other: mul_p
+ 109.5    76  CSRs, tag lookup         -> integer registers x
+ 108.3    75  D-LS read data           -> integer registers x
+  83.5    81  capability registers     -> capability registers
+  76.5    74  save table read          -> capability registers
+  72.9    73  granule table            -> capability registers
+  69.9    61  cut xm_li                -> integer registers x
+  69.9    61  overlay map              -> integer registers x
+  66.6    57  pc                       -> integer registers x
+  66.6    57  other: ia_addr           -> integer registers x
+  58.9    45  cut xm_i                 -> pc
+  57.7    40  other: ca                -> CSRs, tag lookup
+  48.9    52  other: inbox_priv        -> capability registers
+  48.5    31  other: mul_p             -> other: mul_p
+  42.4    41  Transfer Unit            -> other: ia_addr
+  41.8    49  inputs                   -> capability registers
+  36.3    27  other: $abc$692867$flatten\u_tu -> D-LS port B (unit)
+  32.5    31  cut xm_hit               -> integer registers x
+  31.7    26  other: tag_busy          -> integer registers x
+  26.4    29  cut xm_inslot            -> integer registers x
+  23.0    15  other: mul_done_lo       -> integer registers x
+  23.0    15  other: mul_done          -> integer registers x
+  21.8    14  other: div_done          -> integer registers x
+   4.2     4  other: div_busy          -> mul / div
+   2.5     3  I-LS read data           -> other: d
+
+worst path by end class:
+ 150.5   104  CSRs, tag lookup             <- other: d
+ 150.0   112  other: ia_addr               <- other: d
+ 148.9   104  other: inbox_priv            <- other: d
+ 148.7   102  D-LS port B (unit)           <- other: d
+ 148.6   104  state / phase                <- other: d
+ 148.4   104  pc                           <- other: d
+ 146.7   102  D-LS port A addr/data/we     <- other: d
+ 138.9    80  other: mul_p                 <- other: d
+ 129.2    93  capability registers         <- other: d
+ 111.5    80  integer registers x          <- other: d
+ 106.6    79  Transfer Unit                <- other: d
+ 104.7    74  outputs                      <- other: d
+  99.7    75  other: tag_busy              <- other: d
+  99.6    82  overlay map                  <- other: d
+  78.8    58  save table                   <- other: d
+  66.1    52  mul / div                    <- other: d
+  51.5    42  other: div_done              <- other: d
+  50.1    40  other: div_busy              <- other: d
+  35.8    27  I-LS port B (unit)           <- Transfer Unit
+  33.5    30  I-LS port A addr             <- other: ia_addr
+  29.1    23  other: mul_done_lo           <- other: d
+  29.1    23  other: mul_done              <- other: d
+  16.7    13  other: d                     <- Transfer Unit
+  16.7    13  other: cd_i                  <- Transfer Unit
+  16.7    13  ir (instruction)             <- Transfer Unit
+  15.5    11  other: $abc$692867$flatten\u_tu <- Transfer Unit
+  13.8    10  other: gt3                   <- inputs
+   7.9     5  other: ca                    <- state / phase
+   4.4     2  other: gt2                   <- inputs
