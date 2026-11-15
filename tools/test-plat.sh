@@ -26,6 +26,10 @@
 #      demo 6  the town in a file: built, a year, saved (the demo says the
 #              map's checksum), bulldozed and taxed differently, the saved
 #              town loaded again: the map must be the one that was saved
+#      demo 7  the fuller city: rail across a road, police and fire
+#              stations, a park, a solar plant beside the zones; two
+#              years; the budget (less for the police and the fire
+#              service); the pollution map over the town
 #    (A demo's land comes from a fixed seed, so it is always the same land.)
 # 2. `ws plat` on a machine with the sound device (-A: what it plays goes
 #    to a WAV file) and a pointer (-P): a road dragged with the left button,
@@ -46,7 +50,7 @@ BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
 # demo:frame checksum:map checksum:funds:seconds it is given
-PLAT_CRC="1:1fd096f4:fe18a8eb:19072:6 2:6f00df9f:84ce65ce:20000:6 3:df408234:52a65110:0:40 4:2f2e609d:66999b66:19770:6 5:6cbd4bea:940a6126:19581:12 6:822d576c:68551d85:16677:10"
+PLAT_CRC="1:b82894d8:fe18a8eb:19072:6 2:b1aac2a8:84ce65ce:20000:6 3:e00585b9:52a65110:0:40 4:39915aa9:66999b66:19770:6 5:ecb4cb1f:ae35b216:17910:12 6:6868d26b:71169d85:16632:10 7:c88e476e:61d19e43:9124:14"
 T=$BUILD/test-plat
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W

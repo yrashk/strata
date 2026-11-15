@@ -381,8 +381,13 @@ Original art avoids both.
       help, the palette's entry in `ws`, sizes here
 - [ ] Frame rates measured on a quiet machine (JIT, interpreter, wasm)
 - [x] The art of tier 2 (`SPEC-2.md`) drawn by Codex (Astra); shown
-- [ ] The art of tier 2 approved
-- [ ] Tier 2, in stages: code units; traffic and rail; pollution, land
-      value, crime; police, fire, parks; overlays and the mini-map; the
-      budget window; advisers and the town paper; graphs; several cities
+- [x] The art of tier 2 in use (kept unless asked otherwise)
+- [x] Tier 2, first part: code units (the simulation, the tools, the
+      file, the budget: 2 KiB each, paged in by the kernel; the band moved
+      above them, the arena split for DAMAGE); rail and its crossings;
+      police and fire stations, parks, the solar plant; maps of pollution,
+      crime, traffic, land value and cover feeding growth; roads showing
+      their traffic; the maps over the town; the minimap; the budget
+- [ ] Tier 2, second part: advisers and the town paper; the opinion of the
+      mayor; graphs; several cities
 - [ ] Tier 3 as chosen

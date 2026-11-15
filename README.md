@@ -390,12 +390,16 @@ page.
 `plat` is Plat, a city-building game in the genre of the classic city
 simulators, with its own name, art and text, written in Strata assembly as
 a client of the window server. Every game has new land (a river, lakes,
-woods); the player lays roads (bridges over the water) and power lines,
-zones land for homes, shops and offices, and industry, and builds coal
-power plants. Once a month power spreads from the plants, zones with power
-and a road grow while their kind is in demand, the census counts the
-residents and the jobs, and taxes and upkeep move the treasury. Five zoom
-levels (at the smallest the whole map is in view), tooltips on the buttons,
+woods); the player lays roads and rail (bridges over the water) and power
+lines, zones land for homes, shops and offices, and industry, and builds
+police and fire stations, parks, and coal or solar power plants. Once a
+month power spreads from the plants, zones with power and a road grow
+while their kind is in demand and the place suits them (land value,
+pollution, crime, traffic, each a map that can be shown over the town),
+the census counts the residents and the jobs, and taxes and upkeep move
+the treasury; the budget sets the tax rate and the services' funding. Five zoom
+levels (at the smallest the whole map is in view), a minimap, tooltips on
+the buttons,
 and the town is kept in a file with its population, year and funds as
 attributes. The art is original, drawn by a script (`tools/plat-art.py`).
 Run `ws plat` from the shell, or `plat` from the palette; it is a preset on

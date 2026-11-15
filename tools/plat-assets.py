@@ -93,6 +93,20 @@ DEMOS = {
        "{13,1 L,},1 U,3 l,3 ^,{8,1 R,},3 ^,{2,1 R,},1 U,3 1,3 _,"
        "5 =,3 =,{12,30 .,},5 0,5 s,"
        "5 b,3 ^,{6,1 L,},3 ^,5 ],5 ],10 o,10 .",
+    # the fuller city: a coal plant, a road, a line, homes, a police
+    # station, shops, a fire station, industry, a park, rail across the
+    # road, a solar plant; two years; the budget (less for the police and
+    # the fire service); the pollution map over the town
+    7: "5 p,3 _,{4,1 L,},{4,1 D,},3 r,3 ^,{40,1 R,},3 ^,"
+       "{33,1 L,},{3,1 U,},3 l,3 ^,{3,1 R,},{5,1 D,},3 ^,"
+       "{2,1 R,},{4,1 U,},3 1,3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+       "3 4,{3,1 R,},3 _,3 2,{3,1 R,},3 _,3 5,{3,1 R,},3 _,"
+       "{15,1 L,},{4,1 D,},3 3,3 _,{3,1 R,},3 _,3 6,{2,1 R,},3 _,1 R,3 _,"
+       "3 1,{3,1 R,},3 _,"
+       "{9,1 R,},{10,1 U,},3 t,3 ^,{16,1 D,},3 ^,"
+       "{6,1 R,},{14,1 U,},3 e,3 _,"
+       "5 =,3 =,{24,30 .,},"
+       "5 g,3 D,3 L,3 D,3 L,3 ^,5 m,3 m,3 m,5 0,10 .",
 }
 KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '_': 32, '^': 13, '}': 0xfc}
 
@@ -295,12 +309,17 @@ def build(art, outdir):
                 demos += bytes((int(t), KEYS.get(k, ord(k[0]) if k else ord('.'))))
         demos += b'\0\0'
 
+    avg = bytearray()                   # each cell's mean colour, as the palette's nearest
+    for name, rows in cells:
+        m = [sum(px[c] for r in rows for px in r) / 256 for c in range(3)]
+        avg.append(min(range(ncol), key=lambda i: sum((rgb[i][c] - m[c]) ** 2 for c in range(3))))
     palb = b''.join(bytes((b, g, r, 0)) for r, g, b in rgb)
     parts = [('R_PAL', palb, 'the palette (XRGB8888)'),
              ('R_KIND', pad8(bytes(kinds)), 'the kind of each cell picture (K_*)'),
              ('R_BLOB', blob, 'water: a cell\'s 8-neighbour mask -> its picture after T_WATER'),
              ('R_SPR', pad8(bytes(sprdir)), 'sprites: u32 far offset, u16 w, h (rows of (w + 7) & ~7 bytes)'),
              ('R_SND', pad8(bytes(snddir)), 'sounds: u32 far offset, u32 samples'),
+             ('R_AVG', pad8(bytes(avg)), 'each cell picture\'s colour, the nearest to its mean (the minimap)'),
              ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: nine u16 offsets from here, then '
               'u8 tics, u8 key (1..4: up, down, left, right; 0xfb: a loop begins, its count and 0 follow; '
               '0xfc: it ends) each; 0 ends one')]
