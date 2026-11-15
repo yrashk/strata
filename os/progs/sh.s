@@ -300,7 +300,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "  Alt+F full screen         Alt+Z one tile alone (again: back)\n" ; (continued)
          .ascii "  Alt+Q close the window    Alt+Shift+Q quit ws, back to this shell\n" ; (continued)
          .ascii "  Ctrl-C interrupts the program in the focused window\n" ; (continued)
-         .ascii "  programs for windows: term wmandel wclock wdoom kira wdb\n" ; (continued)
+         .ascii "  programs for windows: term wmandel wclock wdoom kira plat wdb\n" ; (continued)
 m_help_e:                               ; end of the help text
 
         .text                           ; instruction Local Store

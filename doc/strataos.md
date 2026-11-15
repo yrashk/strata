@@ -1526,6 +1526,21 @@ window whose process ends is removed.
   are synthesised (`tools/kira-assets.py`), and both are in a data file,
   `/ws/kira.dat`. `kira demo N` plays recorded keys and clicks one tic a
   frame. `os/progs/kira.s`, `os/progs/kira/`, `os/progs/PLAN-kira.md`.
+- **`plat`**: Plat, a city-building game (its first stage): a map of 128 x
+  128 cells seen from above, new land for every game (a river, lakes and
+  woods from a seed), roads (bridges over the water), power lines and the
+  bulldozer, paid for from a treasury, a calendar at three speeds. It
+  draws XRGB8888 at the window's own size, with cells of 16 or 32 pixels,
+  and only what changed: a tool's cells and their neighbours, a moved
+  cursor, the whole map after a scroll; each piece is one DAMAGE
+  rectangle, and the bar's numbers are drawn by the server's `wc_text`.
+  The map is 32 KiB of 16-bit cells in the arena above the data file's
+  far block; a cell is read and written with an 8-byte transfer. Its art
+  is drawn by a script (`tools/plat-art.py`), its sounds are synthesised
+  (`tools/plat-assets.py`), both in `/ws/plat.dat`. `plat demo N` plays
+  recorded keys one tic a frame and reports the treasury, the date and a
+  checksum of the map. `os/progs/plat.s`, `os/progs/plat/`,
+  `os/progs/PLAN-city.md`.
 - Any program can do the same through `os/lib/wsclient.s` and
   `os/lib/gfx.s` (surfaces, display lists, spans, text).
 - `make ws-demo` runs the same renderers on the bare machine against a
