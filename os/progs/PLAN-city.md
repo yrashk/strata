@@ -306,28 +306,54 @@ Original art avoids both.
 - **Measured and written here:** frame rates (JIT, interpreter, wasm),
   the cost of a month in instructions, sizes.
 
-## Stage 1 as built
+## Tier 1 as built
 
-- The map is 16-bit cells holding a picture's number; the kind of a
-  picture (road, water, ...) is a table in the data file. A road's or a
-  line's picture is chosen by the neighbours it joins (16 of each), and
-  water's by its eight neighbours (47 pictures); a tool remakes the cell
-  and its four neighbours. Bridges and lines over the water have a
-  picture for each of the 47 water cells (the asset tool lays the
-  bridge's or the line's own pixels over each), so a crossing keeps its
-  banks.
+- The map is 16-bit cells: a picture's number in the low ten bits, flags
+  the simulation keeps in the top ones (power; a zone's road and its
+  mark). The kind of a picture (road, water, zone, ...) is a table in the
+  data file. A road's or a line's picture is chosen by the neighbours it
+  joins (16 of each; lines join zones and plants), and water's by its
+  eight neighbours (47 pictures); a tool remakes the cell and its
+  neighbours. Bridges and lines over the water have a picture for each of
+  the 47 water cells (the asset tool lays the bridge's or the line's own
+  pixels over each), so a crossing keeps its banks.
 - A road crosses a power line, and a line a road, only where the other
   runs straight, and across it.
 - The land: a river from the top edge to the bottom one, one to three
   lakes, 16 to 25 clumps of woods; the random numbers start from the
   clock, a demo's from a fixed seed.
-- Sizes: the program is 49.2 KiB on the disk: 18.1 KiB of code (of the 32
-  KiB a program may have; 7 KiB of it `sys.s` and `wsclient.s`, 1 KiB
-  wdoom's mixer; about 2,800 lines of its own) and 31.1 KiB of D-LS data
-  (of 40 KiB): the library 13 KiB, the row of pixels 5 KiB, sixteen cell
-  pictures 4 KiB, the land's two bitmaps 4 KiB, the resident block of
-  `plat.dat` 2.3 KiB. `plat.dat` is 177 KiB: 582 cell pictures 146 KiB,
-  sprites 16 KiB, six sounds 14 KiB.
+- Zones are 3 x 3 on clear land (woods are cleared with them), the coal
+  plant 4 x 4; the bulldozer clears a whole zone or plant.
+- Once a month (`plat/sim.s`): power spreads breadth first from the
+  plants over lines, zones and plants (a ring of 2,048 cells in the D-LS
+  the land's bitmaps used; a coal plant powers 50 zones); each zone's
+  middle is visited: with power and a road on the ring two cells out, an
+  empty zone becomes a site when its kind is in demand, a site its first
+  density, a built zone grows by chance with the demand and declines
+  without power or a road or when it is little wanted; the census counts
+  residents (homes) and jobs (shops and offices, industry) by density;
+  demand: homes want twice the jobs, shops a quarter of the residents and
+  a fifth of the industry's jobs, industry a third of the residents and a
+  market outside the town; taxes above 7 % lower all three. Taxes (tax /
+  40 a resident and tax / 60 a job each month) and upkeep (a road 1 a
+  year, a bridge 5, a line 1, a plant 112) move the treasury; January says
+  last year's; milestones at 500, 2,000, 10,000 and 50,000 residents.
+- A zone without power or a road has a mark over its middle (no road
+  first); the bar shows the three demands as bars.
+- Zoom: cells of 4, 8, 16, 32 and 64 pixels (every fourth, every second,
+  each pixel once, twice, four times); at 4 the whole map is in view; the
+  map is centred in the window when it is smaller.
+- Tooltips: the window asks `ws` for the pointer's moves with no button
+  held (CREATE mode bit 1, new in `ws`); over a button or a part of the
+  bar a tooltip says what it is and its key, drawn by the server's font
+  beside it, and the cells under it are drawn again when it goes.
+- The town is kept in `/ws/plat.sav` (a header and the map), loaded at
+  the start and saved on quit or with S; the file gets the attributes
+  population, year and funds (`attr /ws/plat.sav`).
+- Sizes: the program is 59 KiB on the disk: 24.5 KiB of code (of 32; tier
+  2 needs code units, as planned) and 34.4 KiB of D-LS data (of 40).
+  `plat.dat` is 179 KiB: 582 cell pictures 146 KiB, sprites 17 KiB, six
+  sounds 14 KiB. About 4,700 lines of assembly of its own.
 
 ## Plan
 
@@ -345,13 +371,17 @@ Original art avoids both.
       the calendar at three speeds and the pause; `plat demo`;
       `tools/test-plat.sh`; `ws plat`, the palette, the shell's help, the
       play page's preset
-- [ ] Stage 2: zones, power plants, power, growth and decline, the
-      census, demand bars
-- [ ] Stage 3: taxes, upkeep, the yearly summary, messages, sounds
-- [ ] Stage 4: saving and loading one city, with attributes; the round
+- [x] Stage 2: zones, power plants, power, growth and decline, the
+      census, demand bars; zoom from 4 to 64 pixels a cell
+- [x] Stage 3: taxes, upkeep, the yearly summary, messages, sounds
+- [x] Stage 4: saving and loading one city, with attributes; the round
       trip in the test
-- [ ] Tier 1 done: screenshot, README and site entries, the shell's
-      help, the palette's entry in `ws`, sizes and frame rates here
+- [x] Tooltips on the buttons and the bar; zoom buttons
+- [x] Tier 1 done: screenshot, README and site entries, the shell's
+      help, the palette's entry in `ws`, sizes here
+- [ ] Frame rates measured on a quiet machine (JIT, interpreter, wasm)
+- [x] The art of tier 2 (`SPEC-2.md`) drawn by Codex (Astra); shown
+- [ ] The art of tier 2 approved
 - [ ] Tier 2, in stages: code units; traffic and rail; pollution, land
       value, crime; police, fire, parks; overlays and the mini-map; the
       budget window; advisers and the town paper; graphs; several cities

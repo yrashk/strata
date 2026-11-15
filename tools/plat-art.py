@@ -3,7 +3,7 @@
 
 All coordinates are native pixels; there is no antialiasing or resampling.
 Run from any directory. Only the named outputs beside SPEC.md are written.
-Contact-sheet captions are the sole text exception to the PLAT-only artwork.
+Only the logos, paper masthead and contact-sheet captions contain lettering.
 """
 from pathlib import Path
 import hashlib
@@ -39,6 +39,16 @@ HEX = {
     'coal':'46514d', 'coal_l':'65716a', 'smoke':'c6cfbe',
 }
 P = {k: tuple(bytes.fromhex(v)) + (255,) for k, v in HEX.items()}
+# Part two adds only these ramps; all first-part colours remain untouched.
+EXTRA_HEX = {
+    'solar_d':'293f61', 'solar':'385b86', 'solar_l':'648db0',
+    'skin_d':'855947', 'skin':'b47b58', 'skin_l':'daa578',
+    'skin_deep_d':'59453d', 'skin_deep':'805a48', 'skin_deep_l':'ac7a58',
+    'skin_fair_d':'bd8d71', 'skin_fair':'e2b995', 'skin_fair_l':'f4d5ae',
+    'flame_d':'c36337', 'flame':'ee903f', 'flame_l':'ffe69b',
+}
+assert not set(EXTRA_HEX) & set(HEX)
+P.update({k: tuple(bytes.fromhex(v)) + (255,) for k, v in EXTRA_HEX.items()})
 CLEAR = (0, 0, 0, 0)
 
 
@@ -950,9 +960,665 @@ def validate():
     return sorted(used)
 
 
+CARDINAL = ((1,0,-1),(2,1,0),(4,0,1),(8,-1,0))
+RAIL_MASKS = tuple(range(16))
+NEW_TOOLS = ('rail','police','fire','park','solar','budget','map','zoom_in','zoom_out')
+TIER2_SIZES = {
+    'rail':(16,256), 'rail_bridge':(32,16), 'rail_road':(32,16),
+    'line_rail':(32,16), 'traffic_light':(16,256), 'traffic_heavy':(16,256),
+    'jam':(16,16), 'police':(48,48), 'fire':(48,48),
+    'park_0':(16,16), 'park_1':(16,16), 'park_big':(48,48),
+    'solar_0':(64,64), 'solar_1':(64,64), 'paper_head':(240,32),
+    **{f'fire_{n}':(16,16) for n in range(4)},
+    **{f'adv_{n}':(32,32) for n in ('clerk','engineer','shopkeeper','resident')},
+    **{f'tool_{n}':(20,20) for n in NEW_TOOLS},
+    'sheet_tier2':(1152,896), 'sample_town2':(640,384),
+}
+TRAFFIC_PIXELS = {}
+
+
+def rail(mask):
+    """Circular switch routes with a common ten-pixel ballast cross-section.
+
+    The half-pixel centre keeps both rails symmetric. Ends deliberately use
+    the same sleeper phase in all sixteen masks, including curved routes.
+    """
+    assert mask in RAIL_MASKS
+    im = ground()
+    routes = []
+    if mask & 5 == 5: routes.append(('v',0,15))
+    if mask & 10 == 10: routes.append(('h',0,15))
+    # A turnout has one curved branch off a through track. Drawing every
+    # possible pair would turn its centre into an unreadable knot of steel.
+    bend = {3:3,6:6,9:9,12:12,7:3,11:9,13:12,14:6}.get(mask)
+    for bits,cx,cy in ((3,15.5,-.5),(6,15.5,15.5),
+                       (12,-.5,15.5),(9,-.5,-.5)):
+        if bend==bits: routes.append(('arc',cx,cy))
+    if not routes:
+        if mask in (1,4,5): routes.append(('v',0 if mask&1 else 6,15 if mask&4 else 9))
+        else: routes.append(('h',0 if mask&8 else 4,15 if mask&2 else 11))
+    beds, ties, steels, lights = set(),set(),set(),set()
+    for y in range(16):
+        for x in range(16):
+            for kind,a,b in routes:
+                if kind == 'arc':
+                    radius = math.hypot(x-a,y-b)
+                    d = abs(radius-8)
+                    phase = math.atan2(abs(y-b),abs(x-a))*8
+                    sleeper = any(abs(phase-t)<.65 for t in (2,6,10))
+                else:
+                    along,across = (y,x) if kind=='v' else (x,y)
+                    if not a <= along <= b: continue
+                    d = abs(across-7.5)
+                    sleeper = along in (2,6,10,14)
+                if d <= 4.5: beds.add((x,y))
+                if d <= 3.5 and sleeper: ties.add((x,y))
+                if 1.9 <= d <= 3.5: steels.add((x,y))
+                if kind!='arc' and 2 <= d <= 2.95: lights.add((x,y))
+    # Trace circular rails as connected pixel paths. A narrow distance band
+    # alone leaves pinholes at diagonal tangencies at this tiny resolution.
+    for kind,cx,cy in routes:
+        if kind!='arc': continue
+        curve = Image(16,16)
+        for radius in (5.5,10.5):
+            points = [(round(cx+(-1 if cx>0 else 1)*radius*math.cos(i*math.pi/64)),
+                       round(cy+(-1 if cy>0 else 1)*radius*math.sin(i*math.pi/64))) for i in range(33)]
+            for a,b in zip(points,points[1:]): curve.line(*a,*b,'metal_l')
+        lights |= {(x,y) for y in range(16) for x in range(16) if curve.get(x,y)[3]}
+    for points,c in ((beds,'pave'),(ties,'wood_d'),(steels,'metal_d'),(lights,'metal_l')):
+        for x,y in points: im.put(x,y,c)
+    # Quiet ballast texture: isolated stones, never noise or a broken rail.
+    for x,y in ((3,3),(12,12),(3,11),(11,3)):
+        if (x,y) in beds and (x,y) not in ties|steels: im.put(x,y,'pave_l')
+    for bit,dx,dy in CARDINAL:
+        if not mask & bit: continue
+        for t in range(16):
+            x,y = (t,0 if dy<0 else 15) if dy else (0 if dx<0 else 15,t)
+            c = ('grass' if t<3 or t>12 else 'metal_l' if t in (5,10)
+                 else 'metal_d' if t in (4,11) else 'pave')
+            im.put(x,y,c)
+    if mask in (0,1,2,4,8):
+        if mask in (1,4):
+            y = 9 if mask==1 else 6
+            im.rect(4,y,8,2,'wood_d'); im.line(4,y,11,y,'rust_l')
+            im.put(5,y-1,'white'); im.put(10,y-1,'white')
+        else:
+            x = 4 if mask==2 else 11
+            im.rect(x,4,2,8,'wood_d'); im.line(x,4,x,11,'rust_l')
+            im.put(x-1,5,'white'); im.put(x-1,10,'white')
+    return im
+
+
+def rail_networks():
+    strip = Image(16,256)
+    for i,m in enumerate(RAIL_MASKS):
+        assert i == m and sum(bit for bit,_,_ in CARDINAL if m&bit)==m
+        strip.blit(rail(m),0,16*i)
+    add('rail',strip,(16,256))
+    bridge,cross,power = Image(32,16),Image(32,16),Image(32,16)
+    for v in range(2):
+        track = rail(10 if v==0 else 5)
+        im = water(255)
+        for y in range(16):
+            for x in range(16):
+                t,along = (y,x) if v==0 else (x,y)
+                if 3<=t<=12: im.put(x,y,track.get(x,y))
+                if t in (2,13): im.put(x,y,'slate_d')
+                if t in (1,12): im.put(x,y,'metal_l')
+                if t in (2,13) and along%4==1: im.put(x,y,'metal')
+        bridge.blit(im,v*16,0)
+        # Crossings have rail N-S first, E-W second (bridge order is reversed).
+        im = road(10 if v==0 else 5)
+        rt = rail(5 if v==0 else 10)
+        for y in range(16):
+            for x in range(16):
+                t,along = (x,y) if v==0 else (y,x)
+                if 3<=t<=12 and (along<=2 or along>=13): im.put(x,y,rt.get(x,y))
+                if t in (4,5,10,11): im.put(x,y,'metal_l' if t in (5,10) else 'metal_d')
+                # Rubber crossing panels between rails, flush with asphalt.
+                if t in (6,9) and 4<=along<=11: im.put(x,y,'road_d')
+        for x,y in ((1,1),(13,13)):
+            if v: x,y=y,x
+            im.rect(x,y,2,2,'red_d')
+            im.rect(x,y,1,2,'white'); im.put(x,y+1,'bad')
+            im.put(x+1,y,'amber_l')
+        cross.blit(im,v*16,0)
+        im = track.crop(0,0,16,16)
+        # Exactly the original cable lanes and roadside cross-arm placement.
+        if v==0:
+            for x,c in ((7,'wood_d'),(9,'slate_d')): im.line(x,0,x,15,c)
+            for y in (1,14):
+                im.line(4,y,11,y,'wood'); im.put(4,y,'cream'); im.put(11,y,'cream')
+        else:
+            for y,c in ((7,'wood_d'),(9,'slate_d')): im.line(0,y,15,y,c)
+            for x in (1,14):
+                im.line(x,4,x,11,'wood'); im.put(x,4,'cream'); im.put(x,11,'cream')
+        power.blit(im,v*16,0)
+    for name,im in (('rail_bridge',bridge),('rail_road',cross),('line_rail',power)):
+        add(name,im,(32,16))
+
+
+def tiny_car(color='coral',vertical=False,reverse=False):
+    im = Image(3,5) if vertical else Image(5,3)
+    # One shared 3 by 5 silhouette; windows and roof are darker than the body.
+    rows = ('_bb','bdb','bdb','bgb','_bl')
+    colors = {'b':color,'d':'slate_d','g':'glass_d','l':'white'}
+    for y,row in enumerate(rows):
+        for x,c in enumerate(row):
+            if c=='_': continue
+            xx,yy = (2-x,4-y) if reverse else (x,y)
+            im.put(xx if vertical else yy,yy if vertical else xx,colors[c])
+    return im
+
+
+def traffic():
+    for heavy,name in ((False,'traffic_light'),(True,'traffic_heavy')):
+        strip = Image(16,256)
+        for m in range(16):
+            base = ART['road.png'].crop(0,m*16,16,16)
+            im = base.crop(0,0,16,16)
+            # Each entry is inside an asphalt lane, including bends and stubs.
+            spots = []
+            if m&1: spots += [(4,0,True,False),(9,0,True,True)]
+            if m&4: spots += [(4,11,True,False),(9,11,True,True)]
+            if m&2: spots += [(11,4,False,False),(11,9,False,True)]
+            if m&8: spots += [(0,4,False,False),(0,9,False,True)]
+            if m in (0,1,4,5): spots += [(4,5,True,False),(9,5,True,True)]
+            elif m in (2,8,10): spots += [(5,4,False,False),(5,9,False,True)]
+            elif heavy: spots += [(5,5,False,False),(6,8,False,True)]
+            if not heavy: spots = spots[::max(1,len(spots)//2)][:2 if m else 1]
+            footprint = set()
+            for i,(x,y,vertical,reverse) in enumerate(spots):
+                sprite = tiny_car(('coral','com','amber_l','mint','white')[(i+m)%5],vertical,reverse)
+                pixels = {(x+xx,y+yy) for yy in range(sprite.h) for xx in range(sprite.w) if sprite.get(xx,yy)[3]}
+                assert not footprint & pixels, (name,m)
+                assert all(base.get(xx,yy) in (P['road'],P['stripe']) for xx,yy in pixels), (name,m)
+                footprint |= pixels
+                im.blit(sprite,x,y)
+            assert all(im.get(x,y)==base.get(x,y) for y in range(16) for x in range(16) if (x,y) not in footprint)
+            TRAFFIC_PIXELS[name,m] = footprint
+            strip.blit(im,0,m*16)
+        add(name,strip,(16,256))
+    im = Image(16,16)
+    im.blit(tiny_car('amber_l'),1,5); im.blit(tiny_car('com'),4,10)
+    im.rect(11,1,4,9,'red_d'); im.rect(11,1,3,8,'bad')
+    im.rect(12,2,1,5,'white'); im.rect(11,12,3,3,'bad'); im.put(12,12,'white')
+    add('jam',im,(16,16),True)
+
+
+def flowerbed(im,x,y,w=6):
+    im.rect(x+1,y+1,w,4,'grass_d'); im.rect(x,y,w,3,'leaf_d')
+    for i in range(0,w,2):
+        im.put(x+i,y,'leaf_m'); im.put(x+i,y+1,'coral_l' if i%4 else 'amber_l')
+
+
+def parks():
+    for v in range(2):
+        im = ground(v)
+        # Paths remain inset so arbitrary park neighbours share lawn borders.
+        points = ([(2,13),(3,10),(6,9),(9,9),(12,6),(13,2)] if v==0 else
+                  [(2,3),(5,4),(7,7),(7,10),(10,13),(13,13)])
+        for a,b in zip(points,points[1:]):
+            for dx,dy in ((0,0),(1,0),(0,1)): im.line(a[0]+dx,a[1]+dy,b[0]+dx,b[1]+dy,'sand')
+        bench(im,3 if v==0 else 8,3 if v==0 else 8)
+        flowerbed(im,8 if v==0 else 2,10,5)
+        flowerbed(im,2 if v==0 else 9,7 if v==0 else 2,3)
+        add(f'park_{v}',im,(16,16))
+    im = lot()
+    im.rect(22,1,4,46,'sand'); im.rect(1,22,46,4,'sand')
+    for a,b in (((5,5),(40,40)),((40,5),(5,40))):
+        for dx in (0,1,2): im.line(a[0]+dx,a[1],b[0]+dx,b[1],'sand')
+    im.oval(15,16,20,20,'grass_d'); im.oval(14,14,20,20,'cream_d')
+    im.oval(14,14,19,18,'cream'); im.oval(16,16,15,13,'water_d')
+    im.oval(17,16,13,11,'water_l'); im.oval(19,18,9,7,'water')
+    im.line(19,25,25,25,'foam'); im.line(18,19,21,19,'foam')
+    im.oval(21,21,5,4,'cream'); im.line(23,15,23,23,'white')
+    im.line(21,16,23,14,'foam'); im.line(23,14,26,18,'foam')
+    for x,y in ((5,4),(33,4),(5,32),(34,32)): tree(im,x,y,9)
+    for x,y in ((16,8),(28,35),(5,18),(35,26)): bench(im,x,y)
+    for x,y in ((17,38),(28,6),(5,28),(35,18)): flowerbed(im,x,y,7)
+    add('park_big',im,(48,48))
+
+
+def services():
+    im = lot('com')
+    block(im,5,5,30,19,7,'slate',shadow='pave_d')
+    # A shallow entrance canopy and a blue civic stripe below the windows.
+    im.rect(16,28,10,3,'slate_d'); im.rect(16,27,10,2,'metal_l')
+    im.rect(6,30,9,1,'com'); im.rect(28,30,6,1,'com')
+    skylight(im,9,10,10,6)
+    im.rect(26,10,5,3,'slate_d'); im.oval(26,8,4,4,'com'); im.put(27,8,'white')
+    for x in (5,15):
+        im.line(x,35,x,43,'pave_l'); im.line(x,43,x+8,43,'pave_l')
+        car(im,x+2,36,'white',True)
+        im.rect(x+2,39,3,2,'com'); im.put(x+2,37,'bad'); im.put(x+4,37,'glass_l')
+    im.line(40,11,42,28,'pave_d'); im.line(39,5,39,27,'cream_d')
+    im.line(38,5,38,27,'white'); im.oval(36,27,5,2,'cream_d')
+    im.poly([(39,6),(44,7),(43,10),(39,9)],'com'); im.line(39,6,43,7,'glass_l')
+    hedge(im,27,39,15); hedge(im,4,3,13)
+    add('police',im,(48,48))
+    im = lot('com')
+    # A broad brick appliance hall plus a separate taller hose-drying tower.
+    block(im,4,11,29,16,8,'red',wall='red',shadow='pave_d')
+    for y in (28,31,34):
+        for x in range(5+(y%2)*2,33,4): im.put(x,y,'red_l')
+    for x in (6,15,24):
+        im.rect(x,27,7,8,'red_d'); im.rect(x+1,28,5,7,'metal_d')
+        for y in (28,30,32): im.line(x+1,y,x+5,y,'metal')
+        im.rect(x+1,29,5,1,'glass_d'); im.put(x+3,33,'white')
+        im.line(x,35,x+6,35,'cream')
+    skylight(im,9,15,17,5)
+    block(im,34,4,8,23,8,'red',wall='red',shadow='pave_d')
+    im.rect(36,12,3,8,'red_d'); im.line(36,12,36,19,'slate_d')
+    for y in (13,16,19,28,31): im.line(37,y,39,y,'cream_d')
+    im.line(33,7,42,7,'cream'); im.line(34,25,41,25,'cream')
+    im.rect(7,39,13,5,'pave_d'); im.rect(6,38,13,5,'red_d')
+    im.rect(6,38,12,4,'bad'); im.rect(7,39,3,2,'glass_d')
+    im.rect(11,39,7,2,'metal_l'); im.line(11,40,17,40,'metal_d')
+    for x in (12,15): im.put(x,39,'white')
+    im.put(6,38,'white'); im.put(9,38,'com'); im.put(10,38,'white')
+    for x in (8,16): im.put(x,43,'ink')
+    im.line(24,40,31,40,'pave_l'); hedge(im,34,40,9)
+    add('fire',im,(48,48))
+
+
+def solar_panel(im,x,y,w=15,h=9):
+    im.rect(x+2,y+3,w,h,'grass_d')
+    im.line(x+3,y+h,x+3,y+h+2,'metal_d')
+    im.line(x+w-3,y+h,x+w-3,y+h+2,'metal_d')
+    im.poly([(x+2,y),(x+w-1,y),(x+w-3,y+h-1),(x,y+h-1)],'metal_l')
+    im.poly([(x+3,y+1),(x+w-2,y+1),(x+w-4,y+h-2),(x+1,y+h-2)],'solar_d')
+    for yy in range(1,h-1):
+        shift = 1 if yy<h//2 else 0
+        for xx in range(2+shift,w-3+shift):
+            im.put(x+xx,y+yy,'solar_l' if (xx-shift)%4==0 or yy==4 else 'solar')
+    im.line(x,y+h-1,x+w-3,y+h-1,'metal_d')
+
+
+def solar():
+    base = lot(size=64)
+    for y in (2,60):
+        base.line(2,y,60,y,'metal_d')
+        for x in range(2,61,4): base.rect(x,y-1,1,3,'metal_l')
+    for x in (2,60):
+        base.line(x,2,x,60,'metal_d')
+        for y in range(5,60,4): base.rect(x-1,y,3,1,'metal_l')
+    base.rect(5,47,54,11,'pave'); base.rect(49,5,7,47,'sand')
+    for y in (6,20,34):
+        for x in (6,26): solar_panel(base,x,y,18,10)
+    block(base,6,47,23,7,4,'slate',shadow='pave_d')
+    base.rect(10,49,5,3,'metal_l'); base.line(10,49,14,49,'white')
+    for x in (34,40):
+        base.rect(x+1,50,4,7,'pave_d'); base.rect(x,49,4,7,'metal_d')
+        base.rect(x,49,3,6,'metal'); base.line(x,49,x+2,49,'metal_l')
+        for y in (51,53): base.line(x+1,y,x+2,y,'slate_d')
+    base.rect(49,59,7,3,'pave'); base.line(49,58,49,61,'metal_l'); base.line(56,58,56,61,'metal_l')
+    glints = (((11,8),(35,22),(14,36)),((19,8),(41,22),(21,36)))
+    for frame in range(2):
+        im = base.crop(0,0,64,64)
+        for x,y in glints[frame]:
+            assert base.get(x,y) in (P['solar'],P['solar_l'])
+            im.line(x,y,x+1,y,'white'); im.put(x,y+1,'glass_l')
+        add(f'solar_{frame}',im,(64,64))
+    diff = {i for i,(a,b) in enumerate(zip(ART['solar_0.png'].p,ART['solar_1.png'].p)) if a!=b}
+    allowed = {yy*64+xx for frame in glints for x,y in frame for xx,yy in ((x,y),(x+1,y),(x,y+1))}
+    assert diff==allowed and len(diff)==18
+
+
+def fires():
+    for frame in range(4):
+        im = ART['rubble_0.png'].crop(0,0,16,16)
+        im.oval(1,5,14,10,'coal'); im.oval(2,8,11,6,'coal_l')
+        # Four circular phases, not independent pictures: tongues sway a pixel
+        # around their fixed roots and smoke rises, thins and is replenished.
+        sway = (0,1,0,-1)[frame]
+        rise = (0,0,1,1)[frame]
+        im.oval(5+sway,1,7,5,'metal_d'); im.oval(3+sway,0,7,4-rise,'smoke')
+        im.oval(7-sway,3,6,5,'metal'); im.oval(6-sway,3,4,3,'smoke')
+        im.poly([(2,12),(2,8),(4+sway,4),(5,8),(7,6),(8-sway,2),
+                 (10,7),(12+sway,5),(13,10),(14,12),(11,14),(4,14)],'flame_d')
+        im.poly([(3,12),(4,8),(5,10),(7,8),(8-sway,5),(9,9),
+                 (11+sway,7),(12,11),(11,13),(5,13)],'flame')
+        im.poly([(5,12),(6,9),(7,11),(9,7),(10,11),(9,13),(6,13)],'amber_l')
+        im.poly([(7,12),(8,10),(9,12),(8,13)],'flame_l')
+        im.put(3,14,'red_d'); im.put(12,14,'rust_d')
+        add(f'fire_{frame}',im,(16,16))
+
+
+def portrait(role):
+    im = Image(32,32,'panel')
+    im.oval(2,3,29,29,'panel_dark'); im.oval(1,1,29,29,'panel_light')
+    im.oval(3,3,25,25,'panel')
+    deep = role=='engineer'
+    fair = role in ('clerk','resident')
+    skin = 'skin_deep' if deep else 'skin_fair' if fair else 'skin'
+    coat = {'clerk':'slate','engineer':'rust','shopkeeper':'coral','resident':'res'}[role]
+    hair = {'clerk':'metal','engineer':'wood_d','shopkeeper':'wood_d','resident':'metal_l'}[role]
+    # A different shoulder line, hair silhouette and accessories for each role.
+    im.poly([(4,29),(5,25),(10,22),(13,21),(21,21),(26,24),(28,29)],coat+'_d' if coat!='res' else 'leaf_d')
+    im.poly([(5,29),(6,25),(11,23),(15,22),(19,22),(24,25),(25,29)],coat)
+    im.rect(13,19,6,5,skin+'_d'); im.rect(13,19,4,4,skin)
+    im.oval(8,7,16,17,hair)
+    if role=='resident':
+        for x,y in ((8,7),(7,11),(8,16),(20,8),(21,13),(20,17)):
+            im.oval(x,y,5,6,'metal')
+    im.oval(8,13,4,6,skin+'_d'); im.oval(21,13,3,6,skin+'_d')
+    im.put(9,14,skin+'_l')
+    im.poly([(11,9),(20,9),(22,12),(22,18),(19,22),(14,22),(10,18),(10,12)],skin+'_d')
+    im.poly([(11,10),(19,10),(20,13),(20,18),(18,21),(14,21),(11,18)],skin)
+    im.line(11,12,11,16,skin+'_l'); im.line(12,11,16,11,skin+'_l')
+    im.line(12,13,14,13,'wood_d'); im.line(18,13,20,13,'wood_d')
+    for x in (13,19):
+        im.put(x,15,'ink'); im.put(x-1,15,skin+'_l')
+    im.line(16,15,16,17,skin+'_d'); im.put(15,17,skin+'_l')
+    im.line(14,19,17,19,'red_d'); im.put(18,18,skin+'_d')
+    im.line(15,20,17,20,skin+'_l')
+    if role=='clerk':
+        im.oval(9,7,6,5,'metal'); im.oval(18,7,5,5,'metal_d')
+        im.line(11,8,14,8,'metal_l'); im.line(14,9,19,9,skin+'_l')
+        for x in (10,17):
+            im.line(x,13,x+5,13,'slate_d'); im.line(x,16,x+5,16,'slate_d')
+            im.line(x,13,x,16,'slate_d'); im.line(x+5,13,x+5,16,'slate_d')
+            im.put(x+1,14,'white')
+        im.line(15,14,17,14,'slate_d')
+        im.poly([(11,23),(15,25),(13,27)],'cream')
+        im.poly([(19,23),(16,25),(18,27)],'cream'); im.line(16,25,16,29,'amber')
+        im.poly([(3,24),(10,23),(12,29),(4,30)],'wood_d')
+        im.poly([(4,24),(9,24),(10,28),(5,29)],'cream')
+        im.line(5,25,8,25,'wood_l'); im.line(6,27,9,27,'wood_l')
+        im.oval(9,27,4,3,skin)
+    elif role=='engineer':
+        im.oval(7,4,18,11,'amber_d'); im.oval(8,4,15,9,'amber')
+        im.line(10,6,13,5,'amber_l'); im.rect(15,4,3,8,'amber_l')
+        im.line(18,5,18,10,'amber_d')
+        im.rect(6,11,20,3,'amber_d'); im.line(7,11,24,11,'amber_l')
+        im.line(11,24,12,29,'slate_d'); im.line(21,24,20,29,'slate_d')
+        im.rect(12,26,8,4,'slate'); im.put(12,26,'metal_l'); im.put(19,26,'metal_l')
+        im.line(15,28,18,28,'slate_l')
+        im.put(10,18,'amber_l'); im.put(22,18,'amber_l')
+    elif role=='shopkeeper':
+        im.poly([(9,12),(9,7),(12,5),(19,5),(23,8),(23,13),(20,10),(16,9),(12,11)],'wood_d')
+        im.line(11,7,16,6,'wood'); im.line(18,7,21,9,'wood')
+        im.line(14,18,18,18,'wood_d'); im.put(16,19,skin)
+        im.line(11,23,13,26,'cream'); im.line(21,23,19,26,'cream')
+        im.poly([(13,24),(19,24),(22,30),(10,30)],'cream_d')
+        im.poly([(13,24),(18,24),(20,29),(11,29)],'cream')
+        im.rect(14,27,4,2,'red_l'); im.line(14,27,17,27,'white')
+    else:
+        for x,y in ((9,7),(12,5),(16,5),(19,7)):
+            im.oval(x,y,5,5,'metal_l'); im.put(x+1,y,'white')
+        im.line(12,13,14,13,'metal_d'); im.line(18,13,20,13,'metal_d')
+        im.put(12,17,'coral_l'); im.put(20,17,'coral_l')
+        im.poly([(10,22),(14,23),(21,22),(21,25),(17,26),(19,30),(15,30),(13,26),(10,25)],'com')
+        im.line(11,23,16,24,'glass_l'); im.line(15,26,17,29,'glass_d')
+        im.put(11,18,'amber_l'); im.put(22,18,'amber_l')
+    return im
+
+
+def paper_head():
+    im = Image(240,32)
+    # Original cut-corner letter plans, drawn at native resolution. Their wide
+    # stems and counters echo the PLAT logo without borrowing a typeface.
+    plans = {
+        'P':(18,[(0,22),(0,3),(3,0),(14,0),(18,4),(18,11),(14,15),(5,15),(5,22)],
+             [[(5,5),(12,5),(13,6),(13,9),(12,10),(5,10)]]),
+        'L':(16,[(0,0),(5,0),(5,17),(16,17),(16,22),(0,22)],[]),
+        'A':(20,[(0,22),(0,6),(6,0),(14,0),(20,6),(20,22),(15,22),(15,15),(5,15),(5,22)],
+             [[(5,6),(7,4),(13,4),(15,6),(15,10),(5,10)]]),
+        'T':(18,[(0,0),(18,0),(18,5),(12,5),(12,22),(6,22),(6,5),(0,5)],[]),
+        'E':(16,[(0,0),(16,0),(16,5),(5,5),(5,9),(14,9),(14,13),(5,13),(5,17),(16,17),(16,22),(0,22)],[]),
+        'D':(19,[(0,0),(12,0),(19,6),(19,16),(12,22),(0,22)],
+             [[(5,5),(10,5),(14,8),(14,14),(10,17),(5,17)]]),
+        'G':(19,[(5,0),(17,0),(19,5),(7,5),(5,7),(5,15),(7,17),(14,17),(14,13),(10,13),(10,9),(19,9),(19,19),(16,22),(5,22),(0,17),(0,5)],[]),
+        'R':(19,[(0,22),(0,0),(14,0),(18,4),(18,10),(13,14),(19,22),(12,22),(6,14),(5,14),(5,22)],
+             [[(5,5),(12,5),(13,6),(13,8),(12,9),(5,9)]]),
+    }
+    word = 'PLAT LEDGER'
+    width = sum(9 if c==' ' else plans[c][0]+4 for c in word)-4
+    x = (240-width)//2
+    for c in word:
+        if c==' ': x+=9; continue
+        w,outline,holes = plans[c]
+        glyph = Image(w+2,25)
+        glyph.poly([(xx+1,yy+1) for xx,yy in outline],'panel_dark')
+        glyph.poly(outline,'ink')
+        for hole in holes: glyph.poly(hole,CLEAR)
+        # Restrained one-pixel top-left highlights, never a gradient.
+        for yy in range(23):
+            for xx in range(w+1):
+                if glyph.get(xx,yy)==P['ink'] and (yy==0 or not glyph.get(xx,yy-1)[3]):
+                    glyph.put(xx,yy,'slate')
+        im.blit(glyph,x,2); x+=w+4
+    im.line(8,29,231,29,'ink')
+    return im
+
+
+def new_tool(name):
+    im = Image(20,20)
+    if name=='rail':
+        for y in (4,8,12,16):
+            im.rect(3,y,14,2,'wood_d'); im.line(3,y,15,y,'wood_l')
+        for x in (6,12):
+            im.rect(x,2,2,17,'metal_d'); im.line(x,2,x,17,'metal_l')
+    elif name=='police':
+        im.poly([(3,3),(7,3),(10,1),(13,3),(17,3),(16,12),(13,16),(10,18),(6,15),(4,11)],'slate_d')
+        im.poly([(4,4),(8,4),(10,3),(12,4),(15,4),(14,12),(10,16),(6,12)],'com')
+        im.line(4,4,5,10,'glass_l')
+        im.poly([(10,5),(11,8),(14,8),(12,10),(13,13),(10,11),(7,13),(8,10),(6,8),(9,8)],'amber_l')
+    elif name=='fire':
+        im.oval(4,4,13,12,'red_d'); im.oval(4,3,12,11,'bad')
+        im.rect(9,3,3,10,'coral_l'); im.line(12,4,12,10,'red_d')
+        im.poly([(3,11),(16,11),(18,14),(16,16),(2,15),(1,13)],'red_d')
+        im.line(3,12,16,12,'coral_l'); im.line(3,13,16,13,'bad')
+        im.rect(8,7,5,5,'amber_d'); im.rect(9,7,3,4,'amber_l')
+    elif name=='park':
+        tree(im,3,2,10,'panel_dark'); bench(im,11,15)
+        im.line(4,17,10,17,'grass'); im.put(5,16,'leaf_l')
+    elif name=='solar':
+        im.oval(12,2,5,5,'amber_l')
+        for a,b in (((14,0),(14,0)),((18,4),(19,4)),((10,3),(10,3)),((17,0),(17,1))): im.line(*a,*b,'amber')
+        im.line(6,14,5,18,'metal_d'); im.line(15,14,15,18,'metal_d')
+        im.poly([(5,7),(18,7),(15,15),(2,15)],'metal_l')
+        im.poly([(6,8),(16,8),(14,14),(4,14)],'solar')
+        im.line(5,11,15,11,'solar_l')
+        for x in (8,12): im.line(x+1,8,x-1,14,'solar_l')
+        im.line(2,15,15,15,'solar_d')
+    elif name=='budget':
+        im.poly([(2,4),(8,3),(10,5),(12,3),(18,4),(18,16),(12,15),(10,17),(8,15),(2,16)],'wood_d')
+        im.poly([(3,5),(8,4),(9,6),(9,14),(8,13),(3,14)],'cream')
+        im.poly([(10,6),(12,4),(17,5),(17,14),(12,13),(10,15)],'white')
+        for y in (7,10):
+            im.line(4,y,7,y,'wood_l'); im.line(12,y,15,y,'cream_d')
+        im.oval(12,12,7,7,'amber_d'); im.oval(12,12,6,6,'amber')
+        im.line(14,13,14,16,'amber_l'); im.put(13,13,'white')
+    elif name=='map':
+        im.poly([(2,4),(7,2),(13,4),(18,2),(18,15),(13,18),(7,16),(2,18)],'slate_d')
+        im.poly([(3,5),(7,3),(12,5),(17,3),(17,14),(13,16),(7,14),(3,16)],'cream')
+        im.poly([(3,6),(6,4),(6,9),(3,10)],'res')
+        im.poly([(8,5),(11,6),(12,10),(8,10)],'com')
+        im.poly([(14,5),(16,4),(16,10),(14,11)],'ind')
+        im.poly([(8,12),(11,11),(12,15),(8,14)],'coral')
+        im.line(3,13,16,9,'white'); im.line(7,3,7,15,'cream_d'); im.line(13,5,13,16,'white')
+    else:
+        assert name in ('zoom_in','zoom_out')
+        im.rect(5,3,10,14,'slate_d'); im.rect(3,5,14,10,'slate_d')
+        im.rect(4,4,12,12,'slate_d'); im.rect(5,5,10,10,'panel_light')
+        im.line(6,4,13,4,'metal_l'); im.line(4,6,4,13,'metal_l')
+        im.rect(6,9,8,2,'com')
+        if name=='zoom_in': im.rect(9,6,2,8,'com')
+        for x,y,dx,dy in ((1,1,1,1),(18,1,-1,1),(1,18,1,-1),(18,18,-1,-1)):
+            im.line(x,y,x+2*dx,y,'slate'); im.line(x,y,x,y+2*dy,'slate')
+    return im
+
+
+def tier2_ui():
+    for role in ('clerk','engineer','shopkeeper','resident'):
+        add('adv_'+role,portrait(role),(32,32))
+    add('paper_head',paper_head(),(240,32),True)
+    for name in NEW_TOOLS: add('tool_'+name,new_tool(name),(20,20),True)
+
+
+def tier2_sheet():
+    sh = Image(1152,896,'panel')
+    shown = set()
+    for row,name in enumerate(('rail','traffic_light','traffic_heavy')):
+        y = 12+row*74
+        for m in range(16):
+            x = 16+m*70
+            sh.blit(ART[name+'.png'].crop(0,m*16,16,16).scale(2),x,y)
+            caption(sh,str(m),x+12,y+36)
+        caption(sh,name+'.png',16,y+49); shown.add(name)
+    names = ('rail_bridge','rail_road','line_rail','jam','park_0','park_1',
+             'fire_0','fire_1','fire_2','fire_3')
+    for i,name in enumerate(names):
+        x,y = 16+i*112,242
+        sh.blit(ART[name+'.png'].scale(2),x,y)
+        caption(sh,name+'.png',x,y+40); shown.add(name)
+    for i,name in enumerate(('police','fire','park_big','solar_0','solar_1')):
+        x,y = 16+i*224,316
+        sh.blit(ART[name+'.png'].scale(2),x,y)
+        caption(sh,name+'.png',x,y+137); shown.add(name)
+    for i,role in enumerate(('clerk','engineer','shopkeeper','resident')):
+        x,y = 16+i*224,492
+        name = 'adv_'+role
+        sh.blit(ART[name+'.png'].scale(3),x,y)
+        caption(sh,name+'.png',x,y+104); shown.add(name)
+    for i,name in enumerate(NEW_TOOLS):
+        x,y = 16+i*126,644
+        b = button(); b.blit(ART['tool_'+name+'.png'],4,4)
+        sh.blit(b.scale(3),x,y)
+        caption(sh,'tool_'+name+'.png',x,y+92); shown.add('tool_'+name)
+    sh.blit(ART['paper_head.png'].scale(2),16,794)
+    caption(sh,'paper_head.png',16,866); shown.add('paper_head')
+    assert shown == set(TIER2_SIZES)-{'sheet_tier2','sample_town2'}
+    add('sheet_tier2',sh,(1152,896))
+
+
+def sample_town2():
+    cells = [[(f'ground_{(x*3+y*7)%4}.png',0,0) for x in range(40)] for y in range(24)]
+    watercells = set()
+    # River bend on the left, broad enough that the rail bridge has visible
+    # water beside every girder and joins the banks at its two abutments.
+    for y in range(24):
+        for x in range(9):
+            if 2<=x<=5 or (y<6 and 1<=x<=6) or (y>18 and 3<=x<=7): watercells.add((x,y))
+    for x,y in watercells:
+        m = sum(bit for bit,dx,dy in ((1,0,-1),(2,1,-1),(4,1,0),(8,1,1),(16,0,1),(32,-1,1),(64,-1,0),(128,-1,-1))
+                if (x+dx,y+dy) in watercells or y+dy<0 or y+dy>=24)
+        cells[y][x] = ('water.png',0,MASKS.index(normalize(m))*16)
+    for y in range(24):
+        for x in range(40):
+            if (x,y) not in watercells and (x<8 or y in (0,23) or x==39):
+                cells[y][x] = (f'woods_{(x+y)%4}.png',0,0)
+    roads = {(x,y) for y in (5,12,18,22) for x in range(9,39)}
+    roads -= {(x,18) for x in range(31,38)}  # Four-cell solar lot beside the east road.
+    roads |= {(x,y) for x in (9,16,23,30,38) for y in range(1,23)}
+    rails = {(x,9) for x in range(40)}
+    # A curved freight siding proves two quarter-circle masks in context.
+    rails |= {(35,y) for y in range(9,16)} | {(x,15) for x in range(35,38)}
+    power = {(28,y) for y in range(8,22)} | {(x,21) for x in range(28,35)}
+    for x,y in roads:
+        m = sum(bit for bit,dx,dy in CARDINAL if (x+dx,y+dy) in roads)
+        name = ('traffic_heavy' if y==12 or x==23 and y>12 else
+                'traffic_light' if y in (5,18) or x==16 else 'road')
+        cells[y][x] = (name+'.png',0,m*16)
+    for x,y in rails:
+        m = sum(bit for bit,dx,dy in CARDINAL if (x+dx,y+dy) in rails or x+dx<0 or x+dx>=40)
+        if (x,y) in watercells:
+            assert m==10; cells[y][x] = ('rail_bridge.png',0,0)
+        elif (x,y) in roads:
+            assert m in (5,10); cells[y][x] = ('rail_road.png',16 if m==10 else 0,0)
+        else: cells[y][x] = ('rail.png',0,16*m)
+    for x,y in power:
+        m = sum(bit for bit,dx,dy in CARDINAL if (x+dx,y+dy) in power)
+        if (x,y)==(34,21): m|=1  # Feed up to the solar plant's southern fence.
+        if (x,y) in rails:
+            assert m==5; cells[y][x] = ('line_rail.png',0,0)
+        elif (x,y) in roads:
+            assert m in (5,10); cells[y][x] = ('line_road.png',0 if m==5 else 16,0)
+        else: cells[y][x] = ('line.png',0,16*m)
+    occupied = set()
+    placements = set()
+    def place(name,x,y):
+        src = ART[name+'.png']
+        assert src.w%16==src.h%16==0
+        for yy in range(src.h//16):
+            for xx in range(src.w//16):
+                q = x+xx,y+yy
+                assert 0<=q[0]<40 and 0<=q[1]<24
+                assert q not in roads|rails|power|watercells|occupied,(name,q)
+                occupied.add(q)
+                cells[q[1]][q[0]] = (name+'.png',xx*16,yy*16)
+        placements.add(name)
+    for name,x,y in (
+        ('zone_res_1_a',10,2),('zone_res_2_b',17,2),('zone_res_3_a',24,2),('zone_res_4_b',31,2),
+        ('police',10,6),('park_big',17,6),('fire',24,6),('zone_com_1_b',31,6),
+        ('zone_com_3_a',10,14),('zone_com_4_b',17,14),('zone_res_2_a',24,14),
+        ('zone_com_2_b',10,19),('zone_res_1_b',17,19),('zone_ind_2_a',24,19),
+        ('zone_ind_3_a',34,2),('zone_ind_1_b',31,13),('solar_0',34,17)):
+        place(name,x,y)
+    for x,y in ((14,3),(14,4),(21,3),(21,4),(21,7),(21,8),(14,7),(14,8),
+                (29,3),(29,4),(36,6),(36,7),(36,8),(14,15),(21,15),(29,16),(32,19),(32,20)):
+        place('park_'+str((x+y)%2),x,y)
+    place('rubble_1',36,14); place('fire_0',37,14)
+    world = Image(640,384)
+    for y,row in enumerate(cells):
+        for x,(name,sx,sy) in enumerate(row):
+            world.blit(ART[name].crop(sx,sy,16,16),x*16,y*16)
+    world.blit(ART['jam.png'],23*16,12*16)
+    assert {'police','fire','park_big','solar_0','fire_0','park_0','park_1'} <= placements
+    assert all(any(n.startswith('zone_'+k) for n in placements) for k in ('res','com','ind'))
+    assert {'rail_road.png','rail_bridge.png','line_rail.png','traffic_light.png','traffic_heavy.png'} <= {c[0] for row in cells for c in row}
+    add('sample_town2',world,(640,384))
+
+
+def validate_tier2(original):
+    assert set(ART)-set(original)=={n+'.png' for n in TIER2_SIZES}
+    assert all((ART[n+'.png'].w,ART[n+'.png'].h)==size for n,size in TIER2_SIZES.items())
+    assert all(ART[n].png()==data for n,data in original.items()), 'first-part art changed'
+    assert RAIL_MASKS==tuple(range(16)) and CARDINAL==((1,0,-1),(2,1,0),(4,0,1),(8,-1,0))
+    tiles = [ART['rail.png'].crop(0,m*16,16,16) for m in RAIL_MASKS]
+    for a in RAIL_MASKS:
+        assert tiles[a].p==rail(a).p  # Also verify the strip's mask order.
+        for b in RAIL_MASKS:
+            if a&2 and b&8: assert [tiles[a].get(15,y) for y in range(16)]==[tiles[b].get(0,y) for y in range(16)]
+            if a&4 and b&1: assert [tiles[a].get(x,15) for x in range(16)]==[tiles[b].get(x,0) for x in range(16)]
+        assert len(TRAFFIC_PIXELS['traffic_heavy',a])>len(TRAFFIC_PIXELS['traffic_light',a])
+    for name in ('rail_bridge','rail_road','line_rail'):
+        for v in range(2):
+            im = ART[name+'.png'].crop(v*16,0,16,16)
+            vertical = v==0 if name=='rail_road' else v==1
+            for lane in (4,5,10,11):
+                for end in (0,15):
+                    x,y = (lane,end) if vertical else (end,lane)
+                    assert im.get(x,y)==P['metal_l' if lane in (5,10) else 'metal_d'],(name,v,lane)
+    for name in ('park_0','park_1','police','fire','solar_0','solar_1'):
+        im = ART[name+'.png']
+        assert all(im.get(x,y)==P['grass'] for x in range(im.w) for y in range(im.h)
+                   if x in (0,im.w-1) or y in (0,im.h-1)),name
+    assert len({bytes(v for c in ART[f'fire_{i}.png'].p for v in c) for i in range(4)})==4
+    used = {c for im in ART.values() for c in im.p if c[3]}
+    used |= {P[k] for k in ('panel','panel_light','panel_dark','text','text_dim','good','bad','res','com','ind')}
+    assert len(used)<=200 and used<=set(P.values()) and (0,0,0,255) not in used
+    return used
+
+
 def main():
     terrain(); networks(); zones(); ui(); contact_sheets(); sample_town()
     colors=validate()
+    original = {n:im.png() for n,im in ART.items()}
+    masks_text = ''.join(str(m)+'\n' for m in MASKS)
+    ui_names=('panel','panel_light','panel_dark','text','text_dim','good','bad','res','com','ind')
+    ui_text = ''.join(k+' '+HEX[k].upper()+'\n' for k in ui_names)
+    # Frozen from the first-part outputs: a deterministic build checks itself
+    # without depending on external files or on a particular BEFORE directory.
+    frozen = {**original,'water_masks.txt':masks_text.encode('ascii'),'ui_colours.txt':ui_text.encode('ascii')}
+    assert hashlib.sha256(b''.join(frozen[n] for n in sorted(frozen))).hexdigest() == 'e70cf008be69958f996359db4a496b6a3dee04c6edd0b0c9c84b11557e7680de'
+    rail_networks(); traffic(); parks(); services(); solar(); fires(); tier2_ui()
+    tier2_sheet(); sample_town2()
+    used = validate_tier2(original)
+    # Keep every original palette swatch at its exact index; only append.
+    colors += sorted(used-set(colors))
     pal=Image(16,math.ceil(len(colors)/16))
     for i,c in enumerate(colors): pal.put(i%16,i//16,c)
     # Unused slots are transparent; each opaque palette swatch appears once.
@@ -962,9 +1628,8 @@ def main():
         assert (im.w,im.h)==EXPECTED[name]
         assert all(c[3] in (0,255) for c in im.p)
         (OUT/name).write_bytes(im.png())
-    (OUT/'water_masks.txt').write_text(''.join(str(m)+'\n' for m in MASKS),encoding='ascii')
-    ui_names=('panel','panel_light','panel_dark','text','text_dim','good','bad','res','com','ind')
-    (OUT/'ui_colours.txt').write_text(''.join(k+' '+HEX[k].upper()+'\n' for k in ui_names),encoding='ascii')
+    (OUT/'water_masks.txt').write_text(masks_text,encoding='ascii')
+    (OUT/'ui_colours.txt').write_text(ui_text,encoding='ascii')
     digest=hashlib.sha256(b''.join(ART[n].png() for n in sorted(ART))).hexdigest()
     print(f'Wrote {len(ART)} PNGs and 2 text files to {OUT}')
     print(f'{len(colors)} opaque colours; 47 ascending water masks; all size/alpha/join assertions passed.')

@@ -7,8 +7,8 @@
 # 1. `ws plat demo N` for each demo (tools/plat-assets.py: DEMOS): the window
 #    server starts with plat in a full-size tile, and plat plays the demo's
 #    keys one tic a frame whatever the clock says, then stands still and
-#    says how long it took, what the treasury holds, the date and a
-#    checksum of the map. Alt+Shift+H halts the machine with that picture
+#    says how long it took, what the treasury holds, the date, the census
+#    and a checksum of the map. Alt+Shift+H halts the machine with that picture
 #    on the screen. Checked: the report, and the picture itself: the
 #    window's 1252 x 740 pixels must have the expected checksum.
 #      demo 1  a road drawn with the keyboard's pen round a block and west
@@ -19,15 +19,23 @@
 #      demo 3  a road grid larger than the treasury: it stops at 0 and
 #              says so
 #      demo 4  at 32 pixels a cell: a power line west over the river
+#      demo 5  a town: a coal plant, a road, a power line across it, homes,
+#              shops and offices, industry, and a zone with neither power
+#              nor a road (its mark); two years at the fastest speed: it
+#              grows, and the census says how much
+#      demo 6  the town in a file: built, a year, saved (the demo says the
+#              map's checksum), bulldozed and taxed differently, the saved
+#              town loaded again: the map must be the one that was saved
 #    (A demo's land comes from a fixed seed, so it is always the same land.)
 # 2. `ws plat` on a machine with the sound device (-A: what it plays goes
 #    to a WAV file) and a pointer (-P): a road dragged with the left button,
 #    the map dragged with the right one and scrolled with the wheel, the
 #    power line's button, a line dragged, the fastest speed's button; q ends
-#    the program, which says what the treasury holds; the window server then
-#    opens a terminal, where a command leaves a file; Alt+Shift+Q, and the
-#    shell shows the file. Checked: the file, that something was paid for,
-#    and that the WAV holds sound.
+#    the program, which saves the town and says what the treasury holds; the
+#    window server then opens a terminal, where a command leaves a file;
+#    Alt+Shift+Q, and the shell shows the file and the saved town's
+#    attributes. Checked: the file, that something was paid for, the
+#    attributes, and that the WAV holds sound.
 # A checksum changes with the art, the land, the demo or the drawing: when
 # one of those is changed on purpose, look at $BUILD/test-plat/frameN.ppm
 # and put the numbers the test prints into PLAT_CRC below.
@@ -38,7 +46,7 @@ BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
 # demo:frame checksum:map checksum:funds:seconds it is given
-PLAT_CRC="1:05e15aec:fe18a8eb:19084:6 2:5360d6c6:84ce65ce:20000:6 3:a516896c:ce94412d:0:40 4:694e55d2:66999b66:19770:6"
+PLAT_CRC="1:1fd096f4:fe18a8eb:19072:6 2:6f00df9f:84ce65ce:20000:6 3:df408234:52a65110:0:40 4:2f2e609d:66999b66:19770:6 5:6cbd4bea:940a6126:19581:12 6:822d576c:68551d85:16677:10"
 T=$BUILD/test-plat
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W
@@ -62,6 +70,9 @@ for d in $PLAT_CRC; do
   grep "^plat: demo:" $T/out$n.txt
   grep -q "^plat: demo: .*; funds $funds; .*; map $map\$" $T/out$n.txt ||
     fail "demo $n did not end with funds $funds and map $map" out$n
+  if [ $n = 6 ]; then                   # the saved town came back as it was saved
+    grep -q "^plat: saved: map $map\$" $T/out$n.txt || fail "demo 6 did not load the town it saved" out$n
+  fi
   [ -s $T/frame$n.ppm ] || fail "no frame was presented" out$n
   python3 - $T/frame$n.ppm $crc $n <<'PY' || fail "the last frame of demo $n is not the expected picture" out$n
 import sys, zlib
@@ -80,7 +91,7 @@ done
 # ---- 2. the pointer, sound, q, and the window server after it
 cp "$DISK" $T/disk.img
 START="ws plat\n$W$W$W$W $W"
-printf "$START$W$W$W$W$W${W}q$W$W${W}echo plat-q-ok > pmark\n$W${AQ}cat pmark\n" > $T/keys
+printf "$START$W$W$W$W$W${W}q$W$W${W}echo plat-q-ok > pmark\n$W${AQ}cat pmark\nattr /ws/plat.sav\n" > $T/keys
 N=$(printf "$START" | wc -c | tr -d ' ')
 N1=$((N + 10)) N2=$((N + 20)) N3=$((N + 30)) N4=$((N + 40))   # (one Alt+Shift+W later, two, ...)
 cat > $T/ptr <<EOF
@@ -113,6 +124,8 @@ if grep -q 'fault\|panic' $T/outp.txt; then fail "a fault was reported" outp; fi
 grep "^plat: funds" $T/outp.txt || fail "plat did not say what the treasury holds" outp
 f=$(sed -n 's/^plat: funds \([0-9]*\);.*/\1/p' $T/outp.txt)
 [ "$f" -lt 20000 ] || fail "nothing was built with the pointer (funds $f)" outp
+grep -q "^funds = $f\$" $T/outp.txt && grep -q "^year = 1900\$" $T/outp.txt && grep -q "^population = 0\$" $T/outp.txt ||
+  fail "the saved town's attributes are not its funds, year and population" outp
 python3 - $T/sound.wav <<'PY' || fail "the sound device played nothing" outp
 import sys, wave, struct
 w = wave.open(sys.argv[1])
