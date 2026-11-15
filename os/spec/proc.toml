@@ -28,7 +28,9 @@ start-up block into it (pid, parent, the three descriptors, the command), has fs
 (LOADIMG), tells fs the child starts in the caller's tag path (CWD mode 2), sends DUPS to fs, tty \
 and pipe for the handles passed, and asks the kernel to CREATE the process. The caller is the \
 child's parent. A command whose first word is exactly `ws` is made the server of the lowest empty \
-core; exactly `net`, the server of the lowest empty core and alone on it. Both stay ordinary \
+core; exactly `net`, the server of the lowest empty core and alone on it (proc keeps the endpoint \
+CREATE gives it, parked in the kernel, to send it CANCEL and CLEANUP; with no room to park it, \
+that net is stopped again and SPAWN answers −7). Both stay ordinary \
 children (WAIT, KILL and Ctrl-C work) and may REGISTER. A bare-metal image (no "SYS2" marker) runs \
 as N threads, one on each of N contiguous cores without a server (N = 1 if the thread count is 0); a file as its handle 0 is copied \
 into its arena first (fs READALL to 0x80000, a0 = its length), and a file as its handle 1 gets its \
@@ -158,8 +160,8 @@ num = 17
 name = "SIGNAL"
 summary = "Interrupt a process (Ctrl-C)"
 note = """A process that catches interrupts (CATCH 1) is interrupted: its WAIT at proc is answered −2 \
-(or the interrupt is kept for its next WAIT), proc sends CANCEL for it to tty and pipe (their \
-waiting reads answer −2), and the kernel notifies it (bit 0: a sleep ends). Any other process is \
+(or the interrupt is kept for its next WAIT), proc sends CANCEL for it to tty, pipe and net \
+(their waiting requests answer −2), and the kernel notifies it (bit 0: a sleep ends). Any other process is \
 killed as by KILL, except a server that proc started at boot (tty, pipe) and pids 1..3."""
 
 [op.request]
@@ -211,10 +213,12 @@ name = "REGISTER"
 summary = "Give a name to the caller's core"
 note = """Requests sent to the name reach the caller's core, so it is for a process that is its \
 core's server. The entry leaves the registry when the process ends. A process may hold several \
-names, and register a name it holds again."""
+names, and register a name it holds again. Mode 1 is for net, at the end of its start: it makes \
+no more calls to proc, which from then on sends it CANCEL and CLEANUP."""
 
 [op.request]
 length = "the name's bytes (1..8)"
+mode = "bit 0: net only: it is ready for CANCEL and CLEANUP"
 data = [{ type = "bytes", name = "the name" }]
 
 [op.reply]
@@ -222,7 +226,7 @@ result = "0"
 
 [op.errors]
 "-1" = "a length of 0 or more than 8, or the caller is not in proc's table"
-"-5" = "the caller may not register: only a process made its core's server may (tty and pipe, and `ws` and `net` started with SPAWN); not proc, dev or fs, nor any other program"
+"-5" = "the caller may not register: only a process made its core's server may (tty and pipe, and `ws` and `net` started with SPAWN); not proc, dev or fs, nor any other program. Mode bit 0 from any process but the net whose endpoint proc keeps"
 "-6" = "the registry is full (8 names)"
 "-7" = "another process holds the name"
 

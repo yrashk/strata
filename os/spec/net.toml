@@ -15,8 +15,10 @@ runs. Addresses are u32 in a word (a.b.c.d = a << 24 | b << 16 | c << 8 | d; the
 of a handle are ignored). 8 sockets in all, TCP or UDP, each with a 1 KiB receive ring and a 1 KiB \
 send buffer; segments of at most 1024 bytes. A socket belongs to the process that made it (ACCEPT: \
 the one that accepted it); a request naming another process's socket, a free one or one closed \
-already gets −1. One request at a time may wait on a socket. Every 2 s while sockets are open, \
-net asks proc for the process list and closes the sockets of processes that have ended."""
+already gets −1. One request at a time may wait on a socket. proc sends CLEANUP when a process \
+ends (its sockets close, its pings and resolves are dropped) and CANCEL when one that catches \
+interrupts is interrupted (its waiting requests answer −2), once net has said with REGISTER mode 1, \
+at the end of its start, that it makes no more calls to proc."""
 
 [[op]]
 num = 1
@@ -35,7 +37,7 @@ data = [{ type = "bytes", name = "the bytes read" }]
 
 [op.errors]
 "-1" = "not the caller's socket, not TCP, a listener, or the connection was reset (or given up) and everything was read"
-"-2" = "a CANCEL for the caller came while it waited (net answers CANCEL, but proc sends net none)"
+"-2" = "the caller was interrupted while it waited (CANCEL: Ctrl-C)"
 "-3" = "nothing to read, with mode bit 0"
 "-7" = "another request is waiting on this socket, or the kernel has no room to hold the request"
 
@@ -56,7 +58,7 @@ result = "the bytes taken (at least 1; 0 for a length of 0)"
 
 [op.errors]
 "-1" = "not the caller's socket, not TCP, not established (nor CLOSE-WAIT), reset, or shut down for sending"
-"-2" = "a CANCEL for the caller came while it waited (net answers CANCEL, but proc sends net none)"
+"-2" = "the caller was interrupted while it waited (CANCEL: Ctrl-C)"
 "-3" = "the send buffer is full, with mode bit 0"
 "-7" = "another request is waiting on this socket, or the kernel has no room to hold the request"
 
@@ -141,7 +143,7 @@ result = "the round trip in ticks"
 
 [op.errors]
 "-1" = "a payload of more than 1400 bytes"
-"-2" = "a CANCEL for the caller came while it waited (net answers CANCEL, but proc sends net none)"
+"-2" = "the caller was interrupted while it waited (CANCEL: Ctrl-C)"
 "-7" = "4 pings are waiting already, or the kernel has no room to hold the request"
 "-8" = "no reply before the timeout"
 
@@ -162,7 +164,7 @@ result = "the socket id, once established"
 
 [op.errors]
 "-1" = "a port outside 1..65535, or the connection was refused (RST)"
-"-2" = "a CANCEL for the caller came while it waited (net answers CANCEL, but proc sends net none)"
+"-2" = "the caller was interrupted while it waited (CANCEL: Ctrl-C)"
 "-6" = "no free socket (one in TIME-WAIT is taken over first)"
 "-7" = "the kernel has no room to hold the request (the socket is freed)"
 "-8" = "no answer"
@@ -199,7 +201,7 @@ result = "the connection's socket id"
 
 [op.errors]
 "-1" = "not the caller's socket, or not a listener"
-"-2" = "a CANCEL for the caller came while it waited (net answers CANCEL, but proc sends net none)"
+"-2" = "the caller was interrupted while it waited (CANCEL: Ctrl-C)"
 "-3" = "no connection yet, with mode bit 0"
 "-7" = "another request is waiting on this socket, or the kernel has no room to hold the request"
 
@@ -260,7 +262,7 @@ data = [
 
 [op.errors]
 "-1" = "not the caller's socket, or not UDP"
-"-2" = "a CANCEL for the caller came while it waited (net answers CANCEL, but proc sends net none)"
+"-2" = "the caller was interrupted while it waited (CANCEL: Ctrl-C)"
 "-3" = "no datagram, with mode bit 0"
 "-7" = "another request is waiting on this socket, or the kernel has no room to hold the request"
 
@@ -272,8 +274,7 @@ note = """The name is taken in lower case, without a final dot. A dotted quad an
 answered at once; names in the cache (16 entries, for their TTL, at most an hour; names of 64 \
 bytes or more are not kept) too. Otherwise \
 an A query goes over UDP to port 53 of the first resolver; with no answer in a second, to the \
-second, then each once more. CNAME chains are followed (up to 8). Two resolves may wait at once. \
-A waiting RESOLVE is not interrupted by CANCEL."""
+second, then each once more. CNAME chains are followed (up to 8). Two resolves may wait at once."""
 
 [op.request]
 length = "the name's bytes (1..127)"

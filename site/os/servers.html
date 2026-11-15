@@ -114,8 +114,8 @@
 <a href="#proc-44"><span class="n">44</span><code>LESS</code><span>Give an extra arena back</span></a>
 </div>
 <article class="op" id="proc-5">
-<h4><span class="n">5</span><a class="opname" href="../code/#os/servers/proc.s:1074"><code>SPAWN</code></a><span class="sum">Start a program</span></h4>
-<p>The program is the command&#x27;s first word (1..24 bytes): a path, or a name looked for in the caller&#x27;s current directory, then in <code>/bin</code>, then in <code>/sys</code>; when it is found in <code>/bin</code> or <code>/sys</code> that path becomes the command&#x27;s first word. proc gets an arena from the kernel (MEMORY), writes the start-up block into it (pid, parent, the three descriptors, the command), has fs load the image (LOADIMG), tells fs the child starts in the caller&#x27;s tag path (CWD mode 2), sends DUPS to fs, tty and pipe for the handles passed, and asks the kernel to CREATE the process. The caller is the child&#x27;s parent. A command whose first word is exactly <code>ws</code> is made the server of the lowest empty core; exactly <code>net</code>, the server of the lowest empty core and alone on it. Both stay ordinary children (WAIT, KILL and Ctrl-C work) and may REGISTER. A bare-metal image (no &quot;SYS2&quot; marker) runs as N threads, one on each of N contiguous cores without a server (N = 1 if the thread count is 0); a file as its handle 0 is copied into its arena first (fs READALL to 0x80000, a0 = its length), and a file as its handle 1 gets its output at exit (0xC0000, as many bytes as the exit code, at most 64 KiB; the status becomes 0).</p>
+<h4><span class="n">5</span><a class="opname" href="../code/#os/servers/proc.s:1082"><code>SPAWN</code></a><span class="sum">Start a program</span></h4>
+<p>The program is the command&#x27;s first word (1..24 bytes): a path, or a name looked for in the caller&#x27;s current directory, then in <code>/bin</code>, then in <code>/sys</code>; when it is found in <code>/bin</code> or <code>/sys</code> that path becomes the command&#x27;s first word. proc gets an arena from the kernel (MEMORY), writes the start-up block into it (pid, parent, the three descriptors, the command), has fs load the image (LOADIMG), tells fs the child starts in the caller&#x27;s tag path (CWD mode 2), sends DUPS to fs, tty and pipe for the handles passed, and asks the kernel to CREATE the process. The caller is the child&#x27;s parent. A command whose first word is exactly <code>ws</code> is made the server of the lowest empty core; exactly <code>net</code>, the server of the lowest empty core and alone on it (proc keeps the endpoint CREATE gives it, parked in the kernel, to send it CANCEL and CLEANUP; with no room to park it, that net is stopped again and SPAWN answers −7). Both stay ordinary children (WAIT, KILL and Ctrl-C work) and may REGISTER. A bare-metal image (no &quot;SYS2&quot; marker) runs as N threads, one on each of N contiguous cores without a server (N = 1 if the thread count is 0); a file as its handle 0 is copied into its arena first (fs READALL to 0x80000, a0 = its length), and a file as its handle 1 gets its output at exit (0xC0000, as many bytes as the exit code, at most 64 KiB; the status becomes 0).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">length</td><td class="at"></td><td class="ty"></td><td>the command&#x27;s bytes (at most 440 are used)</td></tr>
@@ -138,7 +138,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-6">
-<h4><span class="n">6</span><a class="opname" href="../code/#os/servers/proc.s:1192"><code>WAIT</code></a><span class="sum">Wait for a child to end</span></h4>
+<h4><span class="n">6</span><a class="opname" href="../code/#os/servers/proc.s:1236"><code>WAIT</code></a><span class="sum">Wait for a child to end</span></h4>
 <p>A finished child&#x27;s record is freed when its status is read. The status is bits 0..31 the exit code, bit 62 killed, bit 63 faulted (the cause in bits 0..7): read the result as unsigned when bit 63 can be set. A child whose parent ended has no parent; its status is discarded. A pending interrupt (SIGNAL to a process that catches them) is consumed by the next WAIT that finds a matching child still running, with or without mode bit 0.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -157,7 +157,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-7">
-<h4><span class="n">7</span><a class="opname" href="../code/#os/servers/proc.s:1441"><code>KILL</code></a><span class="sum">Stop a process</span></h4>
+<h4><span class="n">7</span><a class="opname" href="../code/#os/servers/proc.s:1552"><code>KILL</code></a><span class="sum">Stop a process</span></h4>
 <p>proc asks the kernel to DESTROY it: its arena is revoked, and the kernel&#x27;s EXITED gives it status bit 62. Any process may kill any other but proc, dev and fs (pids 1..3).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -172,7 +172,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-9">
-<h4><span class="n">9</span><a class="opname" href="../code/#os/servers/proc.s:2048"><code>PS</code></a><span class="sum">The processes</span></h4>
+<h4><span class="n">9</span><a class="opname" href="../code/#os/servers/proc.s:2175"><code>PS</code></a><span class="sum">The processes</span></h4>
 <p>One record per process the kernel knows, then one per finished child that proc keeps for its parent&#x27;s WAIT; 64 records at most. The state: the kernel&#x27;s, read as 1 running (its core runs it now), 2 ready (or loading), 3 blocked, 4 ended. A finished child&#x27;s record has its first core, its parent and its name, and 0 for the rest.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -198,7 +198,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-16">
-<h4><span class="n">16</span><a class="opname" href="../code/#os/servers/proc.s:1748"><code>INFO</code></a><span class="sum">A summary of the system</span></h4>
+<h4><span class="n">16</span><a class="opname" href="../code/#os/servers/proc.s:1875"><code>INFO</code></a><span class="sum">A summary of the system</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -219,8 +219,8 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-17">
-<h4><span class="n">17</span><a class="opname" href="../code/#os/servers/proc.s:1469"><code>SIGNAL</code></a><span class="sum">Interrupt a process (Ctrl-C)</span></h4>
-<p>A process that catches interrupts (CATCH 1) is interrupted: its WAIT at proc is answered −2 (or the interrupt is kept for its next WAIT), proc sends CANCEL for it to tty and pipe (their waiting reads answer −2), and the kernel notifies it (bit 0: a sleep ends). Any other process is killed as by KILL, except a server that proc started at boot (tty, pipe) and pids 1..3.</p>
+<h4><span class="n">17</span><a class="opname" href="../code/#os/servers/proc.s:1580"><code>SIGNAL</code></a><span class="sum">Interrupt a process (Ctrl-C)</span></h4>
+<p>A process that catches interrupts (CATCH 1) is interrupted: its WAIT at proc is answered −2 (or the interrupt is kept for its next WAIT), proc sends CANCEL for it to tty, pipe and net (their waiting requests answer −2), and the kernel notifies it (bit 0: a sleep ends). Any other process is killed as by KILL, except a server that proc started at boot (tty, pipe) and pids 1..3.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the pid</td></tr>
@@ -234,7 +234,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-22">
-<h4><span class="n">22</span><a class="opname" href="../code/#os/servers/proc.s:1534"><code>CATCH</code></a><span class="sum">Catch interrupts, or be killed by them</span></h4>
+<h4><span class="n">22</span><a class="opname" href="../code/#os/servers/proc.s:1648"><code>CATCH</code></a><span class="sum">Catch interrupts, or be killed by them</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>not 0: catch them (SIGNAL interrupts the caller); 0: SIGNAL kills it (the default)</td></tr>
@@ -247,7 +247,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-25">
-<h4><span class="n">25</span><a class="opname" href="../code/#os/servers/proc.s:1551"><code>LOOKUP</code></a><span class="sum">An endpoint to a server, by name</span></h4>
+<h4><span class="n">25</span><a class="opname" href="../code/#os/servers/proc.s:1665"><code>LOOKUP</code></a><span class="sum">An endpoint to a server, by name</span></h4>
 <p>The registered names: proc, dev, fs, tty, pipe from boot, and what servers REGISTER (<code>ws</code>, <code>net</code>). The endpoint names the core the name was registered with; <code>sys_lookup</code> moves it from c6 to the register the caller asks for.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -263,11 +263,12 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-29">
-<h4><span class="n">29</span><a class="opname" href="../code/#os/servers/proc.s:1574"><code>REGISTER</code></a><span class="sum">Give a name to the caller&#x27;s core</span></h4>
-<p>Requests sent to the name reach the caller&#x27;s core, so it is for a process that is its core&#x27;s server. The entry leaves the registry when the process ends. A process may hold several names, and register a name it holds again.</p>
+<h4><span class="n">29</span><a class="opname" href="../code/#os/servers/proc.s:1688"><code>REGISTER</code></a><span class="sum">Give a name to the caller&#x27;s core</span></h4>
+<p>Requests sent to the name reach the caller&#x27;s core, so it is for a process that is its core&#x27;s server. The entry leaves the registry when the process ends. A process may hold several names, and register a name it holds again. Mode 1 is for net, at the end of its start: it makes no more calls to proc, which from then on sends it CANCEL and CLEANUP.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">length</td><td class="at"></td><td class="ty"></td><td>the name&#x27;s bytes (1..8)</td></tr>
+<tr><td class="k">mode</td><td class="at"></td><td class="ty"></td><td>bit 0: net only: it is ready for CANCEL and CLEANUP</td></tr>
 <tr><td class="k">data</td><td class="at">+0</td><td class="ty">bytes</td><td>the name</td></tr>
 </tbody>
 <tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
@@ -275,13 +276,13 @@
 </tbody>
 <tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
 <tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>a length of 0 or more than 8, or the caller is not in proc&#x27;s table</td></tr>
-<tr><td class="k"><abbr title="no free core / not allowed">−5</abbr></td><td class="at"></td><td class="ty"></td><td>the caller may not register: only a process made its core&#x27;s server may (tty and pipe, and <code>ws</code> and <code>net</code> started with SPAWN); not proc, dev or fs, nor any other program</td></tr>
+<tr><td class="k"><abbr title="no free core / not allowed">−5</abbr></td><td class="at"></td><td class="ty"></td><td>the caller may not register: only a process made its core&#x27;s server may (tty and pipe, and <code>ws</code> and <code>net</code> started with SPAWN); not proc, dev or fs, nor any other program. Mode bit 0 from any process but the net whose endpoint proc keeps</td></tr>
 <tr><td class="k"><abbr title="no memory">−6</abbr></td><td class="at"></td><td class="ty"></td><td>the registry is full (8 names)</td></tr>
 <tr><td class="k"><abbr title="busy">−7</abbr></td><td class="at"></td><td class="ty"></td><td>another process holds the name</td></tr>
 </tbody>
 </table></div></article>
 <article class="op" id="proc-30">
-<h4><span class="n">30</span><a class="opname" href="../code/#os/servers/proc.s:1776"><code>SCHED</code></a><span class="sum">The time slice and the switch rates; set the slice</span></h4>
+<h4><span class="n">30</span><a class="opname" href="../code/#os/servers/proc.s:1903"><code>SCHED</code></a><span class="sum">The time slice and the switch rates; set the slice</span></h4>
 <p>The rates are since the last SCHED read by any process.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -300,7 +301,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-31">
-<h4><span class="n">31</span><a class="opname" href="../code/#os/servers/proc.s:1837"><code>CORES</code></a><span class="sum">What every core is doing</span></h4>
+<h4><span class="n">31</span><a class="opname" href="../code/#os/servers/proc.s:1964"><code>CORES</code></a><span class="sum">What every core is doing</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -326,7 +327,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-39">
-<h4><span class="n">39</span><a class="opname" href="../code/#os/servers/proc.s:1691"><code>WHOIS</code></a><span class="sum">The pid registered under a name</span></h4>
+<h4><span class="n">39</span><a class="opname" href="../code/#os/servers/proc.s:1818"><code>WHOIS</code></a><span class="sum">The pid registered under a name</span></h4>
 <p>dev asks it before GRANT_FB (&quot;ws&quot;) and GETNET (&quot;net&quot;).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -341,7 +342,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-40">
-<h4><span class="n">40</span><a class="opname" href="../code/#os/servers/proc.s:1885"><code>GUEST</code></a><span class="sum">Start a guest OS on whole cores</span></h4>
+<h4><span class="n">40</span><a class="opname" href="../code/#os/servers/proc.s:2012"><code>GUEST</code></a><span class="sum">Start a guest OS on whole cores</span></h4>
 <p>proc gets an arena from the kernel (MEMORY), has fs load the image into its top 256 KiB (LOADIMG), and asks the kernel to start the guest (GSTART) on a run of free cores, with tty as its console. Any process may ask.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -363,7 +364,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-41">
-<h4><span class="n">41</span><a class="opname" href="../code/#os/servers/proc.s:1998"><code>GUESTSTOP</code></a><span class="sum">Stop a guest</span></h4>
+<h4><span class="n">41</span><a class="opname" href="../code/#os/servers/proc.s:2125"><code>GUESTSTOP</code></a><span class="sum">Stop a guest</span></h4>
 <p>The kernel revokes the guest&#x27;s arena and resets its cores, which are StrataOS&#x27;s again; proc then sends CLEANUP for the guest&#x27;s id to tty (the console comes back if the guest had it).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -378,7 +379,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-42">
-<h4><span class="n">42</span><a class="opname" href="../code/#os/servers/proc.s:2021"><code>GUESTS</code></a><span class="sum">The guests</span></h4>
+<h4><span class="n">42</span><a class="opname" href="../code/#os/servers/proc.s:2148"><code>GUESTS</code></a><span class="sum">The guests</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -396,7 +397,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-43">
-<h4><span class="n">43</span><a class="opname" href="../code/#os/servers/proc.s:1620"><code>MORE</code></a><span class="sum">An extra arena for the caller</span></h4>
+<h4><span class="n">43</span><a class="opname" href="../code/#os/servers/proc.s:1747"><code>MORE</code></a><span class="sum">An extra arena for the caller</span></h4>
 <p>Far memory beyond the arena a program is born with (<code>sys_more</code>). The kernel keeps it as the caller&#x27;s (MEMORY mode 1): it is revoked and freed when the caller ends, unless LESS gave it back first. The caller&#x27;s c6 must be empty.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -413,7 +414,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-44">
-<h4><span class="n">44</span><a class="opname" href="../code/#os/servers/proc.s:1679"><code>LESS</code></a><span class="sum">Give an extra arena back</span></h4>
+<h4><span class="n">44</span><a class="opname" href="../code/#os/servers/proc.s:1806"><code>LESS</code></a><span class="sum">Give an extra arena back</span></h4>
 <p><code>sys_less</code>. The kernel revokes it (everything cut from it dies) and frees its memory.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1391,7 +1392,7 @@
 <div><b>reached by</b>LOOKUP &quot;net&quot;</div>
 <div><b>source</b><a class="srcpath" href="../code/#os/servers/net.s">os/servers/net.s</a></div>
 </div>
-<p class="srvnote"><code>net [ADDRESS]</code> starts it; the first program that needs the network starts one if none runs. Addresses are u32 in a word (a.b.c.d = a &lt;&lt; 24 | b &lt;&lt; 16 | c &lt;&lt; 8 | d; the upper 32 bits of a handle are ignored). 8 sockets in all, TCP or UDP, each with a 1 KiB receive ring and a 1 KiB send buffer; segments of at most 1024 bytes. A socket belongs to the process that made it (ACCEPT: the one that accepted it); a request naming another process&#x27;s socket, a free one or one closed already gets −1. One request at a time may wait on a socket. Every 2 s while sockets are open, net asks proc for the process list and closes the sockets of processes that have ended.</p>
+<p class="srvnote"><code>net [ADDRESS]</code> starts it; the first program that needs the network starts one if none runs. Addresses are u32 in a word (a.b.c.d = a &lt;&lt; 24 | b &lt;&lt; 16 | c &lt;&lt; 8 | d; the upper 32 bits of a handle are ignored). 8 sockets in all, TCP or UDP, each with a 1 KiB receive ring and a 1 KiB send buffer; segments of at most 1024 bytes. A socket belongs to the process that made it (ACCEPT: the one that accepted it); a request naming another process&#x27;s socket, a free one or one closed already gets −1. One request at a time may wait on a socket. proc sends CLEANUP when a process ends (its sockets close, its pings and resolves are dropped) and CANCEL when one that catches interrupts is interrupted (its waiting requests answer −2), once net has said with REGISTER mode 1, at the end of its start, that it makes no more calls to proc.</p>
 <div class="opindex">
 <a href="#net-1"><span class="n">1</span><code>READ</code><span>Read from a TCP connection</span></a>
 <a href="#net-2"><span class="n">2</span><code>WRITE</code><span>Write to a TCP connection</span></a>
@@ -1409,7 +1410,7 @@
 <a href="#net-61"><span class="n">61</span><code>SETDNS</code><span>Set the resolvers</span></a>
 </div>
 <article class="op" id="net-1">
-<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/net.s:482"><code>READ</code></a><span class="sum">Read from a TCP connection</span></h4>
+<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/net.s:493"><code>READ</code></a><span class="sum">Read from a TCP connection</span></h4>
 <p>Waits while nothing has arrived and the connection is open. At most 1024 bytes are given at a time; reading reopens a small window to the peer.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1423,13 +1424,13 @@
 </tbody>
 <tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
 <tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>not the caller&#x27;s socket, not TCP, a listener, or the connection was reset (or given up) and everything was read</td></tr>
-<tr><td class="k"><abbr title="interrupted">−2</abbr></td><td class="at"></td><td class="ty"></td><td>a CANCEL for the caller came while it waited (net answers CANCEL, but proc sends net none)</td></tr>
+<tr><td class="k"><abbr title="interrupted">−2</abbr></td><td class="at"></td><td class="ty"></td><td>the caller was interrupted while it waited (CANCEL: Ctrl-C)</td></tr>
 <tr><td class="k"><abbr title="would block">−3</abbr></td><td class="at"></td><td class="ty"></td><td>nothing to read, with mode bit 0</td></tr>
 <tr><td class="k"><abbr title="busy">−7</abbr></td><td class="at"></td><td class="ty"></td><td>another request is waiting on this socket, or the kernel has no room to hold the request</td></tr>
 </tbody>
 </table></div></article>
 <article class="op" id="net-2">
-<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/net.s:489"><code>WRITE</code></a><span class="sum">Write to a TCP connection</span></h4>
+<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/net.s:500"><code>WRITE</code></a><span class="sum">Write to a TCP connection</span></h4>
 <p>Waits while the send buffer is full. Takes what fits, at most 1024 bytes; the library writes the rest.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1443,13 +1444,13 @@
 </tbody>
 <tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
 <tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>not the caller&#x27;s socket, not TCP, not established (nor CLOSE-WAIT), reset, or shut down for sending</td></tr>
-<tr><td class="k"><abbr title="interrupted">−2</abbr></td><td class="at"></td><td class="ty"></td><td>a CANCEL for the caller came while it waited (net answers CANCEL, but proc sends net none)</td></tr>
+<tr><td class="k"><abbr title="interrupted">−2</abbr></td><td class="at"></td><td class="ty"></td><td>the caller was interrupted while it waited (CANCEL: Ctrl-C)</td></tr>
 <tr><td class="k"><abbr title="would block">−3</abbr></td><td class="at"></td><td class="ty"></td><td>the send buffer is full, with mode bit 0</td></tr>
 <tr><td class="k"><abbr title="busy">−7</abbr></td><td class="at"></td><td class="ty"></td><td>another request is waiting on this socket, or the kernel has no room to hold the request</td></tr>
 </tbody>
 </table></div></article>
 <article class="op" id="net-4">
-<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/net.s:523"><code>CLOSE</code></a><span class="sum">Close a socket, or stop sending on it</span></h4>
+<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/net.s:534"><code>CLOSE</code></a><span class="sum">Close a socket, or stop sending on it</span></h4>
 <p>Answered at once. TCP: what is still buffered is sent, then FIN, and the connection finishes on its own; a request another thread had waiting on the socket gets −1. A listener&#x27;s connections not yet accepted are reset. With mode bit 0 only sending stops (TCP): FIN after the data, and the socket stays readable until the peer closes; a UDP socket is left as it is.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1464,7 +1465,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-50">
-<h4><span class="n">50</span><a class="opname" href="../code/#os/servers/net.s:768"><code>STAT</code></a><span class="sum">The interface, its counters and the sockets in use</span></h4>
+<h4><span class="n">50</span><a class="opname" href="../code/#os/servers/net.s:779"><code>STAT</code></a><span class="sum">The interface, its counters and the sockets in use</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -1495,7 +1496,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-51">
-<h4><span class="n">51</span><a class="opname" href="../code/#os/servers/net.s:549"><code>SETIP</code></a><span class="sum">Set the interface&#x27;s address</span></h4>
+<h4><span class="n">51</span><a class="opname" href="../code/#os/servers/net.s:560"><code>SETIP</code></a><span class="sum">Set the interface&#x27;s address</span></h4>
 <p>Any process may set it.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1506,7 +1507,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-52">
-<h4><span class="n">52</span><a class="opname" href="../code/#os/servers/net.s:690"><code>PING</code></a><span class="sum">Send an ICMP echo request and wait for the reply</span></h4>
+<h4><span class="n">52</span><a class="opname" href="../code/#os/servers/net.s:701"><code>PING</code></a><span class="sum">Send an ICMP echo request and wait for the reply</span></h4>
 <p>The payload is the bytes 0, 1, 2, ... Up to 4 pings wait at once. A reply counts if it comes from the address pinged with the request&#x27;s sequence number.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1519,13 +1520,13 @@
 </tbody>
 <tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
 <tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>a payload of more than 1400 bytes</td></tr>
-<tr><td class="k"><abbr title="interrupted">−2</abbr></td><td class="at"></td><td class="ty"></td><td>a CANCEL for the caller came while it waited (net answers CANCEL, but proc sends net none)</td></tr>
+<tr><td class="k"><abbr title="interrupted">−2</abbr></td><td class="at"></td><td class="ty"></td><td>the caller was interrupted while it waited (CANCEL: Ctrl-C)</td></tr>
 <tr><td class="k"><abbr title="busy">−7</abbr></td><td class="at"></td><td class="ty"></td><td>4 pings are waiting already, or the kernel has no room to hold the request</td></tr>
 <tr><td class="k"><abbr title="timed out">−8</abbr></td><td class="at"></td><td class="ty"></td><td>no reply before the timeout</td></tr>
 </tbody>
 </table></div></article>
 <article class="op" id="net-53">
-<h4><span class="n">53</span><a class="opname" href="../code/#os/servers/net.s:647"><code>CONNECT</code></a><span class="sum">Open a TCP connection</span></h4>
+<h4><span class="n">53</span><a class="opname" href="../code/#os/servers/net.s:658"><code>CONNECT</code></a><span class="sum">Open a TCP connection</span></h4>
 <p>Waits until the connection is established or fails. The SYN is sent again after 250 ms, doubling up to 8 s; after 8 retransmissions it is given up. A failed connection&#x27;s socket is freed.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1537,14 +1538,14 @@
 </tbody>
 <tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
 <tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>a port outside 1..65535, or the connection was refused (RST)</td></tr>
-<tr><td class="k"><abbr title="interrupted">−2</abbr></td><td class="at"></td><td class="ty"></td><td>a CANCEL for the caller came while it waited (net answers CANCEL, but proc sends net none)</td></tr>
+<tr><td class="k"><abbr title="interrupted">−2</abbr></td><td class="at"></td><td class="ty"></td><td>the caller was interrupted while it waited (CANCEL: Ctrl-C)</td></tr>
 <tr><td class="k"><abbr title="no memory">−6</abbr></td><td class="at"></td><td class="ty"></td><td>no free socket (one in TIME-WAIT is taken over first)</td></tr>
 <tr><td class="k"><abbr title="busy">−7</abbr></td><td class="at"></td><td class="ty"></td><td>the kernel has no room to hold the request (the socket is freed)</td></tr>
 <tr><td class="k"><abbr title="timed out">−8</abbr></td><td class="at"></td><td class="ty"></td><td>no answer</td></tr>
 </tbody>
 </table></div></article>
 <article class="op" id="net-54">
-<h4><span class="n">54</span><a class="opname" href="../code/#os/servers/net.s:559"><code>LISTEN</code></a><span class="sum">Listen for TCP connections on a port</span></h4>
+<h4><span class="n">54</span><a class="opname" href="../code/#os/servers/net.s:570"><code>LISTEN</code></a><span class="sum">Listen for TCP connections on a port</span></h4>
 <p>Connections are established by net as they arrive, and wait for an ACCEPT.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1560,7 +1561,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-55">
-<h4><span class="n">55</span><a class="opname" href="../code/#os/servers/net.s:496"><code>ACCEPT</code></a><span class="sum">Take the next established connection of a listener</span></h4>
+<h4><span class="n">55</span><a class="opname" href="../code/#os/servers/net.s:507"><code>ACCEPT</code></a><span class="sum">Take the next established connection of a listener</span></h4>
 <p>Waits while none is there. The connection belongs to the caller from then on.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1572,13 +1573,13 @@
 </tbody>
 <tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
 <tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>not the caller&#x27;s socket, or not a listener</td></tr>
-<tr><td class="k"><abbr title="interrupted">−2</abbr></td><td class="at"></td><td class="ty"></td><td>a CANCEL for the caller came while it waited (net answers CANCEL, but proc sends net none)</td></tr>
+<tr><td class="k"><abbr title="interrupted">−2</abbr></td><td class="at"></td><td class="ty"></td><td>the caller was interrupted while it waited (CANCEL: Ctrl-C)</td></tr>
 <tr><td class="k"><abbr title="would block">−3</abbr></td><td class="at"></td><td class="ty"></td><td>no connection yet, with mode bit 0</td></tr>
 <tr><td class="k"><abbr title="busy">−7</abbr></td><td class="at"></td><td class="ty"></td><td>another request is waiting on this socket, or the kernel has no room to hold the request</td></tr>
 </tbody>
 </table></div></article>
 <article class="op" id="net-56">
-<h4><span class="n">56</span><a class="opname" href="../code/#os/servers/net.s:588"><code>UDP</code></a><span class="sum">Make a UDP socket bound to a port</span></h4>
+<h4><span class="n">56</span><a class="opname" href="../code/#os/servers/net.s:599"><code>UDP</code></a><span class="sum">Make a UDP socket bound to a port</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the port (0: any free one, from 49152 up)</td></tr>
@@ -1593,7 +1594,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-57">
-<h4><span class="n">57</span><a class="opname" href="../code/#os/servers/net.s:614"><code>SENDTO</code></a><span class="sum">Send a datagram from a UDP socket</span></h4>
+<h4><span class="n">57</span><a class="opname" href="../code/#os/servers/net.s:625"><code>SENDTO</code></a><span class="sum">Send a datagram from a UDP socket</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the socket id</td></tr>
@@ -1610,7 +1611,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-58">
-<h4><span class="n">58</span><a class="opname" href="../code/#os/servers/net.s:503"><code>RECVFROM</code></a><span class="sum">Receive a datagram on a UDP socket</span></h4>
+<h4><span class="n">58</span><a class="opname" href="../code/#os/servers/net.s:514"><code>RECVFROM</code></a><span class="sum">Receive a datagram on a UDP socket</span></h4>
 <p>Waits while none is queued. Datagrams are queued in the socket&#x27;s 1 KiB ring with their sender; one that does not fit (with its 8-byte record, more than 1016 bytes in an empty ring) is dropped. What does not fit the length asked for is lost.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1626,14 +1627,14 @@
 </tbody>
 <tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
 <tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>not the caller&#x27;s socket, or not UDP</td></tr>
-<tr><td class="k"><abbr title="interrupted">−2</abbr></td><td class="at"></td><td class="ty"></td><td>a CANCEL for the caller came while it waited (net answers CANCEL, but proc sends net none)</td></tr>
+<tr><td class="k"><abbr title="interrupted">−2</abbr></td><td class="at"></td><td class="ty"></td><td>the caller was interrupted while it waited (CANCEL: Ctrl-C)</td></tr>
 <tr><td class="k"><abbr title="would block">−3</abbr></td><td class="at"></td><td class="ty"></td><td>no datagram, with mode bit 0</td></tr>
 <tr><td class="k"><abbr title="busy">−7</abbr></td><td class="at"></td><td class="ty"></td><td>another request is waiting on this socket, or the kernel has no room to hold the request</td></tr>
 </tbody>
 </table></div></article>
 <article class="op" id="net-60">
-<h4><span class="n">60</span><a class="opname" href="../code/#os/servers/net.s:3116"><code>RESOLVE</code></a><span class="sum">A host name&#x27;s IPv4 addresses (DNS)</span></h4>
-<p>The name is taken in lower case, without a final dot. A dotted quad and <code>localhost</code> are answered at once; names in the cache (16 entries, for their TTL, at most an hour; names of 64 bytes or more are not kept) too. Otherwise an A query goes over UDP to port 53 of the first resolver; with no answer in a second, to the second, then each once more. CNAME chains are followed (up to 8). Two resolves may wait at once. A waiting RESOLVE is not interrupted by CANCEL.</p>
+<h4><span class="n">60</span><a class="opname" href="../code/#os/servers/net.s:3061"><code>RESOLVE</code></a><span class="sum">A host name&#x27;s IPv4 addresses (DNS)</span></h4>
+<p>The name is taken in lower case, without a final dot. A dotted quad and <code>localhost</code> are answered at once; names in the cache (16 entries, for their TTL, at most an hour; names of 64 bytes or more are not kept) too. Otherwise an A query goes over UDP to port 53 of the first resolver; with no answer in a second, to the second, then each once more. CNAME chains are followed (up to 8). Two resolves may wait at once.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">length</td><td class="at"></td><td class="ty"></td><td>the name&#x27;s bytes (1..127)</td></tr>
@@ -1656,7 +1657,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-61">
-<h4><span class="n">61</span><a class="opname" href="../code/#os/servers/net.s:3200"><code>SETDNS</code></a><span class="sum">Set the resolvers</span></h4>
+<h4><span class="n">61</span><a class="opname" href="../code/#os/servers/net.s:3148"><code>SETDNS</code></a><span class="sum">Set the resolvers</span></h4>
 <p>With no second resolver every try goes to the first.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1832,7 +1833,7 @@
   <p>Three messages go from <code>proc</code> to the servers that keep something per process, and
     one from the kernel to <code>proc</code>.</p>
 <!-- ops:system -->
-<p class="srvnote">proc sends DUPS to the servers of the handles a child inherits, CLEANUP to fs, tty and pipe, CANCEL to tty and pipe. The servers do not check that these come from proc. net answers all three and ws answers CLEANUP, but proc sends them none: they find ended processes themselves, through proc&#x27;s PS. dev answers all three with 0 and does nothing.</p>
+<p class="srvnote">proc sends DUPS to the servers of the handles a child inherits, CLEANUP to fs, tty, pipe and net, CANCEL to tty, pipe and net. The servers do not check that these come from proc. proc holds no register for net&#x27;s endpoint: it keeps the one CREATE gave it parked in the kernel, and sends to net only after net&#x27;s REGISTER mode 1 (net makes no calls to proc after that, so proc, which waits for the answer, cannot wait for a net that waits for proc). ws answers CLEANUP, but proc sends it none: ws collects the clients it started itself. dev answers all three with 0 and does nothing.</p>
 <div class="opindex">
 <a href="#system-7"><span class="n">7</span><code>EXITED</code><span>A process has ended</span></a>
 <a href="#system-36"><span class="n">36</span><code>DUPS</code><span>A process now holds these handles too</span></a>
@@ -1871,8 +1872,8 @@
 </tbody>
 </table></div></article>
 <article class="op" id="system-37">
-<h4><span class="n">37</span><code>CLEANUP</code><span class="sum">A process ended: drop everything it held</span><span class="from">proc, to fs, tty and pipe</span></h4>
-<p>Its handles and waiting requests go (fs also forgets its tag path). At tty, the console comes back if that process, or the guest of that id, had it.</p>
+<h4><span class="n">37</span><code>CLEANUP</code><span class="sum">A process ended: drop everything it held</span><span class="from">proc, to fs, tty, pipe and net</span></h4>
+<p>Its handles and waiting requests go (net: its sockets close) (fs also forgets its tag path). At tty, the console comes back if that process, or the guest of that id, had it.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the pid</td></tr>
@@ -1882,8 +1883,8 @@
 </tbody>
 </table></div></article>
 <article class="op" id="system-38">
-<h4><span class="n">38</span><code>CANCEL</code><span class="sum">A process was interrupted: answer its waiting requests</span><span class="from">proc, to tty and pipe</span></h4>
-<p>The requests the server holds for that process (a READ of an empty pipe, a WRITE to a full one, a console READ) are answered with −2. At tty, the console also comes back if that process had it.</p>
+<h4><span class="n">38</span><code>CANCEL</code><span class="sum">A process was interrupted: answer its waiting requests</span><span class="from">proc, to tty, pipe and net</span></h4>
+<p>The requests the server holds for that process (a READ of an empty pipe, a WRITE to a full one, a console READ, a socket&#x27;s wait, a PING, a RESOLVE) are answered with −2. At tty, the console also comes back if that process had it.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the pid</td></tr>
