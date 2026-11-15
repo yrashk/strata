@@ -15,8 +15,8 @@ module strata_top
   parameter int    NXMAP      = NXMAP_DEF,  // overlay map entries per core (4..16)
   parameter int    DLS_KIB    = LS_DEF_KIB, // each core's D-LS and I-LS in KiB (powers of two, 4..64)
   parameter int    ILS_KIB    = LS_DEF_KIB,
-  parameter bit    LS_1P      = 0,          // each core's Local Stores in one single-port memory (strata_core)
-  parameter bit    STREAM     = 1,          // each core's sequential fetch without F0 / F1 (strata_core)
+  parameter bit    LS_1P      = 1'b0,          // each core's Local Stores in one single-port memory (strata_core)
+  parameter bit    STREAM     = 1'b1,          // each core's sequential fetch without F0 / F1 (strata_core)
   parameter int    T3_W       = T3_WORDS,
   parameter int    T3_LAT     = 20,
   parameter int    T2_W       = T2_WORDS,
@@ -28,7 +28,7 @@ module strata_top
   parameter string PLAT_INIT  = "",
   parameter int    UART_DIV   = 868,
   parameter int    CLK_MHZ    = 100,    // clock frequency: cycles per timer tick (1 us)
-  parameter bit    T3_EXT     = 0       // 1: system memory is outside (the ext_t3 port, e.g. DRAM)
+  parameter bit    T3_EXT     = 1'b0       // 1: system memory is outside (the ext_t3 port, e.g. DRAM)
 )(
   input  logic clk,
   input  logic rst,

@@ -64,8 +64,8 @@ module strata_core
   parameter int    NXMAP    = NXMAP_DEF,  // overlay map entries (4..16; the platform table says)
   parameter int    DLS_KIB  = LS_DEF_KIB, // the D-LS and I-LS in KiB (powers of two, 4..64; the
   parameter int    ILS_KIB  = LS_DEF_KIB, //   platform table says)
-  parameter bit    STREAM   = 1,          // 1: sequential code skips F0 / F1 (see above)
-  parameter bit    LS_1P    = 0,          // 1: both Local Stores in one single-port memory (see above)
+  parameter bit    STREAM   = 1'b1,          // 1: sequential code skips F0 / F1 (see above)
+  parameter bit    LS_1P    = 1'b0,          // 1: both Local Stores in one single-port memory (see above)
   parameter string ILS_INIT = "",
   parameter string DLS_INIT = ""
 )(
