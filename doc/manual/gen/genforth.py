@@ -932,6 +932,7 @@ def write(out, page, link_sources=None, files=None):
     tail = (web_file("forth-play.html") +
             '<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>\n'
             '<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>\n'
+            '<script src="../play/jit.js?v=__BUILD__"></script>\n'
             '<script src="forth.js?v=__BUILD__"></script>')
     text = page("forth", "Strata Forth", "Strata Forth: every word of the native-code Forth for Strata, with its "
                 "stack effect, description and source, and a playground running the real Forth in the browser.",

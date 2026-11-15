@@ -11,13 +11,10 @@
 // carries it, so a browser never mixes files of two deploys.
 const BUILD = "__BUILD__";
 
-// Safari on iPhone and iPad keeps compiled WebAssembly in a small pool and
-// kills the page when the JIT fills it: there the JIT keeps at most 256
-// regions alive (all cores) and translates only code run 200 times. Shared
-// with the Forth playground (site/forth/forth.js).
-const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
-            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-const JIT_LIMITS = IOS ? { jitBudget: 256, jitHot: 200 } : {};
+// The JIT's default per device, its limits on iPhone and iPad and the
+// fallback after a page lost to it: jit.js (StrataJIT), shared with the
+// Forth playground.
+const JIT_LIMITS = StrataJIT.LIMITS;
 const V = "?v=" + BUILD;
 
 const PRESETS = {
@@ -149,12 +146,17 @@ let stat = null;       // the worker's latest status message
 let last = { t: 0, steps: 0 }, mips = 0, runStart = 0;
 
 // ?jit=0 starts with the JIT off, ?jit=1 on; the checkbox restarts the
-// current preset. On iPhone and iPad the JIT starts off: Safari there kills
-// the page once compiled WebAssembly fills its pool, even with the JIT's
-// budget (JIT_LIMITS, used if it is turned on).
+// current preset. Otherwise the JIT starts on, except on iPhones and after
+// the JIT has cost this browser the page (jit.js); then a note beside the
+// checkbox says so, and ticking the box forgets it.
 const params = new URLSearchParams(location.search);
 const jitBox = $("jit");
-jitBox.checked = params.get("jit") === "1" || (params.get("jit") !== "0" && !IOS);
+const jitStart = StrataJIT.choose(params);
+jitBox.checked = jitStart.on;
+if (jitStart.note) {
+  $("jitnote").textContent = jitStart.note + " Tick JIT to turn it back on.";
+  $("jitnote").hidden = false;
+}
 
 // The machine: the emulator (strata-emu.wasm) or the RTL simulator
 // (strata-rtl.wasm: the SystemVerilog itself, turned into C++ by Verilator
@@ -424,10 +426,12 @@ function stopCurrent() {
   if (W) W.terminate();
   W = null;
   stopped = true;
+  StrataJIT.disarm();
 }
 
 function setStopped(msg) {
   stopped = true;
+  StrataJIT.disarm();
   $("brk").disabled = true;
   statusEl.classList.add("stopped");
   statusEl.textContent = msg;
@@ -566,6 +570,7 @@ async function run(key) {
     promptTail = "";
     w.onmessage = (e) => onWorker(w, e.data);
     w.onerror = (e) => { if (w === W) setStopped("error: " + (e.message || "the worker failed")); };
+    if (!rtl && jitBox.checked) StrataJIT.arm(); // until it has run a while (jit.js)
     // the module and the images are copied (structured clone), so Reset can reuse them
     w.postMessage(Object.assign({ t: "start", machine: rtl ? "rtl" : "emu", wasm, files: p.files.map((name, i) => ({ name, data: bufs[i] })), args, net }, JIT_LIMITS));
     if (p.screenKeys) canvas.focus(); else term.focus();
@@ -578,7 +583,10 @@ async function run(key) {
 for (const b of document.querySelectorAll(".preset")) b.addEventListener("click", () => run(b.dataset.preset));
 $("reset").addEventListener("click", () => current && run(current));
 $("brk").addEventListener("click", () => { sendBreak(); term.focus(); });
-jitBox.addEventListener("change", () => current && run(current));
+jitBox.addEventListener("change", () => {
+  if (jitBox.checked) { StrataJIT.forget(); $("jitnote").hidden = true; }
+  if (current) run(current);
+});
 machineSel.addEventListener("change", () => { jitBox.disabled = machine() === "rtl"; if (current) run(current); });
 
 // ---------------------------------------------------------------- the network (net.js)
