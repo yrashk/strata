@@ -813,7 +813,7 @@ Common error results: -1 failed / invalid, -2 interrupted, -3 would block,
 | 17 | SIGNAL | handle = pid | 0 (2.5) |
 | 22 | CATCH | handle = 1 / 0 | 0 |
 | 25 | LOOKUP | data = a server's name ("fs", "tty", "pipe", "dev", "ws") | 0, and a send-only endpoint to that server arrives with the reply (in c6; `sys_lookup` puts it where the caller asks); -4 none |
-| 29 | REGISTER | data = name | 0: the caller is now that server; the entry dies with the process. -5 unless the caller was started as its core's server (the boot servers, and `ws`); -7 if another live process holds the name |
+| 29 | REGISTER | data = name | 0: the caller is now that server; the entry dies with the process. -5 unless the caller was started as its core's server (the boot servers, and `ws` and `net`); -6 the registry (8 names) is full; -7 if another live process holds the name |
 | 30 | SCHED | handle = 0 read / 1 set (length = slice in ticks, 100..100000) | read: data u64 slice, switches per second (all cores), KiB moved per second, both since the last read; set forwards to the kernel's TUNE: 0 / -1 |
 | 31 | CORES | | count; data: 32-byte records u8 core, pid running (0 none), runnable, processes, flags (2 server, 4 alone); 3 reserved; u32 switches, u32 KiB moved |
 | 39 | WHOIS | data = name | the pid registered under it (0 for the boot servers); -4 none. `dev` asks it before GRANT_FB |
