@@ -298,6 +298,7 @@ static uint64_t le(const uint8_t *p, int n) {
 static bool inbox_push(Core *dst, Cap cap, int from) {
   if (dst->iq_cnt[from] == SQ) return false;
   dst->inbox[from][dst->iq_cnt[from]++] = cap;
+  if (dbg_on) dbg_inbox(dst, &cap, from); /* (StrataOS's messages: emu/debug_msg.c) */
   return true;
 }
 
