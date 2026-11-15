@@ -275,6 +275,9 @@ F_SOLO   = 32                           ; alone on its core (pending device read
 F_GUEST  = 128                          ; a guest: whole cores in supervisor mode (core 0's records)
 F_RING   = 256                          ; job: a console ring in T2 comes too (thread 0 -> c6)
 CF_GUEST = 8                            ; core flags (K0_CORE): a guest's core
+GF_POOL  = 1                            ; GSTART flags: a pool the guest revokes in (guest -p)
+GN_LOW   = 0x400000                     ; a guest StrataOS: its memory below the pool,
+RD_OFF   = 0x100000                     ;   and its RAM disk's place in it (see "Guest mode")
 
 ; ---- worker capability save table -----------------------------------------------
 ; The table has CTAB slots (the platform table says how many: 64..256; 256 by
@@ -323,6 +326,8 @@ K_MSG    = 48                           ; 48..55: core 0's message buffers (when
 K_STASH  = 56                           ; 56..59: attachments from proc / others
 K_FB     = 60                           ; the framebuffer's revoker (a revocable region of its own, made at boot)
 K_SPARE  = 61                           ; (spare)
+K_GCON   = 44                           ; a guest: the endpoint to the host's tty (k0_guest)
+K_RDISK  = 45                           ; a guest: its RAM disk (u_mem; dev takes it: GDISK)
 K_KCODE  = 46                           ; the OS code image share (the boot ROM's c10): a reset
 K_KDATA  = 47                           ;   guest core re-provisions from these (free core-0 slots,
                                         ;   clear of the worker slots 57..63 and K_MSG 48..55)
@@ -444,7 +449,10 @@ GU_N     = 16                           ;   cores
 GU_LEFT  = 24                           ;   cores not yet back (stop: counts down; kill: stays)
 GU_ASLOT = 32                           ;   arena slot
 GU_FLAGS = 40                           ;   F_GUEST
-GU_SIZE  = 48                           ; ...
+GU_PB    = 48                           ;   its pool (GF_POOL): base,
+GU_PE    = 56                           ;   end (0: none)
+GU_HB    = 64                           ;   the base of the buffer it revokes with (0: none yet)
+GU_SIZE  = 72                           ; ...
 NGUEST   = 4                            ; guests at once (cores are the real limit)
 K0_END   = 0x6980                       ; (cleared at boot up to here)
 ; guest start/stop scratch (core 0 only, in K0_SCR; not the kernel data image):
@@ -467,6 +475,8 @@ g_tmp    = K0_SCR + 0x840                ; 64 bytes: platform table / reset word
 kentry:
         li    sp, STACKTOP              ; a stack for now
         la    gp, GPBASE                ; kernel data base
+        cbase t2, c3                    ; a guest (c3 = core control over its own cores, not
+        bnez  t2, ke_drop               ;   the device root, which is at 0): see "Guest mode"
         li    t0, 0x1000 + 24           ; the platform table's Local Store sizes (u16 KiB each),
         li    t1, 4                     ;   through the device root (every core has c3 here)
         tget  tg0, zero, c3, t0, t1     ;   -> D-LS 0 (nothing lives there yet)
@@ -499,48 +509,9 @@ ke_halt:
 k0_start:
 
 ; =============================================================================
-; Core 0: the system core
+; Core 0: the system core (k0_main, in core 0's own resident code)
 ; =============================================================================
-        la    sp, k0stack_top           ; core 0's stack
-        cmov  c15, c12                  ; the firmware clobbers c12..c14: keep the far image,
-        cvalid t0, c13                  ;   the second heap piece
-        beqz  t0, k0_nohigh             ;   ...
-        cmov  c8, c13                   ;   ...
-        li    a0, K_SPARE               ;   (in the save table for u_mem)
-        call  csv8                      ;   ...
-        li    t0, 1                     ;   ...
-        sd    t0, k_hashigh-GPBASE(gp)  ;   ...
-k0_nohigh:
-        cvalid t0, c14                  ;   and the framebuffer window
-        beqz  t0, k0_nofb               ;   ...
-        cmov  c8, c14                   ;   ...
-        li    a0, K_FB                  ;   ...
-        call  csv8                      ;   ...
-        li    t0, 1                     ;   ...
-        sd    t0, k_hasfb-GPBASE(gp)    ;   ...
-k0_nofb:
-        call  fw_init                   ; platform table, console window
-        call  fw_cores                  ; how many cores
-        sd    a0, w_ncores-GPBASE(gp)   ; ...
-        li    a0, 4                     ; the block device (the kernel reads it only at boot)
-        li    a1, 0                     ; ...
-        call  fw_find                   ; ...
-        call  fw_blk_open               ; ...
-        cmov  c12, c15                  ; the far image again
-        lhu   t0, fw_plat+22-GPBASE(gp) ; overlay map entries: the code cache's slots
-        bnez  t0, k0_nx                 ;   (platform table header; 0: an older platform, 16)
-        li    t0, 16                    ;   ...
-k0_nx:
-        sd    t0, k_nxmap-GPBASE(gp)    ;   ...
-        la    t0, k_trap                ; core 0's own trap handler: pages kernel units
-        csrw  tvec, t0                  ; ...
-        li    t0, 11                    ; kernel units: 2 KiB slots
-        csrw  xslot, t0                 ; ...
-        la    t5, u_boot                ; start-up is a code unit
-        xcall ra, c12, t5               ; (the first miss pages it in)
-        la    t5, u_fart2               ; then the units move to T2, if they fit (called
-        xcall ra, c12, t5               ;   from here: no far link into the old copy remains)
-        j     k_loop                    ; then the event loop
+        j     k0_main                   ; ...
 
 ; k_panic: a fault inside the kernel. Report it and stop this core.
 k_panic:
@@ -1047,13 +1018,18 @@ kst_xchg0:                              ; kst_xchg0(a0 = offset) -> a0 = old val
 wboot:
         sd    a0, w_me-GPBASE(gp)       ; our core (also a core core 0 reset and re-provisioned:
         la    sp, kstack_top            ;   the boot ROM gave it the OS shares again, so this
-        ctake c8, zero                  ;   path is the same as at boot)
+        cbase t0, c3                    ;   path is the same as at boot; a guest's c3 is core
+        bnez  t0, wb_guest              ;   control, its c2 the clock: "Guest mode")
+wb_take:
+        ctake c8, zero                  ; ...
         li    a0, T_KST                 ; the KST, from core 0
         call  csv8                      ; ...
         ctake c8, zero                  ; core control, from core 0 (for doorbells)
         li    a0, T_CCTL                ; ...
         call  csv8                      ; ...
         cmov  c8, c3                    ; a clock for processes: [timer, timer + 16), read-only
+        ld    t0, w_ccount-GPBASE(gp)   ; (a guest: c3 is the clock itself)
+        bnez  t0, wb_clock              ; ...
         li    t0, TMR_PORT              ; ...
         csplit c9, c8, t0               ; c9 = from the timer on
         li    t0, 16                    ; NOW and FREQ
@@ -1062,6 +1038,7 @@ wboot:
         cclear c10                      ; ...
         li    t0, 1 | 16                ; read + copyable
         crestrict c8, c9, t0            ; ...
+wb_clock:
         li    a0, T_CLOCK               ; ...
         call  csv8                      ; ...
         clen  t0, c3                    ; the device root: its length and permissions
@@ -1099,6 +1076,15 @@ wboot:
         csrr  t0, cycle                 ; the dispatcher is busy from here
         sd    t0, w_tent-GPBASE(gp)     ; ...
         j     w_sched                   ; and wait for work
+wb_guest:
+        csrr  t0, corebase              ; we number the guest's cores, as its window does
+        sd    t0, w_cbase-GPBASE(gp)    ; ...
+        csrr  t0, corecount             ; ...
+        sd    t0, w_ccount-GPBASE(gp)   ; ...
+        cclear c1                       ; (the host's tty endpoint: dev gives tty its own)
+        cmov  c3, c2                    ; the clock stands for the device root and the console
+        cgive c2, zero                  ; tell our core 0 we run (until then the host's
+        j     wb_take                   ;   dispatcher here would have dropped its gifts)
 
 ; ---- the trap entry ---------------------------------------------------------------------
 ; Any trap from a user process: save its registers into its record.
@@ -1151,8 +1137,10 @@ w_trap:
         ld    t1, w_ntrap-GPBASE(gp)    ; ...
         addi  t1, t1, 1                 ; ...
         sd    t1, w_ntrap-GPBASE(gp)    ; ...
-        csrw  corebase, zero            ; the dispatcher numbers cores for real
-        csrw  corecount, zero           ; ...
+        ld    t1, w_cbase-GPBASE(gp)    ; the dispatcher numbers cores for real (in a
+        csrw  corebase, t1              ;   guest: as the guest's window does)
+        ld    t1, w_ccount-GPBASE(gp)   ; ...
+        csrw  corecount, t1             ; ...
         csrr  s1, cause                 ; s1 = why
         li    t1, 8                     ; xmiss: a code unit
         beq   s1, t1, wt_page           ; ...
@@ -1719,7 +1707,9 @@ svs_ep:
         cvalid t0, c8                   ; live?
         beqz  t0, svs_bad               ; ...
         cperms t0, c8                   ; space << 8 | perms: an endpoint (space 6)
-        cbase s4, c8                    ; s4 = the core it names
+        cbase s4, c8                    ; s4 = the core it names (a node: in a guest, minus
+        ld    t2, w_cbase-GPBASE(gp)    ;   corebase)
+        sub   s4, s4, t2                ; ...
         srli  t1, t0, 8                 ; ...
         andi  t0, t0, 2                 ; one we may send through (W)?
         addi  t1, t1, -6                ; ...
@@ -1882,6 +1872,8 @@ svr_mint:
         ld    t0, PR_REGS+104(s0)       ; for which core
         ld    t1, w_ncores-GPBASE(gp)   ; (the block device is node ncores)
         bgtu  t0, t1, svr_buf           ; no such node
+        ld    t1, w_cbase-GPBASE(gp)    ; (in a guest: + corebase)
+        add   t0, t0, t1                ; ...
         cmkep c8, t0                    ; an endpoint for it
         li    t0, 2 | 16                ; send-only, copyable
         crestrict c8, c8, t0            ; ...
@@ -2333,6 +2325,7 @@ w_drain:
         sd    s1, 8(sp)                 ; ...
 wdr_loop:
         cpoll t0                        ; senders with something for us
+        beqz  t0, wdr_out               ; (none of our cores: another, outside the window?)
         ld    t1, w_hold-GPBASE(gp)     ; minus senders held back (full queue)
         sub   t1, zero, t1     ; invert every bit: -x
         addi   t1, t1, -1              ; ... - 1
@@ -2350,6 +2343,15 @@ wdr_take:
         mv    a0, s1                    ; and place it
         call  w_place                   ; ...
         j     wdr_loop                  ; next
+wdr_out:
+        li    t0, -1                    ; a gift from a core outside the window: in a guest,
+        tany  t1, t0                    ;   the host's tty answering (cpoll shows our cores
+        srli  t1, t1, 16                ;   only); the inbox bit says (and tany returns at
+        beqz  t1, wdr_done              ;   once: some tag is idle)
+        ctake c8                        ; the lowest sender: that one
+        csrr  a0, takefrom              ; ...
+        call  w_place                   ; ...
+        j     wdr_loop                  ; ...
 wdr_done:
         sd    zero, w_hold-GPBASE(gp)   ; try held senders again next time
         ld    s1, 8(sp)                 ; ...
@@ -2376,13 +2378,9 @@ w_place:
         cbase s2, c8                    ; s2 = base
         cperms t0, c8                   ; s3 = space
         srli  s3, t0, 8                 ; ...
-        li    t1, 4                     ; device space, from core 0, base 0 length 1:
-        bne   s3, t1, wpl_job           ;   core 0's "look at your commands" token
-        bnez  s1, wpl_job               ; ...
-        bnez  s2, wpl_job               ; ...
-        clen  t1, c8                    ; ...
-        li    t2, 1                     ; ...
-        bne   t1, t2, wpl_job           ; ...
+        li    t1, 4                     ; device space, from core 0: core 0's "look at your
+        bne   s3, t1, wpl_job           ;   commands" token (a copy of its console capability,
+        bnez  s1, wpl_job               ;   or in a guest of its clock)
         cclear c8                       ; nothing to keep
         call  w_cmds                    ; (read the job records now)
         j     wpl_ret                   ; ...
@@ -3085,6 +3083,8 @@ wnj_ep:
         andi  t3, a0, 255               ; this one's core (255: none)
         li    t4, 255                   ; ...
         beq   t3, t4, wnj_epn           ; ...
+        ld    t4, w_cbase-GPBASE(gp)    ; (its node: in a guest, the core + corebase)
+        add   t3, t3, t4                ; ...
         slli  t3, t3, 8                 ; 2 | (W | D) << 2 | node << 8
         ori   t3, t3, 2 | (2 | 16) << 2 ; ...
         sd    t3, 0(t1)                 ; ...
@@ -4317,6 +4317,8 @@ w_eret:                                 ; (s2 = the record)
         call  unstash                   ; its c8, c9 back (if the dispatcher borrowed them)
         ld    t0, PR_WIN(s2)            ; its core window (threads, bare metal)
         andi  t1, t0, 255               ; base
+        ld    t2, w_cbase-GPBASE(gp)    ; (a core of ours: in a guest, from its window's base)
+        add   t1, t1, t2                ; ...
         srli  t2, t0, 8                 ; count
         andi  t2, t2, 255               ; ...
         csrw  corebase, t1              ; ...
@@ -4555,7 +4557,10 @@ k_loop:
         beqz  t1, kl_wait               ; ...
         ori   t0, t0, 1 << TG_TMR       ; ...
 kl_wait:
+        ld    t2, k_guest-GPBASE(gp)    ; a guest has no timer to wait on, only a clock:
+        bnez  t2, kl_poll               ;   it looks at the inbox and the clock in turn
         tany  t1, t0                    ; sleep until something happens
+kl_got:
         andi  t2, t1, 1 << TG_TMR       ; the timer?
         beqz  t2, kl_msg                ; no
         ld    t3, k_tarmed-GPBASE(gp)   ; (only if it was armed)
@@ -4586,9 +4591,9 @@ kl_msg:
         li    t2, 4096                  ; ...
         bne   t1, t2, kl_stash          ; no: an attachment
         cbase t1, c8                    ; one of ours coming back?
-        li    t2, MSGB                  ; ...
-        bltu  t1, t2, kl_req            ; no
-        li    t2, MSGB + NMSGB * 4096   ; ...
+        ld    t2, k_msgb-GPBASE(gp)     ; ...
+        sub   t1, t1, t2                ; ...
+        li    t2, NMSGB * 4096          ; ...
         bgeu  t1, t2, kl_req            ; no
         mv    a0, s1                    ; yes: a reply to the kernel
         la    t5, u_kreply              ; ...
@@ -4612,6 +4617,11 @@ kl_stash:
 kl_drop:
         cclear c8                       ; a dead capability
         j     k_loop                    ; next event
+kl_poll:
+        la    t5, u_gwait               ; -> a0 as tany's (the timer's tag or the inbox bit)
+        xcall ra, c12, t5               ; ...
+        mv    t1, a0                    ; ...
+        j     kl_got                    ; ...
 kl_guest:
         mv    a0, s1                    ; a core giving itself back, or nothing
         la    t5, u_ggift               ; ...
@@ -4831,6 +4841,44 @@ k_fputs:
         add   a0, t0, t3                ; the text
         j     fw_puts                   ; (the tput waits behind the tget)
 
+; k0_main: core 0 starts here (from kentry). A guest StrataOS's core 0 ("Guest
+; mode") first finds what the host's loader gave it, not the boot ROM's: c0 =
+; our memory [0, GN_LOW) with the code units copied to its start, c1 = an
+; endpoint to the host's tty, c2 = the clock, c3 = core control over our own
+; cores; a1 = save-table | overlay map entries << 16, a2, a3 = the pool's
+; offset and bytes. They go where the boot ROM's would be: c12 = a share of
+; the code units, c0 = the memory after them, c4 = core control, c3 and c2 =
+; the clock (the timer's window, the workers' wake token), no T2 (c1).
+k0_main:
+        la    sp, k0stack_top           ; core 0's stack
+        la    t0, k_trap                ; core 0's own trap handler: pages kernel units
+        csrw  tvec, t0                  ; ...
+        li    t0, 11                    ; kernel units: 2 KiB slots
+        csrw  xslot, t0                 ; ...
+        cbase t0, c3                    ; a guest?
+        beqz  t0, k0_init               ; ...
+        li    t0, 1                     ; guest mode
+        sd    t0, k_guest-GPBASE(gp)    ; ...
+        sd    a1, k_gplat-GPBASE(gp)    ; ...
+        sd    a2, k_gpoff-GPBASE(gp)    ; ...
+        sd    a3, k_gpbytes-GPBASE(gp)  ; ...
+        la    t0, k_farend              ; the code units' bytes
+        csplit c13, c0, t0              ; c0 = them, c13 = the rest
+        cshare c12, c0                  ; c12 = a read+execute share of them
+        cmov  c0, c13                   ; c0 = the memory after them
+        csave c1, K_GCON                ; the host's console, for dev (GETCON)
+        cclear c1                       ; ...
+        cmov  c4, c3                    ; core control
+        cmov  c3, c2                    ; the clock
+k0_init:
+        la    t5, u_k0init              ; the platform table, the cores, the boot disk
+        xcall ra, c12, t5               ; (the first miss pages it in)
+        la    t5, u_boot                ; start-up is a code unit
+        xcall ra, c12, t5               ; ...
+        la    t5, u_fart2               ; then the units move to T2, if they fit (called
+        xcall ra, c12, t5               ;   from here: no far link into the old copy remains)
+        j     k_loop                    ; then the event loop
+
 ; =============================================================================
 ; Kernel data (every core has its own copy; core 0 uses part of it)
 ; =============================================================================
@@ -4899,7 +4947,16 @@ k_hashigh: .dword 0                     ; core 0: the boot ROM gave a second hea
 k_hasfb:   .dword 0                     ; core 0: there is a framebuffer window
 k_fbpid:   .dword 0                     ; core 0: the process the framebuffer is lent to (0 none)
 k_ctab:    .dword 0                     ; core 0: the capability save table's slots (platform table)
-k_nxmap:   .dword 0                     ; core 0: overlay map entries = kernel code-cache slots (platform table)
+k_nxmap:   .dword 4                     ; core 0: overlay map entries = kernel code-cache slots (platform
+                                        ;   table; until u_k0init has read it, the fewest there are)
+k_msgb:    .dword MSGB                  ; core 0: the base of its message buffers (u_mem)
+k_guest:   .dword 0                     ; core 0: 1 in a guest StrataOS ("Guest mode")
+k_gplat:   .dword 0                     ; core 0, a guest: save-table | overlay map entries << 16
+k_gpoff:   .dword 0                     ; core 0, a guest: its pool's offset in its memory,
+k_gpbytes: .dword 0                     ;   and its bytes
+k_tdead:   .dword 0                     ; core 0, a guest: when the next tick is due
+w_cbase:   .dword 0                     ; worker: corebase, corecount of the cores it numbers
+w_ccount:  .dword 0                     ;   (0, 0; a guest's window in a guest: "Guest mode")
 k_nslot:   .dword 0                     ; core 0: threads a worker core takes (w_params)
 k_pbase:   .dword 0                     ; core 0: the arena pool's base
 k_pgran:   .dword 0                     ; core 0: its span in granules (both parts, the gap between them)
@@ -4940,7 +4997,7 @@ k_tbuf   = w_procs + 1024               ; core 0: timer NOW, DEADLINE, WAIT resu
 k_fbuf   = w_procs + 1048               ;   records, above its stack); far text being printed (256)
            .space 1536                  ; the dispatcher's stack
 kstack_top:                             ; (it grows down from here)
-           .space 256                   ; a panic stack
+           .space 128                   ; a panic stack (k_panic calls only the firmware's printing)
 kpstack_top:                            ; ...
 s_panic:   .ascii "\nStrataOS: kernel fault: cause "
 s_panic_e:
@@ -4958,6 +5015,8 @@ k_pra:     .dword 0                     ; ra at a kernel fault
         .include "kunits/ops.s"         ; CREATE, DESTROY, MEMORY, STATS, NOTIFY, FREE, HALT
         .include "kunits/events.s"      ; exit events, EXITED, ticks
         .include "kunits/guest.s"       ; guests: whole cores for another OS
+        .include "kunits/gmode.s"       ; guest mode: StrataOS as a guest of StrataOS
+k_farend:                               ; the end of the units
         .text                           ; resident again
         .include "../firmware/fw.s"     ; firmware library (disk at boot, panics)
         .data                           ; its data follows ours

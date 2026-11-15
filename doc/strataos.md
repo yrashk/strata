@@ -2011,7 +2011,7 @@ demo/test guest images (`os/guests/`).
 
 #### The grant
 
-`guest [-d] <image> [cores] [MiB]` asks `proc`, which gets an arena from the
+`guest [-d] [-p] <image> [cores] [MiB]` asks `proc`, which gets an arena from the
 kernel (`MEMORY`), loads the guest image (a bare STX: a disk file tagged
 `guest`, named `<image>` or else `<image>.g`, so `guest forth` finds
 `forth.g` beside the StrataOS program `forth`) into the top of it, and calls
@@ -2217,6 +2217,82 @@ and `demos/tiers.fs` run on its own cores; `demos/gfx.fs` cannot (no
 framebuffer, no device space), nor can files or the network.
 `tools/test-guest.sh` runs a session (arithmetic, a word on the worker,
 multicore.fs, Ctrl-], `guest attach`, `bye`, `guest stop`, the cores reused).
+
+#### StrataOS as a guest
+
+StrataOS itself runs as a guest: `guest -p strataos 6 24` boots the image
+`strataos.g` (the kernel and a RAM disk, `tools/mkguestos.py`; the disk's
+contents are `os/guests/strataos/` and a few programs, see the Makefile) on 6
+cores with a 24 MiB arena and gives it the console. Its kernel, servers and
+shell are the ones the host runs; what they need from devices a guest does not
+have is stood in for as follows (`os/kunits/gmode.s` has the kernel's side):
+
+- **What it is.** The image is `kernel.stx` itself, so the host's loader puts
+  the kernel's code and data into each core's Local Stores and jumps to
+  `kentry`, which tells a guest by its `c3`: core control over the guest's
+  cores (based at `8 * corebase`) instead of the device root (based at 0). Core
+  0 then makes a share of the code units (the image's far section, which the
+  loader copied to the start of its memory) and puts the clock where the device
+  root and the console would be; there is no platform table to read (the
+  number of cores is the guest's window, the save table's and overlay map's
+  sizes come from the host's, through the loader's `a1`), no T2 (the KST goes
+  into memory), no framebuffer, pointer, network or sound.
+- **Revocation.** StrataOS gives each process an arena it revokes when the
+  process ends, which needs a revocation domain (`cdom`); but a guest's memory
+  is revocable already (the host revokes it at `guest stop`), and `cdom` takes
+  no revocable capability. So the host revokes for it. With `-p`, `GSTART`
+  makes the arena three revocation units: the guest's own memory (the first 4
+  MiB, `GN_LOW`: the code units, the KST, core 0's buffers, the RAM disk), the
+  **pool** (from there to the image), and the image region. The guest's core 0
+  revokes a range of the pool by lending the host's core 0 a buffer (`u_ghrev`,
+  op `GH_REVOKE`: the range's offset and length, whole 256 KiB granules); the
+  host revokes it (a revocation touches only the units in the range, all
+  inside the pool) and gives back the fresh capability for it, then the buffer.
+  Two gifts to a guest's core must not make the host's core 0 wait: it takes
+  such a request only on the buffer the guest used first, which the guest can
+  lend again only once it has taken both gifts back. Nothing outside the pool
+  is touched; `guest stop` revokes the whole arena as for any guest.
+- **Time.** The timer has one `DEADLINE` and its `WAIT`, the host's. The
+  guest's core 0 has only the clock, so instead of waiting on the timer it
+  looks at its inbox and the clock in turn (`u_gwait`): its core is always
+  busy. Ticks, preemption and timed waits work as on the host.
+- **The disk.** A RAM disk: a section of the image (an ordinary `mkdisk` disk)
+  that the loader copied into the guest's memory. The kernel reads its boot
+  objects from it; `dev` asks the kernel for it (`GDISK`) when `fs` asks for the
+  disk, and `fs`, seeing memory instead of a device window, copies blocks
+  instead of submitting commands. It is the guest's alone and is gone when the
+  guest stops.
+- **The console.** `dev` gives `tty` the endpoint to the host's `tty` (`GCON`)
+  instead of the console's ports, and `tty` passes its programs' `READ`s,
+  `WRITE`s and `CONMODE`s on, one at a time; the host's `tty` answers the
+  guest's reads only while the console is attached to it, and the console's
+  one mode is the guest's meanwhile (the host's shell sets its own again
+  before it reads a line). The kernel's own lines (the banner, a fault) go the
+  same way, and `halt` in the guest closes the console when its cores have
+  stopped, so the console comes back to the host's shell (`guest stop` then
+  takes the cores back). The host's dispatcher answers on a core outside the
+  guest's window, which `cpoll` does not show: a guest's dispatcher takes such a
+  gift when `tany` says the inbox holds one and `cpoll` shows none.
+- **Core numbers.** Endpoints name physical nodes, but the guest's kernel numbers
+  its cores 0..N-1 (its window). The dispatcher keeps the window
+  (`w_cbase`, `w_ccount`): it restores it on every trap where the host's
+  kernel sets 0, adds `corebase` to a window's base and to the node of every
+  endpoint it mints for a core of the guest, and takes it off the node of an
+  endpoint it reads (`svc SEND`). A guest's worker tells its core 0 when it runs
+  the guest's code (until then the host's dispatcher on that core would drop
+  what the guest's core 0 gives it).
+
+Limits: it needs 6 cores for itself besides the host's 6, so a 15-core machine
+(the most there is: `strata-emu -c 15`; not the RTL's 8); its core 0 is always
+busy; the disk is a RAM disk of 3 MiB, lost when it stops, with the servers and
+a few programs (no `vi`, compilers or sources); there is no Ctrl-C (the host's
+Ctrl-C detaches the console), no framebuffer, network or sound in it; it runs
+no guests of its own (`GSTART` is refused); without `-p` the image does not
+even load (the host keeps 256 KiB for an image, 2 MiB with `-p`). A guest
+StrataOS is as confined as any guest: everything it holds is in its arena, and
+`guest stop` ends it. `tools/test-guest-os.sh` runs a session (the boot, a
+listing, a pipeline, a file written and read back, `ps`, Ctrl-], `guest stop`,
+the cores reused; then a second guest StrataOS halted from inside).
 
 #### Visibility
 

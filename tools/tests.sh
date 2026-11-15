@@ -62,6 +62,7 @@ t preempt      fast build-main "emu os" "tools/test-preempt.sh $OS"
 t forth-os     fast "build-main build-test-disks" "emu os \$B/forth-test/disk.img lang/forth/tests" 'lang/forth/tests/run-os.sh'
 t isolate      mid  "build-main build-test-disks" "emu" 'tools/test-isolate.sh $B/bootrom.stx $B/isol-test/disk.img'
 t guest        mid  build-main "emu os" "tools/test-guest.sh $OS"
+t guest-os     mid  build-main "emu os" "tools/test-guest-os.sh $OS"
 t procs        full build-main "emu os" "tools/test-procs.sh $OS"
 t boot-jit     mid  build-main "emu os" "tools/test-boot-jit.sh $OS os/demo.txt"
 t wdb          mid  build-main "emu os" "tools/test-wdb.sh $OS"

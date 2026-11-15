@@ -339,6 +339,18 @@ $(BUILD)/guest/forth.g: $(FORTH_GUEST_SRC) $(BUILD)/forth-guest/corefs.s $(BUILD
 	@mkdir -p $(BUILD)/guest
 	$(BUILD)/sasm -I lang/forth/guest -I lang/forth/bare -I $(BUILD)/forth-guest -g $(BUILD)/guest/forth.map -o $@ lang/forth/forth.s
 FORTH_GUEST := $(BUILD)/guest/forth.g
+# StrataOS itself as a guest (`guest -p strataos 6 24`): the kernel and a RAM
+# disk with the servers and a few programs, one image (tools/mkguestos.py)
+GOS_PROGS := proc dev fs tty pipe sh ls cat rm cp mv touch ps cores free uptime seq grep wc hello tag tags df
+GOS_FILES := os/guests/strataos/rc os/guests/strataos/motd $(patsubst %,$(BUILD)/prog/%,$(GOS_PROGS))
+$(BUILD)/guest-os/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(GOS_FILES)
+	@mkdir -p $(BUILD)/guest-os
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx -b 6144 -t etc os/guests/strataos/rc -t doc os/guests/strataos/motd \
+	  -t sys $(patsubst %,$(BUILD)/prog/%,proc dev fs tty pipe) -t bin $(patsubst %,$(BUILD)/prog/%,$(filter-out proc dev fs tty pipe,$(GOS_PROGS)))
+$(BUILD)/guest/strataos.g: tools/mkguestos.py $(BUILD)/kernel.stx $(BUILD)/guest-os/disk.img
+	@mkdir -p $(BUILD)/guest
+	python3 tools/mkguestos.py $(BUILD)/kernel.stx $(BUILD)/guest-os/disk.img $@
+GOS_GUEST := $(BUILD)/guest/strataos.g
 
 # untag is tag under another name (it looks at the name it was started by)
 $(BUILD)/prog/untag: $(BUILD)/prog/tag
@@ -554,8 +566,8 @@ DISK_FILES += $(WWW_FILES)
 DISK_ARGS  += -t www $(WWW_FILES)
 DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS)
 
-$(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST)
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST)
+$(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
 
 os: $(BUILD)/bootrom.stx $(BUILD)/disk.img $(BUILD)/msgops.txt
 

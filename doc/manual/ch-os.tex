@@ -1210,7 +1210,7 @@ cores free of servers for threads. The RTL simulator boots it on \texttt{NCORES}
 
 StrataOS can hand a bundle of its worker cores to a \term{guest}: a second operating system that runs
 on those cores, in supervisor mode, beside StrataOS, reaching only what it was given. The \texttt{guest}
-shell command (\texttt{guest [-d] \emph{image} [cores] [MiB]}, \texttt{guest attach \emph{id}},
+shell command (\texttt{guest [-d] [-p] \emph{image} [cores] [MiB]}, \texttt{guest attach \emph{id}},
 \texttt{guest stop \emph{id}}, \texttt{guest} to list) asks \texttt{proc}, which takes the cores out of
 StrataOS's scheduling and grants the guest:
 
@@ -1257,6 +1257,23 @@ platform layer (\texttt{lang/forth/guest/}) moves the granted capabilities into 
 cuts its memory from the arena, talks to \texttt{tty} through the console endpoint (supervisor
 \insn{csend}, and \insn{crecv} from the \texttt{tty}'s node, since a guest has no \insn{svc}), reads
 the clock, and runs its multicore words on its own cores. It has no framebuffer, files or network.
+
+\paragraph{StrataOS as a guest.} StrataOS itself runs as a guest: \texttt{guest -p strataos 6 24} boots
+its kernel, servers and shell on six cores with a 24~MiB arena (on a machine of 15 cores, the most there
+are: the host keeps six). The image is the kernel with a RAM disk (an ordinary disk, a section of the
+image that the loader copies into the guest's memory). The kernel recognises a guest by what it was
+given (core control where the device root would be) and stands in for the devices it lacks: core~0
+polls its inbox and the clock instead of waiting on the timer, \texttt{fs} copies the RAM disk's
+blocks instead of driving the block device, and \texttt{tty} passes its programs' reads, writes and
+mode on to the host's \texttt{tty} through the console endpoint. One thing a guest cannot do for itself
+is revoke: its memory is revocable already (the host revokes it at \texttt{guest stop}), and
+\insn{cdom} takes no revocable capability. So with \texttt{-p} the host makes part of the arena a
+\textbf{pool} of revocation units of its own, and the guest's core~0 asks the host's core~0 to revoke
+ranges of it (an arena for each process it starts and ends), receiving a fresh capability for each; a
+revocation touches only units inside the pool. The guest's dispatchers number its cores as its window
+does, and add \csr{corebase} where an endpoint names a node. It has no devices of its own, its disk is
+lost when it stops, and it runs no guests of its own; \texttt{halt} in it closes its console, which
+returns to the host's shell.
 
 \section{Self-hosting}\label{sec:os-as}
 

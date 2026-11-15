@@ -338,8 +338,11 @@ built from. The kernel boots from a boot manifest (`u_disk` in
 - `halt` does not stop cores a guest is running; stop guests first.
 - A guest whose console is not attached can still write to it.
 - `lang/forth/demos/gfx.fs` cannot run in a guest (no framebuffer).
-- StrataOS as a guest of StrataOS: not done (it was the optional second
-  part of the guest work, skipped).
+- StrataOS as a guest of StrataOS: `guest -p strataos 6 24` (doc/strataos.md,
+  "StrataOS as a guest"; `os/kunits/gmode.s`, `tools/test-guest-os.sh`).
+  Needs a 15-core machine (the emulator only); its core 0 polls (no timer
+  of its own); its disk is a RAM disk, lost when it stops; no Ctrl-C,
+  framebuffer, network or sound in it; no guests of its own.
 
 **Debuggers**
 - The RTL behind the same protocol; a timing model; per-line stepping; the
