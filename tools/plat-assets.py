@@ -42,7 +42,8 @@ CELL = 16
 
 # ---- what a cell is (its kind: the program's K_* constants) ------------------------
 KINDS = ['GROUND', 'DIRT', 'RUBBLE', 'WOODS', 'WATER', 'ROAD', 'BRIDGE', 'LINE', 'LROAD',
-         'LWATER', 'ZONE', 'PLANT']
+         'LWATER', 'ZONE', 'PLANT', 'RAIL', 'RBRIDGE', 'RROAD', 'LRAIL', 'POLICE', 'FIREST',
+         'PARK', 'BURN']
 ZONES = ['res', 'com', 'ind']
 ZONE_PICS = ['empty', 'site'] + ['%d_%s' % (n, v) for n in range(1, 5) for v in 'ab']
 
@@ -51,7 +52,10 @@ SPRITES = ['button', 'button_down',
            'tool_coal', 'tool_query',
            'speed_pause', 'speed_slow', 'speed_normal', 'speed_fast',
            'icon_funds', 'icon_date', 'icon_pop', 'nopower', 'noroad', 'logo', 'app',
-           'tool_zoom_in', 'tool_zoom_out']
+           'tool_zoom_in', 'tool_zoom_out',
+           'tool_rail', 'tool_police', 'tool_fire', 'tool_park', 'tool_solar', 'tool_budget',
+           'tool_map', 'jam', 'adv_clerk', 'adv_engineer', 'adv_shopkeeper', 'adv_resident',
+           'paper_head']
 
 # ---- the demos (`plat demo N`): (tics to wait, key), one tic a frame ---------------
 # Keys: U D L R the arrows, _ Space, ^ Enter, {N what follows up to } N times,
@@ -206,6 +210,17 @@ def build(art, outdir):
             add('T_%s_%s' % (k.upper(), p.upper()), 'ZONE', cut('zone_%s_%s' % (k, p), 3),
                 'a 3 x 3 zone: 9 cells, row by row')
     add('T_COAL', 'PLANT', cut('coal_0', 4) + cut('coal_1', 4), 'the coal plant: 2 frames of 16 cells')
+    add('T_RAIL', 'RAIL', strip('rail', 16), 'rail: + mask (N 1, E 2, S 4, W 8)')
+    add('T_RBRIDGE', 'RBRIDGE', over('rail_bridge'), 'rail bridges: E-W, then N-S, each over the 47 water cells')
+    add('T_RROAD', 'RROAD', strip('rail_road', 2, True), 'a crossing: rail N-S over an E-W road; E-W over N-S')
+    add('T_LRAIL', 'LRAIL', strip('line_rail', 2, True), 'a line N-S over an E-W track; E-W over N-S')
+    add('T_TLIGHT', 'ROAD', strip('traffic_light', 16), 'roads with light traffic: + mask')
+    add('T_THEAVY', 'ROAD', strip('traffic_heavy', 16), 'roads with heavy traffic: + mask')
+    add('T_POLICE', 'POLICE', cut('police', 3), 'a police station: 9 cells')
+    add('T_FIREST', 'FIREST', cut('fire', 3), 'a fire station: 9 cells')
+    add('T_PARK', 'PARK', [single('park_0'), single('park_1')], 'small parks: 2 designs')
+    add('T_SOLAR', 'PLANT', cut('solar_0', 4) + cut('solar_1', 4), 'the solar plant: 2 frames of 16 cells')
+    add('T_BURN', 'BURN', [single('fire_%d' % i) for i in range(4)], 'a cell on fire: 4 frames')
     ncell = len(cells)
     assert ncell <= 1024
 

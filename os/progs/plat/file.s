@@ -411,4 +411,5 @@ cl_off: call  fs_off                    ; ...
         ret                             ; done
 
 ; town_reset(): a new town's numbers (the land is gen_land's)
+        .org  unit_file + UNIT          ; (a unit fits its slot: else an error here)
         .text                           ; code

@@ -55,6 +55,8 @@ sprbuf:   .space 160                    ; a row of a sprite
 txtbuf:   .space 96                     ; a text for the bar
 tl_spr:   .dword SP_TOOL_BULLDOZE, SP_TOOL_ROAD, SP_TOOL_LINE, SP_TOOL_QUERY ; the tools' icons
           .dword SP_TOOL_RES, SP_TOOL_COM, SP_TOOL_IND, SP_TOOL_COAL ; ...
+          .dword SP_TOOL_RAIL, SP_TOOL_POLICE, SP_TOOL_FIRE, SP_TOOL_PARK ; ...
+          .dword SP_TOOL_SOLAR          ; ...
           .dword SP_TOOL_ZOOM_IN, SP_TOOL_ZOOM_OUT ; ... and the zoom's buttons
 markbuf:  .space 2 * 256                ; the marks over a zone: no road, no power
 marks:    .space 16                     ; the group's cells: their marks (0: none, 1, 2)
@@ -1160,6 +1162,11 @@ tp_4:     .ascii " Homes (1): a zone of 3 x 3, 100 \0" ; a tooltip
 tp_5:     .ascii " Shops and offices (2): a zone, 100 \0" ; a tooltip
 tp_6:     .ascii " Industry (3): a zone, 100 \0" ; a tooltip
 tp_7:     .ascii " Coal power plant (P): 3,000, powers 50 zones \0" ; a tooltip
+tp_t8:    .ascii " Rail (T): 20 a cell, 100 a bridge \0" ; a tooltip
+tp_t9:    .ascii " Police station (4): 500, keeps crime down \0" ; a tooltip
+tp_t10:   .ascii " Fire station (5): 500, puts fires out \0" ; a tooltip
+tp_t11:   .ascii " Park (6): 10, raises land value \0" ; a tooltip
+tp_t12:   .ascii " Solar power plant (E): 6,000, clean, 50 zones \0" ; a tooltip
 tp_8:     .ascii " Zoom in (Z) \0"       ; a tooltip
 tp_9:     .ascii " Zoom out (X) \0"      ; a tooltip
 tp_10:    .ascii " Pause (0) \0"         ; a tooltip
@@ -1173,6 +1180,6 @@ tp_17:    .ascii " Tax rate: [ lower, ] raise \0" ; a tooltip
 tp_18:    .ascii " Demand: homes, shops, industry \0" ; a tooltip
         .align 8                        ; ...
         .text                           ; code
-TIP_SPEED = 10                          ; tooltips: the first speed's
-TIP_FUNDS = 14                          ; ... the treasury's
-TIP_DEMAND = 18                         ; ... the demand's
+TIP_SPEED = 15                          ; tooltips: the first speed's
+TIP_FUNDS = 19                          ; ... the treasury's
+TIP_DEMAND = 23                         ; ... the demand's
