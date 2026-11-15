@@ -124,7 +124,10 @@ Not verified:
   (`ASIC_LS1P=1`, and `ASIC_SRAM=ocd1024` for a 1024 x 8 macro): with
   the 512 x 8 macro it is placed and routed (3.3 V cells: 23.9 MHz typical,
   0 DRC violations, the critical path into the memory's data input;
-  `asic/results/gf180mcu-1-mcu7t3v3-1p/`); with the 1024 x 8 macro only
+  `asic/results/gf180mcu-1-mcu7t3v3-1p/`; a second run with a write
+  register in front of the memory came out at 20.5 MHz for reasons of the
+  flow, not of the register: its timing cannot compare two RTL versions
+  yet, see `asic/README.md`); with the 1024 x 8 macro only
   prepared: 19.9 mm² of stores and a 53.5 mm² die by the floorplan
   (`asic/README.md`). One core alone in generic gates: 4% more
   gates, 98 more flip-flops, no new deepest path; not placed and routed

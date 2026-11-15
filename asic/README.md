@@ -67,6 +67,47 @@ on this configuration) runs 13.4 million instructions a second; the
 earlier run's 24.5 MHz at 3.22 was 7.6. No pictures of this run: the
 drawing scripts know only the two stores' names.
 
+### The same with a write register: a second run, not comparable
+
+In the run above all 664 of the 1,000 worst paths that end at the memory
+end at the macros' write data and begin at an instruction bit; the worst
+path that does not end at the memory has -0.24 ns of slack. The RTL then
+got a write register (`sb_*` in `rtl/strata_core.sv`: with `LS_1P` a
+store's write goes to the memory from a register, a cycle later) and the
+run was repeated: `asic/results/gf180mcu-1-mcu7t3v3-1p-wr/`.
+
+| | first run | with the write register |
+|---|---|---|
+| Standard cells | 6.48 mm2 | 6.43 mm2 |
+| Routing | 0 DRC violations | 0 DRC violations |
+| Clock, typical | 41.86 ns = 23.9 MHz | 48.83 ns = 20.5 MHz |
+| Clock, fast | 30.0 MHz | 25.8 MHz |
+| Setup violations ending at the macros' write data | all of the worst | none |
+| Setup violations, by where they start | instruction bits | all 3,544 at the memory's read side: the row-select registers of the read multiplexer (3,072) and macro outputs (472) |
+
+The write data is off the list, as intended, and the clock is worse, for a
+reason that has nothing to do with it: in this placement the read side is
+slow. The registered row number of the last access leaves its flip-flop at
+5.1 ns and the 32-row read multiplexer's output is there at 23 ns, 11 ns
+of that in repeaters on the select lines across the die; in the first run
+the same structure was not among the 1,000 worst paths. Two things make
+the numbers of this flow unfit for comparing two versions of the RTL:
+
+- Placement is not timing-driven and nothing repairs timing after it
+  (see "Caveats"), so where a few hundred-fanout registers land decides
+  the clock, and it differs by several ns from run to run.
+- Some of the worst paths are not real. Yosys's resource sharing
+  (`SYNTH_SHARE_RESOURCES`, on by default) merges shifters that are never
+  used in the same cycle, the ALU's with the tag lookup's; the worst path
+  of this run goes from the read multiplexer through the tag lookup's
+  victim compare and such a shared shifter into the ALU's result and on
+  to the memory's address, which no instruction does.
+
+What would tell: a run with resource sharing off, the read multiplexer in
+two levels (one per block of 16 rows, each with its own copy of the row
+register), and timing-driven placement or post-route repair made to work.
+Not done.
+
 ## One single-port memory with a denser macro: prepared, not routed
 
 With the 1024 x 8 macro below the memory is 128 macros instead of 256.

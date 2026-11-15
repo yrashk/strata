@@ -863,3 +863,35 @@ this work, with the two-store stand-in). Measured by the flow:
 - Not run: the 1024 x 8 macro (its views are not in the PDK), so the 53.5
   mm² die of section 11 is still a floorplan, not a routed result.
 
+## 13. A write register in front of the single memory: built, not shown to help
+
+In section 12's run every one of the 664 worst paths into the memory ended
+at the macros' write data and began at an instruction bit; the worst path
+elsewhere had -0.24 ns of slack, so with those gone the clock should have
+been about 40.2 ns. With `LS_1P` the core's writes now go into a one-word
+register (address, byte enables, data) and to the memory in the next
+cycle, ahead of everything but a beat from the bus; until the write is in
+the memory the core reads nothing from it, so no forwarding is needed, and
+a following write is taken while the register empties.
+
+- Cycles (measured): the examples unchanged within 0.01%; the StrataOS
+  session 109.56 M -> 110.07 M busy cycles (+0.5%; 1.8% against two
+  stores). `make test` passes both ways.
+- Clock (measured, `asic/results/gf180mcu-1-mcu7t3v3-1p-wr/`): 48.83 ns,
+  20.5 MHz, against 41.86 ns before. The write-data paths are gone from
+  the violations, all of which now start at the memory's read side (the
+  32-row read multiplexer's select registers and the macros' outputs).
+- That is not a result about the write register. The flow places without
+  regard to timing and repairs nothing afterwards, so two runs of nearly
+  the same netlist differ by several ns; and the worst path of the second
+  run is not a real one (synthesis shares a shifter between the tag lookup
+  and the ALU, which makes a path from read data to the memory's address
+  that no instruction takes). `asic/README.md` has the details.
+
+So: the write register does what it was built for in the netlist and
+costs half a percent of the cycles, and whether it raises the clock is not
+known. The flow cannot answer such questions as it stands. Before any
+further timing work on the RTL it needs resource sharing off, timing-driven
+placement or repair, and for this memory a read multiplexer in two levels;
+then both versions run again.
+
