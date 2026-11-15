@@ -11,7 +11,7 @@ if FLAGS: FLAGS += " "
 HOST = os.environ.get("CC_HOST", "")               # e.g. build/strata-cc: compile on this machine, only run in the OS
 CC = os.environ.get("CC_NAME", "cc")                # the compiler in the OS: cc, or cc0, the bootstrap compiler
 PROMPT = "strata:/test$ "                           # the session works in /test
-BASE = ["-t", "sys"] + [B + "/prog/" + p for p in ("proc", "dev", "fs", "tty", "pipe")] + \
+BASE = ["-t", "sys"] + [B + "/prog/" + p for p in ("proc", "dev", "fs", "blk", "tty", "pipe")] + [B + "/sys/db"] + \
        ["-t", "bin", B + "/prog/sh", B + "/prog/rm", B + "/prog/cc", B + "/prog/cc.u", B + "/cc/cc.lib"] + \
        ([B + "/prog/" + CC, B + "/cc/" + CC + ".lib"] if CC != "cc" else [])
 EXPECT = "/ladder/EXPECT.tsv" if CC == "cc" else "/ladder/EXPECT-%s.tsv" % CC

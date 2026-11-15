@@ -134,8 +134,8 @@ strata$ wait %1
 [1] done  sleep 0.05
 strata$ seq 3 > f2 &
 [1] PID
-strata$ wait
 [1] done  seq 3 > f2
+strata$ wait
 strata$ cat f2
 1
 2
@@ -489,7 +489,7 @@ ls: no such tag or file: /cdt
 /
 strata$ rm f1 f2 f3 s1 tfile
 strata$ date
-2000-02-29 05:30:01 +05:30
+2000-02-29 05:30:02 +05:30
 strata$ exit 3 &
 [1] PID
 strata$ wait

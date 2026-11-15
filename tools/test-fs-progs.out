@@ -19,9 +19,11 @@ core #: idle, # runnable, # processes; # switches, # KiB moved, # slots free
 ==== ps
 strata$ ps
  PID PPID STATE CORE CPUS SWITCHES KIB NAME
- # # running # # # # proc (server)
  # # blocked # # # # dev (server)
+ # # blocked # # # # blk (server)
+ # # blocked # # # # db (server)
  # # blocked # # # fs (server)
+ # # running # # # # proc (server)
  # # blocked # # # # tty (server)
  # # blocked # # # pipe (server)
  # # blocked # # # # sh

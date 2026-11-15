@@ -30,7 +30,7 @@ bye strata$ -n 2 forth -e 80 tcp-listen
 *** net: one thread only (start Forth without -n)
 [exit 1]
 [1] strata$ forth httpd.fs 8000 11 > hlog &
-[1] 11
+[1] 13
 strata$ echo "GET /httptest/note.txt HTTP/1.0" | nc 127.0.0.1 8000
 HTTP/1.0 200 OK
 Server: Strata Forth httpd
