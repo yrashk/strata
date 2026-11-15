@@ -707,7 +707,7 @@ machine, `tools/fs-progs-speed.sh` for the ports):
 | vi.fs: opening `/src/sh.s` (333 KiB) | 21.6 M | 23.2 M (1,640 misses with drawing and `:q`) |
 | vi.fs: opening `seq 15000` (77 KiB) | 17.6 M | 20.3 M |
 | vi.fs: a key in normal mode (`j`, `k`) | 55 K | 54 K (14 misses) |
-| vi.fs: code / data space left | 0 of I-LS (19 overlays of 4.1 KiB) / 1.2 KiB | 31 KiB of units / 2.0 KiB (1.3 KiB since C colouring: 23 KiB of units) |
+| vi.fs: code / data space left | 0 of I-LS (19 overlays of 4.1 KiB) / 1.2 KiB | 31 KiB of units / 2.0 KiB (1.3 KiB since C colouring: 23 KiB of units; since visual mode 128 bytes of units, 344 bytes) |
 | the ports: a run | | 3 to 4 % more (about 110 K: start-up, sys.fs's units) |
 | `forth units.fs` | 3.72 M | 3.50 M (257 misses) |
 
@@ -761,9 +761,9 @@ Forth prompt; `tools/test-vic.sh -f` runs vi.s's C sessions with it and
 compares its frames with vi.s's (in `make test`; `tools/vi-shots.sh -f` takes
 its pictures in a window).
 
-It is 1020 lines in three files (`vi.fs` includes `vi-text.fs` and
+It is 1250 lines in three files (`vi.fs` includes `vi-text.fs` and
 `vi-edit.fs`: an included file's text must fit in 64 KiB with what it
-includes) and about 68 KiB of code, which is in code units like any other
+includes) and about 91 KiB of code, which is in code units like any other
 ("Code paging": it needs no annotations; it was nineteen code overlays of
 overlay.fs before, and its longest words are split to fit units). The byte loops (lines, keywords, identifiers, strings, numbers) are
 code words assembled with core.fs's assembler; the keyword tables are
@@ -796,6 +796,18 @@ the same file cost when it was coloured as assembly (530 K, 600 K to 615 K,
 86 K). The first visit to a part of a file works out its comment states:
 about 2,000 instructions a line (6 M for the first 3000 lines of `cc.c`;
 vi.s: 700).
+
+Visual mode (`v V` Ctrl-V, the operators on a selection, `:'<,'>`, `gv`,
+the mouse; `tools/test-viv.sh -f` compares its frames and files with
+vi.s's) added about 23 KiB of code units and 1 KiB of data space, which
+leaves 128 bytes of units and 344 bytes of data space: the unit store
+(104 KiB, `os/config.s`) is full, and anything more for vi.fs needs room
+made first (a bigger store, which takes it from the far heap, or smaller
+code). To spend little data space its state is one array, `vv`, read and
+written with `v@ i` and `v! i` (compiled as one load or store), its words
+have names of five bytes or fewer (a header of 16 bytes rather than 24),
+and the scratch the assembly uses for a put over lines is not needed
+(`cls` is `tbuf` here).
 
 ### The ports of os/progs
 

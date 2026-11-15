@@ -1250,7 +1250,10 @@ takes a timeout and a tag mask. `ws` and `sh` never busy-wait the CPU.
 Programs write plain bytes to stdout. The console passes them to the host
 terminal; `term` windows interpret this subset and ignore other
 escape sequences: `\n`, `\r`, `\b`, `\t`; ESC [ K; ESC [ n C / D; ESC [ 2 J;
-ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47;
+ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47, 7
+and 27 (reverse video on and off: a cell's foreground, its dim colour, or
+white for black and grey, becomes its background and its background,
+black if none, its foreground);
 ESC [ ? 25 l / h (the cursor off / on while a program draws); ESC [ 6 n
 (where is the cursor: `term` answers ESC [ row ; column R on the program's
 standard input, as a terminal would type it; `vi` learns the window's size
@@ -1801,7 +1804,8 @@ console (an ANSI terminal: `make boot`, the browser's terminal) and in a
 Forth and C in colour. FILE is a path (`/src/hello.s`, or a name under the current
 tag path); one that does not exist is created by `:w`. The screen is the
 text, a line a row (a long line scrolls the view sideways), and a status
-line: `-- INSERT --`, the file name, `[+]` when modified, line,column;
+line: `-- INSERT --` (or `-- VISUAL --`, `-- VISUAL LINE --`, `-- VISUAL
+BLOCK --`), the file name, `[+]` when modified, line,column;
 messages and the `:` and `/` lines take its place.
 
 - Moving: `h j k l` and the arrows, `w b e`, `0 ^ $`, `gg G`, `NG`, `%`,
@@ -1817,12 +1821,39 @@ messages and the `:` and `/` lines take its place.
   makes `d c y` linewise when it is a line motion (`j k G gg`); a character
   motion that leaves the line stops at its end or start (`dw` on the last
   word, `cw` changes to the end of the word).
+- Visual mode: `v` (characters), `V` (lines), Ctrl-V (a block) select from
+  the cursor to where the motions take it (every motion and count, Ctrl-F
+  and the rest, `/ ? n N`); `o` goes to the other end, `v V` Ctrl-V change
+  the kind (the same one again, Esc or Ctrl-C end it). The selection is in
+  reverse video over the text's colours (a selected newline: a cell after
+  the line). Its operators: `d x` (`X D`: the lines; `D` on a block: to
+  the ends of its lines), `c s` (`S R C` likewise), `y Y`, `> <` (a tab
+  before each line, or one tab or up to 8 spaces away; vi has no
+  shiftwidth: a level is a tab, vi's default, and a count shifts that many
+  levels), `~ u U` (case), `J`, `r` and a character (every selected byte),
+  `p P` (the register in the selection's place; the register stays), `:`
+  (the command line with `'<,'>` typed), and on a block `I` and `A` (the
+  text typed before or after the block on each of its lines; `A` after `$`:
+  at the ends of the lines, short lines padded with spaces) and `c`.
+  Characters yanked over lines are put back with the line split (`p P`);
+  a block is put as a block, at the cursor's column on its line and those
+  below. Each operation is one change for undo, and `.` does it again on
+  as many lines and bytes (columns) from the cursor. `gv` selects the last
+  selection again, whose ends are the marks `'<` and `'>` (`'<` and `` `< ``
+  are motions too). In a `term` window vi asks for mouse reports (ESC [ ?
+  1000 h): a click puts the cursor there, a release elsewhere selects from
+  the click to it (`term` reports presses and releases, not the moves
+  between, so the selection shows when the button comes up), the wheel
+  scrolls three lines.
 - Searching: `/text` and `?text` (plain text), `n`, `N`; the search goes
   round the end of the file and says so.
 - `:w`, `:w NAME` (the buffer keeps its name unless it had none), `:q`,
   `:q!`, `:wq`, `:x` and `ZZ` (written only if modified), `:e NAME`, `:e!`,
   `:N` (line N), `:set nu` / `:set nonu` (line numbers), `:syntax on` /
-  `:syntax off`. Ctrl-L asks the terminal its size and draws everything
+  `:syntax off`, `:d` and `:y` (lines). A range before a command: `N`,
+  `N,M`, `%`, `.`, `$`, `'<`, `'>` (`:'<,'>d`); alone it goes to its last
+  line; `:'<,'>w NAME` writes those lines to NAME (to the buffer's own
+  file only with `!`). Ctrl-L asks the terminal its size and draws everything
   again; Ctrl-G shows the file and its size.
 - **Highlighting.** `.s` is Strata assembly, `.fs` Strata Forth, `.c` and
   `.h` C; another name is plain unless the file carries the tag `src`
@@ -1902,14 +1933,15 @@ messages and the `:` and `/` lines take its place.
   split when the file is read); 96 KiB in the register; a change bigger
   than the 224 KiB history cannot be undone (the history before it goes).
   Every line is written with a newline after it.
-  No counts on inserts, no `f t`, no marks or named registers, no regular
-  expressions.
+  No counts on inserts, no `f t`, no marks but `'<` and `'>`, no named
+  registers, no regular expressions (and so no `:s`), no text objects.
 - **In Forth.** `forth vi.fs FILE` (or `include vi.fs` at the Forth prompt,
   then `vi FILE`) is the same editor written in Strata Forth
   (`lang/forth/vi.fs`, with `vi-text.fs` and `vi-edit.fs`; the README there
   has the details): the same keys, modes, highlighting (C too) and
   screen; given the same keys it writes the same files, and it draws the
-  same C frames (`tools/test-vic.sh -f`). Its code (about 68 KiB) is several
+  same C frames (`tools/test-vic.sh -f`) and visual mode's
+  (`tools/test-viv.sh -f`). Its code (about 68 KiB) is several
   times a program's I-LS: like everything Forth compiles, it is in code
   units the dispatcher pages into Forth's code cache (the units above, and
   the README's "Code paging"). Its text is in Forth's far heap:
@@ -2376,6 +2408,14 @@ A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
   any non-blank byte) fails it. `tools/test-vic.sh -f` runs the same
   sessions with the Forth editor (`forth vi.fs`) and compares its frames
   with the same file.
+- `tools/test-viv.sh`: visual mode. Copies of one file are edited with each
+  kind of selection and each operator (undo, redo and `.` after them, `:`
+  on `'<,'>` with `:d :y :w`, block `I A c`, `gv`, `o`, `'<`, a selection
+  made with mouse reports typed on the console, the wheel); the frame at
+  the end of each stretch of visual mode (reverse video and colours, the
+  status line) and the files written are compared with
+  `tools/test-viv.out`. `-f` runs the same keys with `forth vi.fs` against
+  the same file.
 - `tools/test-nav.sh`: the file navigator. A scripted console session
   (`-j -T virtual`) copies a file into the other panel, answers F8's
   question n and then y, tags a file with the other panel's tag (F2) and
