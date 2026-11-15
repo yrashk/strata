@@ -392,4 +392,10 @@ Original art avoids both.
       Plat Ledger at every year's end (a headline from the town's worst
       trouble, the mayor's approval); the town's history (H)
 - [ ] Several saved cities (with the gallery of tier 3)
-- [ ] Tier 3 as chosen
+- [x] Tier 3: the cell under the pointer outlined (the pointer's moves
+      with no button held, from `ws`); fires that start by chance, spread,
+      burn out to rubble, kept down by fire cover, put out by the bulldozer
+- [ ] Tier 3, still open: other events (flood, earthquake, a plant's
+      failure, a storm), scenarios, a terrain editor, several cities and a
+      gallery, history through snapshots, dusk. The D-LS is nearly full
+      (39.5 of 40 KiB): what follows needs data moved out of it first

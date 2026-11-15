@@ -399,7 +399,8 @@ pollution, crime, traffic, each a map that can be shown over the town),
 the census counts the residents and the jobs, and taxes and upkeep move
 the treasury; the budget sets the tax rate and the services' funding.
 Advisers speak up in the bar, and every year ends with the town's paper,
-the Plat Ledger, and the mayor's approval. Five zoom
+the Plat Ledger, and the mayor's approval. Fires start now and then and
+spread where the fire stations' cover is thin. Five zoom
 levels (at the smallest the whole map is in view), a minimap, tooltips on
 the buttons,
 and the town is kept in a file with its population, year and funds as

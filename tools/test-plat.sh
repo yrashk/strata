@@ -53,7 +53,7 @@ BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
 # demo:frame checksum:map checksum:funds:seconds it is given
-PLAT_CRC="1:b82894d8:fe18a8eb:19072:6 2:b1aac2a8:84ce65ce:20000:6 3:76a06f9d:52a65110:0:40 4:39915aa9:66999b66:19770:6 5:5bb2b997:ae35b216:17910:12 6:6868d26b:71169d85:16632:10 7:c88e476e:61d19e43:9124:14 8:b14a80fb:ae35b216:17910:12 9:b464ed99:ae35b216:17910:12"
+PLAT_CRC="1:b82894d8:fe18a8eb:19072:6 2:b1aac2a8:84ce65ce:20000:6 3:76a06f9d:52a65110:0:40 4:39915aa9:66999b66:19770:6 5:5d98837e:ea29c68a:17576:12 6:f0ab5e1e:68551d85:16652:10 7:34dadb25:92a2abb7:9077:14 8:81d79295:ea29c68a:17576:12 9:e6e6574a:ea29c68a:17576:12"
 T=$BUILD/test-plat
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W
