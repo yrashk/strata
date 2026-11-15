@@ -347,9 +347,9 @@ Original art avoids both.
   held (CREATE mode bit 1, new in `ws`); over a button or a part of the
   bar a tooltip says what it is and its key, drawn by the server's font
   beside it, and the cells under it are drawn again when it goes.
-- The town is kept in `/ws/plat.sav` (a header and the map), loaded at
+- The town is kept in `/ws/plat-N.sav` (a header and the map), loaded at
   the start and saved on quit or with S; the file gets the attributes
-  population, year and funds (`attr /ws/plat.sav`).
+  population, year and funds (`attr /ws/plat-1.sav`).
 - Sizes: the program is 59 KiB on the disk: 24.5 KiB of code (of 32; tier
   2 needs code units, as planned) and 34.4 KiB of D-LS data (of 40).
   `plat.dat` is 179 KiB: 582 cell pictures 146 KiB, sprites 17 KiB, six
