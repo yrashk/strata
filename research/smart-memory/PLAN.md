@@ -50,7 +50,8 @@ Store memories raise the RTL's speed or cut its area? The answer is
 - [x] `asic/`: `ASIC_LS1P=1` (a real single-port memory from macros), `ASIC_SRAM=ocd1024`, the floorplan for both, `ASIC_PREP=1`, `asic/area.sh`; prepared and synthesized on the host: stores 19.9 mm², die 53.5 mm² by the floorplan (REPORT.md section 11)
 - [x] Placed and routed with the 512 x 8 macro and the 3.3 V cells (`asic/results/gf180mcu-1-mcu7t3v3-1p/`, REPORT.md section 12): 0 DRC violations, 23.9 MHz typical (24.5 before), the critical path now ends at a memory macro's data input
 - [ ] A LibreLane run with the 1024 x 8 macro: its LEF / GDS / liberty in the run; the pictures' scripts for the new names
-- [ ] Take the store data / address multiplexer off the critical path (a register in front of the single-port memory)
+- [x] The routed run's 664 worst memory paths all end at the macros' write data: a one-word write register in front of the single-port memory (`sb_*`: a store's write goes to the memory the cycle after, before the core reads anything); cycle counts of the examples unchanged, the StrataOS session +0.5%; `make test` passes both ways
+- [ ] Its routed clock (the run is repeated with it)
 - [ ] How densely the logic places: the strip is half the die now
 - [ ] Area and clock of the change
 
