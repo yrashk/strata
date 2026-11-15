@@ -33,6 +33,11 @@
 #              service); the pollution map over the town
 #      demo 8  demo 5's town, and the Plat Ledger on its year
 #      demo 9  demo 5's town, and its history (residents, treasury)
+#      demo 10 the land made again first (a pond dug, woods planted, a cell
+#              of it filled in); demo 5's town; a year; then the events
+#              panel: a storm, an earthquake and the coal plant's failure
+#              (rubble, fires, the plant burning); two months; a flood at
+#              the water nearest the town
 #    (An adviser's portrait and words are in the bar in most of them.)
 #    (A demo's land comes from a fixed seed, so it is always the same land.)
 # 2. `ws plat` on a machine with the sound device (-A: what it plays goes
@@ -54,7 +59,7 @@ BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
 # demo:frame checksum:map checksum:funds:seconds it is given
-PLAT_CRC="1:b82894d8:fe18a8eb:19072:6 2:b1aac2a8:84ce65ce:20000:6 3:952d5eea:52a65110:0:40 4:2a163da0:66999b66:19770:6 5:c81c0689:ea29c68a:17576:12 6:790c88c0:68551d85:16652:10 7:3fa5c3b6:92a2abb7:9077:14 8:81d79295:ea29c68a:17576:12 9:e6e6574a:ea29c68a:17576:12"
+PLAT_CRC="1:b82894d8:fe18a8eb:19072:6 2:b1aac2a8:84ce65ce:20000:6 3:952d5eea:52a65110:0:40 4:2a163da0:66999b66:19770:6 5:5c915d00:626c5e68:19016:12 6:2a25c001:68551d85:16659:10 7:db807031:f90434e1:9373:14 8:c71c66c2:626c5e68:19016:12 9:5c447860:626c5e68:19016:12 10:9a63a970:7e88cac3:15694:16"
 T=$BUILD/test-plat
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W

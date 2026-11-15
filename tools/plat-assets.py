@@ -125,6 +125,21 @@ DEMOS = {
        "3 1,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
        "{10,1 U,},3 _,"
        "5 =,3 =,{28,30 .,},5 0,5 h",
+    # the land made again (a pond dug, woods planted, a cell filled in);
+    # demo 5's town; a year; then the events called down: a storm, an
+    # earthquake, the coal plant's failure; two months; a flood
+    10: "{8,1 U,},5 w,3 ^,{5,2 R,},3 D,{5,2 L,},3 ^,5 f,3 D,3 ^,{6,2 R,},3 ^,"
+        "5 a,3 U,{3,1 L,},3 _,{3,1 L,},3 U,{8,1 D,},"
+        "5 p,3 _,{4,1 L,},{4,1 D,},3 r,3 ^,{40,1 R,},3 ^,"
+        "{33,1 L,},{3,1 U,},3 l,3 ^,{3,1 R,},{5,1 D,},3 ^,"
+        "{2,1 R,},{4,1 U,},3 1,3 _,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 2,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 3,{15,1 L,},{4,1 D,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 1,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "{10,1 U,},3 _,"
+        "5 =,3 =,{14,30 .,},5 0,"
+        "5 v,5 3,10 .,5 v,5 4,10 .,5 v,5 5,10 .,"
+        "5 =,3 =,3 =,{2,25 .,},5 0,5 v,5 2,10 .",
 }
 KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '_': 32, '^': 13, '}': 0xfc}
 
@@ -312,7 +327,7 @@ def build(art, outdir):
     # ---- the demos
     demodir = bytearray()
     demos = bytearray()
-    ndemo = 9
+    ndemo = 10
     for n in range(1, ndemo + 1):
         demodir += struct.pack('<H', 2 * ndemo + len(demos))
         for step in DEMOS.get(n, "1 .").split(','):
@@ -338,7 +353,7 @@ def build(art, outdir):
              ('R_SPR', pad8(bytes(sprdir)), 'sprites: u32 far offset, u16 w, h (rows of (w + 7) & ~7 bytes)'),
              ('R_SND', pad8(bytes(snddir)), 'sounds: u32 far offset, u32 samples'),
              ('R_AVG', pad8(bytes(avg)), 'each cell picture\'s colour, the nearest to its mean (the minimap)'),
-             ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: nine u16 offsets from here, then '
+             ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: ten u16 offsets from here, then '
               'u8 tics, u8 key (1..4: up, down, left, right; 0xfb: a loop begins, its count and 0 follow; '
               '0xfc: it ends) each; 0 ends one')]
     res = bytearray()

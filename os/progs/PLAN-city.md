@@ -402,6 +402,17 @@ Original art avoids both.
 - [x] Several towns: four places (/ws/plat-1.sav .. -4.sav) and a
       gallery (O): how many are kept (a query, /ws/year>0) and each
       one's attributes (GETATTR)
-- [ ] Tier 3, still open: other events (flood, earthquake, a plant's
-      failure, a storm), scenarios, a terrain editor, history through
-      snapshots, dusk
+- [x] Other events (`plat/events.s`, two code units): a flood (the water
+      nearest a zone rises over the land beside it, three times; flood
+      water is water with an age in the flags, as a fire's, and after
+      three months it is cleared land), a storm (from an edge, through
+      the town, drifting: lines, trees, buildings and parks to rubble),
+      an earthquake (round a zone: what is built falls, a quarter of it
+      burns), a coal plant's failure (the whole plant burns). Each month
+      3 in 1,000 brings one by chance; V opens a panel that calls one
+      down (or a fire) and turns the chance off or on; demo 10
+- [x] The terrain editor: three tools without buttons, W water dug, F
+      woods planted, A plain land, on open land, woods and water (20 a
+      cell, dragged or with the pen); the water's edges, bridges and
+      lines over it are drawn again round the cell
+- [ ] Tier 3, still open: scenarios, history through snapshots, dusk
