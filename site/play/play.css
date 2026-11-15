@@ -46,6 +46,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .status.stopped { color: var(--amber); box-shadow: inset 3px 0 0 var(--amber); }
 .about { margin: 14px 0 0; color: var(--dim); font-size: 15px; min-height: 1.6em; }
+.jitnote { color: var(--amber); }
 
 .panel {
   margin-top: 18px; background: rgba(5, 8, 15, 0.94);

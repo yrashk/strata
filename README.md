@@ -378,7 +378,8 @@ or, at the press of a button, through Kira's eyes (wdoom's raycaster with
 a floor for every cell and a sky). In Garden she sows seeds and waters
 them into flowers that butterflies visit, and the garden is kept in a
 file. Paint has three colouring pages, and Music a xylophone, the
-friends' voices and four songs. The art is original and is drawn by a
+friends' voices and four songs. A button starts a game over, after a
+question answered with a tick or a cross. The art is original and is drawn by a
 script (`tools/kira-art.py`); the sounds are synthesised. Run `ws kira`
 from the shell, or `kira` from the palette; it is a preset on the play
 page.

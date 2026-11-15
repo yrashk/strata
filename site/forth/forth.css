@@ -138,6 +138,12 @@ details.wsrc pre.lst { margin: 6px 0 4px; font-size: 12.5px; line-height: 1.55; 
   border-top: 1px solid rgba(31, 111, 139, 0.3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pg-status.stopped { color: var(--amber); }
+.pg-jitnote {
+  flex: none; margin: 0; padding: 5px 12px; font: 11.5px/1.4 var(--mono); color: var(--amber);
+  border-top: 1px solid rgba(31, 111, 139, 0.3);
+}
+.pg-jitnote[hidden] { display: none; }
+.pg-jitnote .small { margin-left: 6px; }
 
 /* wide screens: the playground is a column at the right, always open */
 @media (min-width: 1280px) {

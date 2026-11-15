@@ -71,7 +71,7 @@ SONG_TICS = 12                          # tics from a note to the next
 FANFARE = [(0, 0), (4, 2), (4, 4), (4, 7), (8, 4), (4, 7), (0, 2), (10, 0), (0, 4), (0, 7)]
 
 # ---- the demos (`kira demo N`): (tics to wait, key), one tic a frame -----------
-# Keys: U D L R the arrows, other characters themselves. tools/test-kira.sh
+# Keys: U D L R the arrows, _ none (a wait), other characters themselves. tools/test-kira.sh
 # compares the last frame of each.
 DEMOS = {
     1: "9 1,10 @40:28,200 .,5 R,10 R,10 D,40 .",  # Friends from above: a click on the duck's cell; three steps
@@ -82,9 +82,17 @@ DEMOS = {
     6: "9 3,5 1,5 @100:60,5 4,5 @200:120,5 n,5 7,5 @160:80,30 .",    # Paint: two regions, the next page, one more
     7: "9 4,5 @40:100,10 3,10 @30:30,10 p,200 .",                     # Music: a bar by a click, one by a key, a friend, a song
     9: "9 1,10 !,30 R,80 m,10 3,40 .",              # the party, then Paint: no HOORAY! over it
+    10: "9 2,3 .",                                  # Garden: the garden of the first day
+    11: "9 2,5 2,5 @88:100,10 5,5 @88:100,20 @88:100,100 .,5 @300:184,10 @230:184,10 4,10 @300:184,5 ~,5 @170:184,3 .",   # ... a daisy grown, "a new garden?" answered no, then yes: the first day's garden again
+    13: "9 3,3 _",                                  # Paint: a page as it is first opened
+    14: "9 3,5 4,5 @100:60,5 @200:120,5 @268:184,5 @230:184,5 @268:184,5 @170:184,3 _",   # ... two regions painted, "start over?" answered no, then yes: the blank page again
+    15: "9 1,3 _",                                  # Friends: the first game's world
+    16: "9 1,10 R,10 R,10 D,10 @272:184,10 @230:184,10 @272:184,5 ^,5 @170:184,29 _",   # ... three steps, "start over?" answered no, then yes: the first world again
+    12: "9 2,5 r,5 _",                               # ... the question in the bar
     8: "9 1,1 {60,2 !,3 R,80 .,2 .,1 },20 .",   # sixty games, each in a new world
 }
-KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '!': 0xfd, '}': 0xfc}
+KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '!': 0xfd, '}': 0xfc, '~': 0xfa, '^': 0xf9, '_': 0}
+NDEMO = 16
 
 
 def read_png(path):
@@ -311,7 +319,7 @@ def build(art, outdir, preview=None):
     sprites += [('num_%d' % i, False) for i in range(1, 8)]
     sprites += [('word_picnic', False), ('word_hooray', False)]
     sprites += [('icon_' + n, False) for n in ('home', 'eyes', 'map', 'tulip', 'daisy', 'sunflower', 'rose',
-                                               'can', 'next', 'song')]
+                                               'can', 'next', 'song', 'new', 'yes', 'no')]
     sprites += [('pot_%d' % i, False) for i in range(10)]
     for p in PLANTS:
         sprites += [('plant_%s_%d' % (p, s), True) for s in (1, 2, 3)]
@@ -491,8 +499,8 @@ def build(art, outdir, preview=None):
     fanfare = b''.join(bytes(p) for p in FANFARE) + b'\xff\xff'
     demos = bytearray()
     demodir = bytearray()
-    for n in range(1, 10):
-        demodir += struct.pack('<H', 18 + len(demos))
+    for n in range(1, NDEMO + 1):
+        demodir += struct.pack('<H', 2 * NDEMO + len(demos))
         for step in DEMOS.get(n, "1 .").split(','):
             t, k = step.split(' ', 1)
             if k.startswith('@'):       # a click
@@ -537,8 +545,8 @@ def build(art, outdir, preview=None):
              ('R_SONGS', pad8(bytes(songdir) + bytes(songs)), 'the songs: a u16 offset from here each, then '
               'u8 tics before the note, u8 note each; 255 ends one'),
              ('R_FANFARE', pad8(fanfare), 'the fanfare, likewise'),
-             ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: nine u16 offsets from here, then '
-              'u8 tics, u8 key (1..4: up, down, left, right; 0xfe: a click, x / 2 and y follow; 0xfd: all found; 0xfb: a loop begins, its count and 0 follow; 0xfc: it ends) each; 0 ends one')]
+             ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: NDEMO u16 offsets from here, then '
+              'u8 tics, u8 key (1..4: up, down, left, right; 0xfe: a click, x / 2 and y follow; 0xfd: all found; 0xfb: a loop begins, its count and 0 follow; 0xfc: it ends; 0xfa: the random numbers start over; 0xf9: they are as before the first game of Friends) each; 0 ends one')]
     res = bytearray()
     lines = ['; dat.s: the layout of kira.dat. Written by tools/kira-assets.py: do not edit.', '']
 
@@ -557,6 +565,7 @@ def build(art, outdir, preview=None):
     equ('NSND', nsnd, 'sounds')
     equ('NLIGHT', NLIGHT, 'light levels')
     equ('NFRIEND', len(FRIENDS), 'friends')
+    equ('NDEMO', NDEMO, 'demos')
     equ('SND_RATE', SND_RATE, 'samples per second')
     equ('C_BLACK', index[(0, 0, 0)], 'palette indices: black')
     equ('C_WHITE', index[(255, 255, 255)], 'white')

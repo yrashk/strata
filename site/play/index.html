@@ -84,6 +84,7 @@
     </div>
     <div id="status" class="status" aria-live="polite">idle · pick something to run</div>
   </div>
+  <p id="jitnote" class="about jitnote" hidden></p>
   <p id="about" class="about"></p>
   <p id="netnote" class="about"></p>
 
@@ -131,11 +132,14 @@
       <li>The emulator runs in a Web Worker, continuously; this page only paints the screen and
         passes your keys along. The timer is real time, so a 10&nbsp;ms preemption tick in StrataOS is
         10&nbsp;ms of your wall clock, and the screen's VSYNC is 60&nbsp;Hz.</li>
-      <li>With <b>JIT</b> on (the default; <code>?jit=0</code> turns it off), hot Strata code is
+      <li>With <b>JIT</b> on (the default, except on iPhones; <code>?jit=0</code> turns it off,
+        <code>?jit=1</code> on), hot Strata code is
         translated to WebAssembly while it runs: loops and the functions they call become one
         WebAssembly function, compiled by your browser and called through the emulator's function
         table. Expect a few thousand MIPS (millions of Strata instructions per second); the status line shows
-        the rate.</li>
+        the rate. On iPhone and iPad it keeps fewer translations, since Safari there closes the page
+        once compiled WebAssembly fills its pool; if the page is closed while the JIT runs, on any device,
+        it starts with the JIT off on that browser from then on, until you tick <b>JIT</b> again.</li>
       <li>With JIT off you get the reference interpreter with its exact one-instruction-per-core
         interleaving (a predecoded fast loop keeps it at hundreds of MIPS on plain code).</li>
       <li><b>Machine: RTL simulator</b> (<code>?machine=rtl</code>) runs the same program on the
@@ -191,6 +195,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 <script src="strata-emu.js?v=__BUILD__"></script>
+<script src="jit.js?v=__BUILD__"></script>
 <script src="play.js?v=__BUILD__"></script>
 </body>
 </html>
