@@ -47,7 +47,9 @@ Store memories raise the RTL's speed or cut its area? The answer is
 - [x] Then: 1.80 (+2.9%); streaming examples +3.4%
 - [x] Two words ahead with one memory (`fb_nx2`), and the next word's read alternating with a `tput`'s reads: 1.78 (+1.3%); streaming examples +2.8%; the other examples at the two-store figure; the default machine's cycle counts unchanged
 - [ ] `fpga/arty/strata_arty.sv`: honour `ext_t3_rready` (needed only with `LS_1P`)
-- [ ] `asic/`: a single-port `strata_ram1` replacement, one store array in the floorplan, the 1024 x 8 3.3 V macros
+- [x] `asic/`: `ASIC_LS1P=1` (a real single-port memory from macros), `ASIC_SRAM=ocd1024`, the floorplan for both, `ASIC_PREP=1`, `asic/area.sh`; prepared and synthesized on the host: stores 19.9 mm², die 53.5 mm² by the floorplan (REPORT.md section 11)
+- [ ] A LibreLane run of it: the container image, the 1024 x 8 macro's LEF / GDS / liberty in the run, the reports' scripts
+- [ ] How densely the logic places: the strip is half the die now
 - [ ] Area and clock of the change
 
 ## Not done (candidates for a next step)

@@ -120,8 +120,10 @@ Not verified:
   a ready for read beats (`rready`) that only such a core's Transfer Unit
   ever lowers; the board's DRAM adapter does not honour `ext_t3_rready`
   yet, which matters only with `LS_1P`. `make
-  BUILD=build/ls1p LS_1P=1 test` passes; the ASIC flow's `strata_ram`
-  stand-in and floorplan do not use it yet. One core alone in generic gates: 4% more
+  BUILD=build/ls1p LS_1P=1 test` passes. The ASIC flow has it as an option
+  (`ASIC_LS1P=1`, and `ASIC_SRAM=ocd1024` for a 1024 x 8 macro): prepared
+  and synthesized on the host, 19.9 mm² of stores and a 53.5 mm² die by
+  the floorplan, not placed or routed (`asic/README.md`). One core alone in generic gates: 4% more
   gates, 98 more flip-flops, no new deepest path; not placed and routed
   (`research/smart-memory/REPORT.md`, section 9).
 

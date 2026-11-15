@@ -350,11 +350,12 @@ module strata_core
     localparam int MA = $clog2(MW);
     logic          m_en;
     logic [7:0]    m_we;
-    logic [MA-1:0] m_addr, m_ia, m_da, m_ua, m_ra;
+    logic [MA-1:0] m_addr, m_ia, m_da, m_ua, m_ra, m_xa;
     logic [63:0]   m_wdata;
     assign m_ia = MA'(ia_addr[IAW-1:0]);
     assign m_da = MA'(ILS_WORDS) + MA'(da_addr[DAW-1:0]);
     assign m_ua = MA'(ILS_WORDS) + MA'(tu_dls_addr[DAW-1:0]);
+    assign m_xa = MA'(tu_ils_addr[IAW-1:0]);
     assign m_ra = rl_d ? MA'(ILS_WORDS) + MA'(rl_a[DAW-1:0]) : MA'(rl_a[IAW-1:0]);
     always_comb begin
       m_en    = 1;
@@ -368,7 +369,7 @@ module strata_core
         m_wdata = rl_boot ? (rl_d ? brom_dq : brom_iq) : 64'b0;
       end else if (tu_ils_en) begin                      // a tgetx beat
         m_we    = 8'hff;
-        m_addr  = MA'(tu_ils_addr[IAW-1:0]);
+        m_addr  = m_xa;
         m_wdata = tu_ils_wdata;
       end else if (tu_dls_en && tu_dls_we != 0) begin    // a tget beat
         m_we    = tu_dls_we;
@@ -1028,7 +1029,7 @@ module strata_core
       // STREAM: the word read ahead last cycle arrives (F1 and a retire
       // into it, below, override this)
       ra_infl <= ra_go;
-      ra_two  <= state != S_F1 && !need1;
+      ra_two  <= RA2 && state != S_F1 && !need1;
       put_ref_q <= LS_1P && tu_put_want && !ls_gnt;
       if (ra_infl && ra_two) begin
         fb_nx2   <= ia_rdata;

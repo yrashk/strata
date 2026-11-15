@@ -790,3 +790,42 @@ must honour `ext_t3_rready` before `LS_1P` is used with it, which
 1024 x 8 macros are the next step there (`asic/` is unchanged). Area and
 clock of the change are not measured.
 
+## 11. The ASIC flow with one memory and the 1024 x 8 macro: prepared
+
+`asic/run.sh` takes `ASIC_LS1P=1` (the core with `LS_1P = 1`, its memory
+from macros in `asic/rtl/gf180mcu/strata_ram1.sv`: the same RAM as the
+RTL's, not a stand-in) and `ASIC_SRAM=ocd1024` (that memory from the 1024 x
+8 macro of section 5.1). `ASIC_PREP=1` stops before LibreLane, and
+`asic/area.sh` synthesizes the prepared netlist to the PDK's cells with
+Yosys on the host. That is as far as this went: no placement, no routing,
+no timing.
+
+| One core | Local Store macros | Standard cells | Die (floorplan) |
+|---|---|---|---|
+| two stores (stand-in, the kept run's floorplan) | 256, 53.6 mm² | 2.507 mm² | 93.6 mm² |
+| one single-port memory, 512 x 8 | 256, 53.6 mm² | 2.523 mm² | 93.6 mm² |
+| one single-port memory, 1024 x 8 | 128, 19.9 mm² | 2.498 mm² | 53.5 mm² |
+
+Measured: the cell areas (host synthesis, 5 V cells, minutes per run) and
+the macro counts. Arithmetic: the die, from the macro sizes and the
+floorplan rules of the run that routed (macro rows in pairs over a 120 µm
+channel, a logic strip between the two blocks).
+
+- Section 7 expected "about 20 mm²" of stores: 19.9. The die is 53.5 mm²
+  and not smaller because the floorplan gives the logic the 26.4 mm² strip
+  it had in the run that routed (22% placement density). With the dense
+  macro the strip is half the die, the memory 40%. The next question for
+  the area of a core is no longer the memory but how densely this logic
+  places and routes, which needs a routed run.
+- The single-port memory costs 0.7% of cells against the stand-in (67
+  flip-flops: the second read-ahead word and the arbitration's flags).
+- The synthesis found two things in the RTL, both fixed, neither visible
+  in simulation: the second read-ahead word and its multiplexers stayed in
+  the two-store core (its flag was not tied to the parameter), 65
+  flip-flops for nothing; and a width cast inside the single-port
+  memory's address multiplexer became a latch in sv2v's translation.
+- Not done: LibreLane with either option (the container image is not on
+  this machine; the 1024 x 8 macro's LEF, GDS and liberty are not in the
+  PDK the scripts fetch); the reports' and pictures' scripts for the new
+  instance names; the save table in the denser 256 x 8 macro.
+
