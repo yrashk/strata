@@ -1,5 +1,5 @@
 ; =============================================================================
-; storew.s: changing the store: trees, free space, the commit (included by fs.s)
+; storew.s: changing the store: trees, free space, the commit (included by db.s)
 ; =============================================================================
 ;
 ; Copy-on-write: a page that the commit under way did not write is never

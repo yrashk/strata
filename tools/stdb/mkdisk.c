@@ -6,7 +6,8 @@
  * -t sets the tags of the files that follow it (-t "" for none); -a gives
  * them an attribute (a number, or else a string; -a "" for none again).
  * -B names the boot objects, the files the kernel loads before any server
- * runs (default proc,dev,fs; -B "" for a disk without them): each must be
+ * runs (default proc,dev,fs,blk,db; -B "" for a disk without them), tagged
+ * sys (there is a program /bin/db besides the server /sys/db): each must be
  * among the files, and is stored in one piece and listed in the boot
  * manifest. With -B "" and no files the disk gets no store at all: the
  * boot header and the kernel's images only (a disk too small for more).
@@ -55,7 +56,7 @@ static void usage(void) {
 }
 
 int main(int argc, char **argv) {
-  const char *out = NULL, *kernel = NULL, *bootnames = "proc,dev,fs";
+  const char *out = NULL, *kernel = NULL, *bootnames = "proc,dev,fs,blk,db";
   static const char *files[MAXFILES], *ftags[MAXFILES], *fattr[MAXFILES];
   const char *cur_tags = "", *cur_attr = "";
   uint32_t nblocks = STX_DISK_BLOCKS, ps = 4096;
@@ -145,9 +146,11 @@ int main(int argc, char **argv) {
     const char *tags[256];
     int nt = 0;
     for (char *t = strtok(tl, ","); t && nt < 256; t = strtok(NULL, ",")) tags[nt++] = t;
-    /* a boot object? */
-    int boot = 0;
-    size_t bl = strlen(base);
+    /* a boot object? (a file of one of the names, in /sys: /bin/db is a program
+     * of the name of the server /sys/db) */
+    int boot = 0, insys = 0;
+    for (int t = 0; t < nt; t++) insys |= !strcmp(tags[t], "sys");
+    size_t bl = insys ? strlen(base) : (size_t)-1;
     for (const char *b = bootnames; *b;) {
       const char *e = strchr(b, ',');
       size_t l = e ? (size_t)(e - b) : strlen(b);

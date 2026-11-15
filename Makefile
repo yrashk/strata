@@ -282,7 +282,7 @@ $(BUILD)/kernel.stx: os/kernel.s $(wildcard os/kunits/*.s) firmware/fw.s $(BUILD
 	$(BUILD)/sasm -g $(BUILD)/kernel.map -o $@ os/kernel.s
 
 # StrataOS 0.1 disk contents:
-#   servers (os/servers/*.s): proc dev fs tty pipe
+#   servers (os/servers/*.s): proc dev fs blk db tty pipe
 #   programs written against os/lib/sys.s (os/progs/*.s, except as and units)
 #   the examples, assembled to run as bare-metal programs (code at
 #   I-LS 0x8000); clock and gfx are left out: they need the device root
@@ -292,9 +292,11 @@ $(BUILD)/kernel.stx: os/kernel.s $(wildcard os/kunits/*.s) firmware/fw.s $(BUILD
 OS_EXCLUDE := clock gfx
 OS_EXAMPLES := $(filter-out $(OS_EXCLUDE),$(patsubst examples/%.s,%,$(EXAMPLES)))
 PROGS   := $(patsubst %,$(BUILD)/prog/%,$(OS_EXAMPLES))
-SERVERS := proc dev fs tty pipe net
+SERVERS := proc dev fs blk db tty pipe net
 UTILS   := sh ls cat rm df ps free uptime date devs hexdump cores sched seq grep wc upper spin tag tags cp mv touch guest
-SPROGS  := $(patsubst %,$(BUILD)/prog/%,$(SERVERS))
+# (the server db is built to sys/: build/prog/db is the program db, which shows
+# the store's trees; on the disk they are /sys/db and /bin/db)
+SPROGS  := $(patsubst $(BUILD)/prog/db,$(BUILD)/sys/db,$(patsubst %,$(BUILD)/prog/%,$(SERVERS)))
 UPROGS  := $(patsubst %,$(BUILD)/prog/%,$(UTILS))
 # the network programs (os/servers/net.s is the server): no sources on the disk
 NETUTILS := ping nc tcpecho ifconfig netstat host httpd
@@ -308,8 +310,11 @@ $(BUILD)/prog/%: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
-$(BUILD)/prog/fs: os/servers/fsunits.s os/servers/fsops.s os/servers/store.s os/servers/storew.s os/servers/sblob.s os/servers/fsattr.s
-$(SPROGS): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sasm
+$(BUILD)/prog/fs: os/servers/fsunits.s os/servers/fsops.s os/servers/fsattr.s os/servers/dbcall.s os/servers/stutil.s
+$(BUILD)/sys/db: os/servers/db.s os/servers/store.s os/servers/storew.s os/servers/sblob.s os/servers/dbsnap.s os/servers/dbprog.s os/servers/stutil.s os/lib/srv.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/sys
+	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
+$(filter $(BUILD)/prog/%,$(SPROGS)): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
@@ -341,12 +346,12 @@ $(BUILD)/guest/forth.g: $(FORTH_GUEST_SRC) $(BUILD)/forth-guest/corefs.s $(BUILD
 FORTH_GUEST := $(BUILD)/guest/forth.g
 # StrataOS itself as a guest (`guest -p strataos 6 24`): the kernel and a RAM
 # disk with the servers and a few programs, one image (tools/mkguestos.py)
-GOS_PROGS := proc dev fs tty pipe sh ls cat rm cp mv touch ps cores free uptime seq grep wc hello tag tags df
-GOS_FILES := os/guests/strataos/rc os/guests/strataos/motd $(patsubst %,$(BUILD)/prog/%,$(GOS_PROGS))
+GOS_PROGS := proc dev fs blk db tty pipe sh ls cat rm cp mv touch ps cores free uptime seq grep wc hello tag tags df
+GOS_FILES := os/guests/strataos/rc os/guests/strataos/motd $(patsubst %,$(BUILD)/prog/%,$(filter-out db,$(GOS_PROGS))) $(BUILD)/sys/db
 $(BUILD)/guest-os/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(GOS_FILES)
 	@mkdir -p $(BUILD)/guest-os
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx -b 6144 -t etc os/guests/strataos/rc -t doc os/guests/strataos/motd \
-	  -t sys $(patsubst %,$(BUILD)/prog/%,proc dev fs tty pipe) -t bin $(patsubst %,$(BUILD)/prog/%,$(filter-out proc dev fs tty pipe,$(GOS_PROGS)))
+	  -t sys $(patsubst %,$(BUILD)/prog/%,proc dev fs blk) $(BUILD)/sys/db $(patsubst %,$(BUILD)/prog/%,tty pipe) -t bin $(patsubst %,$(BUILD)/prog/%,$(filter-out proc dev fs blk db tty pipe,$(GOS_PROGS)))
 $(BUILD)/guest/strataos.g: tools/mkguestos.py $(BUILD)/kernel.stx $(BUILD)/guest-os/disk.img
 	@mkdir -p $(BUILD)/guest
 	python3 tools/mkguestos.py $(BUILD)/kernel.stx $(BUILD)/guest-os/disk.img $@
