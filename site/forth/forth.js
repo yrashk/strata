@@ -14,14 +14,13 @@
   const V = "?v=" + BUILD;
   const PLAY = "../play/";
   const params = new URLSearchParams(location.search);
-  // Safari on iOS kills the page when compiled WebAssembly fills its pool,
-  // so there the JIT is off unless ?jit=1 (and then has a budget, as in
-  // play.js; worker.js reads it)
-  const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
-              (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  const JIT_LIMITS = IOS ? { jitBudget: 256, jitHot: 200 } : {};
-  const JIT_ON = params.get("jit") === "1" || (params.get("jit") !== "0" && !IOS);
-  const ARGS = [JIT_ON ? "-J" : "-j", "-c", "8", "-r", "640x400", "forth.stx"];
+  // The JIT as on the play page (../play/jit.js): on but on iPhones, with a
+  // budget on iPhone and iPad (worker.js reads it), off after it cost this
+  // browser the page; ?jit=0 / ?jit=1 decide.
+  const JIT_LIMITS = StrataJIT.LIMITS;
+  const jitStart = StrataJIT.choose(params);
+  let jitOn = jitStart.on;
+  const args = () => [jitOn ? "-J" : "-j", "-c", "8", "-r", "640x400", "forth.stx"];
 
   const $ = (id) => document.getElementById(id);
   const pg = $("pg"), toggle = $("pg-toggle"), statusEl = $("pg-status");
@@ -87,6 +86,7 @@
   function setStatus(s, isStop) {
     statusEl.textContent = s;
     statusEl.classList.toggle("stopped", !!isStop);
+    if (isStop) StrataJIT.disarm();
   }
 
   function post(s) {
@@ -134,7 +134,7 @@
     const my = ++gen;
     setStatus("loading…");
     term.write("\x1bc");
-    term.write(`\x1b[2m$ strata-emu ${ARGS.join(" ")}\x1b[0m\n`);
+    term.write(`\x1b[2m$ strata-emu ${args().join(" ")}\x1b[0m\n`);
     try {
       const [wasm, img] = await Promise.all([compileWasm(), fetchImage()]);
       if (my !== gen) return;               // Reset meanwhile
@@ -143,7 +143,8 @@
       stopped = false;
       w.onmessage = (e) => onWorker(w, e.data);
       w.onerror = (e) => { if (w === W) { stopped = true; setStatus("error: " + (e.message || "the worker failed"), true); } };
-      w.postMessage(Object.assign({ t: "start", wasm, files: [{ name: "forth.stx", data: img }], args: ARGS }, JIT_LIMITS));
+      if (jitOn) StrataJIT.arm();           // until it has run a while (jit.js)
+      w.postMessage(Object.assign({ t: "start", wasm, files: [{ name: "forth.stx", data: img }], args: args() }, JIT_LIMITS));
       if (pending) { post(pending); pending = ""; }
     } catch (e) {
       booted = false;
@@ -154,6 +155,7 @@
   function reset() {
     if (W) W.terminate();
     W = null;
+    StrataJIT.disarm();
     stopped = true;
     booted = false;
     pending = "";
@@ -197,6 +199,18 @@
   // -------------------------------------------------------------- input
   term.onData((d) => { term.scrollToBottom(); send(d); });
   $("pg-reset").addEventListener("click", () => { reset(); if (!touch()) term.focus(); });
+  // the JIT off after it cost this browser the page (jit.js): say so, and
+  // offer it back
+  if (jitStart.note) {
+    $("pg-jitnote-t").textContent = jitStart.note;
+    $("pg-jitnote").hidden = false;
+    $("pg-jit-on").addEventListener("click", () => {
+      StrataJIT.forget();
+      jitOn = true;
+      $("pg-jitnote").hidden = true;
+      reset();
+    });
+  }
 
   // -------------------------------------------------------------- the editor
   // A textarea over a <pre> that site/hl.js colours: both sit in one grid
