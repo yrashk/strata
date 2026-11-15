@@ -60,24 +60,227 @@
     <code>svc</code>. Timeouts are in ticks of 1&nbsp;&micro;s, −1 for none; the result comes
     back in <code>a0</code>.</p>
 <!-- ops:svc -->
+<p class="srvnote">A program puts the function in a0 and its arguments in a1..a5, and runs <code>svc</code>. The dispatcher of its core answers: the result comes back in a0 (an unknown function gives −1), and some calls also set a1 or a capability register. Timeouts are in ticks of 1 µs; −1 means none, and 0 times out at the next look. A call that blocks lets the core run its other threads.</p>
+<div class="opindex">
+<a href="#svc-1"><span class="n">1</span><code>WAIT_REPLY</code><span>Wait for a reply, for an awaited capability, or sleep</span></a>
+<a href="#svc-2"><span class="n">2</span><code>RECEIVE</code><span>Wait for a request, or for a transfer tag to go idle</span></a>
+<a href="#svc-3"><span class="n">3</span><code>REPLY</code><span>Give the request in c6 back to its sender, with capabilities</span></a>
+<a href="#svc-4"><span class="n">4</span><code>YIELD</code><span>Let the core&#x27;s other runnable threads run first</span></a>
+<a href="#svc-5"><span class="n">5</span><code>EXIT</code><span>End the calling thread, and the process with its last thread</span></a>
+<a href="#svc-6"><span class="n">6</span><code>NOTIFY_WAIT</code><span>Wait for a notification</span></a>
+<a href="#svc-7"><span class="n">7</span><code>SET_MIRROR</code><span>Reload the program&#x27;s code from a copy in its arena</span></a>
+<a href="#svc-8"><span class="n">8</span><code>PARK</code><span>Hand the request in c6 to the dispatcher to answer later</span></a>
+<a href="#svc-9"><span class="n">9</span><code>UNPARK</code><span>Take a parked request back into c6</span></a>
+<a href="#svc-10"><span class="n">10</span><code>CLOCK</code><span>Put the clock capability in c7 again</span></a>
+<a href="#svc-11"><span class="n">11</span><code>SET_SCRATCH</code><span>Name a D-LS range that switches neither save nor restore</span></a>
+<a href="#svc-12"><span class="n">12</span><code>SEND</code><span>Send the buffer (c5) and an attachment, then wait as WAIT_REPLY</span></a>
+<a href="#svc-13"><span class="n">13</span><code>UNITS</code><span>The thread&#x27;s code-unit paging counts</span></a>
+<a href="#svc-14"><span class="n">14</span><code>PAGE</code><span>Page in the code unit of a miss the program&#x27;s own trap handler got</span></a>
+</div>
+<article class="op" id="svc-1">
+<h4><span class="n">1</span><a class="opname" href="../code/#os/kernel.s:1787"><code>WAIT_REPLY</code></a><span class="sum">Wait for a reply, for an awaited capability, or sleep</span></h4>
+<p>The caller has just sent its buffer (c5) with <code>csend</code>. The dispatcher rings the destination&#x27;s doorbell and blocks the caller until the buffer comes back, or until a capability with the awaited base arrives. With a3 = −1 nothing is awaited: the call is a sleep that only the timeout or an interrupt ends. A capability that arrives for a register holding a live linear one is dropped.</p>
 <div class="optable"><table>
-<thead><tr><th class="n">op</th><th>name</th><th>request</th><th>reply</th><th>errors</th></tr></thead>
-<tbody>
-<tr id="svc-1"><td class="n">1</td><td><a class="opname" href="../code/#os/kernel.s:106"><code>WAIT_REPLY</code></a></td><td>a1 doorbell core, a2 timeout (-1 none), a3 awaited base (0 = own buffer, -1 = nothing: a sleep), a4 register it arrives in</td><td>0, -2 interrupted, -8 timed out</td><td class="err"><abbr title="interrupted">-2</abbr> <abbr title="timed out">-8</abbr></td></tr>
-<tr id="svc-2"><td class="n">2</td><td><a class="opname" href="../code/#os/kernel.s:109"><code>RECEIVE</code></a></td><td>(servers) a1 tag mask, a2 timeout</td><td>a0 = token, c6 = request, c7 = its attachment; or -1 with a1 = idle tags; -8</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="timed out">-8</abbr></td></tr>
-<tr id="svc-3"><td class="n">3</td><td><a class="opname" href="../code/#os/kernel.s:111"><code>REPLY</code></a></td><td>a1 token, a2 bit2 send c4 first, bit0 send c7, bit1 (privileged) mint an endpoint for core a3 and send it; then gives c6 back (the receiver gets them in c6, c7)</td><td></td><td class="err"></td></tr>
-<tr id="svc-4"><td class="n">4</td><td><a class="opname" href="../code/#os/kernel.s:114"><code>YIELD</code></a></td><td>let the core&#x27;s other runnable threads run</td><td></td><td class="err"></td></tr>
-<tr id="svc-5"><td class="n">5</td><td><a class="opname" href="../code/#os/kernel.s:115"><code>EXIT</code></a></td><td>a1 = exit code (halt also exits, with the code in a0)</td><td></td><td class="err"></td></tr>
-<tr id="svc-6"><td class="n">6</td><td><a class="opname" href="../code/#os/kernel.s:116"><code>NOTIFY_WAIT</code></a></td><td>a2 timeout: block until a notification (an interrupt; a child&#x27;s exit, for proc)</td><td>its bits, -8 timed out</td><td class="err"><abbr title="timed out">-8</abbr></td></tr>
-<tr id="svc-7"><td class="n">7</td><td><a class="opname" href="../code/#os/kernel.s:118"><code>SET_MIRROR</code></a></td><td>a1 arena offset of a far copy of the I-LS program range, a2 length: code is reloaded from it on a switch-in (JITs), and the code cache starts after it</td><td>a1 = NXMAP</td><td class="err"></td></tr>
-<tr id="svc-8"><td class="n">8</td><td><a class="opname" href="../code/#os/kernel.s:121"><code>PARK</code></a></td><td>(servers) the kernel keeps the request in c6</td><td>a0 = its park id: answer it later, after UNPARK</td><td class="err"></td></tr>
-<tr id="svc-9"><td class="n">9</td><td><a class="opname" href="../code/#os/kernel.s:123"><code>UNPARK</code></a></td><td>(servers) a1 = park id: the request returns to c6</td><td></td><td class="err"></td></tr>
-<tr id="svc-10"><td class="n">10</td><td><a class="opname" href="../code/#os/kernel.s:124"><code>CLOCK</code></a></td><td>the clock capability is put in c7 again</td><td></td><td class="err"></td></tr>
-<tr id="svc-11"><td class="n">11</td><td><a class="opname" href="../code/#os/kernel.s:125"><code>SET_SCRATCH</code></a></td><td>a1 D-LS start, a2 length (0: none): that range of the data is neither saved nor restored on a switch (undefined after one)</td><td></td><td class="err"></td></tr>
-<tr id="svc-12"><td class="n">12</td><td><a class="opname" href="../code/#os/kernel.s:127"><code>SEND</code></a></td><td>a1 endpoint register (1..7), a5 attachment register (0..7, -1 none), a2..a4 as WAIT_REPLY: the dispatcher sends the attachment and then the buffer (c5) through the endpoint with nothing of this core in between, rings the doorbell and waits like WAIT_REPLY; -1: bad registers (nothing sent)</td><td></td><td class="err"></td></tr>
-<tr id="svc-13"><td class="n">13</td><td><a class="opname" href="../code/#os/kernel.s:132"><code>UNITS</code></a></td><td></td><td>a0 = the code units the dispatcher paged in for this thread so far (xmiss), a1 = the code cache&#x27;s slots now</td><td class="err"></td></tr>
-<tr id="svc-14"><td class="n">14</td><td><a class="opname" href="../code/#os/kernel.s:134"><code>PAGE</code></a></td><td>a1 = a missed far address (utval of an xmiss), a2 = the pc of the miss (uepc): a program that has its own trap handler (which gets its misses) hands one to the dispatcher, which pages the unit in as for its own</td><td>0, or 1 if it cannot (a fault after all)</td><td class="err"></td></tr>
-</tbody></table></div>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">a1</td><td class="at"></td><td class="ty"></td><td>the core whose doorbell to ring (the destination of the message just sent); −1, 0 or the caller&#x27;s own core: none</td></tr>
+<tr><td class="k">a2</td><td class="at"></td><td class="ty"></td><td>the timeout in ticks, −1 none</td></tr>
+<tr><td class="k">a3</td><td class="at"></td><td class="ty"></td><td>the base of the capability awaited: 0 the caller&#x27;s own buffer, −1 nothing (a sleep)</td></tr>
+<tr><td class="k">a4</td><td class="at"></td><td class="ty"></td><td>the register (0..7) an awaited capability other than the buffer arrives in; 0 means c5</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">a0</td><td class="at"></td><td class="ty"></td><td>0: the buffer is back in c5 (with the reply), or the awaited capability is in the register a4 names</td></tr>
+<tr><td class="k">c5</td><td class="at"></td><td class="ty"></td><td>the message buffer, with the reply</td></tr>
+<tr><td class="k">c6</td><td class="at"></td><td class="ty"></td><td>the first capability the server sent with the reply</td></tr>
+<tr><td class="k">c7</td><td class="at"></td><td class="ty"></td><td>the second one (it replaces the clock: CLOCK gets it back)</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="interrupted">−2</abbr></td><td class="at"></td><td class="ty"></td><td>interrupted: a sleep (a3 = −1) ended by notification bit 0, which the call clears</td></tr>
+<tr><td class="k"><abbr title="timed out">−8</abbr></td><td class="at"></td><td class="ty"></td><td>timed out</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="svc-2">
+<h4><span class="n">2</span><a class="opname" href="../code/#os/kernel.s:1821"><code>RECEIVE</code></a><span class="sum">Wait for a request, or for a transfer tag to go idle</span></h4>
+<p>For the core&#x27;s server (the dispatcher does not check who calls it). Requests are queued in the dispatcher (16 at most) in the order they came. The token names the sender and goes back with REPLY. The dispatcher stamps the sender&#x27;s pid into the request&#x27;s header word 40. When a request comes, whatever c6 and c7 held is dropped.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">a1</td><td class="at"></td><td class="ty"></td><td>a mask of transfer tags (bits 0..15) to wait for as well</td></tr>
+<tr><td class="k">a2</td><td class="at"></td><td class="ty"></td><td>the timeout in ticks, −1 none</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">a0</td><td class="at"></td><td class="ty"></td><td>a token: the sender&#x27;s core | the sender&#x27;s pid &lt;&lt; 8</td></tr>
+<tr><td class="k">a1</td><td class="at"></td><td class="ty"></td><td>with a0 = −1: the tags of a1&#x27;s mask that are idle</td></tr>
+<tr><td class="k">c6</td><td class="at"></td><td class="ty"></td><td>the request (a 4 KiB message buffer)</td></tr>
+<tr><td class="k">c7</td><td class="at"></td><td class="ty"></td><td>the capability its sender attached, or nothing</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>no request: a1 holds the idle tags. With a1 = 0 it is spurious (a queued request died): call again</td></tr>
+<tr><td class="k"><abbr title="timed out">−8</abbr></td><td class="at"></td><td class="ty"></td><td>timed out</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="svc-3">
+<h4><span class="n">3</span><a class="opname" href="../code/#os/kernel.s:1839"><code>REPLY</code></a><span class="sum">Give the request in c6 back to its sender, with capabilities</span></h4>
+<p>The capabilities are sent in this order: c4 (a2 bit 2), c7 (bit 0), the minted endpoint (bit 1), and then the buffer in c6; the sender gets the first two in its c6 and c7. An empty register is skipped. A request from a guest&#x27;s core gets the buffer alone. If the sender died meanwhile, c6 is cleared and the result is 0 all the same.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">a1</td><td class="at"></td><td class="ty"></td><td>the token RECEIVE gave (its low 8 bits: the sender&#x27;s core)</td></tr>
+<tr><td class="k">a2</td><td class="at"></td><td class="ty"></td><td>bit 0: send c7 first; bit 1: mint a send-only, copyable endpoint for core a3 and send it (only a process created with the privileged flag; for others the bit is ignored); bit 2: send c4 first</td></tr>
+<tr><td class="k">a3</td><td class="at"></td><td class="ty"></td><td>with a2 bit 1: the core (or the block device&#x27;s node, the number of cores) the endpoint names</td></tr>
+<tr><td class="k">attached</td><td class="at"></td><td class="ty"></td><td>c4 and c7 as a2 says, then the buffer in c6</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">a0</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>the token names no core</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="svc-4">
+<h4><span class="n">4</span><a class="opname" href="../code/#os/kernel.s:1603"><code>YIELD</code></a><span class="sum">Let the core&#x27;s other runnable threads run first</span></h4>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">a0</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="svc-5">
+<h4><span class="n">5</span><a class="opname" href="../code/#os/kernel.s:1597"><code>EXIT</code></a><span class="sum">End the calling thread, and the process with its last thread</span></h4>
+<p>The process ends when all its threads have. The status the system core reports to proc (EXITED) is thread 0&#x27;s: the code&#x27;s low 32 bits. A <code>halt</code> instruction exits the same way, with the code in a0. A fault or a kill on one thread ends every thread of the process.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">a1</td><td class="at"></td><td class="ty"></td><td>the exit code (low 32 bits)</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">a0</td><td class="at"></td><td class="ty"></td><td>does not return</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="svc-6">
+<h4><span class="n">6</span><a class="opname" href="../code/#os/kernel.s:1831"><code>NOTIFY_WAIT</code></a><span class="sum">Wait for a notification</span></h4>
+<p>Notifications are bits the system core ORs into a process&#x27;s thread 0 when proc sends it NOTIFY (proc sets bit 0 for an interrupt). The call returns them all and clears them.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">a2</td><td class="at"></td><td class="ty"></td><td>the timeout in ticks, −1 none</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">a0</td><td class="at"></td><td class="ty"></td><td>the notification bits</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="timed out">−8</abbr></td><td class="at"></td><td class="ty"></td><td>timed out</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="svc-7">
+<h4><span class="n">7</span><a class="opname" href="../code/#os/kernel.s:1613"><code>SET_MIRROR</code></a><span class="sum">Reload the program&#x27;s code from a copy in its arena</span></h4>
+<p>From now on a switch-in reloads the code from this copy instead of the image (a program that writes code, like a JIT, keeps the copy up to date). The code cache starts after the copy; its layout changes, so it is emptied and the overlay map cleared. A copy that does not lie inside the program&#x27;s memory (c0) is not loaded.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">a1</td><td class="at"></td><td class="ty"></td><td>the arena offset of the copy of the I-LS program range (0x8000 up)</td></tr>
+<tr><td class="k">a2</td><td class="at"></td><td class="ty"></td><td>its length in bytes: at most 0x8000 is used, rounded up to whole words; 0: no copy</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">a0</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
+<tr><td class="k">a1</td><td class="at"></td><td class="ty"></td><td>NXMAP: the entries of the overlay map (the program may clear them itself with <code>xunmap</code> after changing a unit&#x27;s far copy)</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="svc-8">
+<h4><span class="n">8</span><a class="opname" href="../code/#os/kernel.s:1902"><code>PARK</code></a><span class="sum">Hand the request in c6 to the dispatcher to answer later</span></h4>
+<p>The request leaves c6. UNPARK gives it back with its sender, so it can be answered with REPLY. 16 requests can be parked at once.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">attached</td><td class="at"></td><td class="ty"></td><td>c6, the request</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">a0</td><td class="at"></td><td class="ty"></td><td>the park id (0..15)</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>no room: every park slot is used, or the core&#x27;s save table is full. The request stays in c6</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="svc-9">
+<h4><span class="n">9</span><a class="opname" href="../code/#os/kernel.s:1939"><code>UNPARK</code></a><span class="sum">Take a parked request back into c6</span></h4>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">a1</td><td class="at"></td><td class="ty"></td><td>the park id</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">a0</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
+<tr><td class="k">c6</td><td class="at"></td><td class="ty"></td><td>the request</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>no such park id, or the request died while it was parked (its slot is free again)</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="svc-10">
+<h4><span class="n">10</span><a class="opname" href="../code/#os/kernel.s:1683"><code>CLOCK</code></a><span class="sum">Put the clock capability in c7 again</span></h4>
+<p>Whatever c7 holds is dropped. The clock is the read-only capability for the timer&#x27;s NOW and FREQ registers that every process starts with.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">a0</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
+<tr><td class="k">c7</td><td class="at"></td><td class="ty"></td><td>the clock</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="svc-11">
+<h4><span class="n">11</span><a class="opname" href="../code/#os/kernel.s:1664"><code>SET_SCRATCH</code></a><span class="sum">Name a D-LS range that switches neither save nor restore</span></h4>
+<p>The range is narrowed to whole words inside it; one that leaves nothing means none. Its contents are undefined after the thread is switched out and in again.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">a1</td><td class="at"></td><td class="ty"></td><td>the D-LS start</td></tr>
+<tr><td class="k">a2</td><td class="at"></td><td class="ty"></td><td>the length in bytes; 0: none</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">a0</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="svc-12">
+<h4><span class="n">12</span><a class="opname" href="../code/#os/kernel.s:1700"><code>SEND</code></a><span class="sum">Send the buffer (c5) and an attachment, then wait as WAIT_REPLY</span></h4>
+<p>The dispatcher sends the attachment and then the buffer through the endpoint, with nothing else of this core in between, so the attachment rides with its own message. It then rings the doorbell and waits as WAIT_REPLY does with a2..a4. A send to the core&#x27;s own server first empties the inbox (the call is run again later if the caller still has a message queued there).</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">a1</td><td class="at"></td><td class="ty"></td><td>the register (0..7, not 5) holding a send endpoint to a core</td></tr>
+<tr><td class="k">a2</td><td class="at"></td><td class="ty"></td><td>the timeout in ticks, −1 none</td></tr>
+<tr><td class="k">a3</td><td class="at"></td><td class="ty"></td><td>as WAIT_REPLY: the base awaited (0 the own buffer)</td></tr>
+<tr><td class="k">a4</td><td class="at"></td><td class="ty"></td><td>as WAIT_REPLY: the register an awaited capability arrives in</td></tr>
+<tr><td class="k">a5</td><td class="at"></td><td class="ty"></td><td>the attachment&#x27;s register (0..7, not 5 nor a1); −1 none</td></tr>
+<tr><td class="k">attached</td><td class="at"></td><td class="ty"></td><td>the register a5 names (it leaves the register unless it is copyable)</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">a0</td><td class="at"></td><td class="ty"></td><td>as WAIT_REPLY: 0, the buffer back in c5</td></tr>
+<tr><td class="k">c5</td><td class="at"></td><td class="ty"></td><td>the message buffer, with the reply</td></tr>
+<tr><td class="k">c6</td><td class="at"></td><td class="ty"></td><td>the first capability sent with the reply</td></tr>
+<tr><td class="k">c7</td><td class="at"></td><td class="ty"></td><td>the second one</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>nothing sent: c5 is empty, a register number is out of range, a1 holds no send endpoint to a core, or the attachment&#x27;s register is empty</td></tr>
+<tr><td class="k"><abbr title="interrupted">−2</abbr></td><td class="at"></td><td class="ty"></td><td>as WAIT_REPLY: with a3 = −1, a sleep ended by notification bit 0</td></tr>
+<tr><td class="k"><abbr title="timed out">−8</abbr></td><td class="at"></td><td class="ty"></td><td>timed out</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="svc-13">
+<h4><span class="n">13</span><a class="opname" href="../code/#os/kernel.s:1648"><code>UNITS</code></a><span class="sum">The thread&#x27;s code-unit paging counts</span></h4>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">a0</td><td class="at"></td><td class="ty"></td><td>the code units the dispatcher has paged in for this thread so far</td></tr>
+<tr><td class="k">a1</td><td class="at"></td><td class="ty"></td><td>the slots of its code cache that hold a unit now</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="svc-14">
+<h4><span class="n">14</span><a class="opname" href="../code/#os/kernel.s:1639"><code>PAGE</code></a><span class="sum">Page in the code unit of a miss the program&#x27;s own trap handler got</span></h4>
+<p>For a program with its own trap handler, which gets its code-unit misses. The dispatcher pages the unit in as for its own miss and resumes the caller at once.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">a1</td><td class="at"></td><td class="ty"></td><td>the missed far address (<code>utval</code> of the miss)</td></tr>
+<tr><td class="k">a2</td><td class="at"></td><td class="ty"></td><td>the pc of the miss (<code>uepc</code>)</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">a0</td><td class="at"></td><td class="ty"></td><td>0 paged in; 1 it cannot be (a fault after all)</td></tr>
+</tbody>
+</table></div></article>
 <!-- /ops:svc -->
   <p class="note">Generated from the dispatcher's own dispatch (<code>wt_svc</code>) and the
     header of <a class="srcpath" href="../code/#os/kernel.s">os/kernel.s</a> when the site is
@@ -94,22 +297,250 @@
     <code>proc</code>; these are the mechanisms it asks for. When a process ends, the kernel sends
     <code>proc</code> op&nbsp;7 EXITED (handle = pid, length = its status).</p>
 <!-- ops:kernel -->
+<p class="srvnote">Core 0 runs no programs: it answers these requests in its own event loop, with code units it pages in itself. The sender&#x27;s pid comes from the arena its buffer lies in (proc is pid 1, dev pid 2), and the ops that only one of them may send check it. A capability sent with a request goes just before the message (the arena of CREATE, FREE, GSTART); the capabilities of a reply arrive in the caller&#x27;s c6. The reply sets only the header&#x27;s result word. The kernel also sends proc op 7 EXITED when a process ends (described with proc).</p>
+<div class="opindex">
+<a href="#kernel-1"><span class="n">1</span><code>CREATE</code><span>Start a process in an arena that holds its image</span></a>
+<a href="#kernel-2"><span class="n">2</span><code>DESTROY</code><span>Stop every thread of a process</span></a>
+<a href="#kernel-3"><span class="n">3</span><code>MEMORY</code><span>A fresh, zeroed arena</span></a>
+<a href="#kernel-4"><span class="n">4</span><code>STATS</code><span>Counts of the machine, every core and every process</span></a>
+<a href="#kernel-5"><span class="n">5</span><code>TUNE</code><span>Set the preemption time slice</span></a>
+<a href="#kernel-6"><span class="n">6</span><code>FREE</code><span>Give an arena back to the pool</span></a>
+<a href="#kernel-8"><span class="n">8</span><code>HALT</code><span>Stop every core</span></a>
+<a href="#kernel-9"><span class="n">9</span><code>NOTIFY</code><span>Send notification bits to a process</span></a>
+<a href="#kernel-10"><span class="n">10</span><code>FBLEND</code><span>Lend the framebuffer memory to a process</span></a>
+<a href="#kernel-11"><span class="n">11</span><code>GSTART</code><span>Start a guest: whole worker cores running another system</span></a>
+<a href="#kernel-12"><span class="n">12</span><code>GSTOP</code><span>End a guest and take its cores back</span></a>
+<a href="#kernel-13"><span class="n">13</span><code>GINFO</code><span>The guests that run</span></a>
+</div>
+<article class="op" id="kernel-1">
+<h4><span class="n">1</span><a class="opname" href="../code/#os/kunits/ops.s:105"><code>CREATE</code></a><span class="sum">Start a process in an arena that holds its image</span></h4>
+<p>proc gets the arena from MEMORY, writes the start-up block at 0x7F000 and has fs load the image at 0xD0000 above the layout base (the base of the arena&#x27;s top MiB). The kernel reads the image&#x27;s STX headers, chooses the cores and slots, and starts the threads. A StrataOS program (code word 1 &quot;SYS2&quot;) with 0 threads is one thread without a core window; a bare-metal program, or any program with N threads, gets N threads on N contiguous worker cores seen through its core window. The image area above the image need not be zeroed (MEMORY mode 2): every section, its header included, must end within the image&#x27;s length, which the kernel takes from the mode word.</p>
 <div class="optable"><table>
-<thead><tr><th class="n">op</th><th>name</th><th>request</th><th>reply</th><th>errors</th></tr></thead>
-<tbody>
-<tr id="kernel-1"><td class="n">1</td><td><a class="opname" href="../code/#os/kunits/ops.s:10"><code>CREATE</code></a></td><td>attachment: an arena from MEMORY with the image at 0xD0000 and the start-up block at 0x7F000; mode = the image&#x27;s length (the bytes fs loaded: nothing beyond them is read); data: u64 pid, ncores (0 = time-shared), flags (F_SERVER 2, F_PRIV 8, F_DEVCAPS 16, F_SOLO 32, F_KEEP 64), pin core (-1 any), endpoint cores for c1..c4 (bytes, 255 none), a0, a1, a2</td><td>0, data[0] = first core (on failure the arena comes back as an attachment; for a server, an endpoint to its core comes with the reply)</td><td class="err"></td></tr>
-<tr id="kernel-2"><td class="n">2</td><td><a class="opname" href="../code/#os/kunits/ops.s:18"><code>DESTROY</code></a></td><td>handle = pid</td><td>0 (proc later gets EXITED, status bit 62)</td><td class="err"></td></tr>
-<tr id="kernel-3"><td class="n">3</td><td><a class="opname" href="../code/#os/kunits/ops.s:19"><code>MEMORY</code></a></td><td>length = the size wanted (0: 1 MiB; rounded up to whole 256 KiB granules, at least 1 MiB)</td><td>0 and a fresh arena (attachment), data[0] = its base, data[1] = its size; -6 no memory or no slot. Mode 1: an extra arena for the process handle = pid (proc&#x27;s MORE): it is that process&#x27;s (state 5) until FREE gives it back or the process ends, when it is revoked and freed with it. Mode 2: for an image (only CREATE or FREE take it, state 6): its image area and the gap above the save area are not scrubbed (u_alloc)</td><td class="err"><abbr title="no memory">-6</abbr></td></tr>
-<tr id="kernel-4"><td class="n">4</td><td><a class="opname" href="../code/#os/kunits/ops.s:28"><code>STATS</code></a></td><td></td><td>process count; data: 8 words (cores, free heap, total heap, units loaded, switches, KiB moved, processes, 0), 32 bytes per core (pid running | runnable &lt;&lt; 8 | processes &lt;&lt; 16 | flags &lt;&lt; 24 | cycles per switch &lt;&lt; 32, switches, KiB, free save-table slots | cycles per trap &lt;&lt; 32), then 32 bytes per process (pid | core &lt;&lt; 8 | state &lt;&lt; 16 | flags &lt;&lt; 24, ncores, switches, bytes)</td><td class="err"></td></tr>
-<tr id="kernel-5"><td class="n">5</td><td><a class="opname" href="../code/#os/kunits/ops.s:34"><code>TUNE</code></a></td><td>length = the time slice in ticks (100..100000)</td><td>0, -1 (proc only)</td><td class="err"><abbr title="failed">-1</abbr></td></tr>
-<tr id="kernel-6"><td class="n">6</td><td><a class="opname" href="../code/#os/kunits/ops.s:36"><code>FREE</code></a></td><td>attachment: an arena (unused from MEMORY, or from EXITED)</td><td>0</td><td class="err"></td></tr>
-<tr id="kernel-8"><td class="n">8</td><td><a class="opname" href="../code/#os/kunits/ops.s:37"><code>HALT</code></a></td><td>stops every core (waits until the workers&#x27; dispatchers have stopped their processes, then writes the console&#x27;s release port, the pointer&#x27;s EVENT port and DEADLINE 0, so that no core halts with a device read pending)</td><td></td><td class="err"></td></tr>
-<tr id="kernel-9"><td class="n">9</td><td><a class="opname" href="../code/#os/kunits/ops.s:35"><code>NOTIFY</code></a></td><td>handle = pid, length = bits</td><td>0 (wakes NOTIFY_WAIT / a sleep)</td><td class="err"></td></tr>
-<tr id="kernel-10"><td class="n">10</td><td><a class="opname" href="../code/#os/kunits/ops.s:41"><code>FBLEND</code></a></td><td>(dev only) handle = pid</td><td>0 and the framebuffer memory (attachment): every older capability of its region is revoked and that process is its holder until it ends (then the kernel revokes it again); -7 a live process holds it; -1 none / bad pid</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="busy">-7</abbr></td></tr>
-<tr id="kernel-11"><td class="n">11</td><td><a class="opname" href="../code/#os/kunits/ops.s:45"><code>GSTART</code></a></td><td>(proc only) attachment: an arena from MEMORY with a guest image at its top; data: u64 cores, pin core (-1 any), the server cores the guest may send to (bits), flags, the console&#x27;s tty core, the image&#x27;s arena offset</td><td>0, data[0] = first core, data[1] = guest id (os/kunits/guest.s); -5 no run of free cores; -1 a bad arena (it is given back)</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="no free core / not allowed">-5</abbr></td></tr>
-<tr id="kernel-12"><td class="n">12</td><td><a class="opname" href="../code/#os/kunits/ops.s:51"><code>GSTOP</code></a></td><td>(proc only) handle = guest id, mode bit0 kill</td><td>0: its arena revoked, its cores reset and StrataOS&#x27;s again; -1 no such guest</td><td class="err"><abbr title="failed">-1</abbr></td></tr>
-<tr id="kernel-13"><td class="n">13</td><td><a class="opname" href="../code/#os/kunits/ops.s:53"><code>GINFO</code></a></td><td></td><td>guests; data: u64 count, then 32 bytes per guest: u64 id, first core | cores &lt;&lt; 8, arena bytes, state (1 live)</td><td class="err"></td></tr>
-</tbody></table></div>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">mode</td><td class="at"></td><td class="ty"></td><td>the image&#x27;s length: the bytes fs loaded at 0xD0000</td></tr>
+<tr><td class="k">attached</td><td class="at"></td><td class="ty"></td><td>the arena, whole, as MEMORY gave it (mode 0 or 2)</td></tr>
+<tr><td class="k">data</td><td class="at">+0</td><td class="ty">u64</td><td>pid — new and not 0: proc allocates pids</td></tr>
+<tr><td class="k"></td><td class="at">+8</td><td class="ty">u64</td><td>threads — 0: one; at most 6</td></tr>
+<tr><td class="k"></td><td class="at">+16</td><td class="ty">u64</td><td>flags — 2 server, 8 privileged (mints endpoints in REPLY), 16 device capabilities, 32 alone on its core, 64 give the arena to proc at exit; other bits are ignored</td></tr>
+<tr><td class="k"></td><td class="at">+24</td><td class="ty">s64</td><td>pin core — −1 any; 0 is refused (−5)</td></tr>
+<tr><td class="k"></td><td class="at">+32</td><td class="ty">u8</td><td>c1&#x27;s core — the core the endpoint in c1 names; 255 none. Only a StrataOS program&#x27;s thread 0 gets c1..c4</td></tr>
+<tr><td class="k"></td><td class="at">+33</td><td class="ty">u8</td><td>c2&#x27;s core</td></tr>
+<tr><td class="k"></td><td class="at">+34</td><td class="ty">u8</td><td>c3&#x27;s core</td></tr>
+<tr><td class="k"></td><td class="at">+35</td><td class="ty">u8</td><td>c4&#x27;s core</td></tr>
+<tr><td class="k"></td><td class="at">+36</td><td class="ty">u32</td><td>0</td></tr>
+<tr><td class="k"></td><td class="at">+40</td><td class="ty">u64</td><td>a0 — the registers the program starts with</td></tr>
+<tr><td class="k"></td><td class="at">+48</td><td class="ty">u64</td><td>a1</td></tr>
+<tr><td class="k"></td><td class="at">+56</td><td class="ty">u64</td><td>a2</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>0: the process starts</td></tr>
+<tr><td class="k">c6</td><td class="at"></td><td class="ty"></td><td>for a server: a send-only endpoint to its core; on failure: the arena, given back</td></tr>
+<tr><td class="k">data</td><td class="at">+0</td><td class="ty">u64</td><td>first core — its (first) core</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>no arena came with it, it is not a whole arena MEMORY gave out, the pid is 0 or in use, or the image is not a program (bad STX headers, no code, a section that ends beyond the image&#x27;s length). The arena comes back unless it was missing</td></tr>
+<tr><td class="k"><abbr title="no free core / not allowed">−5</abbr></td><td class="at"></td><td class="ty"></td><td>more than 6 threads, a pin core of 0, or no core with room (a free slot and job record, the server and solo rules, the pinned core and the ones after it)</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="kernel-2">
+<h4><span class="n">2</span><a class="opname" href="../code/#os/kunits/ops.s:110"><code>DESTROY</code></a><span class="sum">Stop every thread of a process</span></h4>
+<p>The kernel marks each thread&#x27;s slot to be killed and wakes its core; the reply does not wait for that. Each dispatcher ends the thread, the system core revokes the arena (whatever it held or lent out dies) and sends proc EXITED with status bit 62 (killed).</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the pid</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>no such process</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="kernel-3">
+<h4><span class="n">3</span><a class="opname" href="../code/#os/kunits/ops.s:115"><code>MEMORY</code></a><span class="sum">A fresh, zeroed arena</span></h4>
+<p>The arena is the first run of free 256 KiB granules that is long enough; its capability is fresh (every older one based there is revoked) and its bytes are zeroed (with the written-page map, only the pages written since they were last zeroed are written). With mode 1 it is an extra arena of the process named by the handle (proc&#x27;s MORE): that process&#x27;s until FREE gives it back, and revoked and freed with it when the process ends. With mode 2 it is for CREATE: its image area [0xD0000, 0xF0000) and the gap [0xFC000, 0xFF000) above the layout base are left as they are, and only CREATE or FREE take it.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>with mode 1: the pid whose extra arena it is (not checked)</td></tr>
+<tr><td class="k">length</td><td class="at"></td><td class="ty"></td><td>the size wanted in bytes: rounded up to whole 256 KiB granules, 1 MiB at least (0: 1 MiB)</td></tr>
+<tr><td class="k">mode 0</td><td class="at"></td><td class="ty"></td><td>an arena for the sender, to make a process of (CREATE) or a guest (GSTART)</td></tr>
+<tr><td class="k">mode 1</td><td class="at"></td><td class="ty"></td><td>an extra arena of the process the handle names</td></tr>
+<tr><td class="k">mode 2</td><td class="at"></td><td class="ty"></td><td>an arena for an image (CREATE), not zeroed where nothing reads; with bit 0 set it is ignored</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
+<tr><td class="k">c6</td><td class="at"></td><td class="ty"></td><td>the arena</td></tr>
+<tr><td class="k">data</td><td class="at">+0</td><td class="ty">u64</td><td>base — the arena&#x27;s address</td></tr>
+<tr><td class="k"></td><td class="at">+8</td><td class="ty">u64</td><td>size — its bytes</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="no memory">−6</abbr></td><td class="at"></td><td class="ty"></td><td>no run of free granules that long, or all 64 arena slots in use</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="kernel-4">
+<h4><span class="n">4</span><a class="opname" href="../code/#os/kunits/ops.s:205"><code>STATS</code></a><span class="sum">Counts of the machine, every core and every process</span></h4>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>the number of processes</td></tr>
+<tr><td class="k">data</td><td class="at">+0</td><td class="ty">u64</td><td>cores</td></tr>
+<tr><td class="k"></td><td class="at">+8</td><td class="ty">u64</td><td>free memory — bytes of the arena pool not in use</td></tr>
+<tr><td class="k"></td><td class="at">+16</td><td class="ty">u64</td><td>total memory — bytes of the arena pool</td></tr>
+<tr><td class="k"></td><td class="at">+24</td><td class="ty">u64</td><td>kernel units loaded — code units core 0 has paged in</td></tr>
+<tr><td class="k"></td><td class="at">+32</td><td class="ty">u64</td><td>switches — context switches, all cores</td></tr>
+<tr><td class="k"></td><td class="at">+40</td><td class="ty">u64</td><td>KiB moved — by switches, all cores</td></tr>
+<tr><td class="k"></td><td class="at">+48</td><td class="ty">u64</td><td>processes</td></tr>
+<tr><td class="k"></td><td class="at">+56</td><td class="ty">u64</td><td>0</td></tr>
+<tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>per core, core 0 first:</td></tr>
+<tr><td class="k"></td><td class="at">  +0</td><td class="ty">u8</td><td>pid running — low 8 bits; 0 none</td></tr>
+<tr><td class="k"></td><td class="at">  +1</td><td class="ty">u8</td><td>runnable — threads ready to run there</td></tr>
+<tr><td class="k"></td><td class="at">  +2</td><td class="ty">u8</td><td>processes — threads placed there</td></tr>
+<tr><td class="k"></td><td class="at">  +3</td><td class="ty">u8</td><td>flags — 2 a server, 4 a process alone on it, 8 a guest&#x27;s</td></tr>
+<tr><td class="k"></td><td class="at">  +4</td><td class="ty">u32</td><td>cycles per switch — the dispatcher&#x27;s average; 0 before the first</td></tr>
+<tr><td class="k"></td><td class="at">  +8</td><td class="ty">u64</td><td>switches</td></tr>
+<tr><td class="k"></td><td class="at">  +16</td><td class="ty">u64</td><td>KiB moved — by switches</td></tr>
+<tr><td class="k"></td><td class="at">  +24</td><td class="ty">u32</td><td>free save-table slots</td></tr>
+<tr><td class="k"></td><td class="at">  +28</td><td class="ty">u32</td><td>cycles per trap — the dispatcher&#x27;s average busy time per entry</td></tr>
+<tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>per process:</td></tr>
+<tr><td class="k"></td><td class="at">  +0</td><td class="ty">u8</td><td>pid</td></tr>
+<tr><td class="k"></td><td class="at">  +1</td><td class="ty">u8</td><td>core — its first core</td></tr>
+<tr><td class="k"></td><td class="at">  +2</td><td class="ty">u8</td><td>state — thread 0&#x27;s slot: 1 loading, 2 ready, 3 WAIT_REPLY, 4 RECEIVE, 5 NOTIFY_WAIT, 6 ended, 7 waiting for a gift, 8 in tany</td></tr>
+<tr><td class="k"></td><td class="at">  +3</td><td class="ty">u8</td><td>flags — 1 core window, 2 server, 4 StrataOS program, 8 privileged, 16 device capabilities, 32 alone, 64 arena to proc</td></tr>
+<tr><td class="k"></td><td class="at">  +4</td><td class="ty">u32</td><td>0</td></tr>
+<tr><td class="k"></td><td class="at">  +8</td><td class="ty">u64</td><td>threads</td></tr>
+<tr><td class="k"></td><td class="at">  +16</td><td class="ty">u64</td><td>switches — counted per pid number (mod 256)</td></tr>
+<tr><td class="k"></td><td class="at">  +24</td><td class="ty">u64</td><td>bytes moved — by switches, per pid number</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="kernel-5">
+<h4><span class="n">5</span><a class="opname" href="../code/#os/kunits/ops.s:209"><code>TUNE</code></a><span class="sum">Set the preemption time slice</span><span class="from">proc only</span></h4>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">length</td><td class="at"></td><td class="ty"></td><td>the time slice in ticks (1 µs): 100..100000</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>0: the slice from the next tick on</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>not from proc, or the slice is out of range</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="kernel-6">
+<h4><span class="n">6</span><a class="opname" href="../code/#os/kunits/ops.s:241"><code>FREE</code></a><span class="sum">Give an arena back to the pool</span></h4>
+<p>The arena is revoked (every capability cut from it dies) and its granules are free again.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">attached</td><td class="at"></td><td class="ty"></td><td>the arena, whole: one MEMORY gave out and was not used (mode 0 or 2), one that came with EXITED, or an extra arena (mode 1)</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>no arena came with it, or it is not a whole arena of those kinds: it is dropped, not given back</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="kernel-8">
+<h4><span class="n">8</span><a class="opname" href="../code/#os/kunits/ops.s:246"><code>HALT</code></a><span class="sum">Stop every core</span></h4>
+<p>No reply: the machine stops. The kernel says so on the console, marks the machine as stopping and wakes every worker; each dispatcher stops its threads. When all have (or after a bounded wait) it completes every pending device read (the console&#x27;s release port, the pointer&#x27;s EVENT port, the network interface&#x27;s CANCEL, the timer&#x27;s DEADLINE 0) and halts. dev sends it; the kernel does not check the sender.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>none: the machine halts</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="kernel-9">
+<h4><span class="n">9</span><a class="opname" href="../code/#os/kunits/ops.s:220"><code>NOTIFY</code></a><span class="sum">Send notification bits to a process</span></h4>
+<p>The bits are ORed into the notifications of the process&#x27;s thread 0 and its core is woken. A NOTIFY_WAIT returns them; bit 0 also ends a sleep (WAIT_REPLY with nothing awaited) with −2. proc sends bit 0 for an interrupt.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the pid</td></tr>
+<tr><td class="k">length</td><td class="at"></td><td class="ty"></td><td>the bits</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>no such process</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="kernel-10">
+<h4><span class="n">10</span><a class="opname" href="../code/#os/kunits/ops.s:174"><code>FBLEND</code></a><span class="sum">Lend the framebuffer memory to a process</span><span class="from">dev only</span></h4>
+<p>Every older capability of the framebuffer window is revoked and a fresh one comes with the reply. The process the handle names holds it until it ends; then the kernel revokes it again.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the pid of the new holder</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
+<tr><td class="k">c6</td><td class="at"></td><td class="ty"></td><td>the framebuffer memory</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>not from dev, the machine has no framebuffer, or no such process</td></tr>
+<tr><td class="k"><abbr title="busy">−7</abbr></td><td class="at"></td><td class="ty"></td><td>a live process holds it</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="kernel-11">
+<h4><span class="n">11</span><a class="opname" href="../code/#os/kunits/ops.s:155"><code>GSTART</code></a><span class="sum">Start a guest: whole worker cores running another system</span><span class="from">proc only</span></h4>
+<p>proc gets the arena from MEMORY and loads the guest image at its top. The kernel takes N contiguous empty worker cores out of its own scheduling, writes the guest platform table into the arena, and gives each core the image share, a console endpoint, the clock and core control over the guest&#x27;s cores; the first core also gets the writable memory below the image. At most 4 guests run at once; their ids are 240 and up.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">attached</td><td class="at"></td><td class="ty"></td><td>the arena, as MEMORY gave it, with the guest image at its top</td></tr>
+<tr><td class="k">data</td><td class="at">+0</td><td class="ty">u64</td><td>cores</td></tr>
+<tr><td class="k"></td><td class="at">+8</td><td class="ty">s64</td><td>pin core — the first core; −1 any</td></tr>
+<tr><td class="k"></td><td class="at">+16</td><td class="ty">u64</td><td>allowed servers — bit c: the guest may send requests to the server of core c</td></tr>
+<tr><td class="k"></td><td class="at">+24</td><td class="ty">u64</td><td>flags — passed to the guest in its platform table</td></tr>
+<tr><td class="k"></td><td class="at">+32</td><td class="ty">u64</td><td>console core — the tty server&#x27;s core: its endpoint is the guest&#x27;s c1</td></tr>
+<tr><td class="k"></td><td class="at">+40</td><td class="ty">u64</td><td>image offset — where the image starts in the arena: the guest&#x27;s memory is below it</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>0: the guest runs</td></tr>
+<tr><td class="k">c6</td><td class="at"></td><td class="ty"></td><td>on −5, or on −1 for an arena MEMORY did not give: the arena, given back</td></tr>
+<tr><td class="k">data</td><td class="at">+0</td><td class="ty">u64</td><td>first core</td></tr>
+<tr><td class="k"></td><td class="at">+8</td><td class="ty">u64</td><td>guest id</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>not from proc, no arena came with it, or it is not one MEMORY gave out (that one is given back)</td></tr>
+<tr><td class="k"><abbr title="no free core / not allowed">−5</abbr></td><td class="at"></td><td class="ty"></td><td>no run of that many empty worker cores (at the pinned core, if one is given), or 4 guests already run</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="kernel-12">
+<h4><span class="n">12</span><a class="opname" href="../code/#os/kunits/ops.s:162"><code>GSTOP</code></a><span class="sum">End a guest and take its cores back</span><span class="from">proc only</span></h4>
+<p>Each of the guest&#x27;s cores is reset (it restarts at the boot ROM even in supervisor mode), the arena is revoked (everything the guest held or lent out dies), the cores are made StrataOS workers again, and the arena and the guest&#x27;s record are freed.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the guest id</td></tr>
+<tr><td class="k">mode</td><td class="at"></td><td class="ty"></td><td>bit 0: kill rather than stop. Ignored: the reset does both</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>not from proc, or no such guest</td></tr>
+</tbody>
+</table></div></article>
+<article class="op" id="kernel-13">
+<h4><span class="n">13</span><a class="opname" href="../code/#os/kunits/ops.s:170"><code>GINFO</code></a><span class="sum">The guests that run</span></h4>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>the number of guests</td></tr>
+<tr><td class="k">data</td><td class="at">+0</td><td class="ty">u64</td><td>count</td></tr>
+<tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>per guest:</td></tr>
+<tr><td class="k"></td><td class="at">  +0</td><td class="ty">u64</td><td>id</td></tr>
+<tr><td class="k"></td><td class="at">  +8</td><td class="ty">u8</td><td>first core</td></tr>
+<tr><td class="k"></td><td class="at">  +9</td><td class="ty">u8</td><td>cores</td></tr>
+<tr><td class="k"></td><td class="at">  +10</td><td class="ty">u16</td><td>0</td></tr>
+<tr><td class="k"></td><td class="at">  +12</td><td class="ty">u32</td><td>0</td></tr>
+<tr><td class="k"></td><td class="at">  +16</td><td class="ty">u64</td><td>arena bytes</td></tr>
+<tr><td class="k"></td><td class="at">  +24</td><td class="ty">u64</td><td>state — 1: live</td></tr>
+</tbody>
+</table></div></article>
 <!-- /ops:kernel -->
   <p class="note">Generated from <a class="srcpath" href="../code/#os/kunits/ops.s">os/kunits/ops.s</a>.
     Ops 11–13 hand whole worker cores to a <b>guest</b>, a second operating system that runs

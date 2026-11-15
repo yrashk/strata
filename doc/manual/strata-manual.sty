@@ -40,6 +40,16 @@
 \definecolor{oscyan}{RGB}{0,118,150}    % the StrataOS diagrams (gen-os-fig-*.tex): the site's cyan
 \definecolor{osamber}{RGB}{196,112,0}   % ... and amber, for paper
 
+% ---------------------------------------------------------------- StrataOS message specs
+% (gen-os-ops-*.tex, from os/spec/ by tools/web-os.py): an op's heading, then its fields
+\newcommand{\osop}[4]{\par\bigskip\noindent\begingroup\small\textbf{#1}\enspace\textbf{\texttt{#2}}%
+  \enspace---\enspace #3\if\relax\detokenize{#4}\relax\else\hfill\textit{#4}\fi\endgroup\par\nopagebreak\smallskip}
+\newenvironment{osfields}{\small\setlength{\LTpre}{2pt}\setlength{\LTpost}{0pt}\setlength{\LTleft}{0pt}%
+  \begin{longtable}{@{}>{\ttfamily}p{19mm}@{\hspace{4pt}}>{\raggedleft\ttfamily\color{black!55}}p{7mm}@{\hspace{6pt}}%
+    >{\ttfamily\color{osamber}}p{10mm}@{\hspace{8pt}}>{\raggedright\arraybackslash}p{0.68\linewidth}@{}}}%
+  {\end{longtable}}
+\newcommand{\osfsec}[1]{\multicolumn{4}{@{}l}{\scriptsize\sffamily\color{osamber}\MakeUppercase{#1}}\\}
+
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{0.55em plus 0.1em}
 \setlist{nosep,leftmargin=1.4em,topsep=0.3em}
