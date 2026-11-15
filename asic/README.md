@@ -36,6 +36,48 @@ timing repair.
 The real wall time was more than a day: the first floorplans did not
 route, and several steps had to be worked around (below).
 
+## One single-port memory, and a denser macro: prepared, not routed
+
+The RTL can now keep both Local Stores of a core in one single-port memory
+(`LS_1P = 1`, `rtl/strata_ram1.sv`), which is what the macros are. The flow
+has it as an option; nothing of it has been placed or routed yet, so the
+table is the floorplan the scripts make and a synthesis on the host
+(`asic/area.sh`: Yosys `synth; dfflibmap; abc` to the 5 V cells, which
+gives 2.51 mm2 where LibreLane's synthesis step gave 3.03 for the earlier
+RTL of the results above; compare the rows with each other, not with those
+results).
+
+| One core | Local Store macros | Standard cells | Flip-flops | Die (floorplan) |
+|---|---|---|---|---|
+| two stores (the stand-in below) | 256 x 512 x 8, 53.6 mm2 | 2.507 mm2 | 11,429 | 10.34 x 9.05 mm = 93.6 mm2 |
+| `ASIC_LS1P=1` | 256 x 512 x 8, 53.6 mm2 | 2.523 mm2 | 11,496 | the same |
+| `ASIC_LS1P=1 ASIC_SRAM=ocd1024` | 128 x 1024 x 8, 19.9 mm2 | 2.498 mm2 | 11,495 | 10.93 x 4.89 mm = 53.5 mm2 |
+
+- `ASIC_LS1P=1` replaces the stand-in by `asic/rtl/gf180mcu/strata_ram1.sv`,
+  which is the RTL's memory exactly: the first caveat below goes away, for
+  0.7% more cells (the second read-ahead word, the arbitration). The macros
+  and their places are the same: the memory's first 16 rows are the block
+  on the left of the logic, the other 16 the block on the right.
+- `ASIC_SRAM=ocd1024` builds that memory from the 1024 x 8 macro of
+  [gf180mcu_ocd_ip_sram](https://github.com/RTimothyEdwards/gf180mcu_ocd_ip_sram)
+  (the PDK's macros redone with 3.3 V devices: 301.30 x 515.81 um, the same
+  pins on the same edge, 19 um2 per bit against 51): 16 rows instead of 32,
+  8 on each side.
+- The die of the third row is not half of the first because the logic keeps
+  its room: the strip between the blocks has the area it had (26.4 mm2 for
+  2.5 mm2 of cells and their wiring, at the 22% placement density that
+  routed), and is now half the die. The memory is 19.9 + 1.6 (save table)
+  of the 53.5 mm2. What decides the next step in area is how densely the
+  logic can be placed, which only a routed run says.
+- Not done: any LibreLane step with these options. The 1024 x 8 macro's
+  LEF, GDS and liberty are not in the PDK `asic/pdk.sh` fetches, so
+  `asic/run.sh` stops before LibreLane with it; the pictures' and reports'
+  scripts (`annotate.py`, `zoombox.py`, `summarize.py`) know only the two
+  stores' names. The save table stays in the PDK's 256 x 8 macros.
+
+      ASIC_PREP=1 ASIC_LS1P=1 ASIC_SRAM=ocd1024 asic/run.sh 1    # sources, macro list, placement, die size
+      asic/area.sh build/asic/gf180mcu-1-1p-ocd1024             # cell area (ASIC_PDK_ROOT: the PDK)
+
 ## What it took
 
 Each of these is a setting in `asic/mkconfig.py` with a comment:
@@ -146,7 +188,8 @@ system logic in a band below.
 
 ## Caveats
 
-- **The Local Stores are not the same RAM.** `rtl/strata_ram.sv` is a true
+- **The Local Stores are not the same RAM** (in the runs above; with
+  `ASIC_LS1P=1` they are, see "One single-port memory"). `rtl/strata_ram.sv` is a true
   dual-port RAM (FPGA block RAM is). GF180MCU's SRAM macros are single-port;
   the stand-in shares one port and gives port A priority, so a Transfer
   Unit access in the same cycle as the core's is lost. A real design needs

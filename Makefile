@@ -8,6 +8,10 @@
 #                   those that what differs from main can reach; test-one T=NAME (doc/testing.md)
 #   make test-small the examples and the StrataOS session with 8 overlay map entries
 #                   (NXMAP=8, the FPGA configuration; part of make test)
+#   make test-nostream  the examples and the conformance suite on an RTL built with
+#                   STREAM=0 (every instruction fetched through F0 and F1; part of make test)
+#   make test-ls1p  the examples, the conformance suite and the StrataOS session on an
+#                   RTL built with LS_1P=1 (one single-port memory per core; part of make test)
 #   make test-ls    the examples, lssize.s and StrataOS's refusal with smaller Local
 #                   Stores (32/32, 16/4, 4/32 KiB D-LS/I-LS; part of make test)
 #   make run        run every example on the RTL simulator, showing its output
@@ -44,6 +48,11 @@ NCORES  ?= 8
 NXMAP   ?= 16
 DLS_KIB ?= 64
 ILS_KIB ?= 64
+# the cores' stream fetch (rtl/strata_core.sv STREAM): 0 fetches every
+# instruction in two cycles of its own, the same machine in more cycles
+STREAM  ?= 1
+# 1: each core's two Local Stores in one single-port memory (rtl/strata_core.sv LS_1P)
+LS_1P   ?= 0
 
 # SDL2 for the framebuffer window, when pkg-config finds it (else -DNO_SDL:
 # no window, PRESENT only records frames for -F)
@@ -59,14 +68,14 @@ BUILD   := build
 # the contents of their sources and of this file; STRATA_CACHE= turns it off)
 CACHED  := ./tools/build-cache.sh
 RTL     := rtl/strata_pkg.sv rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv rtl/strata_mul.sv \
-           rtl/strata_ram.sv rtl/strata_uart.sv rtl/strata_tu.sv rtl/strata_bus.sv \
+           rtl/strata_ram.sv rtl/strata_ram1.sv rtl/strata_uart.sv rtl/strata_tu.sv rtl/strata_bus.sv \
            rtl/strata_mem.sv rtl/strata_dev.sv rtl/strata_core.sv rtl/strata_top.sv
 EXAMPLES := $(wildcard examples/*.s)
 IMAGES  := $(patsubst examples/%.s,$(BUILD)/examples/%.stx,$(EXAMPLES))
 PROGS   := $(patsubst examples/%.s,$(BUILD)/prog/%,$(EXAMPLES))
 EMU     := $(BUILD)/strata-emu -c $(NCORES)
 
-.PHONY: all examples test-small test-ls clean lint run run-emu boot boot-net boot-ws boot-wdoom boot-demo boot-rtl boot-rtl-demo os fpga-images manual
+.PHONY: all examples test-small test-ls test-nostream test-ls1p clean lint run run-emu boot boot-net boot-ws boot-wdoom boot-demo boot-rtl boot-rtl-demo os fpga-images manual
 
 all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl $(BUILD)/netrelay $(BUILD)/strata-dbg
 
@@ -97,11 +106,11 @@ $(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) $(DBG_ENGINE) emu/jit/jit.h emu/jit/ji
 
 $(BUILD)/strata-rtl: $(RTL) sim/main.cpp common/stx.h common/platform.h common/display.h common/net.h common/netnat.h asm/isa.h
 	@mkdir -p $(BUILD)
-	$(CACHED) "rtl $$(verilator --version) $$(c++ --version | head -1) $(NCORES) $(NXMAP) $(DLS_KIB) $(ILS_KIB) $(SDL_CFLAGS) $(SDL_LIBS)" \
+	$(CACHED) "rtl $$(verilator --version) $$(c++ --version | head -1) $(NCORES) $(NXMAP) $(DLS_KIB) $(ILS_KIB) $(STREAM) $(LS_1P) $(SDL_CFLAGS) $(SDL_LIBS)" \
 	  -o $@ -i rtl -i sim -i common -i asm/isa.h -i Makefile -- sh -c '\
 	verilator --cc --exe --build -j 0 -O3 --x-assign fast --x-initial fast \
 	  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
-	  -DSIMULATION -GNCORES=$(NCORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) --top-module strata_top \
+	  -DSIMULATION -GNCORES=$(NCORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) -GSTREAM=$(STREAM) -GLS_1P=$(LS_1P) --top-module strata_top \
 	  -Mdir $(BUILD)/obj_dir -o strata-rtl \
 	  -CFLAGS "-O2 -std=c++17 -DNCORES=$(NCORES) -DNXMAP=$(NXMAP) -DDLS_KIB=$(DLS_KIB) -DILS_KIB=$(ILS_KIB) $(SDL_CFLAGS)" \
 	  -LDFLAGS "$(SDL_LIBS)" $(RTL) sim/main.cpp && \
@@ -111,6 +120,9 @@ lint:
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -DSIMULATION --top-module strata_top $(RTL)
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM --top-module strata_top $(RTL)
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GDLS_KIB=8 -GILS_KIB=4 --top-module strata_top $(RTL)
+	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GSTREAM=0 --top-module strata_top $(RTL)
+	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GLS_1P=1 --top-module strata_top $(RTL)
+	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GLS_1P=1 -GSTREAM=0 -GDLS_KIB=8 -GILS_KIB=4 --top-module strata_top $(RTL)
 
 $(BUILD)/examples/%.stx: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/examples
@@ -149,7 +161,7 @@ test-list:
 
 # what the tests need built (the NEEDS of tools/tests.sh); run-tests.sh builds
 # them with one make -j
-.PHONY: build-main build-test-disks build-stdb-test build-forth build-small build-ls32 build-ls16-4 build-ls4-32 build-f44 \
+.PHONY: build-main build-test-disks build-stdb-test build-forth build-small build-nostream build-ls1p build-ls32 build-ls16-4 build-ls4-32 build-f44 \
         build-wasm build-wasm-test build-wasm-rtl-test
 build-main: all examples os $(BUILD)/stdb
 build-test-disks: $(BUILD)/http-test/disk.img $(BUILD)/isol-test/disk.img $(BUILD)/files-test/disk.img $(BUILD)/forth-test/disk.img
@@ -164,6 +176,19 @@ build-small:
 	$(MAKE) BUILD=$(SMALL) NXMAP=8 all examples os $(SMALL)/stdb
 test-small:
 	@$(RUN_TESTS) 'small-*'
+
+# the fetch without the stream (STREAM=0) and one single-port memory for both
+# Local Stores (LS_1P=1): RTLs built that way in their own directories
+NOSTREAM := $(BUILD)/nostream
+LS1P     := $(BUILD)/ls1p
+build-nostream:
+	$(MAKE) BUILD=$(NOSTREAM) STREAM=0 all examples
+build-ls1p:
+	$(MAKE) BUILD=$(LS1P) LS_1P=1 all examples os $(LS1P)/stdb
+test-nostream:
+	@$(RUN_TESTS) 'nostream-*'
+test-ls1p:
+	@$(RUN_TESTS) 'ls1p-*'
 
 # smaller Local Stores (DLS_KIB / ILS_KIB, the emulator's -L): RTLs built
 # with 32/32, 16/4 and 4/32 KiB (D-LS/I-LS) in their own directories,
@@ -794,11 +819,11 @@ test-wasm-rtl: build-wasm-rtl-test
 	BUILD=$(BUILD) ./tools/test-wasm-rtl.sh
 $(WEB)/strata-rtl.js: $(RTL) sim/main.cpp web/web_rtl.cpp web/web_rtl_stubs.c common/stx.h common/platform.h common/display.h common/net.h common/netnat.h asm/isa.h
 	@mkdir -p $(WEB) $(BUILD)/web-rtl
-	$(CACHED) "rtl.js $$(verilator --version) $$($(EMXX) --version | head -1) $(WEB_RTL_CORES) $(NXMAP) $(DLS_KIB) $(ILS_KIB)" \
+	$(CACHED) "rtl.js $$(verilator --version) $$($(EMXX) --version | head -1) $(WEB_RTL_CORES) $(NXMAP) $(DLS_KIB) $(ILS_KIB) $(STREAM) $(LS_1P)" \
 	  -o $@ -o $(@:.js=.wasm) -i rtl -i sim -i web -i common -i asm/isa.h -i Makefile -- sh -c '\
 	verilator --cc -O3 --x-assign fast --x-initial fast \
 	  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
-	  -DSIMULATION -GNCORES=$(WEB_RTL_CORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) --top-module strata_top \
+	  -DSIMULATION -GNCORES=$(WEB_RTL_CORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) -GSTREAM=$(STREAM) -GLS_1P=$(LS_1P) --top-module strata_top \
 	  -Mdir $(BUILD)/web-rtl/obj $(RTL) && \
 	$(EMCC) -O2 -c -o $(BUILD)/web-rtl/stubs.o web/web_rtl_stubs.c && \
 	$(EMXX) -std=c++17 -O2 -include cstdint -DNO_SDL -DVL_IGNORE_UNKNOWN_ARCH -DNCORES=$(WEB_RTL_CORES) -DNXMAP=$(NXMAP) -DDLS_KIB=$(DLS_KIB) -DILS_KIB=$(ILS_KIB) \

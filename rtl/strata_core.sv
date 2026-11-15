@@ -29,6 +29,32 @@
 // both Local Stores: the boot ROM (the first BOOT_WORDS of the boot image,
 // kept in a small ROM per Local Store) and zeros above it, one word per
 // cycle. Then it fetches from pc 0, as at power-on (emu.c core_reset).
+//
+// STREAM = 1 (the default; 0 fetches every instruction through F0 and F1)
+// takes the two fetch cycles off sequential code. An I-LS word is two instructions and port A of the I-LS is idle
+// outside F0, so the core keeps the word F1 read (fb_cur) and reads the
+// word after it while it executes (fb_nxt: the read-ahead). An instruction
+// that retires to pc + 4 and finds its successor there goes straight to EX
+// with it (to F1, for one cycle, when that word is only just being read). Everything else goes through F0 and F1 as before: transfers of
+// control, traps, every transfer instruction (so the fetch hazard and the
+// wait for a core-control write are checked where they always were), a
+// pending stop or reset. Nothing is read ahead while a tgetx is in the
+// Transfer Unit's queue. No instruction's result changes, only the cycle
+// in which it executes.
+//
+// LS_1P = 1 (off by default) keeps both Local Stores in one single-port
+// memory (strata_ram1: the I-LS in its low words, the D-LS above), one
+// access per cycle. A beat arriving from the far bus (tget, tgetx) is
+// written at once and the core gives way for that cycle (ls_wait: the
+// fetch, a load, a store or a tag-table access waits, the read-ahead is
+// skipped); the unit holds a beat from far memory back for a cycle when
+// the core's registers say it is about to use the memory, never two cycles
+// running, so the two take turns; otherwise the fetch and the data access have the memory when
+// they want it; a tput's read of the D-LS and the read-ahead of the next
+// word take the cycles they leave, in turns, and the read-ahead goes two
+// words ahead (fb_nx2) in what is left after that, because with one memory
+// it is often a cycle late. The reset sequencer writes
+// the two stores' words in alternate cycles.
 
 module strata_core
   import strata_pkg::*;
@@ -38,6 +64,8 @@ module strata_core
   parameter int    NXMAP    = NXMAP_DEF,  // overlay map entries (4..16; the platform table says)
   parameter int    DLS_KIB  = LS_DEF_KIB, // the D-LS and I-LS in KiB (powers of two, 4..64; the
   parameter int    ILS_KIB  = LS_DEF_KIB, //   platform table says)
+  parameter bit    STREAM   = 1,          // 1: sequential code skips F0 / F1 (see above)
+  parameter bit    LS_1P    = 0,          // 1: both Local Stores in one single-port memory (see above)
   parameter string ILS_INIT = "",
   parameter string DLS_INIT = ""
 )(
@@ -56,6 +84,7 @@ module strata_core
   input  logic        tu_gnt,
   input  logic        tu_wready,
   input  logic        tu_rvalid,
+  output logic        tu_rready,
   input  logic        tu_done,
   input  logic        tu_retry,
   input  logic        tu_wake,      // the device space: a device read of this core that waits may now complete
@@ -143,7 +172,8 @@ module strata_core
   // (LSN steps, one more for the boot ROM's registered read)
   localparam int LSN = ILS_WORDS > DLS_WORDS ? ILS_WORDS : DLS_WORDS;
   localparam int RSN = CTAB > 32 ? CTAB : 32;
-  localparam int RSW = $clog2(LSN) + 1;
+  localparam int LSN2 = LS_1P ? 2 * LSN : LSN;   // its Local Store steps (one memory: a store per step)
+  localparam int RSW = $clog2(LSN2) + 1;
   logic [RSW-1:0] rs_i;
   logic           rs_ld;         // this reset reloads the Local Stores
   logic           rpend;         // a reset request is pending
@@ -224,6 +254,17 @@ module strata_core
   logic        tu_ils_en;
   logic [12:0] tu_ils_addr;
   logic [63:0] tu_ils_wdata, ils_b_rdata;
+  // STREAM: the word of the instruction in ir (fb_cur; pc[15:3] is its
+  // number), the word after it once read (fb_nxt, fb_nxt_v), and whether
+  // that read was issued last cycle (ra_infl: the word is on ia_rdata now).
+  // With one memory (LS_1P) the read-ahead is often a cycle late, so there
+  // it goes two words ahead: fb_nx2 is the word after fb_nxt, and ra_two
+  // says the read under way is that one
+  localparam bit RA2 = LS_1P;
+  logic [63:0] fb_cur, fb_nxt, fb_nx2, nxt_word, nx2_word;
+  logic        fb_nxt_v, fb_nx2_v, ra_infl, ra_two, ra_ok, ra_any, st_exec, ex_seq, fast_ok, seq_ok;
+  logic        have1, have2, need1, need2;
+  logic [13:0] ra_addr;
 
   logic        da_en;
   logic [7:0]  da_we;
@@ -243,6 +284,9 @@ module strata_core
   logic [63:0] brom_iq, brom_dq;   // the word read last cycle
   logic        rl_v, rl_boot;      // the sequencer writes word rl_a this cycle (from the ROM: rl_boot)
   logic [12:0] rl_a;
+  logic        rl_d;               // LS_1P: ... of the D-LS (else of the I-LS)
+  logic [RSW-1:0] rs_w;            // the word number of step rs_i
+  assign rs_w = LS_1P ? rs_i >> 1 : rs_i;
 `ifdef SIMULATION
   initial for (int i = 0; i < BOOT_WORDS; i++) begin
     brom_i[i] = img_word(1, i);
@@ -255,40 +299,110 @@ module strata_core
   end
 `endif
   always_ff @(posedge clk) begin
-    brom_iq <= brom_i[rs_i[BW-1:0]];
-    brom_dq <= brom_d[rs_i[BW-1:0]];
+    brom_iq <= brom_i[rs_w[BW-1:0]];
+    brom_dq <= brom_d[rs_w[BW-1:0]];
   end
 
   // (every address reaching a memory is below its size: the checks in EX
   // and the Transfer Unit's checked ranges; the reset sequencer writes each
   // store's own words only)
   logic rl_vi, rl_vd;
-  assign rl_vi = rl_v && 32'(rl_a) < ILS_WORDS;
-  assign rl_vd = rl_v && 32'(rl_a) < DLS_WORDS;
-  strata_ram #(.WORDS(ILS_WORDS), .INIT(ILS_INIT)) u_ils (
+  assign rl_vi = rl_v && 32'(rl_a) < ILS_WORDS && !(LS_1P && rl_d);
+  assign rl_vd = rl_v && 32'(rl_a) < DLS_WORDS && !(LS_1P && !rl_d);
+  // Two dual-port memories, or (LS_1P) one single-port memory for both. The
+  // instances u_ils and u_dls stay in either case, so that their names do
+  // not depend on the parameter (scripts of the FPGA and ASIC flows place
+  // and classify cells by them); with LS_1P they are two unused words each
+  // and u_ls1 holds the stores.
+  logic [63:0] ia_q2, da_q2, tu_q2, ls1_q;
+  logic        ls_wait, ls_gnt, ls_denied, ls_want, tu_get_beat, tu_put_want, ra_go, ia_f0;
+  logic        put_ref_q;          // a tput's read was refused last cycle
+  strata_ram #(.WORDS(LS_1P ? 2 : ILS_WORDS), .INIT(LS_1P ? "" : ILS_INIT)) u_ils (
     .clk,
-    .a_en(ia_en), .a_we(8'h00), .a_addr(ia_addr[IAW-1:0]), .a_wdata(64'b0), .a_rdata(ia_rdata),
-    .b_en(tu_ils_en || rl_vi), .b_we(tu_ils_en || rl_vi ? 8'hff : 8'h00),
-    .b_addr(rl_v ? rl_a[IAW-1:0] : tu_ils_addr[IAW-1:0]),
+    .a_en(ia_en && !LS_1P), .a_we(8'h00), .a_addr(ia_addr[(LS_1P ? 1 : IAW)-1:0]), .a_wdata(64'b0), .a_rdata(ia_q2),
+    .b_en((tu_ils_en || rl_vi) && !LS_1P), .b_we(tu_ils_en || rl_vi ? 8'hff : 8'h00),
+    .b_addr(rl_v ? rl_a[(LS_1P ? 1 : IAW)-1:0] : tu_ils_addr[(LS_1P ? 1 : IAW)-1:0]),
     .b_wdata(rl_v ? (rl_boot ? brom_iq : 64'b0) : tu_ils_wdata),
     .b_rdata(ils_b_rdata)
   );
-  strata_ram #(.WORDS(DLS_WORDS), .INIT(DLS_INIT)) u_dls (
+  strata_ram #(.WORDS(LS_1P ? 2 : DLS_WORDS), .INIT(LS_1P ? "" : DLS_INIT)) u_dls (
     .clk,
-    .a_en(da_en), .a_we(da_we), .a_addr(da_addr[DAW-1:0]), .a_wdata(da_wdata), .a_rdata(da_rdata),
-    .b_en(tu_dls_en || rl_vd), .b_we(rl_v ? (rl_vd ? 8'hff : 8'h00) : tu_dls_we),
-    .b_addr(rl_v ? rl_a[DAW-1:0] : tu_dls_addr[DAW-1:0]),
+    .a_en(da_en && !LS_1P), .a_we(da_we), .a_addr(da_addr[(LS_1P ? 1 : DAW)-1:0]), .a_wdata(da_wdata), .a_rdata(da_q2),
+    .b_en((tu_dls_en || rl_vd) && !LS_1P), .b_we(rl_v ? (rl_vd ? 8'hff : 8'h00) : tu_dls_we),
+    .b_addr(rl_v ? rl_a[(LS_1P ? 1 : DAW)-1:0] : tu_dls_addr[(LS_1P ? 1 : DAW)-1:0]),
     .b_wdata(rl_v ? (rl_boot ? brom_dq : 64'b0) : tu_dls_wdata),
-    .b_rdata(tu_dls_rdata)
+    .b_rdata(tu_q2)
   );
+  assign ia_rdata     = LS_1P ? ls1_q : ia_q2;
+  assign da_rdata     = LS_1P ? ls1_q : da_q2;
+  assign tu_dls_rdata = LS_1P ? ls1_q : tu_q2;
+  // the core gives way to a beat from the bus; the unit's reads give way to
+  // the fetch and the data access, and the read-ahead to them (ra_go)
+  assign ls_wait = LS_1P && tu_get_beat;
+  // the core is about to use the memory, as far as registers tell (the
+  // unit holds a beat from far memory back for it: strata_tu)
+  assign ls_want = LS_1P && (state == S_F0 || (state == S_EX && (d.kind == K_LOAD || d.kind == K_STORE)) ||
+                             (state == S_LT && !lt_ph) || state == S_LW ||
+                             (STREAM && (state == S_F1 || (st_exec && need1))));
+  assign ls_gnt  = !LS_1P || !(ia_en || da_en);
 
+  if (LS_1P) begin : g_1p
+    localparam int MW = ILS_WORDS + DLS_WORDS;
+    localparam int MA = $clog2(MW);
+    logic          m_en;
+    logic [7:0]    m_we;
+    logic [MA-1:0] m_addr, m_ia, m_da, m_ua, m_ra, m_xa;
+    logic [63:0]   m_wdata;
+    assign m_ia = MA'(ia_addr[IAW-1:0]);
+    assign m_da = MA'(ILS_WORDS) + MA'(da_addr[DAW-1:0]);
+    assign m_ua = MA'(ILS_WORDS) + MA'(tu_dls_addr[DAW-1:0]);
+    assign m_xa = MA'(tu_ils_addr[IAW-1:0]);
+    assign m_ra = rl_d ? MA'(ILS_WORDS) + MA'(rl_a[DAW-1:0]) : MA'(rl_a[IAW-1:0]);
+    always_comb begin
+      m_en    = 1;
+      m_we    = '0;
+      m_addr  = m_ia;
+      m_wdata = tu_dls_wdata;
+      if (rl_v) begin                                    // the reset sequencer (the unit is flushed)
+        m_en    = rl_vi || rl_vd;
+        m_we    = 8'hff;
+        m_addr  = m_ra;
+        m_wdata = rl_boot ? (rl_d ? brom_dq : brom_iq) : 64'b0;
+      end else if (tu_ils_en) begin                      // a tgetx beat
+        m_we    = 8'hff;
+        m_addr  = m_xa;
+        m_wdata = tu_ils_wdata;
+      end else if (tu_dls_en && tu_dls_we != 0) begin    // a tget beat
+        m_we    = tu_dls_we;
+        m_addr  = m_ua;
+      end else if (da_en) begin                          // the core's data access
+        m_we    = da_we;
+        m_addr  = m_da;
+        m_wdata = da_wdata;
+      end else if (ia_en) begin                          // the fetch, the read-ahead
+      end else if (tu_dls_en) begin                      // a tput's read (ls_gnt)
+        m_addr  = m_ua;
+      end else m_en = 0;
+    end
+    strata_ram1 #(.WORDS(MW), .SPLIT(ILS_WORDS), .INIT_LO(ILS_INIT), .INIT_HI(DLS_INIT)) u_ls1 (
+      .clk, .en(m_en), .we(m_we), .addr(m_addr), .wdata(m_wdata), .rdata(ls1_q)
+    );
 `ifdef SIMULATION
-  // load the program image into both Local Stores
-  initial begin
-    for (int i = 0; i < ILS_WORDS; i++) u_ils.mem[i] = img_word(1, i);
-    for (int i = 0; i < DLS_WORDS; i++) u_dls.mem[i] = img_word(2, i);
-  end
+    initial begin
+      for (int i = 0; i < ILS_WORDS; i++) u_ls1.mem[i] = img_word(1, i);
+      for (int i = 0; i < DLS_WORDS; i++) u_ls1.mem[ILS_WORDS + i] = img_word(2, i);
+    end
 `endif
+  end else begin : g_2p
+    assign ls1_q = '0;
+`ifdef SIMULATION
+    // load the program image into both Local Stores
+    initial begin
+      for (int i = 0; i < ILS_WORDS; i++) u_ils.mem[i] = img_word(1, i);
+      for (int i = 0; i < DLS_WORDS; i++) u_dls.mem[i] = img_word(2, i);
+    end
+`endif
+  end
 
   // ================================================================ decode, registers
   dec_t d;
@@ -423,6 +537,7 @@ module strata_core
 
   // ================================================================ Transfer Unit
   logic        tu_iss_valid, tu_iss_ready, tu_iss_hz, tu_idle, tu_mem_idle, tu_put_idle, tu_cc_busy, tu_quiet;
+  logic        tu_getx_busy;
   logic [15:0] tag_busy;
   logic [LSW-1:0] hz_addr, hz_len;   // (only meaningful inside the D-LS: see strata_tu)
   logic        hz_rd_stall, hz_wr_stall, hz_fetch_stall;
@@ -467,13 +582,14 @@ module strata_core
     .iss_space(xcap.space), .iss_far(xcap.base + rb[FW-1:0]), .iss_len(LSW'(rc)), .iss_ready(tu_iss_ready),
     .iss_hz(tu_iss_hz),
     .tag_busy, .idle(tu_idle), .mem_idle(tu_mem_idle), .put_idle(tu_put_idle), .cc_busy(tu_cc_busy), .quiet(tu_quiet),
+    .getx_busy(tu_getx_busy), .get_beat(tu_get_beat), .put_want(tu_put_want), .ls_gnt, .ls_want, .ls_used(LS_1P && (ia_en || da_en)), .ls_denied,
     .hz_addr, .hz_len, .hz_rd_stall, .hz_wr_stall, .hz_pc(LSW'(pc)), .hz_fetch_stall,
     .dls_en(tu_dls_en), .dls_we(tu_dls_we), .dls_addr(tu_dls_addr), .dls_wdata(tu_dls_wdata),
     .dls_rdata(tu_dls_rdata),
     .ils_en(tu_ils_en), .ils_addr(tu_ils_addr), .ils_wdata(tu_ils_wdata),
     .b_req(tu_req), .b_we(tu_we), .b_space(tu_space), .b_addr(tu_addr), .b_beats(tu_beats),
     .b_byte(tu_byte), .b_wvalid(tu_wvalid), .b_wdata(tu_wdata), .b_gnt(tu_gnt),
-    .b_wready(tu_wready), .b_rvalid(tu_rvalid), .b_rdata(bus_rdata), .b_done(tu_done),
+    .b_wready(tu_wready), .b_rvalid(tu_rvalid), .b_rready(tu_rready), .b_rdata(bus_rdata), .b_done(tu_done),
     .b_retry(tu_retry), .wake(tu_wake)
   );
 
@@ -683,7 +799,9 @@ module strata_core
   assign ca      = lt_ebase + 64'(lt_ways) * 8;                      // the set's counter word
   assign nv      = lt_victim + 1 == 64'(lt_ways) ? 64'd0 : lt_victim + 1;
   always_comb begin
-    ia_en    = state == S_F0 && pc[1:0] == 0 && pc_in && !hz_fetch_stall;
+    // (LS_1P: not while the fetch waits for a core-control write, whose read
+    // of the D-LS needs the memory)
+    ia_en    = state == S_F0 && pc[1:0] == 0 && pc_in && !hz_fetch_stall && !(LS_1P && tu_cc_busy);
     ia_addr  = pc[15:3];
     da_en    = 0;
     da_we    = '0;
@@ -709,8 +827,48 @@ module strata_core
       da_addr  = ca[15:3];
       da_wdata = nv;
     end
+    // one memory (LS_1P): everything waits for a beat from the bus, and the
+    // read-ahead also for the core's own data access
+    // (a waiting tput read goes before the read of the second word ahead,
+    // and before that of the next word when it was refused last cycle)
+    ra_go = ra_any && !(LS_1P && (da_en || (tu_put_want && (!(need1 || state == S_F1) || put_ref_q)))) && !ls_wait;
+    ls_denied = ls_wait && (ia_en || da_en || ra_any);
+    if (ls_wait) begin
+      ia_en = 0;
+      da_en = 0;
+      da_we = '0;
+    end
+    ia_f0 = ia_en;
+    if (ra_go) begin                                     // (never in F0)
+      ia_en   = 1;
+      ia_addr = ra_addr[12:0];
+    end
   end
   assign div_start = state == S_EX && is_div;
+
+  // STREAM: the read-ahead of the word after pc's. In F1 (the port is free
+  // again) and, when that word has been used up, in any cycle of an
+  // instruction; never while a tgetx is queued (the word may be about to
+  // change: such a fetch waits in F0 for the transfer)
+  assign st_exec  = state inside {S_EX, S_CT, S_LD, S_LG, S_LT, S_LW, S_DV, S_AM};
+  // the next word and the one after: held, or arriving now; neither held
+  // nor on its way (the words are read in order, so need2 matters only
+  // when the next word is taken care of)
+  assign have1    = fb_nxt_v || (ra_infl && !ra_two);
+  assign have2    = fb_nx2_v || (ra_infl && ra_two);
+  assign need1    = !have1;
+  assign need2    = RA2 && !have2;
+  assign ra_addr  = {1'b0, pc[15:3]} + (state != S_F1 && !need1 ? 14'd2 : 14'd1);
+  assign ra_ok    = !tu_getx_busy && 32'(ra_addr) < ILS_WORDS;
+  assign ra_any   = STREAM && ra_ok && (state == S_F1 || (st_exec && (need1 || need2)));
+  assign nxt_word = fb_nxt_v ? fb_nxt : ia_rdata;
+  assign nx2_word = fb_nx2_v ? fb_nx2 : ia_rdata;
+  // this instruction, when it retires, goes on to pc + 4 without a reason
+  // to pass through F0 (a transfer instruction has one: see the header)
+  assign ex_seq   = !(d.kind inside {K_JAL, K_JALR, K_XFER, K_XCALL, K_SYS}) && !(d.kind == K_BRANCH && br_taken);
+  // ... and its successor is here, with no stop or reset to take first
+  assign seq_ok   = !rpend && !reset_req && !(user && (ipend || stop_req));
+  assign fast_ok  = (!pc[2] || have1) && seq_ok;
   // capability-table write: csave stores the source capability
   // save-table write: csave stores the source capability, crestore of a
   // linear entry empties the slot; S_RST empties every slot
@@ -726,6 +884,27 @@ module strata_core
     pc          <= next_pc;
     csr_instret <= csr_instret + 1;
     state       <= S_F0;
+    if (STREAM && ex_seq && fast_ok) begin               // (next_pc is pc + 4)
+      logic [31:0] nir;
+      nir = pc[2] ? nxt_word[31:0] : fb_cur[63:32];
+      ir    <= nir;
+      state <= S_EX;
+      if (pc[2]) begin                                   // into the next word: the words move up
+        fb_cur   <= nxt_word;
+        fb_nxt   <= nx2_word;
+        fb_nxt_v <= have2;
+        fb_nx2_v <= 0;
+        ra_two   <= 0;                                   // (a read issued now is of the word after the new next)
+      end
+`ifdef SIMULATION
+      if (trace_on) sim_trace(COREID, next_pc, nir);
+`endif
+    end else if (STREAM && ex_seq && seq_ok && pc[2] && ra_go) begin   // (need1: it is the next word's read)
+      // the next word is only being read now (the read-ahead was late: a
+      // data access or the Transfer Unit had the memory): F1 takes it
+      // from the memory next cycle, as it does after F0
+      state <= S_F1;
+    end
   endtask
 
   // A trap in user mode goes to the program's own handler when it installed
@@ -811,6 +990,11 @@ module strata_core
     lt_k          <= '0;
     lt_ph         <= 0;
     rs_i          <= '0;
+    fb_nxt_v      <= 0;
+    fb_nx2_v      <= 0;
+    put_ref_q     <= 0;
+    ra_infl       <= 0;
+    ra_two        <= 0;
     state         <= S_RST;
   endtask
 
@@ -840,9 +1024,22 @@ module strata_core
       if (stop_req) ipend <= 1;                          // core control asked us to stop
       if (reset_req) rpend <= 1;                         // ... or to restart
       // the reset sequencer's Local Store write of next cycle (the boot ROM word read now)
-      rl_v    <= state == S_RST && rs_ld && rs_i < RSW'(LSN);
-      rl_a    <= 13'(rs_i);
-      rl_boot <= rs_i < RSW'(BOOT_WORDS);
+      rl_v    <= state == S_RST && rs_ld && rs_i < RSW'(LSN2);
+      rl_a    <= 13'(rs_w);
+      rl_d    <= rs_i[0];
+      rl_boot <= rs_w < RSW'(BOOT_WORDS);
+      // STREAM: the word read ahead last cycle arrives (F1 and a retire
+      // into it, below, override this)
+      ra_infl <= ra_go;
+      ra_two  <= RA2 && state != S_F1 && !need1;
+      put_ref_q <= LS_1P && tu_put_want && !ls_gnt;
+      if (ra_infl && ra_two) begin
+        fb_nx2   <= ia_rdata;
+        fb_nx2_v <= 1;
+      end else if (ra_infl) begin
+        fb_nxt   <= ia_rdata;
+        fb_nxt_v <= 1;
+      end
 
       case (state)
         // ------------------------------------------------------------ reset sequencer
@@ -851,7 +1048,7 @@ module strata_core
             xw = 1; xa = rs_i[4:0]; xv = rs_i == RSW'(2) ? 64'(DLS_SIZE) : 64'd0;
           end
           rs_i <= rs_i + 1;                              // (the Local Stores: rl_v, the cycle after)
-          if (rs_ld ? rs_i == RSW'(LSN) : rs_i == RSW'(RSN - 1)) state <= S_F0;
+          if (rs_ld ? rs_i == RSW'(LSN2) : rs_i == RSW'(RSN - 1)) state <= S_F0;
         end
 
         // ------------------------------------------------------------ reset request
@@ -867,12 +1064,15 @@ module strata_core
           else if (tu_cc_busy) stall();                  // a core-control write takes effect first
           else if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end
           else if (pc[1:0] != 0 || !pc_in) trap(C_IFAULT, pc);
-          else if (hz_fetch_stall) stall();
+          else if (hz_fetch_stall || ls_wait) stall();
           else state <= S_F1;
         end
         S_F1: begin
           ir    <= pc[2] ? ia_rdata[63:32] : ia_rdata[31:0];
           state <= S_EX;
+          fb_cur   <= ia_rdata;
+          fb_nxt_v <= 0;
+          fb_nx2_v <= 0;
 `ifdef SIMULATION
           if (trace_on) sim_trace(COREID, pc, pc[2] ? ia_rdata[63:32] : ia_rdata[31:0]);
 `endif
@@ -902,11 +1102,13 @@ module strata_core
             K_LOAD: begin
               if (!mok) trap(C_LSFAULT, maddr);
               else if (hz_rd_stall) pending(maddr);
+              else if (ls_wait) stall();                 // (LS_1P: the memory is the unit's this cycle)
               else state <= S_LD;
             end
             K_STORE: begin
               if (!mok) trap(C_LSFAULT, maddr);
               else if (hz_wr_stall) pending(maddr);
+              else if (ls_wait) stall();
               else retire(pc4);                       // the write happened this cycle
             end
 
@@ -1285,7 +1487,9 @@ module strata_core
           end
         end
         S_LT: begin
-          if (!lt_ph) lt_ph <= 1;                        // the read was issued; data next cycle
+          if (!lt_ph) begin
+            if (!ls_wait) lt_ph <= 1;                    // the read was issued; data next cycle
+          end
           else begin
             lt_ph <= 0;
             if (d.kind == K_LTAG && lt_k < lt_ways) begin
@@ -1309,7 +1513,8 @@ module strata_core
           end
         end
         S_LW: begin
-          if (lt_ph) lt_ph <= 0;                         // the victim's tag is written this cycle
+          if (ls_wait) ;                                 // (LS_1P: not this cycle)
+          else if (lt_ph) lt_ph <= 0;                    // the victim's tag is written this cycle
           else retire(pc4);                           // and the counter this one
         end
 

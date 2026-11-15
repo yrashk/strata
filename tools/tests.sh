@@ -95,6 +95,17 @@ D='$B/small'
 t small-examples full build-small "emu rtl ex" 'EMU_ARGS="-X 8" tools/compare.sh $B/small/examples/*.stx'
 t small-boot     full build-small "emu rtl os stdb" 'EMU_ARGS="-X 8" tools/compare-boot.sh $B/small/bootrom.stx $B/small/disk.img os/demo.txt'
 
+# ---- the fetch without the stream (STREAM=0) ----------------------------------------
+D='$B/nostream'
+t nostream-examples full build-nostream "emu rtl ex" 'tools/compare.sh $B/nostream/examples/*.stx'
+t nostream-conf     full build-nostream "emu rtl sasm conformance/tests conformance/xfail.txt" 'conformance/run.sh'
+
+# ---- both Local Stores in one single-port memory (LS_1P=1) ---------------------------
+D='$B/ls1p'
+t ls1p-examples full build-ls1p "emu rtl ex" 'tools/compare.sh $B/ls1p/examples/*.stx'
+t ls1p-conf     full build-ls1p "emu rtl sasm conformance/tests conformance/xfail.txt" 'conformance/run.sh'
+t ls1p-boot     full build-ls1p "emu rtl os stdb" 'tools/compare-boot.sh $B/ls1p/bootrom.stx $B/ls1p/disk.img os/demo.txt'
+
 # ---- smaller Local Stores -----------------------------------------------------------
 # (32/32: every example; 16/4 and 4/32: those whose data and stack, and code, fit)
 lsb=""; for e in clock faults hello mandel pipeline race; do lsb="$lsb \$B/ls16-4/examples/$e.stx"; done

@@ -127,6 +127,25 @@ Not verified:
   4 KiB saved (88 at 64/64 KiB, 59 at 4/4).
 - Scripts: `fpga/synth.sh FAMILY N [NXMAP [D I]]`, `fpga/pnr.sh`,
   `fpga/ecp5-runs.sh`; the die picture is drawn from nextpnr's output.
+- The stream fetch (`STREAM`, a parameter of `strata_core` / `strata_top`,
+  1 by default; `make STREAM=0` and `make test-nostream` for the fetch
+  without it) lets sequential code skip the two fetch cycles: the core
+  keeps the I-LS word and reads the next one while it executes. The
+  scripted StrataOS session runs at 1.75 cycles per instruction instead of
+  3.22. The kept FPGA and ASIC results are of the RTL before it.
+- `LS_1P = 1` (same place, off by default; `make LS_1P=1`) keeps both
+  Local Stores of a core in one single-port memory (`rtl/strata_ram1.sv`),
+  which is what an ASIC's dense macros are. The StrataOS session costs 1.3%
+  more cycles per instruction with it (1.78 against 1.75). The far bus has
+  a ready for read beats (`rready`) that only such a core's Transfer Unit
+  ever lowers; the board's DRAM adapter does not honour `ext_t3_rready`
+  yet, which matters only with `LS_1P`. `make
+  BUILD=build/ls1p LS_1P=1 test` passes. The ASIC flow has it as an option
+  (`ASIC_LS1P=1`, and `ASIC_SRAM=ocd1024` for a 1024 x 8 macro): prepared
+  and synthesized on the host, 19.9 mm² of stores and a 53.5 mm² die by
+  the floorplan, not placed or routed (`asic/README.md`). One core alone in generic gates: 4% more
+  gates, 98 more flip-flops, no new deepest path; not placed and routed
+  (`research/smart-memory/REPORT.md`, section 9).
 
 **ASIC** (`asic/README.md`, `asic/results/`, site page `hardware/asic/`)
 - One core through LibreLane 3.0.17 (its arm64 Docker image, run under
