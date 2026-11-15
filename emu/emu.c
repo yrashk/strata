@@ -191,6 +191,7 @@ static uint64_t ctab_size = CTAB_DEF; /* capability save-table entries per core 
 static unsigned nxmap = NXMAP_DEF;    /* overlay map entries per core (-X) */
 static uint64_t dls_size = DLS_BYTES, ils_size = ILS_BYTES; /* each core's Local Stores, bytes (-L) */
 static uint8_t *t2, *t3;
+static unsigned t2_kib = T2_BYTES / 1024; /* the cluster store the platform table describes (--t2-kib) */
 static FILE *trace;
 static bool faulted;
 
@@ -204,6 +205,77 @@ static uint8_t *far_ptr(uint8_t space, uint64_t addr) {
   if (space == SP_T2) return t2 + (addr & (T2_BYTES - 1) & ~7ull);
   if (space == SP_T3) return t3 + (addr & (T3_BYTES - 1) & ~7ull);
   return NULL;
+}
+
+/* --bus-stats FILE: every far-bus transaction counted by who issued it (core,
+ * mode, pc, the link register ra, capability length) and where it went (operation, space, address),
+ * with the bus cycles the RTL's far bus would spend on it: a memory burst is
+ * the target's start-up latency (T3 20, T2 4) and a beat per 8 bytes, an
+ * atomic the latency and 3 more, a device transfer a cycle per byte. One line
+ * per distinct key at exit; tools/busstats.py sums them. */
+#define BUS_LAT(space) ((space) == SP_T2 ? 4u : (space) == SP_T3 ? 20u : 1u)
+enum { BS_GET, BS_PUT, BS_GETX, BS_AMO, BS_BLKRD, BS_BLKWR };
+typedef struct { uint64_t pc, ra, far, caplen; uint32_t core, user, op, space; uint64_t n, bytes, cyc; } BusRec;
+static BusRec *bus_tab;
+static size_t bus_cap, bus_used;
+static const char *bus_path;
+static uint64_t bus_t2_lines[T2_BYTES / 64 / 64]; /* the 64-byte lines of T2 ever touched */
+
+static void bus_count(int core, bool user, uint64_t pc, uint64_t ra, unsigned op, unsigned space, uint64_t far, uint64_t len,
+                      uint64_t caplen) {
+  if (!bus_path) return;
+  if (space == SP_T2)
+    for (uint64_t a = far & ~63ull; a < far + (len ? len : 8) && a < T2_BYTES; a += 64)
+      bus_t2_lines[a >> 12] |= 1ull << (a >> 6 & 63);
+  uint64_t cyc = op == BS_AMO ? BUS_LAT(space) + 3 : space == SP_DEV ? len : BUS_LAT(space) + len / 8;
+  uint64_t fk = space == SP_DEV || op == BS_AMO ? far : far >> 12 << 12; /* a transfer: by 4 KiB page */
+  if (bus_used * 2 >= bus_cap) {
+    size_t oc = bus_cap;
+    BusRec *ot = bus_tab;
+    bus_cap = oc ? oc * 2 : 1 << 16;
+    bus_tab = calloc(bus_cap, sizeof *bus_tab);
+    bus_used = 0;
+    for (size_t i = 0; i < oc; i++)
+      if (ot[i].n) {
+        size_t h = ((ot[i].pc ^ ot[i].ra << 20) * 0x9e3779b97f4a7c15ull ^ ot[i].far * 31 ^ ot[i].core ^ ot[i].op << 8) & (bus_cap - 1);
+        while (bus_tab[h].n) h = (h + 1) & (bus_cap - 1);
+        bus_tab[h] = ot[i];
+        bus_used++;
+      }
+    free(ot);
+  }
+  size_t h = ((pc ^ ra << 20) * 0x9e3779b97f4a7c15ull ^ fk * 31 ^ (uint64_t)core ^ (uint64_t)op << 8) & (bus_cap - 1);
+  for (;; h = (h + 1) & (bus_cap - 1)) {
+    BusRec *r = &bus_tab[h];
+    if (!r->n) {
+      *r = (BusRec){pc, ra, fk, caplen, (uint32_t)core, user, op, space, 0, 0, 0};
+      bus_used++;
+    } else if (r->pc != pc || r->ra != ra || r->far != fk || r->caplen != caplen || r->core != (uint32_t)core || r->user != user ||
+               r->op != op || r->space != space)
+      continue;
+    r->n++, r->bytes += len, r->cyc += cyc;
+    return;
+  }
+}
+
+static void bus_dump(void) {
+  FILE *f = fopen(bus_path, "w");
+  if (!f) { perror(bus_path); return; }
+  fprintf(f, "# core user pc ra op space far caplen n bytes cycles\n");
+  for (size_t i = 0; i < bus_cap; i++) {
+    BusRec *r = &bus_tab[i];
+    if (r->n)
+      fprintf(f, "%u %u %llx %llx %u %u %llx %llx %llu %llu %llu\n", r->core, r->user, (unsigned long long)r->pc,
+              (unsigned long long)r->ra, r->op,
+              r->space, (unsigned long long)r->far, (unsigned long long)r->caplen, (unsigned long long)r->n,
+              (unsigned long long)r->bytes, (unsigned long long)r->cyc);
+  }
+  unsigned lines = 0;
+  for (unsigned i = 0; i < T2_BYTES / 64 / 64; i++) lines += (unsigned)__builtin_popcountll(bus_t2_lines[i]);
+  fprintf(f, "# t2-lines-touched %u\n", lines);
+  for (unsigned i = 0; i < T2_BYTES / 64 / 64; i++)
+    if (bus_t2_lines[i]) fprintf(f, "# t2-page %x %u\n", i << 12, (unsigned)__builtin_popcountll(bus_t2_lines[i]));
+  fclose(f);
 }
 
 /* A word written to far memory: a write into the framebuffer window feeds
@@ -324,6 +396,7 @@ static void blk_run(void) {
     else if (op == BLK_OP_READ && !(k.perms & P_W)) st = BLK_E_PERM;
     else if (op == BLK_OP_WRITE && !(k.perms & P_R)) st = BLK_E_PERM;
     if (st == BLK_OK && op != BLK_OP_FLUSH) {
+      bus_count(ncores, false, 0, 0, op == BLK_OP_READ ? BS_BLKRD : BS_BLKWR, k.space, k.base + off, bytes, k.len);
       for (uint64_t i = 0; i < bytes; i += 8) {
         uint8_t *fp = far_ptr(k.space, k.base + off + i);
         if (op == BLK_OP_WRITE && i % BLK_BLOCK == 0) { /* a block begins */
@@ -749,6 +822,8 @@ static bool step(Core *c) {
     unsigned tg = (ir >> 19) & 15;
     if (tag_busy(c) >> tg & 1) return false; /* the tag is still in flight: the issue waits */
     uint64_t far = k->base + off;
+    if (k->space != SP_CORE)
+      bus_count(c->id, c->user, c->pc, c->x[1], sub == XF_GET ? BS_GET : sub == XF_PUT ? BS_PUT : BS_GETX, k->space, far, len, k->len);
     if (sub == XF_GETX) { /* code being replaced: forget overlay mappings that point into it */
       jit_invalidate(c->id, ls, len); /* and its translations */
       dec_invalidate(c, ls, len);
@@ -841,6 +916,7 @@ static bool step(Core *c) {
     else if (a & 7) f = C_XALIGN;
     else if (k->len < 8 || a > k->len - 8) f = C_BOUNDS;
     if (f) { trap(c, f, a); return true; }
+    bus_count(c->id, c->user, c->pc, c->x[1], BS_AMO, k->space, k->base + a, 8, k->len);
     uint8_t *fp = far_ptr(k->space, k->base + a);
     uint64_t old = fp ? rd64(fp) : 0, nw = old;
     switch (aop) {
@@ -1754,7 +1830,9 @@ static int round_idle(void) {
   "  --map FILE  a symbol map (sasm -g) for the debugger; image.map is loaded by itself\n"     \
   "  --os DIR    StrataOS awareness: DIR/kernel.map, DIR/prog/NAME.map, the kernel's tables\n" \
   "  --www DIR   the files the debug port serves to a browser (default: site/)\n"            \
-  "  --history N  time travel's memory, MiB (deterministic runs: -T virtual; default 512)\n"
+  "  --history N  time travel's memory, MiB (deterministic runs: -T virtual; default 512)\n" \
+  "  --bus-stats FILE  at exit, the far-bus transactions by issuer and target (tools/busstats.py)\n" \
+  "  --t2-kib N  the platform table gives the cluster store N KiB (default 256; the FPGA builds: 64)\n"
 
 /* Ctrl-C now: completes the oldest pending break read, or is remembered. */
 static void press_break(void) {
@@ -1796,6 +1874,11 @@ int main(int argc, char **argv) {
       if (nxmap < NXMAP_MIN || nxmap > NXMAP_MAX) { fputs("strata-emu: -X: 4..16\n", stderr); return 2; }
     }
     else if (!strcmp(argv[i], "-i") && more) in_path = argv[++i];
+    else if (!strcmp(argv[i], "--bus-stats") && more) bus_path = argv[++i];
+    else if (!strcmp(argv[i], "--t2-kib") && more) {
+      t2_kib = (unsigned)strtoul(argv[++i], NULL, 0);
+      if (t2_kib < 4 || t2_kib > T2_BYTES / 1024) { fputs("strata-emu: --t2-kib: 4..256\n", stderr); return 2; }
+    }
     else if (!strcmp(argv[i], "-P") && more) {
       if (!host_ptr_script_open(argv[++i])) { perror(argv[i]); return 2; }
     }
@@ -1854,6 +1937,14 @@ int main(int argc, char **argv) {
     if (!snd_host_init(snd_wav_opt)) { perror(snd_wav_opt); return 2; }
     plat_len = plat_add_sound(plat_rom);
   }
+  if (t2_kib != T2_BYTES / 1024) { /* a smaller cluster store in the table (an FPGA build's) */
+    plat_put(plat_rom + 32 + 1 * 32 + 24, t2_kib * 1024ull, 8);
+    plat_put(plat_rom + 16, 0, 4);
+    uint32_t sum = 0;
+    for (unsigned i = 0; i < plat_len; i++) sum += plat_rom[i];
+    plat_put(plat_rom + 16, sum, 4);
+  }
+  if (bus_path) atexit(bus_dump);
   blk_ident(blk_rom, disk_blocks);
   t2 = img.t2;
   t3 = img.t3;

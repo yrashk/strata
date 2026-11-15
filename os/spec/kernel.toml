@@ -24,7 +24,8 @@ note = """proc gets the arena from MEMORY, writes the start-up block at 0x7F000 
 image at 0xD0000 above the layout base (the base of the arena's top MiB). The kernel reads the \
 image's STX headers, chooses the cores and slots, and starts the threads. A StrataOS program (code \
 word 1 "SYS2") with 0 threads is one thread without a core window; a bare-metal program, or any \
-program with N threads, gets N threads on N contiguous worker cores seen through its core window."""
+program with N threads, gets N threads on N contiguous worker cores seen through its core window. \
+A StrataOS program that is not a server also gets its console ring (RINGS) in c6."""
 
 [op.request]
 attachment = "the arena, whole, as MEMORY gave it"
@@ -290,3 +291,22 @@ data = [
     { type = "u64", name = "state", note = "1: live" },
   ] },
 ]
+
+[[op]]
+num = 14
+name = "RINGS"
+summary = "The console rings in T2, for tty"
+from = "dev only, once"
+note = """The header and the 64 rings that follow the KST in T2 (one per arena slot; 1 KiB each, less \
+on a small T2), cut from the KST's atomic segment and never revoked. dev asks for them when tty \
+asks it at its start, and lends them to tty; every StrataOS program that is not a server gets its \
+own ring in c6 when it is created (CREATE). doc/strataos.md 2.3, "Console rings"."""
+
+[op.request]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "an atomic segment: a 64-byte header (its first word: rings handed out so far), then the 64 rings" }
+
+[op.errors]
+"-1" = "not from dev, T2 has no room for rings, or they were given already"

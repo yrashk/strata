@@ -17,7 +17,7 @@
 enum { MS_TEXT, MS_DATA, MS_FAR, MS_CLUSTER, MS_ABS };
 static const char *const ms_names[] = {"text", "data", "far", "cluster", "abs"};
 
-typedef struct { char *name; uint64_t addr; uint8_t sect; } MSym;
+typedef struct { char *name; uint64_t addr; uint8_t sect; uint32_t ord; } MSym;
 typedef struct { uint32_t addr; uint16_t file; uint8_t sect; uint32_t line; } MLine;
 
 enum { SC_IMAGE, SC_KERNEL, SC_PROG };
@@ -45,7 +45,8 @@ static int nprog_missing;
 static int msym_cmp(const void *a, const void *b) {
   const MSym *x = a, *y = b;
   if (x->sect != y->sect) return x->sect - y->sect;
-  return x->addr < y->addr ? -1 : x->addr > y->addr;
+  if (x->addr != y->addr) return x->addr < y->addr ? -1 : 1;
+  return x->ord < y->ord ? -1 : x->ord > y->ord; /* labels at one address: in file order (the last names it) */
 }
 static int mline_cmp(const void *a, const void *b) {
   const MLine *x = a, *y = b;
@@ -97,7 +98,8 @@ static Map *map_load(const char *path, int scope, const char *prog) {
       int sc = sect_code(sect);
       if (sc < 0) continue;
       if (m->nsyms == capsym) { capsym = capsym ? capsym * 2 : 256; m->syms = realloc(m->syms, sizeof *m->syms * (size_t)capsym); }
-      m->syms[m->nsyms++] = (MSym){dstrdup(name), a, (uint8_t)sc};
+      m->syms[m->nsyms] = (MSym){dstrdup(name), a, (uint8_t)sc, (uint32_t)m->nsyms};
+      m->nsyms++;
       if (sc == MS_DATA && !strcmp(name, "v_latest")) m->forth = (int64_t)a;
       continue;
     }

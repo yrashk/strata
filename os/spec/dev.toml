@@ -137,6 +137,23 @@ result = "0"
 attachments = { c6 = "a device capability for the console's ports (0x0000..0x00FF)" }
 
 [[op]]
+num = 46
+name = "RINGS"
+summary = "The console rings in T2"
+from = "tty, at its start (the kernel gives them once: a later caller gets −1)"
+note = "dev asks the kernel (RINGS, op 14) while the request waits, and lends what comes back."
+
+[op.request]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "the console rings: an atomic segment in T2 (the kernel's RINGS)" }
+
+[op.errors]
+"-1" = "T2 has no rings, or they were given already"
+"-7" = "the kernel has no room to keep the request while it asks"
+
+[[op]]
 num = 59
 name = "GETNET"
 summary = "The network interface's ports"

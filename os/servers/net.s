@@ -247,6 +247,7 @@ _start:
         .word 0x32535953                ; "SYS2": a StrataOS 0.1 program
 main:
         call  sys_init                  ; ...
+        call  sys_server                ; (c6 holds requests: no console ring)
         call  sys_cmdline               ; the address: the second word
         add   s2, a0, a1                ; s2 = end
         mv    a1, s2                    ; skip the program's name

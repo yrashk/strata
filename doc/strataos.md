@@ -419,12 +419,12 @@ greater length.
   entry: 16 by default, read from the platform table's header at boot) from
   I-LS 0x8000 of the system core, with the same `xslot`/`xmiss`/`xret`
   mechanism programs use. The kernel counts the unit loads (INFO, `uptime`).
-  Once start-up is over the units (64 KiB) are copied into T2 after the
-  KST, bounced through core 0's D-LS (there is no far-to-far transfer),
+  Once start-up is over the units (88 KiB) are copied into T2 after the
+  KST and the console rings (2.3), bounced through core 0's D-LS (there is no far-to-far transfer),
   and c12 becomes a read+execute share of the copy (`u_fart2`, called from
   resident code so that no far link into the old image remains): a unit
   then starts arriving after T2's 4 bus cycles instead of T3's 20. Only if
-  it fits beside the KST, decided from the platform table's T2 size: on
+  it fits beside them, decided from the platform table's T2 size: on
   the 64 KiB T2 of the FPGA builds it does not, and c12 stays in T3.
 - **Shared state.** The system core and the dispatchers share one 32 KiB
   table at the bottom of the cluster store, T2 (the KST; in T3 if a
@@ -775,9 +775,66 @@ the result filled in.
   hold a core-control capability), so the destination's dispatcher runs
   within microseconds instead of at the next tick. A core idle in `tany`
   wakes on its inbox anyway.
+  The system core rings a worker's doorbell the same way before each
+  piece of a new process's arena it gives it: an inbox holds two gifts
+  from one sender, and a core that runs one busy thread looks at it only
+  when stopped, so the third gift would hold the system core until that
+  thread made a call.
 - **The system core** has an endpoint too, but ordinary processes never
   get it: only `proc` holds it, and `dev` (to halt the machine and to lend
   the framebuffer).
+
+- **Console rings: output without a message.** Every StrataOS program
+  that is not a server starts with a **console ring** in c6: a piece of
+  T2 (the cluster store) that it and `tty` reach with far atomics
+  (`os/lib/chan.s`: records of a length word and the bytes, published by
+  adding to the ring's HEAD). `sys_write` to the console puts each chunk
+  into the ring and returns without a message; it falls back to a WRITE
+  when the chunk does not fit (the ring is full, or the chunk is longer
+  than the ring's data) or when c6 no longer holds the ring: a reply's
+  attachment replaced it, or the program used c6 (the ring is copyable,
+  so that is not an error; every use checks c6's base, length and
+  permissions first, and `sys_msga` drops it from c6 before sending,
+  since its callers look at c6 after the reply). Such a WRITE, sent with
+  c6 free, has mode bit 1 set, and `tty` answers it with a copy of the
+  program's ring. Servers (`sys_server`) and guests use messages.
+  - **Where the rings are.** At boot the kernel puts 64 rings after the
+    KST, in the KST's atomic segment: a 64-byte header (its first word:
+    rings handed out so far), then one ring per arena slot, 1 KiB each
+    (on a 64 KiB T2, as on the FPGA builds, 504 bytes), rounded up to
+    2 KiB so that the kernel's units copied after them stay aligned. At
+    CREATE, core 0 writes the new process's pid into its ring's owner
+    word and gives the ring to the core of thread 0 as one more piece of
+    the job (F_RING; NEED_R: the only piece in T2, so the dispatcher puts
+    it in c6). `tty` gets all of them once at its start: it asks `dev`
+    (RINGS), which asks the kernel (RINGS, op 14: `dev` only, once).
+  - **Order.** `tty` writes out every ring before it acts on any request,
+    so a process's bytes come out before whatever it asks next (a prompt
+    before the READ that follows it, earlier output before a WRITE that
+    did not fit), and before `proc` learns of its end (CLEANUP). Output of
+    different processes is interleaved by ring, not by write.
+  - **Reading them.** Ring positions only grow (a ring is never emptied
+    when its arena slot passes to another process), so `tty` keeps each
+    ring's TAIL itself and reads one word, the HEAD, of each ring handed
+    out so far to see whether it holds anything. Between requests it
+    looks every `RPOLL` ticks (500 µs), 20 times after the last output it
+    found; then it sets the SLEEP word of all 64 rings and waits for
+    requests only. A writer that sees SLEEP after publishing sends an
+    empty WRITE, which `tty` answers after writing the rings out.
+  - **Ownership.** The rings are the kernel's for good (T2 is one
+    revocation granule): a process's copy goes when it ends, and the next
+    process of that arena slot uses the ring. A copy that a program passed
+    on before it ended can only write console output or read what went to
+    the console, which any program can do anyway; `tty` checks the lengths
+    and positions in a ring and empties a damaged one.
+  - **Cost** (RTL, 8 cores, `-T virtual`): a 50-byte write takes 1,995
+    cycles of the writer through the ring, 35,353 by message. In the
+    shell session (`os/demo.txt`) WRITE messages to `tty` fall from 470
+    to 5 (outputs longer than a ring); the 620 requests left are READs
+    and process control (CLEANUP, SETFG, CONMODE). The rings' atomics
+    (23,800, most of them `tty` looking at HEADs) cost 167,000 bus cycles
+    in the session. C programs (`lang/cc/lib/rt.s`) and
+    the Forth have their own message code and leave the ring unused.
 
 ### 2.4 Services
 

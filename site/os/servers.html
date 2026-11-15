@@ -114,7 +114,7 @@
 <a href="#proc-44"><span class="n">44</span><code>LESS</code><span>Give an extra arena back</span></a>
 </div>
 <article class="op" id="proc-5">
-<h4><span class="n">5</span><a class="opname" href="../code/#os/servers/proc.s:1073"><code>SPAWN</code></a><span class="sum">Start a program</span></h4>
+<h4><span class="n">5</span><a class="opname" href="../code/#os/servers/proc.s:1074"><code>SPAWN</code></a><span class="sum">Start a program</span></h4>
 <p>The program is the command&#x27;s first word (1..24 bytes): a path, or a name looked for in the caller&#x27;s current directory, then in <code>/bin</code>, then in <code>/sys</code>; when it is found in <code>/bin</code> or <code>/sys</code> that path becomes the command&#x27;s first word. proc gets an arena from the kernel (MEMORY), writes the start-up block into it (pid, parent, the three descriptors, the command), has fs load the image (LOADIMG), tells fs the child starts in the caller&#x27;s tag path (CWD mode 2), sends DUPS to fs, tty and pipe for the handles passed, and asks the kernel to CREATE the process. The caller is the child&#x27;s parent. A command whose first word is exactly <code>ws</code> is made the server of the lowest empty core; exactly <code>net</code>, the server of the lowest empty core and alone on it. Both stay ordinary children (WAIT, KILL and Ctrl-C work) and may REGISTER. A bare-metal image (no &quot;SYS2&quot; marker) runs as N threads, one on each of N contiguous cores without a server (N = 1 if the thread count is 0); a file as its handle 0 is copied into its arena first (fs READALL to 0x80000, a0 = its length), and a file as its handle 1 gets its output at exit (0xC0000, as many bytes as the exit code, at most 64 KiB; the status becomes 0).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -138,7 +138,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-6">
-<h4><span class="n">6</span><a class="opname" href="../code/#os/servers/proc.s:1191"><code>WAIT</code></a><span class="sum">Wait for a child to end</span></h4>
+<h4><span class="n">6</span><a class="opname" href="../code/#os/servers/proc.s:1192"><code>WAIT</code></a><span class="sum">Wait for a child to end</span></h4>
 <p>A finished child&#x27;s record is freed when its status is read. The status is bits 0..31 the exit code, bit 62 killed, bit 63 faulted (the cause in bits 0..7): read the result as unsigned when bit 63 can be set. A child whose parent ended has no parent; its status is discarded. A pending interrupt (SIGNAL to a process that catches them) is consumed by the next WAIT that finds a matching child still running, with or without mode bit 0.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -157,7 +157,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-7">
-<h4><span class="n">7</span><a class="opname" href="../code/#os/servers/proc.s:1440"><code>KILL</code></a><span class="sum">Stop a process</span></h4>
+<h4><span class="n">7</span><a class="opname" href="../code/#os/servers/proc.s:1441"><code>KILL</code></a><span class="sum">Stop a process</span></h4>
 <p>proc asks the kernel to DESTROY it: its arena is revoked, and the kernel&#x27;s EXITED gives it status bit 62. Any process may kill any other but proc, dev and fs (pids 1..3).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -172,7 +172,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-9">
-<h4><span class="n">9</span><a class="opname" href="../code/#os/servers/proc.s:2047"><code>PS</code></a><span class="sum">The processes</span></h4>
+<h4><span class="n">9</span><a class="opname" href="../code/#os/servers/proc.s:2048"><code>PS</code></a><span class="sum">The processes</span></h4>
 <p>One record per process the kernel knows, then one per finished child that proc keeps for its parent&#x27;s WAIT; 64 records at most. The state: the kernel&#x27;s, read as 1 running (its core runs it now), 2 ready (or loading), 3 blocked, 4 ended. A finished child&#x27;s record has its first core, its parent and its name, and 0 for the rest.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -198,7 +198,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-16">
-<h4><span class="n">16</span><a class="opname" href="../code/#os/servers/proc.s:1747"><code>INFO</code></a><span class="sum">A summary of the system</span></h4>
+<h4><span class="n">16</span><a class="opname" href="../code/#os/servers/proc.s:1748"><code>INFO</code></a><span class="sum">A summary of the system</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -219,7 +219,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-17">
-<h4><span class="n">17</span><a class="opname" href="../code/#os/servers/proc.s:1468"><code>SIGNAL</code></a><span class="sum">Interrupt a process (Ctrl-C)</span></h4>
+<h4><span class="n">17</span><a class="opname" href="../code/#os/servers/proc.s:1469"><code>SIGNAL</code></a><span class="sum">Interrupt a process (Ctrl-C)</span></h4>
 <p>A process that catches interrupts (CATCH 1) is interrupted: its WAIT at proc is answered −2 (or the interrupt is kept for its next WAIT), proc sends CANCEL for it to tty and pipe (their waiting reads answer −2), and the kernel notifies it (bit 0: a sleep ends). Any other process is killed as by KILL, except a server that proc started at boot (tty, pipe) and pids 1..3.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -234,7 +234,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-22">
-<h4><span class="n">22</span><a class="opname" href="../code/#os/servers/proc.s:1533"><code>CATCH</code></a><span class="sum">Catch interrupts, or be killed by them</span></h4>
+<h4><span class="n">22</span><a class="opname" href="../code/#os/servers/proc.s:1534"><code>CATCH</code></a><span class="sum">Catch interrupts, or be killed by them</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>not 0: catch them (SIGNAL interrupts the caller); 0: SIGNAL kills it (the default)</td></tr>
@@ -247,7 +247,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-25">
-<h4><span class="n">25</span><a class="opname" href="../code/#os/servers/proc.s:1550"><code>LOOKUP</code></a><span class="sum">An endpoint to a server, by name</span></h4>
+<h4><span class="n">25</span><a class="opname" href="../code/#os/servers/proc.s:1551"><code>LOOKUP</code></a><span class="sum">An endpoint to a server, by name</span></h4>
 <p>The registered names: proc, dev, fs, tty, pipe from boot, and what servers REGISTER (<code>ws</code>, <code>net</code>). The endpoint names the core the name was registered with; <code>sys_lookup</code> moves it from c6 to the register the caller asks for.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -263,7 +263,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-29">
-<h4><span class="n">29</span><a class="opname" href="../code/#os/servers/proc.s:1573"><code>REGISTER</code></a><span class="sum">Give a name to the caller&#x27;s core</span></h4>
+<h4><span class="n">29</span><a class="opname" href="../code/#os/servers/proc.s:1574"><code>REGISTER</code></a><span class="sum">Give a name to the caller&#x27;s core</span></h4>
 <p>Requests sent to the name reach the caller&#x27;s core, so it is for a process that is its core&#x27;s server. The entry leaves the registry when the process ends. A process may hold several names, and register a name it holds again.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -281,7 +281,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-30">
-<h4><span class="n">30</span><a class="opname" href="../code/#os/servers/proc.s:1775"><code>SCHED</code></a><span class="sum">The time slice and the switch rates; set the slice</span></h4>
+<h4><span class="n">30</span><a class="opname" href="../code/#os/servers/proc.s:1776"><code>SCHED</code></a><span class="sum">The time slice and the switch rates; set the slice</span></h4>
 <p>The rates are since the last SCHED read by any process.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -300,7 +300,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-31">
-<h4><span class="n">31</span><a class="opname" href="../code/#os/servers/proc.s:1836"><code>CORES</code></a><span class="sum">What every core is doing</span></h4>
+<h4><span class="n">31</span><a class="opname" href="../code/#os/servers/proc.s:1837"><code>CORES</code></a><span class="sum">What every core is doing</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -326,7 +326,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-39">
-<h4><span class="n">39</span><a class="opname" href="../code/#os/servers/proc.s:1690"><code>WHOIS</code></a><span class="sum">The pid registered under a name</span></h4>
+<h4><span class="n">39</span><a class="opname" href="../code/#os/servers/proc.s:1691"><code>WHOIS</code></a><span class="sum">The pid registered under a name</span></h4>
 <p>dev asks it before GRANT_FB (&quot;ws&quot;) and GETNET (&quot;net&quot;).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -341,7 +341,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-40">
-<h4><span class="n">40</span><a class="opname" href="../code/#os/servers/proc.s:1884"><code>GUEST</code></a><span class="sum">Start a guest OS on whole cores</span></h4>
+<h4><span class="n">40</span><a class="opname" href="../code/#os/servers/proc.s:1885"><code>GUEST</code></a><span class="sum">Start a guest OS on whole cores</span></h4>
 <p>proc gets an arena from the kernel (MEMORY), has fs load the image into its top 256 KiB (LOADIMG), and asks the kernel to start the guest (GSTART) on a run of free cores, with tty as its console. Any process may ask.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -363,7 +363,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-41">
-<h4><span class="n">41</span><a class="opname" href="../code/#os/servers/proc.s:1997"><code>GUESTSTOP</code></a><span class="sum">Stop a guest</span></h4>
+<h4><span class="n">41</span><a class="opname" href="../code/#os/servers/proc.s:1998"><code>GUESTSTOP</code></a><span class="sum">Stop a guest</span></h4>
 <p>The kernel revokes the guest&#x27;s arena and resets its cores, which are StrataOS&#x27;s again; proc then sends CLEANUP for the guest&#x27;s id to tty (the console comes back if the guest had it).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -378,7 +378,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-42">
-<h4><span class="n">42</span><a class="opname" href="../code/#os/servers/proc.s:2020"><code>GUESTS</code></a><span class="sum">The guests</span></h4>
+<h4><span class="n">42</span><a class="opname" href="../code/#os/servers/proc.s:2021"><code>GUESTS</code></a><span class="sum">The guests</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -396,7 +396,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-43">
-<h4><span class="n">43</span><a class="opname" href="../code/#os/servers/proc.s:1619"><code>MORE</code></a><span class="sum">An extra arena for the caller</span></h4>
+<h4><span class="n">43</span><a class="opname" href="../code/#os/servers/proc.s:1620"><code>MORE</code></a><span class="sum">An extra arena for the caller</span></h4>
 <p>Far memory beyond the arena a program is born with (<code>sys_more</code>). The kernel keeps it as the caller&#x27;s (MEMORY mode 1): it is revoked and freed when the caller ends, unless LESS gave it back first. The caller&#x27;s c6 must be empty.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -413,7 +413,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="proc-44">
-<h4><span class="n">44</span><a class="opname" href="../code/#os/servers/proc.s:1678"><code>LESS</code></a><span class="sum">Give an extra arena back</span></h4>
+<h4><span class="n">44</span><a class="opname" href="../code/#os/servers/proc.s:1679"><code>LESS</code></a><span class="sum">Give an extra arena back</span></h4>
 <p><code>sys_less</code>. The kernel revokes it (everything cut from it dies) and frees its memory.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -454,11 +454,12 @@
 <a href="#dev-26"><span class="n">26</span><code>GRANT_FB</code><span>The framebuffer memory and the controller&#x27;s ports</span></a>
 <a href="#dev-30"><span class="n">30</span><code>GETDISK</code><span>The block device&#x27;s ports and an endpoint to its node</span></a>
 <a href="#dev-31"><span class="n">31</span><code>GETCON</code><span>The console&#x27;s ports</span></a>
+<a href="#dev-46"><span class="n">46</span><code>RINGS</code><span>The console rings in T2</span></a>
 <a href="#dev-59"><span class="n">59</span><code>GETNET</code><span>The network interface&#x27;s ports</span></a>
 <a href="#dev-67"><span class="n">67</span><code>TIME</code><span>The wall clock: the timer&#x27;s EPOCH and ZONE</span></a>
 </div>
 <article class="op" id="dev-21">
-<h4><span class="n">21</span><a class="opname" href="../code/#os/servers/dev.s:199"><code>GETPTR</code></a><span class="sum">A window on the pointer&#x27;s ports</span></h4>
+<h4><span class="n">21</span><a class="opname" href="../code/#os/servers/dev.s:234"><code>GETPTR</code></a><span class="sum">A window on the pointer&#x27;s ports</span></h4>
 <p>For <code>tty</code>, which reads the pointer&#x27;s events and hands them to <code>ws</code>. Not checked: any program that asks gets it.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -473,7 +474,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-22">
-<h4><span class="n">22</span><a class="opname" href="../code/#os/servers/dev.s:196"><code>GETSND</code></a><span class="sum">A window on the sound device&#x27;s ports</span></h4>
+<h4><span class="n">22</span><a class="opname" href="../code/#os/servers/dev.s:231"><code>GETSND</code></a><span class="sum">A window on the sound device&#x27;s ports</span></h4>
 <p>For any program that asks: the samples of all holders join the device&#x27;s one queue in the order they arrive.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -488,7 +489,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-23">
-<h4><span class="n">23</span><a class="opname" href="../code/#os/servers/dev.s:140"><code>DEVS</code></a><span class="sum">The platform table&#x27;s entries</span></h4>
+<h4><span class="n">23</span><a class="opname" href="../code/#os/servers/dev.s:146"><code>DEVS</code></a><span class="sum">The platform table&#x27;s entries</span></h4>
 <p>The entries as the device&#x27;s platform table gives them, without its 32-byte header. The types: 1 memory, 2 console, 3 platform table, 4 block device, 5 framebuffer, 6 timer, 7 pointer, 8 network interface, 9 sound (only on a machine that has it). <code>info</code>: console 1 output | 2 input; platform table 1; block device its capacity in blocks; framebuffer width | height &lt;&lt; 16 | stride &lt;&lt; 32 | format &lt;&lt; 48 (1 = XRGB8888); timer ticks per second (1000000); pointer buttons (bits 0..7) | wheels &lt;&lt; 8 (0x0307); network interface the MTU (1500); sound the samples its queue holds (16384).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -507,7 +508,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-24">
-<h4><span class="n">24</span><a class="opname" href="../code/#os/servers/dev.s:176"><code>HALT</code></a><span class="sum">Stop the machine</span></h4>
+<h4><span class="n">24</span><a class="opname" href="../code/#os/servers/dev.s:182"><code>HALT</code></a><span class="sum">Stop the machine</span></h4>
 <p>dev asks the kernel (HALT), which stops every core; there is no reply. Not checked: any program that asks stops the machine.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -521,7 +522,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-26">
-<h4><span class="n">26</span><a class="opname" href="../code/#os/servers/dev.s:230"><code>GRANT_FB</code></a><span class="sum">The framebuffer memory and the controller&#x27;s ports</span><span class="from">the process registered as &quot;ws&quot;</span></h4>
+<h4><span class="n">26</span><a class="opname" href="../code/#os/servers/dev.s:265"><code>GRANT_FB</code></a><span class="sum">The framebuffer memory and the controller&#x27;s ports</span><span class="from">the process registered as &quot;ws&quot;</span></h4>
 <p>dev asks <code>proc</code> who holds the name &quot;ws&quot; (WHOIS) and compares that pid with the sender&#x27;s, then asks the kernel for the memory (FBLEND for that pid): every older capability to it is revoked and the caller holds it until it ends, when the kernel revokes it again. There is no operation to give it back. If the caller dies while dev waits, there is no reply.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -539,7 +540,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-30">
-<h4><span class="n">30</span><a class="opname" href="../code/#os/servers/dev.s:212"><code>GETDISK</code></a><span class="sum">The block device&#x27;s ports and an endpoint to its node</span><span class="from">fs (dev does not check: any program that asks gets them)</span></h4>
+<h4><span class="n">30</span><a class="opname" href="../code/#os/servers/dev.s:247"><code>GETDISK</code></a><span class="sum">The block device&#x27;s ports and an endpoint to its node</span><span class="from">fs (dev does not check: any program that asks gets them)</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -554,7 +555,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-31">
-<h4><span class="n">31</span><a class="opname" href="../code/#os/servers/dev.s:187"><code>GETCON</code></a><span class="sum">The console&#x27;s ports</span><span class="from">tty (dev does not check: any program that asks gets them)</span></h4>
+<h4><span class="n">31</span><a class="opname" href="../code/#os/servers/dev.s:193"><code>GETCON</code></a><span class="sum">The console&#x27;s ports</span><span class="from">tty (dev does not check: any program that asks gets them)</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -564,8 +565,24 @@
 <tr><td class="k">c6</td><td class="at"></td><td class="ty"></td><td>a device capability for the console&#x27;s ports (0x0000..0x00FF)</td></tr>
 </tbody>
 </table></div></article>
+<article class="op" id="dev-46">
+<h4><span class="n">46</span><a class="opname" href="../code/#os/servers/dev.s:203"><code>RINGS</code></a><span class="sum">The console rings in T2</span><span class="from">tty, at its start (the kernel gives them once: a later caller gets −1)</span></h4>
+<p>dev asks the kernel (RINGS, op 14) while the request waits, and lends what comes back.</p>
+<div class="optable"><table>
+<tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
+<tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
+</tbody>
+<tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
+<tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
+<tr><td class="k">c6</td><td class="at"></td><td class="ty"></td><td>the console rings: an atomic segment in T2 (the kernel&#x27;s RINGS)</td></tr>
+</tbody>
+<tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>T2 has no rings, or they were given already</td></tr>
+<tr><td class="k"><abbr title="busy">−7</abbr></td><td class="at"></td><td class="ty"></td><td>the kernel has no room to keep the request while it asks</td></tr>
+</tbody>
+</table></div></article>
 <article class="op" id="dev-59">
-<h4><span class="n">59</span><a class="opname" href="../code/#os/servers/dev.s:301"><code>GETNET</code></a><span class="sum">The network interface&#x27;s ports</span><span class="from">the process registered as &quot;net&quot;</span></h4>
+<h4><span class="n">59</span><a class="opname" href="../code/#os/servers/dev.s:336"><code>GETNET</code></a><span class="sum">The network interface&#x27;s ports</span><span class="from">the process registered as &quot;net&quot;</span></h4>
 <p>dev asks <code>proc</code> who holds the name &quot;net&quot; (WHOIS) and compares that pid with the sender&#x27;s.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -581,7 +598,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-67">
-<h4><span class="n">67</span><a class="opname" href="../code/#os/servers/dev.s:158"><code>TIME</code></a><span class="sum">The wall clock: the timer&#x27;s EPOCH and ZONE</span></h4>
+<h4><span class="n">67</span><a class="opname" href="../code/#os/servers/dev.s:164"><code>TIME</code></a><span class="sum">The wall clock: the timer&#x27;s EPOCH and ZONE</span></h4>
 <p>A program adds its clock&#x27;s NOW (c7, which covers only NOW and FREQ) to EPOCH: it asks dev once (<code>sys_time</code> keeps the record), not at every reading.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1185,7 +1202,7 @@
 <a href="#tty-20"><span class="n">20</span><code>ATTACH</code><span>Give the console&#x27;s input to a guest until it comes back</span></a>
 </div>
 <article class="op" id="tty-1">
-<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/tty.s:607"><code>READ</code></a><span class="sum">Read from the console</span></h4>
+<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/tty.s:894"><code>READ</code></a><span class="sum">Read from the console</span></h4>
 <p>Cooked mode (the default): input is echoed and edited (Backspace erases), and a READ returns one line with its newline (at most 255 characters; more are ignored), or what was typed before Ctrl-D; a Ctrl-D on an empty line is the end of input (0). Raw mode: no echo, whatever bytes are there, at least one; a READ that does not block and finds nothing has one byte read ahead, so a program that polls sees the rest of an escape sequence (<code>vi</code> telling Esc from ESC [ A). CR becomes LF in both. A reader waits while there is nothing (up to 8 readers, answered in turn); a guest&#x27;s READ waits while StrataOS has the console, and StrataOS&#x27;s while a guest has it. With mode bit 1 (raw mode, the window server) the READ is also answered when pointer events wait: they come after the data at offset 32 and the reply&#x27;s mode word says how many, so such a READ gives at most 32 key bytes. Without a pointer, bit 1 is ignored. A cooked READ shorter than the line takes its start; the rest is given only once another line is typed.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1212,20 +1229,23 @@
 </tbody>
 </table></div></article>
 <article class="op" id="tty-2">
-<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/tty.s:576"><code>WRITE</code></a><span class="sum">Write to the console</span></h4>
-<p>Output is written for anyone, guests too, whoever has the console&#x27;s input.</p>
+<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/tty.s:849"><code>WRITE</code></a><span class="sum">Write to the console</span></h4>
+<p>Output is written for anyone, guests too, whoever has the console&#x27;s input. A program&#x27;s library sends a WRITE only when its console ring cannot take the bytes (doc/strataos.md 2.3): before acting on any request, tty writes out every ring. An empty WRITE wakes tty when a ring says it sleeps.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>1 or 2 (not checked)</td></tr>
 <tr><td class="k">length</td><td class="at"></td><td class="ty"></td><td>the bytes</td></tr>
+<tr><td class="k">mode 0</td><td class="at"></td><td class="ty"></td><td>write</td></tr>
+<tr><td class="k">mode 2</td><td class="at"></td><td class="ty"></td><td>write, and send the sender&#x27;s console ring back (its c6 is free)</td></tr>
 <tr><td class="k">data</td><td class="at">+0</td><td class="ty">bytes</td><td>the bytes to write</td></tr>
 </tbody>
 <tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
 <tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>the bytes written: the length, at most 4032</td></tr>
+<tr><td class="k">c6</td><td class="at"></td><td class="ty"></td><td>with mode 2, a copy of the sender&#x27;s console ring (not for guests, nor if it has none)</td></tr>
 </tbody>
 </table></div></article>
 <article class="op" id="tty-4">
-<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/tty.s:850"><code>CLOSE</code></a><span class="sum">Close the console (it stays open)</span></h4>
+<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/tty.s:1137"><code>CLOSE</code></a><span class="sum">Close the console (it stays open)</span></h4>
 <p>From the guest the console is attached to, it gives the console back to StrataOS (Forth&#x27;s <code>bye</code>): the ATTACH is answered with 1. From anyone else nothing happens.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1236,7 +1256,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="tty-18">
-<h4><span class="n">18</span><a class="opname" href="../code/#os/servers/tty.s:592"><code>SETFG</code></a><span class="sum">Make a process the foreground: Ctrl-C interrupts it</span></h4>
+<h4><span class="n">18</span><a class="opname" href="../code/#os/servers/tty.s:879"><code>SETFG</code></a><span class="sum">Make a process the foreground: Ctrl-C interrupts it</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the pid (not checked)</td></tr>
@@ -1246,7 +1266,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="tty-19">
-<h4><span class="n">19</span><a class="opname" href="../code/#os/servers/tty.s:599"><code>CONMODE</code></a><span class="sum">Cooked or raw input</span></h4>
+<h4><span class="n">19</span><a class="opname" href="../code/#os/servers/tty.s:886"><code>CONMODE</code></a><span class="sum">Cooked or raw input</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>bit 0: 0 cooked, 1 raw</td></tr>
@@ -1256,7 +1276,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="tty-20">
-<h4><span class="n">20</span><a class="opname" href="../code/#os/servers/tty.s:866"><code>ATTACH</code></a><span class="sum">Give the console&#x27;s input to a guest until it comes back</span><span class="from">a StrataOS process (the <code>guest</code> command)</span></h4>
+<h4><span class="n">20</span><a class="opname" href="../code/#os/servers/tty.s:1153"><code>ATTACH</code></a><span class="sum">Give the console&#x27;s input to a guest until it comes back</span><span class="from">a StrataOS process (the <code>guest</code> command)</span></h4>
 <p>Only that guest&#x27;s READs are answered meanwhile. The request waits, and is answered when the console comes back: Ctrl-] typed (echoed <code>^]</code>), the guest&#x27;s CLOSE, the guest stopped (proc&#x27;s CLEANUP for its id), or the attaching process interrupted or ended. The id is checked only to be in the guests&#x27; range, not to name a running guest.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1293,7 +1313,7 @@
 <a href="#pipe-8"><span class="n">8</span><code>PIPE</code><span>Make a pipe</span></a>
 </div>
 <article class="op" id="pipe-1">
-<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/pipe.s:181"><code>READ</code></a><span class="sum">Read from the read end of a pipe</span></h4>
+<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/pipe.s:182"><code>READ</code></a><span class="sum">Read from the read end of a pipe</span></h4>
 <p>A reader with nothing to read waits (the request is parked) until a writer writes or the last writer closes.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1313,7 +1333,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="pipe-2">
-<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/pipe.s:294"><code>WRITE</code></a><span class="sum">Write to the write end of a pipe</span></h4>
+<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/pipe.s:295"><code>WRITE</code></a><span class="sum">Write to the write end of a pipe</span></h4>
 <p>A writer waits while the ring is full; it is answered with what was taken, at least one byte. The library writes the rest.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1333,7 +1353,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="pipe-4">
-<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/pipe.s:476"><code>CLOSE</code></a><span class="sum">Close one end of a pipe</span></h4>
+<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/pipe.s:477"><code>CLOSE</code></a><span class="sum">Close one end of a pipe</span></h4>
 <p>It drops one of the caller&#x27;s references to that end; an id the caller does not hold changes nothing. A pipe with no reference left is free again.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1344,7 +1364,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="pipe-8">
-<h4><span class="n">8</span><a class="opname" href="../code/#os/servers/pipe.s:131"><code>PIPE</code></a><span class="sum">Make a pipe</span></h4>
+<h4><span class="n">8</span><a class="opname" href="../code/#os/servers/pipe.s:132"><code>PIPE</code></a><span class="sum">Make a pipe</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -1389,7 +1409,7 @@
 <a href="#net-61"><span class="n">61</span><code>SETDNS</code><span>Set the resolvers</span></a>
 </div>
 <article class="op" id="net-1">
-<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/net.s:481"><code>READ</code></a><span class="sum">Read from a TCP connection</span></h4>
+<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/net.s:482"><code>READ</code></a><span class="sum">Read from a TCP connection</span></h4>
 <p>Waits while nothing has arrived and the connection is open. At most 1024 bytes are given at a time; reading reopens a small window to the peer.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1409,7 +1429,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-2">
-<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/net.s:488"><code>WRITE</code></a><span class="sum">Write to a TCP connection</span></h4>
+<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/net.s:489"><code>WRITE</code></a><span class="sum">Write to a TCP connection</span></h4>
 <p>Waits while the send buffer is full. Takes what fits, at most 1024 bytes; the library writes the rest.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1429,7 +1449,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-4">
-<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/net.s:522"><code>CLOSE</code></a><span class="sum">Close a socket, or stop sending on it</span></h4>
+<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/net.s:523"><code>CLOSE</code></a><span class="sum">Close a socket, or stop sending on it</span></h4>
 <p>Answered at once. TCP: what is still buffered is sent, then FIN, and the connection finishes on its own; a request another thread had waiting on the socket gets −1. A listener&#x27;s connections not yet accepted are reset. With mode bit 0 only sending stops (TCP): FIN after the data, and the socket stays readable until the peer closes; a UDP socket is left as it is.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1444,7 +1464,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-50">
-<h4><span class="n">50</span><a class="opname" href="../code/#os/servers/net.s:767"><code>STAT</code></a><span class="sum">The interface, its counters and the sockets in use</span></h4>
+<h4><span class="n">50</span><a class="opname" href="../code/#os/servers/net.s:768"><code>STAT</code></a><span class="sum">The interface, its counters and the sockets in use</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -1475,7 +1495,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-51">
-<h4><span class="n">51</span><a class="opname" href="../code/#os/servers/net.s:548"><code>SETIP</code></a><span class="sum">Set the interface&#x27;s address</span></h4>
+<h4><span class="n">51</span><a class="opname" href="../code/#os/servers/net.s:549"><code>SETIP</code></a><span class="sum">Set the interface&#x27;s address</span></h4>
 <p>Any process may set it.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1486,7 +1506,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-52">
-<h4><span class="n">52</span><a class="opname" href="../code/#os/servers/net.s:689"><code>PING</code></a><span class="sum">Send an ICMP echo request and wait for the reply</span></h4>
+<h4><span class="n">52</span><a class="opname" href="../code/#os/servers/net.s:690"><code>PING</code></a><span class="sum">Send an ICMP echo request and wait for the reply</span></h4>
 <p>The payload is the bytes 0, 1, 2, ... Up to 4 pings wait at once. A reply counts if it comes from the address pinged with the request&#x27;s sequence number.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1505,7 +1525,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-53">
-<h4><span class="n">53</span><a class="opname" href="../code/#os/servers/net.s:646"><code>CONNECT</code></a><span class="sum">Open a TCP connection</span></h4>
+<h4><span class="n">53</span><a class="opname" href="../code/#os/servers/net.s:647"><code>CONNECT</code></a><span class="sum">Open a TCP connection</span></h4>
 <p>Waits until the connection is established or fails. The SYN is sent again after 250 ms, doubling up to 8 s; after 8 retransmissions it is given up. A failed connection&#x27;s socket is freed.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1524,7 +1544,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-54">
-<h4><span class="n">54</span><a class="opname" href="../code/#os/servers/net.s:558"><code>LISTEN</code></a><span class="sum">Listen for TCP connections on a port</span></h4>
+<h4><span class="n">54</span><a class="opname" href="../code/#os/servers/net.s:559"><code>LISTEN</code></a><span class="sum">Listen for TCP connections on a port</span></h4>
 <p>Connections are established by net as they arrive, and wait for an ACCEPT.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1540,7 +1560,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-55">
-<h4><span class="n">55</span><a class="opname" href="../code/#os/servers/net.s:495"><code>ACCEPT</code></a><span class="sum">Take the next established connection of a listener</span></h4>
+<h4><span class="n">55</span><a class="opname" href="../code/#os/servers/net.s:496"><code>ACCEPT</code></a><span class="sum">Take the next established connection of a listener</span></h4>
 <p>Waits while none is there. The connection belongs to the caller from then on.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1558,7 +1578,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-56">
-<h4><span class="n">56</span><a class="opname" href="../code/#os/servers/net.s:587"><code>UDP</code></a><span class="sum">Make a UDP socket bound to a port</span></h4>
+<h4><span class="n">56</span><a class="opname" href="../code/#os/servers/net.s:588"><code>UDP</code></a><span class="sum">Make a UDP socket bound to a port</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the port (0: any free one, from 49152 up)</td></tr>
@@ -1573,7 +1593,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-57">
-<h4><span class="n">57</span><a class="opname" href="../code/#os/servers/net.s:613"><code>SENDTO</code></a><span class="sum">Send a datagram from a UDP socket</span></h4>
+<h4><span class="n">57</span><a class="opname" href="../code/#os/servers/net.s:614"><code>SENDTO</code></a><span class="sum">Send a datagram from a UDP socket</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the socket id</td></tr>
@@ -1590,7 +1610,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-58">
-<h4><span class="n">58</span><a class="opname" href="../code/#os/servers/net.s:502"><code>RECVFROM</code></a><span class="sum">Receive a datagram on a UDP socket</span></h4>
+<h4><span class="n">58</span><a class="opname" href="../code/#os/servers/net.s:503"><code>RECVFROM</code></a><span class="sum">Receive a datagram on a UDP socket</span></h4>
 <p>Waits while none is queued. Datagrams are queued in the socket&#x27;s 1 KiB ring with their sender; one that does not fit (with its 8-byte record, more than 1016 bytes in an empty ring) is dropped. What does not fit the length asked for is lost.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1612,7 +1632,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-60">
-<h4><span class="n">60</span><a class="opname" href="../code/#os/servers/net.s:3115"><code>RESOLVE</code></a><span class="sum">A host name&#x27;s IPv4 addresses (DNS)</span></h4>
+<h4><span class="n">60</span><a class="opname" href="../code/#os/servers/net.s:3116"><code>RESOLVE</code></a><span class="sum">A host name&#x27;s IPv4 addresses (DNS)</span></h4>
 <p>The name is taken in lower case, without a final dot. A dotted quad and <code>localhost</code> are answered at once; names in the cache (16 entries, for their TTL, at most an hour; names of 64 bytes or more are not kept) too. Otherwise an A query goes over UDP to port 53 of the first resolver; with no answer in a second, to the second, then each once more. CNAME chains are followed (up to 8). Two resolves may wait at once. A waiting RESOLVE is not interrupted by CANCEL.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1636,7 +1656,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-61">
-<h4><span class="n">61</span><a class="opname" href="../code/#os/servers/net.s:3199"><code>SETDNS</code></a><span class="sum">Set the resolvers</span></h4>
+<h4><span class="n">61</span><a class="opname" href="../code/#os/servers/net.s:3200"><code>SETDNS</code></a><span class="sum">Set the resolvers</span></h4>
 <p>With no second resolver every try goes to the first.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>

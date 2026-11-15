@@ -62,15 +62,20 @@ data = [
 num = 2
 name = "WRITE"
 summary = "Write to the console"
-note = "Output is written for anyone, guests too, whoever has the console's input."
+note = """Output is written for anyone, guests too, whoever has the console's input. A program's \
+library sends a WRITE only when its console ring cannot take the bytes (doc/strataos.md 2.3): \
+before acting on any request, tty writes out every ring. An empty WRITE wakes tty when a ring \
+says it sleeps."""
 
 [op.request]
 handle = "1 or 2 (not checked)"
 length = "the bytes"
+modes = { "0" = "write", "2" = "write, and send the sender's console ring back (its c6 is free)" }
 data = [{ type = "bytes", name = "the bytes to write" }]
 
 [op.reply]
 result = "the bytes written: the length, at most 4032"
+attachments = { c6 = "with mode 2, a copy of the sender's console ring (not for guests, nor if it has none)" }
 
 [[op]]
 num = 4
