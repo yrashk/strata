@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StrataOS — the window server</title>
+<meta name="description" content="ws, the StrataOS window server: the only process that touches the framebuffer. Clients draw in their own memory and lend each finished band of pixels; the server keeps every window's surface and draws the screen through transfers.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="os.css">
+</head>
+<body>
+
+<nav class="top">
+  <a class="mark" href="../">STRATA</a>
+  <div class="links">
+    <a href="../#idea">Idea</a>
+    <a href="../arch/">Architecture</a>
+    <a href="../isa/">Instructions</a>
+    <a href="./" aria-current="page">OS</a>
+    <a href="../forth/">Forth</a>
+    <a href="../c/">C</a>
+    <a href="../hardware/">Hardware</a>
+    <a href="../play/">Play</a>
+    <a href="../debug/">Debug</a>
+    <a href="../code/">Source</a>
+    <a class="pill" href="../Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
+    <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
+  </div>
+</nav>
+
+<main class="os">
+
+<header class="os-hero">
+  <p class="kicker">StrataOS 0.1 · the window server</p>
+  <h1>THE WINDOW SERVER</h1>
+  <p class="lede"><code>ws</code> is the only process that touches the framebuffer. Clients draw
+    in their own memory and lend each finished band of pixels; the server keeps every window's
+    surface and composes the screen through transfers.</p>
+  <ul class="os-pages">
+    <li><a href="./">Overview</a></li>
+    <li><a href="kernel.html">The kernel</a></li>
+    <li><a href="messages.html">Messages</a></li>
+    <li><a href="servers.html">Servers</a></li>
+    <li><a href="fs.html">The file system</a></li>
+    <li><a href="ws.html" aria-current="page">The window server</a></li>
+  </ul>
+</header>
+
+<section id="shape" class="section">
+  <h2><span class="num">01</span>Bands, surfaces and the screen</h2>
+  <p class="intro">Memory capabilities are linear: a surface cannot be writable by a client and
+    readable by the server at once. So the surfaces live with the server, and a client lends a band
+    of its own arena for as long as one DAMAGE takes.</p>
+  <figure class="diagram">
+    <div class="frame">
+<svg viewBox="0 0 760 470" role="img" aria-labelledby="ws-t">
+  <title id="ws-t">The window server: clients lend bands of pixels with DAMAGE; the server copies them into each window's surface in the framebuffer window, draws damaged rectangles strip by strip through its Local Store into the screen, and presents; tty hands it keys and pointer events through a second message buffer; dev grants it the framebuffer.</title>
+  <defs>
+    <marker id="ws-c" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arrc"/></marker>
+    <marker id="ws-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arra"/></marker>
+  </defs>
+  <text class="h" x="10" y="18">CLIENTS · THEIR ARENAS</text>
+  <rect class="box" x="10" y="28" width="170" height="64"/><text class="t" x="22" y="50">term</text><rect class="fillc" x="22" y="60" width="146" height="20"/><text class="m" x="30" y="74">a band of rows</text>
+  <rect class="box" x="10" y="104" width="170" height="64"/><text class="t" x="22" y="126">wmandel</text><rect class="fillc" x="22" y="136" width="146" height="20"/><text class="m" x="30" y="150">a band of rows</text>
+  <rect class="box" x="10" y="180" width="170" height="64"/><text class="t" x="22" y="202">wdoom</text><rect class="fillc" x="22" y="212" width="146" height="20"/><text class="m" x="30" y="226">a slab of columns</text>
+  <path class="lnc" d="M180,70 C230,70 240,120 286,120" marker-end="url(#ws-c)"/>
+  <path class="lnc" d="M180,146 H286" marker-end="url(#ws-c)"/>
+  <path class="lnc" d="M180,222 C230,222 240,172 286,172" marker-end="url(#ws-c)"/>
+  <text class="mc" x="196" y="104">DAMAGE</text>
+  <text class="s" x="10" y="266">the band is the attachment;</text>
+  <text class="s" x="10" y="282">it goes back with the reply</text>
+  <rect class="box hot" x="290" y="28" width="200" height="270"/>
+  <text class="t" x="302" y="50">ws</text><text class="s" x="332" y="50">its core's server</text>
+  <text class="s" x="302" y="76">one loop:</text>
+  <text class="mc" x="302" y="98">wait</text><text class="s" x="350" y="98">RECEIVE + timeout</text>
+  <text class="mc" x="302" y="120">serve</text><text class="s" x="350" y="120">the protocol, keys</text>
+  <text class="mc" x="302" y="142">tick</text><text class="s" x="350" y="142">slides, fades, pulses</text>
+  <text class="mc" x="302" y="164">deliver</text><text class="s" x="364" y="164">parked EVENTs</text>
+  <text class="mc" x="302" y="186">draw</text><text class="s" x="350" y="186">damage, one PRESENT</text>
+  <rect class="filla" x="302" y="206" width="176" height="38"/>
+  <text x="310" y="222">strip buffer · D-LS</text>
+  <text class="s" x="310" y="238">scratch: not saved</text>
+  <text class="s" x="302" y="266">never busy-waits: 250 ms to the</text>
+  <text class="s" x="302" y="282">next look at the cores</text>
+  <text class="h" x="540" y="18">FRAMEBUFFER · 16 MiB</text>
+  <rect class="box amb" x="540" y="28" width="210" height="110"/>
+  <text class="t" x="552" y="50">the screen</text>
+  <rect class="filla" x="552" y="60" width="186" height="14"/><text class="m" x="558" y="71">the core strip</text>
+  <rect class="fillc" x="552" y="80" width="90" height="24"/><rect class="fillc" x="648" y="80" width="90" height="24"/>
+  <rect class="fillc" x="552" y="108" width="90" height="24"/><rect class="fillc" x="648" y="108" width="90" height="24"/>
+  <rect class="box" x="540" y="148" width="210" height="96"/>
+  <text class="t" x="552" y="170">surfaces</text>
+  <text class="s" x="552" y="190">2 MiB per window (at most 4),</text>
+  <text class="s" x="552" y="206">after the screen; the server can</text>
+  <text class="s" x="552" y="222">redraw any window without</text>
+  <text class="s" x="552" y="238">asking its client</text>
+  <path class="lna" d="M490,160 H536" marker-end="url(#ws-a)"/>
+  <text class="ma" x="494" y="154">blit</text>
+  <path class="lna" d="M490,222 C520,222 515,90 536,90" marker-end="url(#ws-a)"/>
+  <text class="ma" x="496" y="240">tput</text>
+  <rect class="box" x="540" y="254" width="210" height="44"/><text class="t" x="552" y="274">controller ports</text><text class="m" x="552" y="290">PRESENT · VSYNC</text>
+  <path class="lnd" d="M490,280 H536"/>
+  <text class="h" x="10" y="330">KEYS AND THE POINTER</text>
+  <rect class="box srv" x="10" y="340" width="140" height="60"/><text class="t" x="22" y="362">tty</text><text class="s" x="22" y="382">console, pointer</text>
+  <path class="lna" d="M150,360 H286" marker-end="url(#ws-a)"/>
+  <text class="s" x="162" y="352">keys, events</text>
+  <path class="lnc" d="M290,384 H154" marker-end="url(#ws-c)"/>
+  <text class="s" x="162" y="398">READ, 2nd buffer</text>
+  <rect class="box" x="290" y="340" width="230" height="60"/>
+  <text x="302" y="362">not its own c5, so its core</text>
+  <text class="s" x="302" y="380">queues the answer for the server:</text>
+  <text class="s" x="302" y="396">a key wakes RECEIVE</text>
+  <rect class="box srv" x="540" y="340" width="210" height="60"/><text class="t" x="552" y="362">dev</text><text class="s" x="552" y="382">GRANT_FB, to "ws" only</text>
+  <path class="lna" d="M640,340 V306" marker-end="url(#ws-a)"/>
+  <text class="s" x="10" y="430">CREATE · DAMAGE · TEXT · FILL · EVENT · DESTROY · TITLE through the endpoint LOOKUP "ws" gives.</text>
+  <text class="s" x="10" y="450">When ws ends, the kernel revokes the framebuffer and parked clients get −1.</text>
+</svg>
+    </div>
+    <figcaption>No store can reach the framebuffer. The screen is a display list; the renderer walks
+      each damaged rectangle strip by strip, draws rows into a strip buffer in the server's Local
+      Store, and sends each strip out with one <code>tput</code>. A window's surface reaches the
+      screen by a <code>tget</code> and a <code>tput</code>.</figcaption>
+  </figure>
+</section>
+
+<section id="protocol" class="section">
+  <h2><span class="num">02</span>How it runs</h2>
+  <ul class="ticks">
+    <li><b>Starting.</b> <code>ws</code> typed at a shell: <code>proc</code> creates it as the
+      server of the lowest empty core. It registers as "ws", takes the framebuffer from
+      <code>dev</code> (GRANT_FB: the memory and the controller's ports) and the keyboard from
+      <code>tty</code> (it becomes the foreground process and switches the console to raw), and
+      catches interrupts, which it forwards to the focused window's process.</li>
+    <li><b>Tiles.</b> Up to four windows tile the screen; the tile decides a window's size, and a
+      client learns its surface's size from CREATE and from resize events. Alt+F makes the focused
+      window full screen, Alt+Z the only tile.</li>
+    <li><b>Events.</b> A client waits in EVENT, which the server parks until a key, a resize, a
+      close, a change of focus or a pointer event arrives, or the timeout passes. A client that
+      asked at CREATE is interrupted (SIGNAL) when events wait and it is not in EVENT.</li>
+    <li><b>The machine made visible.</b> The strip at the top has one cell per core, lit in the
+      colour of the process running there, pulsing on every context switch; each window's tag shows
+      how many kilobytes its process's switches have moved. Every 250&nbsp;ms the server asks
+      <code>proc</code> for the cores, processes and slice.</li>
+    <li><b>Ending.</b> When <code>ws</code> ends, however it ends, the kernel revokes the
+      framebuffer (every capability cut from it dies), its name goes from the registry, clients
+      waiting on it get −1, the console returns to the shell, and <code>ws</code> can be run
+      again.</li>
+  </ul>
+  <p class="refs">Every message <code>ws</code> answers: <a href="servers.html#ws">the catalogue</a> ·
+    source: <a class="srcpath" href="../code/#os/ws/ws.s">os/ws/ws.s</a>,
+    <a class="srcpath" href="../code/#os/ws/hw_os.s">hw_os.s</a>,
+    <a class="srcpath" href="../code/#os/progs/term.s">os/progs/term.s</a> ·
+    <a class="pdf" data-pdf="sec:os-ws" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.18.13">Section 18.13, The window server</a></p>
+  <figure class="shot">
+    <a href="../play/?run=os"><img src="../img/ws-real-focus.png" alt="The StrataOS window server: four tiled windows, a terminal showing ps, a Mandelbrot, a clock and a terminal showing cores, under a strip of core cells" loading="lazy"></a>
+    <figcaption>Four clients, each a separate process, under the strip of core cells.
+      <a href="../play/?run=os"><b>Boot StrataOS in your browser and type <code>ws</code>&nbsp;&rarr;</b></a></figcaption>
+  </figure>
+</section>
+
+</main>
+
+<footer>
+  <div class="bands small" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+  <p>StrataOS 0.1 — <a href="../code/#os/ws/ws.s">os/ws/ws.s</a> ·
+    <a href="https://github.com/yrashk/strata/blob/main/doc/strataos.md">the specification</a> ·
+    <a href="../Strata-Architecture-Reference-Manual.pdf">Architecture Reference Manual</a> ·
+    <a href="../">Strata</a></p>
+</footer>
+
+</body>
+</html>

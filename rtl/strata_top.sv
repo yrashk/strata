@@ -120,6 +120,7 @@ module strata_top
 
   // revocation granules and core control
   logic [NCORES-1:0]          dom_req, dom_done, dom_t2, stop_req, reset_req, reset_flush;
+  logic [NCORES-1:0]          dev_wake;      // a device read of core i that waits may now complete
   logic [NCORES-1:0][1:0]     dom_op;
   logic [NCORES-1:0][GW-1:0]  dom_a, dom_n;
   logic [15:0]                dom_gen;
@@ -156,6 +157,7 @@ module strata_top
     .m_done(m_done[2*NCORES]),
     .in_push(dev_in_push), .in_cap(dev_in_cap), .in_from(dev_in_from), .in_ready(dev_in_ready),
     .core_clr(reset_flush),
+    .wake(dev_wake),
     .give_valid(g_valid[NCORES]), .give_dst(g_dst[NCORES]), .give_cap(g_cap[NCORES]),
     .give_ack(g_ack[NCORES]),
     .pm_set, .pm_page,
@@ -185,7 +187,7 @@ module strata_top
       .tu_req(m_req[2*i]), .tu_we(m_we[2*i]), .tu_space(m_space[2*i]), .tu_addr(m_addr[2*i]),
       .tu_beats(m_beats[2*i]), .tu_byte(m_byte[2*i]), .tu_wvalid(m_wvalid[2*i]),
       .tu_wdata(m_wdata[2*i]), .tu_gnt(m_gnt[2*i]), .tu_wready(m_wready[2*i]),
-      .tu_rvalid(m_rvalid[2*i]), .tu_done(m_done[2*i]), .tu_retry(m_retry[2*i]),
+      .tu_rvalid(m_rvalid[2*i]), .tu_done(m_done[2*i]), .tu_retry(m_retry[2*i]), .tu_wake(dev_wake[i]),
       .am_req(m_req[2*i+1]), .am_op(m_op[2*i+1]), .am_space(m_space[2*i+1]),
       .am_addr(m_addr[2*i+1]), .am_wdata(m_wdata[2*i+1]), .am_cmp(m_cmp[2*i+1]),
       .am_gnt(m_gnt[2*i+1]), .am_done(m_done[2*i+1]),

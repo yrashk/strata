@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StrataOS — the servers</title>
+<meta name="description" content="Every StrataOS server: proc, dev, fs, tty, pipe, net and the window server ws. Where each runs, the capabilities it holds, and every message it answers, generated from the servers' sources.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="os.css">
+</head>
+<body>
+
+<nav class="top">
+  <a class="mark" href="../">STRATA</a>
+  <div class="links">
+    <a href="../#idea">Idea</a>
+    <a href="../arch/">Architecture</a>
+    <a href="../isa/">Instructions</a>
+    <a href="./" aria-current="page">OS</a>
+    <a href="../forth/">Forth</a>
+    <a href="../c/">C</a>
+    <a href="../hardware/">Hardware</a>
+    <a href="../play/">Play</a>
+    <a href="../debug/">Debug</a>
+    <a href="../code/">Source</a>
+    <a class="pill" href="../Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
+    <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
+  </div>
+</nav>
+
+<main class="os">
+
+<header class="os-hero">
+  <p class="kicker">StrataOS 0.1 · servers</p>
+  <h1>THE SERVERS</h1>
+  <p class="lede">Everything but the kernel's mechanisms is a user process that answers messages.
+    Here is each one, and every message it accepts.</p>
+  <ul class="os-pages">
+    <li><a href="./">Overview</a></li>
+    <li><a href="kernel.html">The kernel</a></li>
+    <li><a href="messages.html">Messages</a></li>
+    <li><a href="servers.html" aria-current="page">Servers</a></li>
+    <li><a href="fs.html">The file system</a></li>
+    <li><a href="ws.html">The window server</a></li>
+  </ul>
+  <ul class="os-pages">
+    <li><a href="#proc"><code>proc</code></a></li>
+    <li><a href="#dev"><code>dev</code></a></li>
+    <li><a href="#fs"><code>fs</code></a></li>
+    <li><a href="#tty"><code>tty</code></a></li>
+    <li><a href="#pipe"><code>pipe</code></a></li>
+    <li><a href="#net"><code>net</code></a></li>
+    <li><a href="#ws"><code>ws</code></a></li>
+    <li><a href="#system">from proc</a></li>
+  </ul>
+</header>
+
+<section class="section">
+  <p class="intro">A server is an ordinary time-shared process that the kernel marks as its core's
+    server: every request that arrives at that core goes to it. Its loop is RECEIVE, serve, REPLY
+    (<a class="srcpath" href="../code/#os/lib/srv.s">os/lib/srv.s</a>). A program reaches a server
+    through an endpoint, by convention in a fixed register (<code>c1</code> proc, <code>c2</code>
+    fs, <code>c3</code> tty, <code>c4</code> pipe) or one <code>proc</code> gives it by name
+    (LOOKUP "dev", "ws", "net").</p>
+  <p class="note">The tables are generated from the sources each time the site is built
+    (<a class="srcpath" href="https://github.com/yrashk/strata/blob/main/tools/web-os.py">tools/web-os.py</a>): the op numbers from
+    each server's dispatch code, which decides what it answers, and the text from the comment that
+    documents the op, where the op's name links. A test fails when a dispatched op has no
+    description, when a description names an op the dispatch does not answer, when an
+    <code>OP_*</code> constant of <code>os/lib/sys.s</code> names an op its server does not answer,
+    or when these pages fall behind the sources. Hover an error code for its meaning.</p>
+</section>
+
+<section id="proc" class="server">
+  <h2><span class="num">01</span><code>proc</code> — processes and names</h2>
+  <p>pid 1, the first process the kernel creates. It is the only holder of the kernel's endpoint
+    apart from <code>dev</code>, so it is the only process that asks for processes to be created
+    and destroyed. It keeps the process tree, exit statuses, interrupt flags and the name registry,
+    and starts <code>tty</code>, <code>pipe</code> and the login shell. Spawning is MEMORY (an
+    arena from the kernel), the start-up block written into it, <code>fs</code> LOADIMG (the
+    program image read straight into the arena), DUPS at the servers of the handles passed, then
+    CREATE; meanwhile the caller's SPAWN stays parked.</p>
+  <div class="facts2">
+    <div><b>core</b>core 1, alone on it</div>
+    <div><b>holds</b>the kernel's endpoint (c1); endpoints to fs, tty, pipe; may mint endpoints in a REPLY</div>
+    <div><b>reached by</b>c1 of every process</div>
+    <div><b>source</b><a class="srcpath" href="../code/#os/servers/proc.s">os/servers/proc.s</a></div>
+  </div>
+<!-- ops:proc -->
+<div class="optable"><table>
+<thead><tr><th class="n">op</th><th>name</th><th>request</th><th>reply</th><th>errors</th></tr></thead>
+<tbody>
+<tr id="proc-5"><td class="n">5</td><td><a class="opname" href="../code/#os/servers/proc.s:14"><code>SPAWN</code></a></td><td>data: u64 ncores, u64 h0, h1, h2 (handle descriptors: server register &lt;&lt; 32 | id, -1 none), &quot;prog args\0&quot;; length = text length; mode bit0 = no server endpoints, bit1 = pin to core mode &gt;&gt; 8 &amp; 255, mode &gt;&gt; 16 = arena MiB (0: 1)</td><td>pid / -4 / -5 / -6</td><td class="err"><abbr title="no such file or program">-4</abbr> <abbr title="no free core / not allowed">-5</abbr> <abbr title="no memory">-6</abbr></td></tr>
+<tr id="proc-6"><td class="n">6</td><td><a class="opname" href="../code/#os/servers/proc.s:18"><code>WAIT</code></a></td><td>handle = pid (0 = any child), mode bit0 = do not block</td><td>status, data[0] = pid; -3 still running; -2 interrupted; -1 no child</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="interrupted">-2</abbr> <abbr title="would block">-3</abbr></td></tr>
+<tr id="proc-7"><td class="n">7</td><td><a class="opname" href="../code/#os/servers/proc.s:20"><code>KILL</code></a></td><td>handle = pid</td><td>0 (from the kernel, op 7 is EXITED)</td><td class="err"></td></tr>
+<tr id="proc-9"><td class="n">9</td><td><a class="opname" href="../code/#os/servers/proc.s:21"><code>PS</code></a></td><td></td><td>count; 32-byte records (see os/lib/sys.s)</td><td class="err"></td></tr>
+<tr id="proc-16"><td class="n">16</td><td><a class="opname" href="../code/#os/servers/proc.s:22"><code>INFO</code></a></td><td></td><td>0; data: cores, free heap, total, processes, kernel units loaded, context switches, KiB moved</td><td class="err"></td></tr>
+<tr id="proc-17"><td class="n">17</td><td><a class="opname" href="../code/#os/servers/proc.s:24"><code>SIGNAL</code></a></td><td>handle = pid</td><td>0</td><td class="err"></td></tr>
+<tr id="proc-22"><td class="n">22</td><td><a class="opname" href="../code/#os/servers/proc.s:25"><code>CATCH</code></a></td><td>handle = 1 / 0</td><td>0</td><td class="err"></td></tr>
+<tr id="proc-25"><td class="n">25</td><td><a class="opname" href="../code/#os/servers/proc.s:26"><code>LOOKUP</code></a></td><td>data = name</td><td>0 and an endpoint (in the caller&#x27;s c6); -4</td><td class="err"><abbr title="no such file or program">-4</abbr></td></tr>
+<tr id="proc-29"><td class="n">29</td><td><a class="opname" href="../code/#os/servers/proc.s:27"><code>REGISTER</code></a></td><td>data = name</td><td>0 (the entry dies with the process); -5 unless the caller was started as its core&#x27;s server (the boot servers, and `ws`: SPAWN makes a program named `ws` its core&#x27;s server, on an empty core); -7 if another process holds the name</td><td class="err"><abbr title="no free core / not allowed">-5</abbr> <abbr title="busy">-7</abbr></td></tr>
+<tr id="proc-30"><td class="n">30</td><td><a class="opname" href="../code/#os/servers/proc.s:33"><code>SCHED</code></a></td><td colspan="2">handle 0: &rarr; 0; data: u64 time slice (ticks), switches per second, KiB moved per second (since the last SCHED read); handle 1: length = the new slice (100..100000 ticks) &rarr; 0 / -1 (forwarded to TUNE)</td><td class="err"><abbr title="failed">-1</abbr></td></tr>
+<tr id="proc-31"><td class="n">31</td><td><a class="opname" href="../code/#os/servers/proc.s:36"><code>CORES</code></a></td><td></td><td>count; 32-byte records per core (see os/lib/sys.s)</td><td class="err"></td></tr>
+<tr id="proc-39"><td class="n">39</td><td><a class="opname" href="../code/#os/servers/proc.s:31"><code>WHOIS</code></a></td><td>data = name</td><td>the pid registered under it (0 for the boot servers), -4 none (dev asks it before GRANT_FB: only &quot;ws&quot;)</td><td class="err"><abbr title="no such file or program">-4</abbr></td></tr>
+<tr id="proc-40"><td class="n">40</td><td><a class="opname" href="../code/#os/servers/proc.s:43"><code>GUEST</code></a></td><td>data: u64 cores, u64 arena MiB, the guest image&#x27;s name</td><td>0; data: u64 guest id, u64 first core; -6 no memory, or the image did not load, or the kernel refused (GSTART)</td><td class="err"><abbr title="no memory">-6</abbr></td></tr>
+<tr id="proc-41"><td class="n">41</td><td><a class="opname" href="../code/#os/servers/proc.s:46"><code>GUESTSTOP</code></a></td><td>handle = guest id</td><td>0, -1 no such guest (the kernel&#x27;s GSTOP; tty gets CLEANUP for it: the console comes back)</td><td class="err"><abbr title="failed">-1</abbr></td></tr>
+<tr id="proc-42"><td class="n">42</td><td><a class="opname" href="../code/#os/servers/proc.s:48"><code>GUESTS</code></a></td><td></td><td>count; 32-byte records: u64 id, first core | cores &lt;&lt; 8, arena bytes, state (the kernel&#x27;s GINFO)</td><td class="err"></td></tr>
+<tr id="proc-43"><td class="n">43</td><td><a class="opname" href="../code/#os/servers/proc.s:37"><code>MORE</code></a></td><td>handle = bytes</td><td>0 and an extra arena (an attachment: the caller&#x27;s c6) of at least that many bytes (whole 256 KiB granules, 1 MiB at least), data[0] = its size; -6 no memory. The kernel keeps it as the caller&#x27;s (MEMORY mode 1): revoked and freed when the caller ends, unless LESS gave it back first</td><td class="err"><abbr title="no memory">-6</abbr></td></tr>
+<tr id="proc-44"><td class="n">44</td><td><a class="opname" href="../code/#os/servers/proc.s:42"><code>LESS</code></a></td><td>an extra arena as the attachment</td><td>0: it is freed</td><td class="err"></td></tr>
+</tbody></table></div>
+<!-- /ops:proc -->
+</section>
+
+<section id="dev" class="server">
+  <h2><span class="num">02</span><code>dev</code> — the device manager</h2>
+  <p>pid 2. It holds the device root, describes the platform, and cuts device capabilities out of
+    the root for the servers that own a device: the console's ports for <code>tty</code>, the
+    disk's ports and node for <code>fs</code>, the network interface for <code>net</code>, the
+    framebuffer for <code>ws</code>. The framebuffer memory is the kernel's: <code>dev</code> asks
+    for it with FBLEND, which revokes every older capability to it, and passes it on. It also
+    gives every program the wall clock (TIME): the timer's EPOCH and ZONE, which a program adds to
+    its own reading of NOW.</p>
+  <div class="facts2">
+    <div><b>core</b>core 2, shared</div>
+    <div><b>holds</b>the device root (c7); the kernel's endpoint (c3), for HALT and FBLEND</div>
+    <div><b>reached by</b>LOOKUP "dev"</div>
+    <div><b>source</b><a class="srcpath" href="../code/#os/servers/dev.s">os/servers/dev.s</a></div>
+  </div>
+<!-- ops:dev -->
+<div class="optable"><table>
+<thead><tr><th class="n">op</th><th>name</th><th>request</th><th>reply</th><th>errors</th></tr></thead>
+<tbody>
+<tr id="dev-21"><td class="n">21</td><td><a class="opname" href="../code/#os/servers/dev.s:21"><code>GETPTR</code></a></td><td></td><td>0; a window on the pointer&#x27;s ports 0x4100..0x410F (c6) (for tty, which hands its events to ws); -1 if the machine has none</td><td class="err"><abbr title="failed">-1</abbr></td></tr>
+<tr id="dev-22"><td class="n">22</td><td><a class="opname" href="../code/#os/servers/dev.s:23"><code>GETSND</code></a></td><td></td><td>0; a window on the sound device&#x27;s ports 0x4300..0x4317 (c6), for any program that asks (their samples mix in the device&#x27;s queue in the order they arrive); -1 if the machine has none</td><td class="err"><abbr title="failed">-1</abbr></td></tr>
+<tr id="dev-23"><td class="n">23</td><td><a class="opname" href="../code/#os/servers/dev.s:8"><code>DEVS</code></a></td><td></td><td>entries; data: the platform table&#x27;s 32-byte entries</td><td class="err"></td></tr>
+<tr id="dev-24"><td class="n">24</td><td><a class="opname" href="../code/#os/servers/dev.s:9"><code>HALT</code></a></td><td></td><td>asks the kernel to stop every core (does not return)</td><td class="err"></td></tr>
+<tr id="dev-26"><td class="n">26</td><td><a class="opname" href="../code/#os/servers/dev.s:10"><code>GRANT_FB</code></a></td><td></td><td>0; the framebuffer memory (in c6 of the caller) and a capability for the controller&#x27;s ports 0x4000..0x400F (c7); -5 if the caller is not the process registered as &quot;ws&quot; (proc&#x27;s WHOIS); -7 if a live process holds it; -1 if there is none</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="no free core / not allowed">-5</abbr> <abbr title="busy">-7</abbr></td></tr>
+<tr id="dev-30"><td class="n">30</td><td><a class="opname" href="../code/#os/servers/dev.s:15"><code>GETDISK</code></a></td><td></td><td>0; a window on the block device&#x27;s ports (c6) and a send-only endpoint to the device&#x27;s node (c7) (for fs)</td><td class="err"></td></tr>
+<tr id="dev-31"><td class="n">31</td><td><a class="opname" href="../code/#os/servers/dev.s:17"><code>GETCON</code></a></td><td></td><td>0; a window on the console&#x27;s ports 0x0000..0x00FF (c6) (for tty)</td><td class="err"></td></tr>
+<tr id="dev-59"><td class="n">59</td><td><a class="opname" href="../code/#os/servers/dev.s:18"><code>GETNET</code></a></td><td></td><td>0; a window on the network interface&#x27;s ports 0x4200..0x421F (c6) (for net); -5 unless the caller is the process registered as &quot;net&quot; (proc&#x27;s WHOIS); -1 if the machine has none</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="no free core / not allowed">-5</abbr></td></tr>
+<tr id="dev-67"><td class="n">67</td><td><a class="opname" href="../code/#os/servers/dev.s:26"><code>TIME</code></a></td><td></td><td>1; data: one 32-byte record: the timer&#x27;s EPOCH (u64: the wall clock when NOW was 0, in microseconds since 1970-01-01 UTC; 0 = not known) and ZONE (s64: local time minus UTC, in seconds), then 16 bytes of 0. Programs add NOW (their clock, c7) to EPOCH: dev is asked once, not at every reading.</td><td class="err"></td></tr>
+</tbody></table></div>
+<p class="sysops">Also answered: 36 DUPS, 37 CLEANUP, 38 CANCEL from <code>proc</code> (<a href="#system">below</a>).</p>
+<!-- /ops:dev -->
+</section>
+
+<section id="fs" class="server">
+  <h2><span class="num">03</span><code>fs</code> — files, tags and the store</h2>
+  <p>pid 3. It owns the block device and keeps the disk as a <a href="fs.html">store</a> of
+    copy-on-write trees; the file system is one client of it. A file has one name and carries
+    tags, and a directory is the set of its files' tags. Programs are files: <code>proc</code>
+    has <code>fs</code> load them into new arenas. Every call answers −5 when the disk cannot be
+    read as a store or a page fails its checksum.</p>
+  <div class="facts2">
+    <div><b>core</b>core 3, shared</div>
+    <div><b>holds</b>a window on the block device's ports (c1) and an endpoint to its node (c2); a 512&nbsp;KiB I/O buffer with its page cache (c5)</div>
+    <div><b>reached by</b>c2 of every process</div>
+    <div><b>source</b><a class="srcpath" href="../code/#os/servers/fs.s">os/servers/fs.s</a>,
+      <a class="srcpath" href="../code/#os/servers/fsops.s">fsops.s</a>,
+      <a class="srcpath" href="../code/#os/servers/fsattr.s">fsattr.s</a>,
+      <a class="srcpath" href="../code/#os/servers/fsunits.s">fsunits.s</a>,
+      <a class="srcpath" href="../code/#os/servers/store.s">store.s</a></div>
+  </div>
+<!-- ops:fs -->
+<div class="optable"><table>
+<thead><tr><th class="n">op</th><th>name</th><th>request</th><th>reply</th><th>errors</th></tr></thead>
+<tbody>
+<tr id="fs-1"><td class="n">1</td><td><a class="opname" href="../code/#os/servers/fs.s:73"><code>READ</code></a></td><td>handle = id, length</td><td>bytes (0 at the end of the file)</td><td class="err"></td></tr>
+<tr id="fs-2"><td class="n">2</td><td><a class="opname" href="../code/#os/servers/fs.s:74"><code>WRITE</code></a></td><td>handle = id, length, data</td><td>bytes</td><td class="err"></td></tr>
+<tr id="fs-3"><td class="n">3</td><td><a class="opname" href="../code/#os/servers/fs.s:72"><code>OPEN</code></a></td><td>data = path, length = its length, mode 0 read / 1 write / 2 append</td><td>id</td><td class="err"></td></tr>
+<tr id="fs-4"><td class="n">4</td><td><a class="opname" href="../code/#os/servers/fs.s:75"><code>CLOSE</code></a></td><td>handle = id</td><td>0</td><td class="err"></td></tr>
+<tr id="fs-11"><td class="n">11</td><td><a class="opname" href="../code/#os/servers/fs.s:76"><code>UNLINK</code></a></td><td>data = path</td><td>0 / -4</td><td class="err"><abbr title="no such file or program">-4</abbr></td></tr>
+<tr id="fs-12"><td class="n">12</td><td><a class="opname" href="../code/#os/servers/fs.s:77"><code>TAG</code></a></td><td>data = path, a zero byte, a tag name</td><td>0 / -4 / -6 / -1</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="no such file or program">-4</abbr> <abbr title="no memory">-6</abbr></td></tr>
+<tr id="fs-13"><td class="n">13</td><td><a class="opname" href="../code/#os/servers/fs.s:78"><code>UNTAG</code></a></td><td>data = path, a zero byte, a tag name</td><td>0 / -4</td><td class="err"><abbr title="no such file or program">-4</abbr></td></tr>
+<tr id="fs-15"><td class="n">15</td><td><a class="opname" href="../code/#os/servers/fs.s:79"><code>RENAME</code></a></td><td>data = path, a zero byte, a new path</td><td>0 / -4 / -6 / -1: the file takes the new path&#x27;s name and gains its tags (created if new); it keeps its tags and its contents. Another file of the new name is deleted (as UNLINK)</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="no such file or program">-4</abbr> <abbr title="no memory">-6</abbr></td></tr>
+<tr id="fs-20"><td class="n">20</td><td><a class="opname" href="../code/#os/servers/fs.s:83"><code>CWD</code></a></td><td colspan="2">mode 0 get: &rarr; length; data: the current tag path (&quot;/&quot; at the root). mode 1 set: data = a path (none: &quot;/&quot;; relative to the current one; &quot;..&quot;) &rarr; the new one, as get / -4 (no such tag, or no file in that view) / -1 (longer than CWDMAX) / -6 (table full). mode 2 (from proc only): data = u64 parent pid, u64 child pid: the child starts in the parent&#x27;s path &rarr; 0</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="no such file or program">-4</abbr> <abbr title="no memory">-6</abbr></td></tr>
+<tr id="fs-27"><td class="n">27</td><td><a class="opname" href="../code/#os/servers/fs.s:89"><code>STAT</code></a></td><td>data = path</td><td>size / -4</td><td class="err"><abbr title="no such file or program">-4</abbr></td></tr>
+<tr id="fs-28"><td class="n">28</td><td><a class="opname" href="../code/#os/servers/fs.s:90"><code>LOADIMG</code></a></td><td>data = path, handle = most bytes, mode = arena offset; the arena as attachment (c7)</td><td>size / -4 / -1; the arena goes back</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="no such file or program">-4</abbr></td></tr>
+<tr id="fs-32"><td class="n">32</td><td><a class="opname" href="../code/#os/servers/fs.s:92"><code>STATFS</code></a></td><td></td><td>3; data: u64 total blocks, used blocks, files</td><td class="err"></td></tr>
+<tr id="fs-33"><td class="n">33</td><td><a class="opname" href="../code/#os/servers/fs.s:93"><code>READBLK</code></a></td><td>handle = block</td><td>512; data: the block</td><td class="err"></td></tr>
+<tr id="fs-34"><td class="n">34</td><td><a class="opname" href="../code/#os/servers/fs.s:94"><code>READALL</code></a></td><td>handle = id (read), mode = arena offset, length = most bytes; the arena as attachment</td><td>size (the whole file is copied in)</td><td class="err"></td></tr>
+<tr id="fs-35"><td class="n">35</td><td><a class="opname" href="../code/#os/servers/fs.s:96"><code>WRITEALL</code></a></td><td>handle = id (write), mode = arena offset, length = bytes; the arena as attachment</td><td>bytes (appended to the file)</td><td class="err"></td></tr>
+<tr id="fs-40"><td class="n">40</td><td><a class="opname" href="../code/#os/servers/fs.s:98"><code>QUERY</code></a></td><td>data = a tag path (none: the current one)</td><td>the files that carry its tags, part by part (a cursor), whole names, each file&#x27;s tags; mode word = the facets; mode 1: only the count and the facets (fsops.s). 10 DIR, with 24-byte names, is gone</td><td class="err"></td></tr>
+<tr id="fs-41"><td class="n">41</td><td><a class="opname" href="../code/#os/servers/fs.s:102"><code>TAGS2</code></a></td><td>data = a path (none: every tag)</td><td>tags, part by part: every tag, or the tags of the file the path names (fsops.s). 14 TAGS, with 16-byte names, is gone</td><td class="err"></td></tr>
+<tr id="fs-42"><td class="n">42</td><td><a class="opname" href="../code/#os/servers/fsattr.s:14"><code>SETATTR</code></a></td><td>data = path, a zero byte, the attribute&#x27;s name, a zero byte, the value (none: the attribute goes)</td><td>0 / -4 / -1 (a bad name: tag, size, modified, boot, or with one of = &lt; &gt; * /) / -6</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="no such file or program">-4</abbr> <abbr title="no memory">-6</abbr></td></tr>
+<tr id="fs-43"><td class="n">43</td><td><a class="opname" href="../code/#os/servers/fsattr.s:17"><code>GETATTR</code></a></td><td>data = path</td><td>attributes; data: per attribute {u16 record bytes, u16 name length, u8 type, u8 value length, u16 0, the name, the value}, name and value each padded to 8 bytes (a number: 8 bytes); the reply&#x27;s length word is the data&#x27;s bytes</td><td class="err"></td></tr>
+<tr id="fs-45"><td class="n">45</td><td><a class="opname" href="../code/#os/servers/fs.s:107"><code>SNAP</code></a></td><td>snapshots (fsops.s): mode 0 take one (data = its name), 1 delete it, 2 list them, 3 restore it (the file system becomes what it shows). A snapshot is the whole disk as of a commit; a path whose first component is &quot;@NAME&quot; reads it: OPEN for reading, STAT, LOADIMG, QUERY, TAGS2</td><td></td><td class="err"></td></tr>
+<tr id="fs-46"><td class="n">46</td><td><a class="opname" href="../code/#os/servers/fs.s:112"><code>FIND</code></a></td><td>names across the whole file system: mode 0 the files whose names begin with the data&#x27;s text, mode 1 those whose names hold it; records as QUERY&#x27;s, with a cursor (fsunits.s, uf)</td><td></td><td class="err"></td></tr>
+<tr id="fs-64"><td class="n">64</td><td><a class="opname" href="../code/#os/servers/fsops.s:733"><code>DBGET</code></a></td><td>then the key</td><td>the value&#x27;s length, data: the value; -4 no such namespace, tree or key; -1 a bad request, or a private namespace</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="no such file or program">-4</abbr></td></tr>
+<tr id="fs-65"><td class="n">65</td><td><a class="opname" href="../code/#os/servers/fsops.s:735"><code>DBSCAN</code></a></td><td>then a key (none: from the start); mode = ST_GE (0: from the key on), ST_GT (1: after it), ST_LE, ST_LT</td><td>records, data: per record {u16 key length, u16 value length, u32 0, the key, the value}, key and value each padded to 8 bytes: the record on that side of the key and those after it in key order, as many as fit (ask again with the last key and mode 1); the reply&#x27;s length word is the data&#x27;s bytes</td><td class="err"></td></tr>
+<tr id="fs-66"><td class="n">66</td><td><a class="opname" href="../code/#os/servers/fsops.s:742"><code>DBBATCH</code></a></td><td>handle = items; from the next multiple of 8 after the names, per item {u8 1 put / 2 delete, u8 0, u16 key length, u16 value length, u16 0, the key, the value}, key and value each padded to 8 bytes</td><td>0: all of them are on the disk, or (-1, a bad item) none is. One commit: the unit of atomic change.</td><td class="err"><abbr title="failed">-1</abbr></td></tr>
+</tbody></table></div>
+<p class="sysops">Also answered: 36 DUPS, 37 CLEANUP, 38 CANCEL from <code>proc</code> (<a href="#system">below</a>).</p>
+<!-- /ops:fs -->
+</section>
+
+<section id="tty" class="server">
+  <h2><span class="num">04</span><code>tty</code> — the console</h2>
+  <p>pid 4, started by <code>proc</code>. It owns the console (output, input, the break port) and
+    the pointer, whose events it hands to the window server. It never blocks on a device: the break
+    read is always in flight and one byte of input is read only while a reader waits, and its
+    RECEIVE names both tags. Cooked mode echoes and edits a line; raw mode gives whatever bytes are
+    there. Ctrl-C asks <code>proc</code> to SIGNAL the foreground process.</p>
+  <div class="facts2">
+    <div><b>core</b>core 4, alone on it: it keeps device reads waiting</div>
+    <div><b>holds</b>windows on the console's ports 0x0000–0x00FF (c2) and the pointer's 0x4100–0x410F (c3), from <code>dev</code></div>
+    <div><b>reached by</b>c3 of every process</div>
+    <div><b>source</b><a class="srcpath" href="../code/#os/servers/tty.s">os/servers/tty.s</a></div>
+  </div>
+<!-- ops:tty -->
+<div class="optable"><table>
+<thead><tr><th class="n">op</th><th>name</th><th>request</th><th>reply</th><th>errors</th></tr></thead>
+<tbody>
+<tr id="tty-1"><td class="n">1</td><td><a class="opname" href="../code/#os/servers/tty.s:16"><code>READ</code></a></td><td>handle 0 (the console), length, mode bit0 = do not block. Cooked mode: input is echoed and edited (Backspace); a READ returns one line (with its newline), or what was typed before Ctrl-D (0x04); 0 = end of input. Raw mode: no echo, whatever is there (at least one byte); a READ that does not block and finds nothing (-3) has one byte read ahead, so a reader that polls (vi telling Esc from an arrow&#x27;s ESC [ A) gets it. CR becomes LF in both. Mode bit1 = pointer events too (raw mode, ws): the READ is also answered when pointer events wait; the answer&#x27;s mode field says how many (0..8), and they follow the data at offset 32 of it, 8 bytes each as the device gives them (platform.h: u16 x, u16 y, u8 buttons, s8 wheel y, s8 wheel x, u8 kind); the result is the number of key bytes, which may then be 0 (not the end of input).</td><td></td><td class="err"></td></tr>
+<tr id="tty-2"><td class="n">2</td><td><a class="opname" href="../code/#os/servers/tty.s:30"><code>WRITE</code></a></td><td>data to the console</td><td></td><td class="err"></td></tr>
+<tr id="tty-4"><td class="n">4</td><td><a class="opname" href="../code/#os/servers/tty.s:31"><code>CLOSE</code></a></td><td>0 (the console is never closed)</td><td></td><td class="err"></td></tr>
+<tr id="tty-18"><td class="n">18</td><td><a class="opname" href="../code/#os/servers/tty.s:32"><code>SETFG</code></a></td><td>handle = pid: Ctrl-C now interrupts that process</td><td></td><td class="err"></td></tr>
+<tr id="tty-19"><td class="n">19</td><td><a class="opname" href="../code/#os/servers/tty.s:33"><code>CONMODE</code></a></td><td>handle = 0 cooked, 1 raw</td><td></td><td class="err"></td></tr>
+<tr id="tty-20"><td class="n">20</td><td><a class="opname" href="../code/#os/servers/tty.s:34"><code>ATTACH</code></a></td><td>handle = a guest id: the console&#x27;s input goes to that guest (below); answered when it comes back to StrataOS, with 0 (Ctrl-] was typed), 1 (the guest closed the console), 2 (the guest was stopped) or -2 (the attaching process was interrupted); -7 if the console is attached already, -1 if the requester is a guest or the id is not a guest&#x27;s</td><td></td><td class="err"></td></tr>
+</tbody></table></div>
+<p class="sysops">Also answered: 36 DUPS, 37 CLEANUP, 38 CANCEL from <code>proc</code> (<a href="#system">below</a>).</p>
+<!-- /ops:tty -->
+</section>
+
+<section id="pipe" class="server">
+  <h2><span class="num">05</span><code>pipe</code> — pipes</h2>
+  <p>pid 5, started by <code>proc</code>. Up to 8 pipes, each a 2&nbsp;KiB ring in the server's
+    own data memory; the read end of pipe p is id 2p+1, the write end 2p+2. The ends are reference
+    counted per process, so a pipe sees the end of its input when no writer is left. Each pipe holds
+    at most one waiting reader and one waiting writer, parked.</p>
+  <div class="facts2">
+    <div><b>core</b>core 5, shared</div>
+    <div><b>holds</b>nothing but its own memory: the rings are in its Local Store</div>
+    <div><b>reached by</b>c4 of every process</div>
+    <div><b>source</b><a class="srcpath" href="../code/#os/servers/pipe.s">os/servers/pipe.s</a></div>
+  </div>
+<!-- ops:pipe -->
+<div class="optable"><table>
+<thead><tr><th class="n">op</th><th>name</th><th>request</th><th>reply</th><th>errors</th></tr></thead>
+<tbody>
+<tr id="pipe-1"><td class="n">1</td><td><a class="opname" href="../code/#os/servers/pipe.s:10"><code>READ</code></a></td><td>handle, length, mode bit0 = do not block</td><td>bytes (0 = end: no writer left); a reader with nothing to read waits (parked)</td><td class="err"></td></tr>
+<tr id="pipe-2"><td class="n">2</td><td><a class="opname" href="../code/#os/servers/pipe.s:12"><code>WRITE</code></a></td><td>handle, length, data</td><td>bytes taken (at least 1; the library writes the rest); -1 if no reader is left; a writer waits while full</td><td class="err"><abbr title="failed">-1</abbr></td></tr>
+<tr id="pipe-4"><td class="n">4</td><td><a class="opname" href="../code/#os/servers/pipe.s:14"><code>CLOSE</code></a></td><td>handle</td><td>0</td><td class="err"></td></tr>
+<tr id="pipe-8"><td class="n">8</td><td><a class="opname" href="../code/#os/servers/pipe.s:9"><code>PIPE</code></a></td><td></td><td>read id | write id &lt;&lt; 8</td><td class="err"></td></tr>
+</tbody></table></div>
+<p class="sysops">Also answered: 36 DUPS, 37 CLEANUP, 38 CANCEL from <code>proc</code> (<a href="#system">below</a>).</p>
+<!-- /ops:pipe -->
+</section>
+
+<section id="net" class="server">
+  <h2><span class="num">06</span><code>net</code> — IPv4, ICMP, UDP, TCP</h2>
+  <p>Started on demand (<code>net ADDRESS</code>, or by the first program that uses the network):
+    <code>proc</code> makes a program named exactly <code>net</code> the server of the lowest empty
+    core. The interface carries raw IPv4 packets. Four sockets, each with a 2&nbsp;KiB receive ring
+    and a 2&nbsp;KiB send buffer; TCP retransmits after 250&nbsp;ms, doubling up to 8&nbsp;s; DNS
+    over UDP with a cache. A socket belongs to the process that made it.</p>
+  <div class="facts2">
+    <div><b>core</b>the lowest empty core, alone on it</div>
+    <div><b>holds</b>the network interface's ports 0x4200– (c4, GETNET: only for the process registered as "net"); the clock (c7)</div>
+    <div><b>reached by</b>LOOKUP "net"</div>
+    <div><b>source</b><a class="srcpath" href="../code/#os/servers/net.s">os/servers/net.s</a></div>
+  </div>
+<!-- ops:net -->
+<div class="optable"><table>
+<thead><tr><th class="n">op</th><th>name</th><th>request</th><th>reply</th><th>errors</th></tr></thead>
+<tbody>
+<tr id="net-1"><td class="n">1</td><td><a class="opname" href="../code/#os/servers/net.s:19"><code>READ</code></a></td><td>TCP: length = most bytes, mode bit0 = do not block</td><td>bytes; 0 once the peer has closed and everything was read; waits while nothing is there (-3 with mode bit0); -1 after a reset</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="would block">-3</abbr></td></tr>
+<tr id="net-2"><td class="n">2</td><td><a class="opname" href="../code/#os/servers/net.s:22"><code>WRITE</code></a></td><td>TCP: the data</td><td>bytes taken (at least 1: the library writes the rest); waits while the send buffer is full; -1 if closed</td><td class="err"><abbr title="failed">-1</abbr></td></tr>
+<tr id="net-4"><td class="n">4</td><td><a class="opname" href="../code/#os/servers/net.s:24"><code>CLOSE</code></a></td><td></td><td>0. TCP: the data still buffered is sent, then FIN; the connection finishes on its own. mode bit0: only stop sending (FIN after the data), the socket stays readable (shutdown)</td><td class="err"></td></tr>
+<tr id="net-50"><td class="n">50</td><td><a class="opname" href="../code/#os/servers/net.s:27"><code>STAT</code></a></td><td></td><td>sockets in use; data: u64 ip, u64 device STATUS, u64 packets in, out, dropped, u64 socket slots, 2 reserved; then 32 bytes per socket (see net_stat in os/lib/sys.s)</td><td class="err"></td></tr>
+<tr id="net-51"><td class="n">51</td><td><a class="opname" href="../code/#os/servers/net.s:30"><code>SETIP</code></a></td><td>handle = the new address</td><td>0</td><td class="err"></td></tr>
+<tr id="net-52"><td class="n">52</td><td><a class="opname" href="../code/#os/servers/net.s:31"><code>PING</code></a></td><td>handle = address, length = payload bytes (&lt;= 1400), mode = timeout in ticks (0: 1 s)</td><td>the round trip in ticks, -8</td><td class="err"><abbr title="timed out">-8</abbr></td></tr>
+<tr id="net-53"><td class="n">53</td><td><a class="opname" href="../code/#os/servers/net.s:33"><code>CONNECT</code></a></td><td>handle = address, length = port</td><td>socket id once established; -1 refused (RST), -8 no answer (8 tries), -6 no free socket</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="no memory">-6</abbr> <abbr title="timed out">-8</abbr></td></tr>
+<tr id="net-54"><td class="n">54</td><td><a class="opname" href="../code/#os/servers/net.s:35"><code>LISTEN</code></a></td><td>handle = port</td><td>socket id; -7 port in use</td><td class="err"><abbr title="busy">-7</abbr></td></tr>
+<tr id="net-55"><td class="n">55</td><td><a class="opname" href="../code/#os/servers/net.s:36"><code>ACCEPT</code></a></td><td>handle = listening socket, mode bit0 = do not block</td><td>the id of the next established connection (it belongs to the caller)</td><td class="err"></td></tr>
+<tr id="net-56"><td class="n">56</td><td><a class="opname" href="../code/#os/servers/net.s:38"><code>UDP</code></a></td><td>handle = port (0: any)</td><td>socket id; -7 port in use</td><td class="err"><abbr title="busy">-7</abbr></td></tr>
+<tr id="net-57"><td class="n">57</td><td><a class="opname" href="../code/#os/servers/net.s:39"><code>SENDTO</code></a></td><td>data: u64 address, u64 port, payload; length = 16 + payload (&lt;= 1472)</td><td>payload bytes sent</td><td class="err"></td></tr>
+<tr id="net-58"><td class="n">58</td><td><a class="opname" href="../code/#os/servers/net.s:41"><code>RECVFROM</code></a></td><td>length = most bytes, mode bit0 = do not block</td><td>bytes; data: u64 address, u64 port, payload; waits while none is queued</td><td class="err"></td></tr>
+<tr id="net-60"><td class="n">60</td><td><a class="opname" href="../code/#os/servers/net.s:43"><code>RESOLVE</code></a></td><td>data = a host name, length = its bytes (&lt;= 127)</td><td>its first IPv4 address; data: u64 count (&lt;= 4), 4 x u64 addresses, the canonical name (zero-terminated). -4 no such name, -8 no resolver answered (DNS over UDP, below; cached; dotted quads and localhost directly)</td><td class="err"><abbr title="no such file or program">-4</abbr> <abbr title="timed out">-8</abbr></td></tr>
+<tr id="net-61"><td class="n">61</td><td><a class="opname" href="../code/#os/servers/net.s:47"><code>SETDNS</code></a></td><td>handle = the first resolver, length = the second (0: none)</td><td>0</td><td class="err"></td></tr>
+</tbody></table></div>
+<p class="sysops">Also answered: 36 DUPS, 37 CLEANUP, 38 CANCEL from <code>proc</code> (<a href="#system">below</a>).</p>
+<!-- /ops:net -->
+</section>
+
+<section id="ws" class="server">
+  <h2><span class="num">07</span><code>ws</code> — the window server</h2>
+  <p>Started from a shell: <code>proc</code> makes a program named <code>ws</code> the server of the
+    lowest empty core, and it registers as "ws". The only process that touches the framebuffer and,
+    while it runs, the keyboard. Clients draw in their own arenas and lend each finished band of
+    pixels with DAMAGE. More on <a href="ws.html">its own page</a>.</p>
+  <div class="facts2">
+    <div><b>core</b>the lowest empty core; others may share it</div>
+    <div><b>holds</b>the framebuffer window (c0) and the controller's ports (c4), from GRANT_FB; a second buffer lent to <code>tty</code> for keys</div>
+    <div><b>reached by</b>LOOKUP "ws"</div>
+    <div><b>source</b><a class="srcpath" href="../code/#os/ws/ws.s">os/ws/ws.s</a>,
+      <a class="srcpath" href="../code/#os/ws/hw_os.s">hw_os.s</a></div>
+  </div>
+<!-- ops:ws -->
+<div class="optable"><table>
+<thead><tr><th class="n">op</th><th>name</th><th>request</th><th>reply</th><th>errors</th></tr></thead>
+<tbody>
+<tr id="ws-40"><td class="n">40</td><td><a class="opname" href="../code/#os/ws/ws.s:36"><code>CREATE</code></a></td><td>mode bit0 = interrupt me (SIGNAL) when events wait and I am not in EVENT; data: u64 w, h (ignored: the tile decides), title (8 bytes)</td><td>window id; data: u64 width, height of the surface</td><td class="err"></td></tr>
+<tr id="ws-41"><td class="n">41</td><td><a class="opname" href="../code/#os/ws/ws.s:39"><code>DAMAGE</code></a></td><td>handle = id; data: u64 x, y, w, h, stride; attached: the band holding those w x h pixels from its offset 0 (rows `stride` bytes apart; 0 = w * 4). Without a band: just redraw the rect.</td><td></td><td class="err"></td></tr>
+<tr id="ws-42"><td class="n">42</td><td><a class="opname" href="../code/#os/ws/ws.s:42"><code>TEXT</code></a></td><td>handle = id; data: u64 x, y, fg, bg (-1 none), then the string (length = 32 + its bytes): drawn into the surface, 8 x 16 font</td><td></td><td class="err"></td></tr>
+<tr id="ws-43"><td class="n">43</td><td><a class="opname" href="../code/#os/ws/ws.s:44"><code>FILL</code></a></td><td>handle = id; data: u64 x, y, w, h, colour</td><td></td><td class="err"></td></tr>
+<tr id="ws-44"><td class="n">44</td><td><a class="opname" href="../code/#os/ws/ws.s:45"><code>EVENT</code></a></td><td>handle = id; mode bit0 = do not block (-3); length = timeout in ticks (0 none, -8 when it passes)</td><td>0; data: u64 kind (1 key, 2 resize, 3 close, 4 focus in, 5 focus out, 6 pointer, 7 wheel), u64 value (key bytes, first in the low byte; pointer and wheel: u16 x, u16 y in the surface, u8 buttons, s8 wheel y (&gt; 0: away from the user), s8 wheel x, u8 the device&#x27;s kind: 1 move, 2 button), u64 width (keys: the number of bytes), u64 height. Pointer events go to the window under the pointer: presses and releases, moves while a button is held, and the wheel.</td><td class="err"></td></tr>
+<tr id="ws-45"><td class="n">45</td><td><a class="opname" href="../code/#os/ws/ws.s:55"><code>DESTROY</code></a></td><td>handle = id</td><td></td><td class="err"></td></tr>
+<tr id="ws-46"><td class="n">46</td><td><a class="opname" href="../code/#os/ws/ws.s:55"><code>TITLE</code></a></td><td>handle = id; data = 8 bytes</td><td></td><td class="err"></td></tr>
+</tbody></table></div>
+<p class="sysops">Also answered: 37 CLEANUP from <code>proc</code> (<a href="#system">below</a>).</p>
+<!-- /ops:ws -->
+</section>
+
+<section id="system" class="server">
+  <h2><span class="num">08</span>From <code>proc</code> to every server</h2>
+  <p>Three messages go from <code>proc</code> to the servers that keep something per process, and
+    one from the kernel to <code>proc</code>:</p>
+  <div class="tbl"><table>
+    <thead><tr><th>op</th><th>name</th><th>meaning</th></tr></thead>
+    <tbody>
+      <tr><td class="n">36</td><td><code>DUPS</code></td><td>data: owner pid, count, ids: that process now holds these handles too (sent while spawning, for the handles a child inherits)</td></tr>
+      <tr><td class="n">37</td><td><code>CLEANUP</code></td><td>handle = pid: it ended; drop everything it held (its handles, waiting reads, sockets, windows)</td></tr>
+      <tr><td class="n">38</td><td><code>CANCEL</code></td><td>handle = pid: it was interrupted; the requests held for it return −2</td></tr>
+      <tr><td class="n">7</td><td><code>EXITED</code></td><td>kernel → <code>proc</code>: handle = pid, length = the exit status (bits 0–31 the code, bit 62 killed, bit 63 faulted)</td></tr>
+    </tbody>
+  </table></div>
+  <p class="refs">In the manual: <a class="pdf" data-pdf="sec:os-servers" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.18.8">Section 18.8, The servers</a> ·
+    <a class="pdf" data-pdf="sec:os-net" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.18.14">Section 18.14, Networking</a> ·
+    the library programs use: <a class="srcpath" href="../code/#os/lib/sys.s">os/lib/sys.s</a></p>
+</section>
+
+</main>
+
+<footer>
+  <div class="bands small" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+  <p>StrataOS 0.1 — <a href="../code/#os/servers/proc.s">os/servers/</a> ·
+    <a href="../code/#os/ws/ws.s">os/ws/</a> ·
+    <a href="https://github.com/yrashk/strata/blob/main/doc/strataos.md">the specification</a> ·
+    <a href="../Strata-Architecture-Reference-Manual.pdf">Architecture Reference Manual</a> ·
+    <a href="../">Strata</a></p>
+</footer>
+
+</body>
+</html>

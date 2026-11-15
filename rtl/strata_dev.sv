@@ -23,9 +23,16 @@
 // 0 is read and a written value takes effect when its byte 7 is written.
 // Reads that have nothing to give yet (console input with no byte, the break
 // port, WAIT before the deadline, VSYNC before the next refresh, EVENT with
-// no event queued) answer
-// `retry` before any byte, so the bus is not held while waiting; the Transfer
-// Unit asks again later.
+// no event queued, RX with no packet) answer `retry` before any byte, so the
+// bus is not held while waiting. The device remembers, per core, which of
+// these reads has been tried and waits, and raises that core's `wake` line
+// while one of them would now complete if tried again (its byte, Ctrl-C,
+// release, deadline, refresh, event or packet is there); the core's
+// Transfer Unit keeps a read that was answered retry off the bus until
+// then. `wake` is a hint, registered: a woken read that finds the thing
+// taken by another core is answered retry again and waits again. In
+// simulation, console input that has not been fetched from the host is
+// looked for every HOST_POLL cycles while a console read waits.
 //
 // Timer: NOW counts microseconds, from the clock (CLK_MHZ cycles per tick)
 // or, in simulation, from the host (sim_time_us, unless it returns -1).
@@ -113,6 +120,7 @@ module strata_dev
   input  logic [7:0]  in_from,               // the core that gives it
   output logic        in_ready,
   input  logic [NCORES-1:0] core_clr,        // these cores are being reset: forget their waiting reads
+  output logic [NCORES-1:0] wake,            // a read of this core that waits would complete now
   output logic        give_valid,
   output logic [7:0]  give_dst,
   output cap_t        give_cap,
@@ -131,6 +139,7 @@ module strata_dev
   localparam int CMDQ = 4;
   localparam int CQD  = 4;
   localparam int DAW  = $clog2(DISK_WORDS);
+  localparam int HOST_POLL = 256;             // (simulation) cycles between looks for console input
 
   // ================================================================ ROMs
   logic [7:0] plat [PLAT_LEN];
@@ -216,6 +225,7 @@ module strata_dev
   logic [63:0] lat_now, lat_dl, lat_wait, lat_vs;  // values latched at byte 0
   logic [63:0] frame, next_frame;   // refreshes so far; the tick of the next one
   logic [NCORES-1:0]       vs_armed; // a core's VSYNC read has been tried
+  logic [NCORES-1:0]       tw_wait;  // a core's WAIT read has been tried and waits
   logic [NCORES-1:0][63:0] vs_from;  // ... and the refresh count it waits to pass
   logic        is_wait, is_vsync, wait_ok, vsync_ok, tmr_hit;
   logic [63:0] tmr_val;
@@ -633,7 +643,11 @@ module strata_dev
     if (rst) begin
       deadline <= '0;
       vs_armed <= '0;
+      tw_wait  <= '0;
     end else if (ts == T_RUN) begin
+      if (!t_we && is_wait && t_idx == 0)
+        for (int c = 0; c < NCORES; c++)
+          if (int'(t_core) == c) tw_wait[c] <= retry;  // tried: waits, or completes now
       if (!t_we && rvalid) begin
         if (is_wait && t_idx == 0) lat_wait <= now;
         else if (is_vsync && t_idx == 0) lat_vs <= frame;
@@ -656,16 +670,37 @@ module strata_dev
       end
     end
     if (!rst)
-      for (int c = 0; c < NCORES; c++) if (core_clr[c]) vs_armed[c] <= 0;
+      for (int c = 0; c < NCORES; c++) if (core_clr[c]) begin
+        vs_armed[c] <= 0;
+        tw_wait[c]  <= 0;
+      end
   end
+
+  // wake: per core, a read that waits would complete if tried now. The
+  // host's pointer events and RX packets are seen through STATE and STATUS
+  // (their queued counts), which are refreshed every cycle.
+  logic [NCORES-1:0] ready;
+  always_comb
+    for (int c = 0; c < NCORES; c++)
+      ready[c] = (brk_wait[c] && (brk_rel[c] || brk_cnt != 0)) ||
+                 (in_wait[c]  && (in_rel[c] || rx_ok)) ||
+                 (tw_wait[c]  && wait_ok) ||
+                 (vs_armed[c] && frame > vs_from[c]) ||
+                 (ptr_wait[c] && (ptr_rel[c] || ptr_have || ptr_st[55:40] != 0)) ||
+                 (net_wait[c] && (net_rel[c] || (net_open ? int'(net_core) == c : net_st[23:16] != 0)));
+  always_ff @(posedge clk) wake <= rst ? '0 : ready;
 
 `ifdef SIMULATION
   // console input from the harness: one byte at a time, fetched while a read
-  // of the input port is being tried (the harness answers -1: nothing yet)
+  // of the input port is being tried, and every HOST_POLL cycles while one
+  // waits (the harness answers -1: nothing yet)
+  logic [$clog2(HOST_POLL)-1:0] poll_cnt;
+  always_ff @(posedge clk) poll_cnt <= rst ? '0 : poll_cnt + 1;
   always_ff @(posedge clk) begin
     if (rst) sim_have <= 0;
     else if (con_rx_pop) sim_have <= 0;
-    else if (!sim_have && ts == T_RUN && is_con_in && !t_we && !in_rel_me) begin
+    else if (!sim_have && ((ts == T_RUN && is_con_in && !t_we && !in_rel_me) ||
+                           (poll_cnt == 0 && (in_wait & ~in_rel) != 0))) begin
       int c;
       c = sim_getc();
       if (c >= 0) begin

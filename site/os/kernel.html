@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StrataOS — the kernel</title>
+<meta name="description" content="The StrataOS kernel: svc calls and the system core's operations, scheduling and time slices, context switches and what they move, demand paging of code units, capabilities, endpoints, revocation, and interrupts as device reads.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="os.css">
+</head>
+<body>
+
+<nav class="top">
+  <a class="mark" href="../">STRATA</a>
+  <div class="links">
+    <a href="../#idea">Idea</a>
+    <a href="../arch/">Architecture</a>
+    <a href="../isa/">Instructions</a>
+    <a href="./" aria-current="page">OS</a>
+    <a href="../forth/">Forth</a>
+    <a href="../c/">C</a>
+    <a href="../hardware/">Hardware</a>
+    <a href="../play/">Play</a>
+    <a href="../debug/">Debug</a>
+    <a href="../code/">Source</a>
+    <a class="pill" href="../Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
+    <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
+  </div>
+</nav>
+
+<main class="os">
+
+<header class="os-hero">
+  <p class="kicker">StrataOS 0.1 · the kernel</p>
+  <h1>THE KERNEL</h1>
+  <p class="lede">A system core that creates processes, hands out memory and keeps time, and a
+    dispatcher on every other core that runs its threads. A few kilobytes stay resident; the rest
+    is paged in on demand.</p>
+  <ul class="os-pages">
+    <li><a href="./">Overview</a></li>
+    <li><a href="kernel.html" aria-current="page">The kernel</a></li>
+    <li><a href="messages.html">Messages</a></li>
+    <li><a href="servers.html">Servers</a></li>
+    <li><a href="fs.html">The file system</a></li>
+    <li><a href="ws.html">The window server</a></li>
+  </ul>
+</header>
+
+<section id="svc" class="section">
+  <h2><span class="num">01</span>svc: asking the dispatcher</h2>
+  <p class="intro"><code>svc</code> is a process's one way into the kernel: in user mode it traps
+    to the supervisor, its core's dispatcher, with the function in <code>a0</code>. A program
+    never calls the kernel for files or the console; it sends a message and waits with an
+    <code>svc</code>. Timeouts are in ticks of 1&nbsp;&micro;s, −1 for none; the result comes
+    back in <code>a0</code>.</p>
+<!-- ops:svc -->
+<div class="optable"><table>
+<thead><tr><th class="n">op</th><th>name</th><th>request</th><th>reply</th><th>errors</th></tr></thead>
+<tbody>
+<tr id="svc-1"><td class="n">1</td><td><a class="opname" href="../code/#os/kernel.s:106"><code>WAIT_REPLY</code></a></td><td>a1 doorbell core, a2 timeout (-1 none), a3 awaited base (0 = own buffer, -1 = nothing: a sleep), a4 register it arrives in</td><td>0, -2 interrupted, -8 timed out</td><td class="err"><abbr title="interrupted">-2</abbr> <abbr title="timed out">-8</abbr></td></tr>
+<tr id="svc-2"><td class="n">2</td><td><a class="opname" href="../code/#os/kernel.s:109"><code>RECEIVE</code></a></td><td>(servers) a1 tag mask, a2 timeout</td><td>a0 = token, c6 = request, c7 = its attachment; or -1 with a1 = idle tags; -8</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="timed out">-8</abbr></td></tr>
+<tr id="svc-3"><td class="n">3</td><td><a class="opname" href="../code/#os/kernel.s:111"><code>REPLY</code></a></td><td>a1 token, a2 bit2 send c4 first, bit0 send c7, bit1 (privileged) mint an endpoint for core a3 and send it; then gives c6 back (the receiver gets them in c6, c7)</td><td></td><td class="err"></td></tr>
+<tr id="svc-4"><td class="n">4</td><td><a class="opname" href="../code/#os/kernel.s:114"><code>YIELD</code></a></td><td>let the core&#x27;s other runnable threads run</td><td></td><td class="err"></td></tr>
+<tr id="svc-5"><td class="n">5</td><td><a class="opname" href="../code/#os/kernel.s:115"><code>EXIT</code></a></td><td>a1 = exit code (halt also exits, with the code in a0)</td><td></td><td class="err"></td></tr>
+<tr id="svc-6"><td class="n">6</td><td><a class="opname" href="../code/#os/kernel.s:116"><code>NOTIFY_WAIT</code></a></td><td>a2 timeout: block until a notification (an interrupt; a child&#x27;s exit, for proc)</td><td>its bits, -8 timed out</td><td class="err"><abbr title="timed out">-8</abbr></td></tr>
+<tr id="svc-7"><td class="n">7</td><td><a class="opname" href="../code/#os/kernel.s:118"><code>SET_MIRROR</code></a></td><td>a1 arena offset of a far copy of the I-LS program range, a2 length: code is reloaded from it on a switch-in (JITs), and the code cache starts after it</td><td>a1 = NXMAP</td><td class="err"></td></tr>
+<tr id="svc-8"><td class="n">8</td><td><a class="opname" href="../code/#os/kernel.s:121"><code>PARK</code></a></td><td>(servers) the kernel keeps the request in c6</td><td>a0 = its park id: answer it later, after UNPARK</td><td class="err"></td></tr>
+<tr id="svc-9"><td class="n">9</td><td><a class="opname" href="../code/#os/kernel.s:123"><code>UNPARK</code></a></td><td>(servers) a1 = park id: the request returns to c6</td><td></td><td class="err"></td></tr>
+<tr id="svc-10"><td class="n">10</td><td><a class="opname" href="../code/#os/kernel.s:124"><code>CLOCK</code></a></td><td>the clock capability is put in c7 again</td><td></td><td class="err"></td></tr>
+<tr id="svc-11"><td class="n">11</td><td><a class="opname" href="../code/#os/kernel.s:125"><code>SET_SCRATCH</code></a></td><td>a1 D-LS start, a2 length (0: none): that range of the data is neither saved nor restored on a switch (undefined after one)</td><td></td><td class="err"></td></tr>
+<tr id="svc-12"><td class="n">12</td><td><a class="opname" href="../code/#os/kernel.s:127"><code>SEND</code></a></td><td>a1 endpoint register (1..7), a5 attachment register (0..7, -1 none), a2..a4 as WAIT_REPLY: the dispatcher sends the attachment and then the buffer (c5) through the endpoint with nothing of this core in between, rings the doorbell and waits like WAIT_REPLY; -1: bad registers (nothing sent)</td><td></td><td class="err"></td></tr>
+<tr id="svc-13"><td class="n">13</td><td><a class="opname" href="../code/#os/kernel.s:132"><code>UNITS</code></a></td><td></td><td>a0 = the code units the dispatcher paged in for this thread so far (xmiss), a1 = the code cache&#x27;s slots now</td><td class="err"></td></tr>
+<tr id="svc-14"><td class="n">14</td><td><a class="opname" href="../code/#os/kernel.s:134"><code>PAGE</code></a></td><td>a1 = a missed far address (utval of an xmiss), a2 = the pc of the miss (uepc): a program that has its own trap handler (which gets its misses) hands one to the dispatcher, which pages the unit in as for its own</td><td>0, or 1 if it cannot (a fault after all)</td><td class="err"></td></tr>
+</tbody></table></div>
+<!-- /ops:svc -->
+  <p class="note">Generated from the dispatcher's own dispatch (<code>wt_svc</code>) and the
+    header of <a class="srcpath" href="../code/#os/kernel.s">os/kernel.s</a> when the site is
+    built; the names link to the line that documents each call. In user mode
+    <code>ctake</code>, <code>cpoll</code> and <code>tany</code> on the inbox trap too: the
+    dispatcher performs them for the process (trap-and-emulate), so bare-metal programs run
+    unchanged.</p>
+</section>
+
+<section id="system-core" class="section">
+  <h2><span class="num">02</span>The system core's operations</h2>
+  <p class="intro">Core 0 answers messages too, through an endpoint only <code>proc</code> holds
+    (and <code>dev</code>, to halt the machine and to lend the framebuffer). Policy lives in
+    <code>proc</code>; these are the mechanisms it asks for. When a process ends, the kernel sends
+    <code>proc</code> op&nbsp;7 EXITED (handle = pid, length = its status).</p>
+<!-- ops:kernel -->
+<div class="optable"><table>
+<thead><tr><th class="n">op</th><th>name</th><th>request</th><th>reply</th><th>errors</th></tr></thead>
+<tbody>
+<tr id="kernel-1"><td class="n">1</td><td><a class="opname" href="../code/#os/kunits/ops.s:10"><code>CREATE</code></a></td><td>attachment: an arena from MEMORY with the image at 0xD0000 and the start-up block at 0x7F000; mode = the image&#x27;s length (the bytes fs loaded: nothing beyond them is read); data: u64 pid, ncores (0 = time-shared), flags (F_SERVER 2, F_PRIV 8, F_DEVCAPS 16, F_SOLO 32, F_KEEP 64), pin core (-1 any), endpoint cores for c1..c4 (bytes, 255 none), a0, a1, a2</td><td>0, data[0] = first core (on failure the arena comes back as an attachment; for a server, an endpoint to its core comes with the reply)</td><td class="err"></td></tr>
+<tr id="kernel-2"><td class="n">2</td><td><a class="opname" href="../code/#os/kunits/ops.s:18"><code>DESTROY</code></a></td><td>handle = pid</td><td>0 (proc later gets EXITED, status bit 62)</td><td class="err"></td></tr>
+<tr id="kernel-3"><td class="n">3</td><td><a class="opname" href="../code/#os/kunits/ops.s:19"><code>MEMORY</code></a></td><td>length = the size wanted (0: 1 MiB; rounded up to whole 256 KiB granules, at least 1 MiB)</td><td>0 and a fresh arena (attachment), data[0] = its base, data[1] = its size; -6 no memory or no slot. Mode 1: an extra arena for the process handle = pid (proc&#x27;s MORE): it is that process&#x27;s (state 5) until FREE gives it back or the process ends, when it is revoked and freed with it. Mode 2: for an image (only CREATE or FREE take it, state 6): its image area and the gap above the save area are not scrubbed (u_alloc)</td><td class="err"><abbr title="no memory">-6</abbr></td></tr>
+<tr id="kernel-4"><td class="n">4</td><td><a class="opname" href="../code/#os/kunits/ops.s:28"><code>STATS</code></a></td><td></td><td>process count; data: 8 words (cores, free heap, total heap, units loaded, switches, KiB moved, processes, 0), 32 bytes per core (pid running | runnable &lt;&lt; 8 | processes &lt;&lt; 16 | flags &lt;&lt; 24 | cycles per switch &lt;&lt; 32, switches, KiB, free save-table slots | cycles per trap &lt;&lt; 32), then 32 bytes per process (pid | core &lt;&lt; 8 | state &lt;&lt; 16 | flags &lt;&lt; 24, ncores, switches, bytes)</td><td class="err"></td></tr>
+<tr id="kernel-5"><td class="n">5</td><td><a class="opname" href="../code/#os/kunits/ops.s:34"><code>TUNE</code></a></td><td>length = the time slice in ticks (100..100000)</td><td>0, -1 (proc only)</td><td class="err"><abbr title="failed">-1</abbr></td></tr>
+<tr id="kernel-6"><td class="n">6</td><td><a class="opname" href="../code/#os/kunits/ops.s:36"><code>FREE</code></a></td><td>attachment: an arena (unused from MEMORY, or from EXITED)</td><td>0</td><td class="err"></td></tr>
+<tr id="kernel-8"><td class="n">8</td><td><a class="opname" href="../code/#os/kunits/ops.s:37"><code>HALT</code></a></td><td>stops every core (waits until the workers&#x27; dispatchers have stopped their processes, then writes the console&#x27;s release port, the pointer&#x27;s EVENT port and DEADLINE 0, so that no core halts with a device read pending)</td><td></td><td class="err"></td></tr>
+<tr id="kernel-9"><td class="n">9</td><td><a class="opname" href="../code/#os/kunits/ops.s:35"><code>NOTIFY</code></a></td><td>handle = pid, length = bits</td><td>0 (wakes NOTIFY_WAIT / a sleep)</td><td class="err"></td></tr>
+<tr id="kernel-10"><td class="n">10</td><td><a class="opname" href="../code/#os/kunits/ops.s:41"><code>FBLEND</code></a></td><td>(dev only) handle = pid</td><td>0 and the framebuffer memory (attachment): every older capability of its region is revoked and that process is its holder until it ends (then the kernel revokes it again); -7 a live process holds it; -1 none / bad pid</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="busy">-7</abbr></td></tr>
+<tr id="kernel-11"><td class="n">11</td><td><a class="opname" href="../code/#os/kunits/ops.s:45"><code>GSTART</code></a></td><td>(proc only) attachment: an arena from MEMORY with a guest image at its top; data: u64 cores, pin core (-1 any), the server cores the guest may send to (bits), flags, the console&#x27;s tty core, the image&#x27;s arena offset</td><td>0, data[0] = first core, data[1] = guest id (os/kunits/guest.s); -5 no run of free cores; -1 a bad arena (it is given back)</td><td class="err"><abbr title="failed">-1</abbr> <abbr title="no free core / not allowed">-5</abbr></td></tr>
+<tr id="kernel-12"><td class="n">12</td><td><a class="opname" href="../code/#os/kunits/ops.s:51"><code>GSTOP</code></a></td><td>(proc only) handle = guest id, mode bit0 kill</td><td>0: its arena revoked, its cores reset and StrataOS&#x27;s again; -1 no such guest</td><td class="err"><abbr title="failed">-1</abbr></td></tr>
+<tr id="kernel-13"><td class="n">13</td><td><a class="opname" href="../code/#os/kunits/ops.s:53"><code>GINFO</code></a></td><td></td><td>guests; data: u64 count, then 32 bytes per guest: u64 id, first core | cores &lt;&lt; 8, arena bytes, state (1 live)</td><td class="err"></td></tr>
+</tbody></table></div>
+<!-- /ops:kernel -->
+  <p class="note">Generated from <a class="srcpath" href="../code/#os/kunits/ops.s">os/kunits/ops.s</a>.
+    Ops 11–13 hand whole worker cores to a <b>guest</b>, a second operating system that runs
+    beside StrataOS in supervisor mode and reaches only the arena, console endpoint and clock it
+    was given (<a class="srcpath" href="../code/#os/kunits/guest.s">os/kunits/guest.s</a>).</p>
+</section>
+
+<section id="scheduling" class="section">
+  <h2><span class="num">03</span>Scheduling and time slices</h2>
+  <p>Every process time-shares worker cores; there are no exclusive cores. Each worker runs up to
+    16 threads of different processes. The system core owns the timer, whose DEADLINE register is
+    a device read that completes at a time: every <b>time slice</b> (2&nbsp;ms by default; TUNE,
+    or <code>sched</code> at the shell, sets 100 to 100,000 ticks) it stops, through core control,
+    each worker that has more than one runnable thread. A core running a single thread is never
+    interrupted. The same timer runs every timed wait: the earliest deadline of each core is in the
+    KST.</p>
+  <ul class="ticks">
+    <li><b>Placement.</b> A server goes on the lowest core that has none. A one-thread process
+      goes on the least loaded worker, preferring cores that hold a server; N threads go on the run
+      of N contiguous server-free cores whose busiest core is least loaded. SPAWN can pin a process
+      to a core (the shell's <code>-c N</code>).</li>
+    <li><b>Slots, not surprises.</b> A switched-out thread's capabilities must stay on its core,
+      in the core's capability save table (256 slots). Every thread record has 10 slots reserved,
+      all a thread could ever need; the general part holds the queues. Nothing runs out, so placing
+      a thread on a core with a free record is placing it where its slots are.</li>
+    <li><b>Limits.</b> 64 processes and 64 arenas, 46&nbsp;MiB of arena pool, 8 handles per
+      process, 6 threads per process.</li>
+  </ul>
+</section>
+
+<section id="switch" class="section">
+  <h2><span class="num">04</span>The context switch, and what it moves</h2>
+  <p class="intro">A thread's state is its registers, its capability registers, its CSRs and the
+    parts of its Local Stores it uses. Nothing hides the cost of moving them: the dispatcher copies
+    them, and counts every switch and every kilobyte.</p>
+  <figure class="diagram">
+    <div class="frame">
+<svg viewBox="0 0 760 430" role="img" aria-labelledby="cs-t">
+  <title id="cs-t">A context switch on a worker core: thread A's registers go into its record and its capabilities into the save table; its data extent and live stack go out to its save area; thread B's code comes in from its image, then its data and stack from its save area.</title>
+  <defs>
+    <marker id="cs-c" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arrc"/></marker>
+    <marker id="cs-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arra"/></marker>
+    <marker id="cs-e" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arre"/></marker>
+  </defs>
+  <text class="h" x="10" y="20">THE CORE</text>
+  <text class="h" x="470" y="20">FAR MEMORY · T3</text>
+  <rect class="box" x="10" y="30" width="360" height="390"/>
+  <text class="mc" x="22" y="52">registers</text>
+  <rect class="filld" x="22" y="60" width="150" height="44"/><text x="30" y="78">x1–x31</text><text class="s" x="30" y="96">pc, CSRs</text>
+  <text class="mc" x="22" y="142">capability registers</text>
+  <rect class="filld" x="22" y="150" width="150" height="44"/><text x="30" y="168">c0–c7 survive</text><text class="s" x="30" y="186">c8–c15 do not</text>
+  <text class="mc" x="200" y="52">D-LS</text>
+  <rect class="fillc" x="200" y="60" width="150" height="36"/><text x="208" y="78">data extent</text><text class="s" x="208" y="91">minus a scratch range</text>
+  <rect class="filld" x="200" y="96" width="150" height="16"/>
+  <rect class="filla" x="200" y="112" width="150" height="36"/><text x="208" y="128">thread records</text><text class="s" x="208" y="142">dispatcher data</text>
+  <rect class="fillc" x="200" y="148" width="150" height="32"/><text x="208" y="168">live stack</text>
+  <path class="lnc" d="M358,60 V180"/>
+  <text class="mc" x="200" y="212">save table</text>
+  <rect class="filla" x="200" y="220" width="150" height="70"/><text x="208" y="240">256 slots</text><text class="s" x="208" y="258">memory only: endpoints</text><text class="s" x="208" y="274">and devices are rebuilt</text>
+  <text class="mc" x="200" y="318">I-LS</text>
+  <rect class="filla" x="200" y="326" width="150" height="22"/><text x="208" y="342">kernel</text>
+  <rect class="fillc" x="200" y="348" width="150" height="56"/><text x="208" y="368">program code</text><text class="s" x="208" y="386">and its code units</text>
+  <path class="ln" d="M172,82 C186,82 186,130 198,130" marker-end="url(#cs-e)"/><text class="m" x="178" y="118">②</text>
+  <path class="ln" d="M172,172 C186,172 186,255 198,255" marker-end="url(#cs-e)"/><text class="m" x="176" y="226">③</text>
+  <rect class="box" x="470" y="30" width="280" height="150"/>
+  <text class="t" x="482" y="52">arena of A, going out</text>
+  <rect class="fillc" x="482" y="64" width="256" height="48"/><text x="490" y="84">save area · 48 KiB</text><text class="s" x="490" y="102">data extent at 0, stack at A000</text>
+  <rect class="filld" x="482" y="122" width="256" height="46"/><text x="490" y="142">image</text><text class="s" x="490" y="160">a read-only share</text>
+  <rect class="box hot" x="470" y="214" width="280" height="206"/>
+  <text class="t" x="482" y="236">arena of B, coming in</text>
+  <rect class="fillc" x="482" y="248" width="256" height="62"/><text x="490" y="268">save area</text><text class="s" x="490" y="286">all 48 KiB when another process</text><text class="s" x="490" y="302">ran on this core in between</text>
+  <rect class="filld" x="482" y="322" width="256" height="82"/><text x="490" y="342">image, or its code mirror</text><text class="s" x="490" y="360">code is never saved, only</text><text class="s" x="490" y="376">reloaded; the code units</text><text class="s" x="490" y="392">its cache held, too</text>
+  <path class="lnc" d="M358,88 H478" marker-end="url(#cs-c)"/>
+  <text class="mc" x="372" y="80">④ tput</text>
+  <text class="m" x="372" y="104">tg14, tg15</text>
+  <path class="lna" d="M482,280 C420,280 410,160 362,160" marker-end="url(#cs-a)"/>
+  <text class="ma" x="384" y="300">⑥ tget</text>
+  <text class="m" x="384" y="318">tg12, tg13</text>
+  <path class="lna" d="M482,370 H354" marker-end="url(#cs-a)"/>
+  <text class="ma" x="378" y="362">⑤ tgetx</text>
+  <text class="m" x="378" y="388">first</text>
+</svg>
+    </div>
+    <figcaption>Thread A goes out, thread B comes in. Cyan: what leaves; amber: what arrives. None
+      of the transfers is waited for: one core's transfers take effect in issue order, so B's
+      restore cannot overtake A's save, and B starts running while its bytes stream in; a load or
+      fetch that touches bytes still arriving simply waits for them.</figcaption>
+  </figure>
+  <ol class="steps">
+    <li><b>Drain</b> the thread's transfers (every tag but the dispatcher's own).</li>
+    <li><b>Registers</b>: x1–x31 and the CSRs into the thread's record (on every trap, not
+      only switches).</li>
+    <li><b>Capabilities</b>: c0–c7 are the thread's across switches. An endpoint or a device
+      capability is described and made again on switch-in; memory goes into a save-table slot.
+      c8–c15 belong to it only while it is not switched out.</li>
+    <li><b>Out</b>: the data extent (a program's data section; for a bare-metal program all of
+      0–0x9FFF) and the live stack (sp–0x10000) go to the save area in its arena. Not the whole
+      64&nbsp;KiB, and not a scratch range the thread declared (SET_SCRATCH).</li>
+    <li><b>In, code</b>: B's code reloaded from its image (or from the code mirror a JIT declared
+      with SET_MIRROR), and the code units its cache held put back into their slots and mapped.</li>
+    <li><b>In, data</b>: B's data and stack; when another process ran on this core in between, or
+      at B's first load, the whole program D-LS (48&nbsp;KiB), so that no process sees another's
+      bytes. Then capabilities, registers, <code>eret</code>.</li>
+  </ol>
+  <p>Every atomic of the switch (the counters, the published slot states, the running pid) is made
+    before its first transfer, because a far atomic waits for the core's transfers to finish. Each
+    dispatcher times itself with the <code>cycle</code> CSR; <code>cores</code> shows cycles per
+    switch and per trap. Measured on the Verilog RTL over a scripted session, a switch took about
+    10,000 cycles and an average trap about 15,000.</p>
+  <p class="refs">In the manual: <a class="pdf" data-pdf="sec:os-switch" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.18.5">Section 18.5, Context switches: the cost is explicit</a> ·
+    <a class="pdf" data-pdf="sec:os-preempt" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.18.4">Section 18.4, Scheduling and preemption</a> ·
+    <a class="pdf" data-pdf="sec:os-emul" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.18.6">Section 18.6, Emulating the inbox</a></p>
+</section>
+
+<section id="paging" class="section">
+  <h2><span class="num">05</span>Demand paging of code</h2>
+  <p>Instructions come only from a core's 64&nbsp;KiB instruction Local Store, and stores cannot
+    write it. Code that does not fit is cut into <b>code units</b> in far memory, called with
+    <code>xcall</code> through a capability: the overlay map translates a far address to a slot of
+    the I-LS, and a call to a unit that is not mapped traps with <code>xmiss</code>.</p>
+  <ul class="ticks">
+    <li><b>The kernel pages itself.</b> Only I-LS 0x4000–0x7FFF is resident. Start-up, the
+      system core's operations, exits and ticks are 2&nbsp;KiB units of the kernel's far image,
+      paged by core 0's own trap handler into 16 cache slots at I-LS 0x8000 (round robin). After
+      start-up the units are copied into T2, where one starts arriving after 4 bus cycles instead
+      of 20. <code>uptime</code> counts the units paged in.</li>
+    <li><b>Programs page too.</b> A program's code cache is the I-LS after its resident code; on a
+      miss the dispatcher pages the unit in from the program's arena. The record keeps the unit of
+      every slot, and a switch-in puts them back: the cache is part of a thread's state like its
+      D-LS. The C compiler is 106&nbsp;KiB of code running in a 32&nbsp;KiB instruction store this
+      way. svc UNITS reports the paging; svc PAGE serves a program that has a trap handler of its
+      own.</li>
+  </ul>
+  <p class="refs">Source: the paging trap <code>k_trap</code> and <code>page_in</code> in
+    <a class="srcpath" href="../code/#os/kernel.s">os/kernel.s</a> ·
+    <a class="pdf" data-pdf="ch:os" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=chapter.18">Chapter 18, StrataOS</a></p>
+</section>
+
+<section id="capabilities" class="section">
+  <h2><span class="num">06</span>Capabilities, endpoints, revocation</h2>
+  <p>Far memory, device ports and other cores are reachable only through capabilities, and the
+    kernel hands out every one a process holds. A StrataOS program starts with:</p>
+  <dl class="kv">
+    <dt>c0</dt><dd>its arena's program memory (832&nbsp;KiB with one thread)</dd>
+    <dt>c1</dt><dd>a send-only endpoint to <code>proc</code>: the one it is always born with</dd>
+    <dt>c2, c3, c4</dt><dd>endpoints to <code>fs</code>, <code>tty</code> and <code>pipe</code> (absent in a child spawned sandboxed)</dd>
+    <dt>c5</dt><dd>its 4&nbsp;KiB message buffer, the last 4&nbsp;KiB of the arena</dd>
+    <dt>c6</dt><dd>empty: capabilities that arrive with a reply land here (and in c7)</dd>
+    <dt>c7</dt><dd>the clock: a read-only device capability to the timer's NOW and FREQ; reading
+      the time is an 8-byte <code>tget</code></dd>
+  </dl>
+  <ul class="ticks">
+    <li><b>Linear memory.</b> A writable memory capability cannot be copied, only split, joined,
+      given and taken. A message buffer is <em>lent</em>: while a server holds it, the client
+      does not. A data race on it cannot be written down.</li>
+    <li><b>Endpoints</b> name a core. The kernel mints them (<code>cmkep</code>) for the core
+      where a server runs; user processes never get receive rights, so a core's inbox belongs to its
+      dispatcher. <code>proc</code> hands out endpoints by name (LOOKUP); a server registers its
+      name (REGISTER). An endpoint is rebuilt on switch-in, so it costs no save-table slot.</li>
+    <li><b>Revocation by address.</b> Only the kernel makes memory revocable (<code>cdom</code>,
+      <code>crevoke</code> are privileged). The arena pool and the framebuffer are revocable
+      regions with a generation per 256&nbsp;KiB granule. An arena is cut out by revoking that
+      piece of the pool, which yields a fresh capability; when its process ends it is revoked again
+      and everything cut from it or lent out dies, a request a server was holding included.</li>
+  </ul>
+  <p class="refs">In the manual: <a class="pdf" data-pdf="ch:caps" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=chapter.4">Chapter 4, Capabilities</a> ·
+    <a class="pdf" data-pdf="sec:domains" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.4.6">Section 4.6, Revocation by address</a> ·
+    <a class="pdf" data-pdf="sec:endpoints" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.4.7">Section 4.7, Endpoints</a></p>
+</section>
+
+<section id="interrupts" class="section">
+  <h2><span class="num">07</span>Interrupts are device reads</h2>
+  <p>Strata has no interrupts. A device makes something happen by <b>completing a transfer</b>,
+    and <code>tany</code> waits for any of a set of transfers, or for a capability arriving in the
+    inbox.</p>
+  <ul class="ticks">
+    <li><b>The timer</b> is a read of DEADLINE that completes at a time. The system core keeps one in
+      flight for the next slice or the earliest timed wait.</li>
+    <li><b>Ctrl-C</b> is a read of the console's break port, which <code>tty</code> always keeps in
+      flight; it completes when the key is pressed, and <code>tty</code> asks <code>proc</code> to
+      SIGNAL the foreground process.</li>
+    <li><b>A server waits on its devices and its clients at once.</b> svc RECEIVE takes a mask of
+      transfer tags: <code>tty</code> names its break read and its input read, <code>net</code> its
+      receive read. A server that keeps a device read waiting is alone on its core, since a switch
+      would have to wait for it.</li>
+    <li><b>Doorbells.</b> After a send, the sender's dispatcher writes a stop into the destination
+      core's core-control word, so that core's dispatcher runs within microseconds instead of at the
+      next tick. A core idle in <code>tany</code> wakes on its inbox anyway.</li>
+    <li><b>Halting</b> completes the reads still pending: the system core waits for every
+      dispatcher to stop its threads, then writes the console's release port, the pointer's EVENT
+      port, the network interface's CANCEL and DEADLINE 0, and halts.</li>
+  </ul>
+  <p class="refs">In the manual: <a class="pdf" data-pdf="sec:os-break" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.18.10">Section 18.10, Interrupts and Ctrl-C</a> ·
+    <a class="pdf" data-pdf="sec:timer" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.16.5">Section 16.5, Timer</a> ·
+    source: <a class="srcpath" href="../code/#os/kernel.s">os/kernel.s</a>,
+    <a class="srcpath" href="../code/#os/kunits/events.s">os/kunits/events.s</a></p>
+</section>
+
+</main>
+
+<footer>
+  <div class="bands small" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+  <p>StrataOS 0.1 — <a href="../code/#os/kernel.s">os/kernel.s</a> ·
+    <a href="https://github.com/yrashk/strata/blob/main/doc/strataos.md">the specification</a> ·
+    <a href="../Strata-Architecture-Reference-Manual.pdf">Architecture Reference Manual</a> ·
+    <a href="../">Strata</a> ·
+    <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
+</footer>
+
+</body>
+</html>

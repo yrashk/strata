@@ -45,7 +45,8 @@ waits until a byte is available, without blocking the rest of the machine:
 other cores keep running, the timer keeps counting, the window keeps
 refreshing. In the emulator it is a pending device read like the break port
 (satisfied from an input queue fed by the `-i` file, the terminal, or the
-window's keyboard); in the RTL it is the existing retry. At the end of a
+window's keyboard); in the RTL it is answered retry and waits, parked, until
+the device sees a byte. At the end of a
 `-i` file the port returns 0x04 forever, as now.
 
 **Device reads that wait** (console input, the break port, timer WAIT,

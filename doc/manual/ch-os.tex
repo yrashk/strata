@@ -62,6 +62,16 @@ shows the count.
 \item[Programs] Ordinary processes: the shell, the utilities, the examples, the assembler.
 \end{description}
 
+Figure~\ref{fig:os-cores} shows where these run on the 12 cores of \texttt{make boot}, as \texttt{cores}
+and \texttt{ps} report it after boot.
+
+\begin{figure}[htbp]
+\centering
+\input{gen-os-fig-cm}
+\caption{StrataOS on 12 cores after boot: the system core, the boot servers on cores 1--5 (\texttt{proc} and \texttt{tty} alone on theirs), cores without a server for threads, and the kernel shared table in T2}\label{fig:os-cores}
+\end{figure}
+
+
 \begin{table}[htbp]
 \centering\small
 \caption{The servers}\label{tab:os-servers}
@@ -80,6 +90,8 @@ tty & the console server: owns console output, input, break and release; line di
 pipe & pipes\\
 ws & the window server, started on demand: owns the framebuffer and, while it runs, the keyboard
   (Section~\ref{sec:os-ws})\\
+net & the network server, started on demand: owns the network interface; IPv4, ICMP echo, UDP, TCP
+  and DNS (Section~\ref{sec:os-net})\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -91,6 +103,16 @@ and notifications there, and each dispatcher publishes its run-queue length, its
 events. All access is by far atomics, which is the only way several cores can touch the same memory.
 
 \section{Memory}\label{sec:os-mem}
+
+Figure~\ref{fig:os-memmap} shows the three tiers as StrataOS uses them; Table~\ref{tab:os-ls} gives a
+worker's Local Stores in detail.
+
+\begin{figure}[htbp]
+\centering
+\input{gen-os-fig-mm}
+\caption{Where StrataOS keeps things: system memory (T3), the cluster store (T2) and the Local Stores of a worker core and of the system core (not to scale; Local Store addresses in hexadecimal)}\label{fig:os-memmap}
+\end{figure}
+
 
 \begin{table}[htbp]
 \centering\small
@@ -129,8 +151,7 @@ kernel makes a revocable region of its own at boot and lends to the window serve
 
 \subsection{Arenas}
 A process's memory is one arena: a run of whole 256~KiB granules of the arena pool (1~MiB unless the
-spawner asked for more, Section~\ref{sec:os-servers}), zeroed when it is handed out wherever the new
-process could read what an earlier owner left (below). At boot the kernel
+spawner asked for more, Section~\ref{sec:os-servers}), zeroed when it is handed out. At boot the kernel
 makes each of the pool's two parts one revocable region (\insn{cdom}) and keeps only their revokers, in
 the system core's save table, and a bitmap of the pool's granules in its D-LS. It allocates an arena
 from the bitmap (the first free run that is long enough) and makes a capability for it by address: it
@@ -167,6 +188,13 @@ $[\hex{FF000}, \hex{100000})$ & the message buffer (\reg{c5})\\
 \bottomrule
 \end{tabularx}
 \end{table}
+
+\begin{figure}[htbp]
+\centering
+\input{gen-os-fig-ar}
+\caption{The arena of a process with one thread (Table~\ref{tab:os-arena}), at offsets from its base}\label{fig:os-arena}
+\end{figure}
+
 
 A \term{save area} holds the part of the D-LS a thread uses while the thread is switched out: its data
 extent from offset 0 (at most 40~KiB) and its live stack at offset \hex{A000} (at most 8~KiB).
@@ -319,6 +347,13 @@ path is short and bounded.
 
 \section{Context switches: the cost is explicit}\label{sec:os-switch}
 
+\begin{figure}[htbp]
+\centering
+\input{gen-os-fig-cs}
+\caption{A context switch on a worker core (Table~\ref{tab:os-switch}): A's registers go to its record (2) and its memory capabilities to the save table (3), its data extent and live stack out to its save area (4); B's code comes in first (5), then its data and stack (6). None of the transfers is waited for}\label{fig:os-switch}
+\end{figure}
+
+
 A thread's state is its registers, its capability registers, its CSRs, and \emph{the parts of the
 Local Stores it uses}. Table~\ref{tab:os-switch} lists what a switch does with each.
 
@@ -397,28 +432,14 @@ still holds the previous thread's bytes, and the next one could read them. So th
 whose bytes its D-LS holds. When it loads a thread of another process, and on a thread's first load,
 it restores the thread's whole D-LS, \hex{0000}--\hex{9FFF} and \hex{E000}--\hex{FFFF} (48~KiB, two
 \insn{tget}s), from the save area instead of only the extent and the stack. Outside those the save area
-holds zeros: MEMORY scrubs the save areas of every arena it hands out, CREATE accepts only such arenas, the
+holds zeros: the arena is scrubbed when MEMORY hands it out, CREATE accepts only such arenas, the
 program cannot reach its save area, and a switch writes there only the extent and the live stack.
 What it holds is therefore zeros or older bytes of the same thread, never another process's. A first
 load takes the zeros and then the image's data section on top (the transfers act in issue order),
 which replaces a 40~KiB store loop. A thread that returns to a core where nothing else ran meanwhile
 gets back only its extent and stack, as before. \texttt{tools/test-isolate.sh} checks this with
 two copies of \texttt{tools/dlsgap.s} on one core: one fills its gaps with a pattern, the other must
-never find it in its own, at its first load and after each switch back. It checks the arenas as
-well: one copy writes the pattern over all its far memory and exits, the next, on the same granules,
-must find none of it.
-
-MEMORY zeroes (scrubs) everything a new process can read before it writes it: its program memory, the
-save areas and the message buffer, with 4~KiB \insn{tput}s of a zeroed buffer from the system core. For
-the arena of a program being spawned (MEMORY mode 2) it leaves the image area (which \texttt{fs} then
-fills only as far as the image goes) and the unused gap above the save area as they are, which saves about 14\% of the scrubbing: only the kernel
-reads the image area, and CREATE, told the image's length by \texttt{proc}, refuses an image whose
-sections end beyond it. The rest cannot go in software: a program reaches all of its memory through
-\reg{c0} at offsets of its own choosing, and the kernel cannot know which of it the earlier owner
-wrote: without more, the scrubbing would still be 30\% of the far bus's cycles in the demo session.
-With the written-page map (Section~\ref{sec:pmap}) the kernel can know: it zeroes only the pages whose bit is
-set and then clears their bits, which takes the same session's scrubbing to 9\%, most of it each
-page's first use after power-on.
+never find it in its own, at its first load and after each switch back.
 
 The I-LS above a program's resident code still holds the previous program's code and code-cache units.
 Nothing can read it: loads and \insn{tget} use the D-LS, \insn{tgetx} only writes the I-LS, \insn{ltag}
@@ -454,6 +475,19 @@ order of gifts is preserved, so a program that is deterministic on the bare mach
 (Section~\ref{sec:determinism}) computes the same results as time-shared threads.
 
 \section{Messages}\label{sec:os-msg}
+
+\begin{figure}[htbp]
+\centering
+\input{gen-os-fig-mf}
+\caption{The message buffer: a 64-byte header and up to 4,032 bytes of data}\label{fig:os-msgbuf}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\input{gen-os-fig-rt}
+\caption{A request and its reply between a program and a server on another core}\label{fig:os-roundtrip}
+\end{figure}
+
 
 A \term{message} is a lent buffer capability. A process owns a 4~KiB message buffer, the last 4~KiB
 of its arena, in \reg{c5}. To make a request it writes a header and data into the buffer, gives the
@@ -513,44 +547,7 @@ $-4$ & no such file, program or name & $-8$ & timed out\\
 The function number is in \reg{a0} and the result is returned in \reg{a0}. Timeouts are in ticks,
 $-1$ for none.
 
-\begin{table}[htbp]
-\centering\small
-\caption{StrataOS supervisor calls}\label{tab:os-svc}
-\begin{tabularx}{\linewidth}{@{}r l X@{}}
-\toprule
-\textbf{\reg{a0}} & \textbf{Name} & \textbf{Arguments and result}\\\midrule
-1 & WAIT\_REPLY & \reg{a1} = core to ring first (the destination of a message just sent), \reg{a2} =
-  timeout, \reg{a3} = base of the capability awaited (0 = the own message buffer; $-1$ = nothing: a
-  sleep), \reg{a4} = the register it is to arrive in. Returns 0, $-2$ interrupted or $-8$ timed out\\
-2 & RECEIVE & servers. \reg{a1} = a mask of transfer tags to wait for as well, \reg{a2} = timeout.
-  Returns a reply token, with the request in \reg{c6} and its attachment in \reg{c7}; or $-1$ with
-  \reg{a1} = the idle tags; or $-8$\\
-3 & REPLY & servers. \reg{a1} = token; \reg{a2} bit 0: send \reg{c7} with the reply, bit 2: send
-  \reg{c4} first, bit 1 (\texttt{proc} and \texttt{dev} only): mint an endpoint for core \reg{a3} and send
-  it. Gives the buffer in \reg{c6} back to its owner\\
-4 & YIELD & let the core's other runnable threads run\\
-5 & EXIT & \reg{a1} = exit code. \insn{halt} also exits, with the code in \reg{a0}\\
-6 & NOTIFY\_WAIT & \reg{a2} = timeout. Blocks until a notification; returns its bits, or $-8$\\
-7 & SET\_MIRROR & \reg{a1} = arena offset of the code mirror, \reg{a2} = its length
-  (Section~\ref{sec:os-switch}); the code cache starts after it, and is emptied. Returns 0, and
-  \reg{a1} = $\textit{NXMAP}$, the overlay map's entries\\
-8 & PARK & servers. The request in \reg{c6} is kept by the kernel; returns its id\\
-9 & UNPARK & servers. \reg{a1} = id; the parked request returns to \reg{c6}\\
-10 & CLOCK & the clock capability is put in \reg{c7} again\\
-11 & SET\_SCRATCH & \reg{a1} = D-LS address, \reg{a2} = length of the scratch range; length 0 clears it\\
-12 & SEND & \reg{a1} = the register of a send endpoint (1--7), \reg{a5} = the register of an attachment
-  (0--7, or $-1$ for none), \reg{a2}--\reg{a4} as WAIT\_REPLY. The dispatcher sends the attachment and
-  then the buffer in \reg{c5} through the endpoint, with nothing of this core in between, rings the
-  destination and waits as WAIT\_REPLY does. $-1$, with nothing sent, if a register is empty or is not a
-  send endpoint\\
-13 & UNITS & returns the code units the dispatcher has paged in for the thread, and in \reg{a1} the
-  slots of its code cache that hold one\\
-14 & PAGE & \reg{a1} = a missed far address, \reg{a2} = the pc of the miss: a program with its own trap
-  handler, which gets its misses, hands one to the dispatcher, which pages the unit in as for a miss
-  of its own and resumes the program at once; 0, or 1 if it cannot (Section~\ref{sec:os-paging})\\
-\bottomrule
-\end{tabularx}
-\end{table}
+\input{gen-os-ops-svc}
 
 \subsection{Demultiplexing}\label{sec:os-demux}
 
@@ -579,71 +576,15 @@ The system core has an endpoint too. Only \texttt{proc} holds it (and \texttt{de
 and to lend the framebuffer). Tables~\ref{tab:os-kops}--\ref{tab:os-pipe} give the complete operation
 numbering of StrataOS 0.1; operation numbers are per server.
 
-\begin{table}[htbp]
-\centering\small
-\caption{Operations of the system core}\label{tab:os-kops}
-\begin{tabularx}{\linewidth}{@{}r l X@{}}
-\toprule
-\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
-1 & CREATE & attachment: an arena holding the image at \hex{D0000} and the start-up block; mode = the
-  image's length (sections that end beyond it are refused). Data: pid,
-  thread count (0 = one time-shared thread), flags, a core to pin to or $-1$, the cores of the endpoints
-  for \reg{c1}--\reg{c4}, \reg{a0}--\reg{a2}. Reply: 0 and the first core; the process starts. A server's
-  reply carries an endpoint to its core\\
-2 & DESTROY & handle = pid. The process is stopped and its arena revoked; \texttt{proc} later
-  receives EXITED with the killed bit\\
-3 & MEMORY & length = the size wanted (0: 1~MiB; rounded up to whole 256~KiB granules, at least 1~MiB).
-  Mode 1: an extra arena for a process; mode 2: for an image (only CREATE or FREE take it; its image
-  area and the gap above the save area are not zeroed).
-  Reply: a zeroed arena with a fresh capability, as an attachment; data: its base and size; $-6$ if none\\
-4 & STATS & reply: counters for the machine, every core and every process\\
-5 & TUNE & length = the time slice in ticks, 100--100000; $-1$ out of range\\
-6 & FREE & attachment: an arena to return (it is revoked, and its granules are free)\\
-7 & EXITED & sent \emph{by} the kernel to \texttt{proc}: handle = pid, length = exit status\\
-8 & HALT & stops every core\\
-9 & NOTIFY & handle = pid, length = notification bits: wakes its NOTIFY\_WAIT or timed sleep\\
-10 & FBLEND & \texttt{dev} only. Handle = pid: revokes every older capability of the framebuffer
-  and replies with a fresh one for that process; the kernel revokes it again when the process
-  ends. $-7$ if a live process holds it\\
-\bottomrule
-\end{tabularx}
-\end{table}
+\input{gen-os-ops-kernel}
+
+The kernel also sends \texttt{proc} one message of its own: 7 EXITED (handle = pid, length = the exit
+status) when a process ends. Operations 11--13 hand whole worker cores to a guest
+(Section~\ref{sec:os-guests}).
 
 \section{The servers}\label{sec:os-servers}
 
-\begin{table}[htbp]
-\centering\small
-\caption{Operations of \texttt{proc} (endpoint \reg{c1})}\label{tab:os-proc}
-\begin{tabularx}{\linewidth}{@{}r l X@{}}
-\toprule
-\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
-5 & SPAWN & data: thread count (0 or 1 = one thread, $N$ = $N$ threads on $N$ cores), three handle
-  descriptors that become the child's handles 0, 1, 2 ($-1$ = none), then the command line
-  \texttt{"prog args"}. Mode bit 0: no server endpoints; bit 1: pin to core (mode $\gg 8$) \& 255;
-  mode $\gg 16$: the arena's size in MiB (0: 1~MiB). Reply: the pid; $-4$, $-5$, $-6$\\
-6 & WAIT & handle = pid, or 0 for any child; mode bit 0 = do not block. Reply: the exit status, with
-  the pid in the data; $-3$ still running; $-2$ interrupted; $-1$ no child\\
-7 & KILL & handle = pid\\
-9 & PS & reply: the count, and one 32-byte record per process: u8 pid, state (1 running, 2 ready,
-  3 blocked, 4 zombie), core, parent, flags (2 = server), threads; 2 reserved; u32 switches, u32 KiB
-  moved; 16 bytes of name\\
-16 & INFO & reply data: cores, free heap, total memory, processes, kernel units loaded, context
-  switches, KiB moved (u64 each)\\
-17 & SIGNAL & handle = pid: interrupt it\\
-22 & CATCH & handle = 1 catch interrupts, 0 do not\\
-25 & LOOKUP & data = a server's name. Reply: 0, with a send-only endpoint to it as an attachment; $-4$\\
-29 & REGISTER & data = a name: the caller becomes the server of that name; the entry dies with it.
-  $-5$ unless the caller was started as its core's server (the boot servers, and \texttt{ws}); $-7$ if
-  another live process holds the name\\
-30 & SCHED & handle 0: reply data = the time slice, switches per second, KiB moved per second since
-  the last read. Handle 1: length = a new slice, forwarded to TUNE\\
-31 & CORES & reply: the count, and one 32-byte record per core: u8 core, pid running, runnable,
-  processes, flags (2 = server); 3 reserved; u32 switches, u32 KiB moved\\
-39 & WHOIS & data = a name. Reply: the pid registered under it (0 for the boot servers); $-4$ if
-  none. \texttt{dev} asks it before GRANT\_FB\\
-\bottomrule
-\end{tabularx}
-\end{table}
+\input{gen-os-ops-proc}
 
 An exit status has the exit code in bits 31:0; bit 62 is set if the process was killed, and bit 63 if
 it faulted, with the trap cause in bits 7:0.
@@ -658,85 +599,9 @@ keeps the caller's request parked. When a process ends, its dispatcher reports t
 core revokes the arena and sends EXITED, and \texttt{proc} tells the servers to drop the process's
 handles (CLEANUP) and completes the parent's WAIT.
 
-\begin{table}[htbp]
-\centering\small
-\caption{Operations of \texttt{dev} (through LOOKUP)}\label{tab:os-dev}
-\begin{tabularx}{\linewidth}{@{}r l X@{}}
-\toprule
-\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
-23 & DEVS & reply: the count and the platform table's 32-byte entries (Table~\ref{tab:stpdent})\\
-24 & HALT & asks the kernel to stop every core\\
-26 & GRANT\_FB & reply: 0, with the framebuffer memory and a device capability for the controller's
-  PRESENT and VSYNC registers as attachments. $-5$ unless the caller is the process registered as
-  \texttt{ws}; $-7$ while a live process holds the framebuffer\\
-30 & GETDISK & for \texttt{fs}: a device capability for the block device's window and a send-only
-  endpoint to its node\\
-31 & GETCON & for \texttt{tty}: a device capability for the console's ports\\
-67 & TIME & the wall clock: one 32-byte record, the timer's EPOCH and ZONE; a program adds
-  NOW from its clock capability (\texttt{sys\_time})\\
-59 & GETNET & for \texttt{net}: a device capability for the network interface's ports. $-5$ unless
-  the caller is the process registered as \texttt{net}\\
-\bottomrule
-\end{tabularx}
-\end{table}
+\input{gen-os-ops-dev}
 
-\begin{table}[htbp]
-\centering\small
-\caption{Operations of \texttt{fs} (endpoint \reg{c2})}\label{tab:os-fs}
-\begin{tabularx}{\linewidth}{@{}r l X@{}}
-\toprule
-\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
-1 & READ & handle, length. Reply: bytes read, in the data; 0 at the end of the file\\
-2 & WRITE & handle, length, data. Reply: bytes written\\
-3 & OPEN & data = a path (Section~\ref{sec:os-tags}); mode 0 read, 1 write (truncate), 2 append. Writing
-  gives the file the path's tags. Reply: a file id; $-4$\\
-4 & CLOSE & handle. A file that was written is saved to disk when its last reference closes\\
-11 & UNLINK & data = a path; $-4$\\
-12 & TAG & data = a path, a zero byte, a tag name (created if new). $-4$; $-6$ no room in the file's record;
-  $-1$ a bad tag name\\
-13 & UNTAG & data = a path, a zero byte, a tag name. $-4$\\
-15 & RENAME & data = a path, a zero byte, a new path. The file takes the new name and gains the new
-  path's tags (created if new); it keeps its tags and its contents, and another file of
-  that name is deleted. $-4$; $-6$; $-1$ a bad new name\\
-20 & CWD & the requester's current tag path (Section~\ref{sec:os-cwd}). Mode 0: reply = its length,
-  data = its text (\texttt{/} at the root). Mode 1: data = a path, relative to the current one
-  (\texttt{..} allowed; none: the root); reply as mode 0; $-4$ no such tag, or no file in that view;
-  $-1$ longer than 64 bytes. Mode 2, from \texttt{proc} only: data = u64 parent pid, u64 child pid:
-  the child starts in the parent's path\\
-27 & STAT & data = a path. Reply: the size; $-4$\\
-28 & LOADIMG & data = a path, mode = arena offset, handle = the most bytes; the arena as
-  attachment. Reply: the image's size; the arena comes back with the reply\\
-32 & STATFS & reply data: total blocks, used blocks, files\\
-33 & READBLK & handle = a block number. Reply data: the raw 512-byte block\\
-34 & READALL & handle = a file id, mode = arena offset, length = the most bytes; the arena as
-  attachment: the whole file is copied into it\\
-35 & WRITEALL & handle = a file id, mode = arena offset, length; the arena as attachment: appended to
-  the file\\
-40 & QUERY & data = a path of tags and terms, handle = a cursor (0 at first). Reply: the count of
-  files in this part; the handle word is the cursor to ask with again (0: that was all), the mode
-  word the facets (a tag set of the other tags those files carry), the length word the data's
-  bytes; with mode 1 no records, the count and the facets of every file. Data: u64 $n$ and $n$ u32 ids of the path's
-  own tags; then per file u16 record bytes, u16 name length, u32 tags, u64 size, the name, the
-  file's tag ids, each padded to 8 bytes. Names are whole, a listing has no limit\\
-41 & TAGS2 & data = a path (none: every tag), handle = a cursor: every tag, or the tags of
-  that file. Per tag: u16 record bytes, u16 name length, u32 id, u64 files
-  carrying it, the name\\
-42 & SETATTR & data = a path, a zero byte, an attribute's name, a zero byte, a value (digits: a
-  number; none: the attribute is taken away)\\
-43 & GETATTR & data = a path. Reply: the count; per attribute u16 record bytes, u16 name length, u8
-  type, u8 value length, u16 0, the name, the value\\
-45 & SNAP & mode 0 take, 1 delete, 2 list, 3 restore; data = a snapshot's name. A path that starts
-  with \texttt{@NAME} reads the files as the snapshot has them\\
-64 & DBGET & data = u8 namespace name length, u8 tree name length, u16 key length, u32 0, the two
-  names, the key. Reply: the value's length, data: the value; $-4$\\
-65 & DBSCAN & as DBGET; mode 0 from the key on, 1 after it. Reply: the count; data: per record u16
-  key length, u16 value length, u32 0, the key, the value (each padded to 8 bytes), in key order\\
-66 & DBBATCH & handle = items; after the names, from the next multiple of 8, per item u8 1 put / 2
-  delete, u8 0, u16 key length, u16 value length, u16 0, the key, the value. Reply 0: all of them
-  are on the disk, in one commit; or none is\\
-\bottomrule
-\end{tabularx}
-\end{table}
+\input{gen-os-ops-fs}
 
 \texttt{fs} drives the block device entirely from user mode (Section~\ref{sec:blkdev}): it writes a
 command to the submission port through its device capability, lends the device its I/O buffer with
@@ -746,24 +611,7 @@ read straight into the arena \texttt{proc} lends; the data never passes through 
 Store. The disk is a store of copy-on-write B+trees (\texttt{doc/strata-fs-proposal.md}); a file
 has no size limit but the disk's, and a change is on the disk whole or not at all.
 
-\begin{table}[htbp]
-\centering\small
-\caption{Operations of \texttt{tty} (endpoint \reg{c3})}\label{tab:os-tty}
-\begin{tabularx}{\linewidth}{@{}r l X@{}}
-\toprule
-\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
-1 & READ & length; mode bit 0 = do not block. Cooked mode: input is echoed and edited with Backspace,
-  and a READ returns one line with its newline, or what was typed before Ctrl-D; 0 = end of input.
-  Raw mode: no echo; whatever bytes are there, at least one; a READ that does not block and finds
-  nothing has one byte read ahead, so a program that polls sees the rest of an escape sequence. CR
-  becomes LF in both\\
-2 & WRITE & data to the console\\
-4 & CLOSE & 0 (the console is never closed)\\
-18 & SETFG & handle = pid: Ctrl-C now interrupts that process\\
-19 & CONMODE & handle = 0 cooked, 1 raw\\
-\bottomrule
-\end{tabularx}
-\end{table}
+\input{gen-os-ops-tty}
 
 \texttt{tty} is the model of a driver without interrupts. It never blocks on its device: it keeps a
 read of the break port in flight on one tag always, and a one-byte read of console input on another
@@ -771,21 +619,7 @@ while a reader is waiting, and its RECEIVE names both tags, so the one superviso
 request, a key or Ctrl-C. Input is neither read nor echoed before a program asks for it. Because it
 holds pending device reads, \texttt{tty} is alone on its core.
 
-\begin{table}[htbp]
-\centering\small
-\caption{Operations of \texttt{pipe} (endpoint \reg{c4})}\label{tab:os-pipe}
-\begin{tabularx}{\linewidth}{@{}r l X@{}}
-\toprule
-\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
-8 & PIPE & reply: read id $|$ write id $\ll 8$\\
-1 & READ & handle, length; mode bit 0 = do not block. Reply: bytes; 0 = end of input (no writer is
-  left). A reader of an empty pipe waits\\
-2 & WRITE & handle, length, data. Reply: bytes taken, at least 1; $-1$ if no reader is left. A writer
-  to a full pipe waits\\
-4 & CLOSE & handle\\
-\bottomrule
-\end{tabularx}
-\end{table}
+\input{gen-os-ops-pipe}
 
 Three further operations go from \texttt{proc} to every server that keeps handles: 36 DUPS (a process
 now holds these handles too), 37 CLEANUP (a process ended: drop everything it held) and 38 CANCEL
@@ -793,6 +627,13 @@ now holds these handles too), 37 CLEANUP (a process ended: drop everything it he
 per process, which is how a pipe's reader sees end of input when the last writer exits.
 
 \subsection{Tags instead of directories}\label{sec:os-tags}
+
+\begin{figure}[htbp]
+\centering
+\input{gen-os-fig-st}
+\caption{The store on the disk: the meta pages, the catalog, the five trees of the file system and how one file appears in each}\label{fig:os-store}
+\end{figure}
+
 The file system has no directory tree. A file has a name and carries any number of tags (names of
 1--255 bytes without \texttt{/}). The set of a file's tags is its directory: a file tagged
 \texttt{src} and \texttt{demo} is in \texttt{/src/demo}, which is also \texttt{/demo/src}, and
@@ -1178,6 +1019,13 @@ its keys replayed); searches with \texttt{/} \texttt{?} \texttt{n} \texttt{N} (p
 
 \section{The window server}\label{sec:os-ws}
 
+\begin{figure}[htbp]
+\centering
+\input{gen-os-fig-ws}
+\caption{The window server: clients lend bands of pixels; the server keeps the surfaces and draws the screen through its Local Store}\label{fig:os-ws}
+\end{figure}
+
+
 The graphical interface is a window server, \texttt{ws}, and client programs. \texttt{ws} is the only
 process that holds the framebuffer and, while it runs, the keyboard; it draws the desktop and
 composites what clients draw. Clients never see the framebuffer. \texttt{ws} is an ordinary program,
@@ -1259,32 +1107,7 @@ ownership rule that prevents data races between cores is also what makes composi
 because the surfaces are the server's, it can redraw any window (a slide, the palette's dim) without
 asking its client.
 
-\begin{table}[htbp]
-\centering\small
-\caption{Operations of the window server}\label{tab:os-ws}
-\begin{tabularx}{\linewidth}{@{}r l X@{}}
-\toprule
-\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
-40 & CREATE & mode bit 0 = interrupt the caller (SIGNAL) when events wait and it is not in EVENT.
-  Data: width, height (ignored: the tile decides), then the title (8 bytes). Reply: the window id, with
-  the surface's width and height in the data; $-7$ if there is no room (four windows)\\
-41 & DAMAGE & handle = window; data: x, y, width, height, stride; attachment: a band holding those
-  width $\times$ height pixels from its offset 0, rows stride bytes apart (0 = width $\times$ 4). The
-  server copies them into the window's surface and redraws that rectangle; the band returns with the
-  reply. Without an attachment the rectangle is only redrawn\\
-42 & TEXT & handle = window; data: x, y in pixels, foreground and background colours ($-1$ = no
-  background), then a string (length = 32 + its bytes): drawn by the server with its 8 $\times$ 16 font\\
-43 & FILL & handle = window; data: x, y, width, height, colour\\
-44 & EVENT & handle = window; mode bit 0 = do not block; length = a timeout in ticks (0 = none). Reply
-  data: the kind (1 key, 2 resize, 3 close, 4 focus in, 5 focus out, 6 pointer, 7 wheel), a value
-  (the key's bytes, the first in the low byte; for the pointer and the wheel x and y in the surface in
-  bits 31:0 and the device's event bytes 4--7 above them), the width (for a key: the number of bytes)
-  and the height; $-3$ if none, $-8$ when the timeout passes\\
-45 & DESTROY & handle = window\\
-46 & TITLE & handle = window; data = the title (8 bytes)\\
-\bottomrule
-\end{tabularx}
-\end{table}
+\input{gen-os-ops-ws}
 
 \begin{description}[leftmargin=1em,style=nextline]
 \item[\texttt{term}] a terminal emulator. It creates a window, runs \texttt{sh -i} connected by two
@@ -1334,34 +1157,7 @@ program that uses the network starts it with address 10.0.0.1 if it is not runni
   clock in \reg{c7}.
 \end{description}
 
-\begin{table}[htbp]
-\centering\small
-\caption{Operations of \texttt{net} (through LOOKUP)}\label{tab:os-net}
-\begin{tabularx}{\linewidth}{@{}r l X@{}}
-\toprule
-\textbf{Op} & \textbf{Name} & \textbf{Request and reply}\\\midrule
-1 & READ & TCP: handle = socket; waits for data. Reply: bytes; 0 once the peer has closed; $-1$ after
-  a reset\\
-2 & WRITE & TCP: the data. Reply: the bytes taken (at least one); waits while the send buffer is full\\
-4 & CLOSE & mode bit 0: stop sending only (half-close). The buffered data goes, then FIN\\
-50 & STAT & reply: the sockets in use; data: address, the interface's STATUS, packet counters, then
-  32 bytes per socket\\
-51 & SETIP & handle = the new address\\
-52 & PING & handle = address, length = payload bytes, mode = timeout. Reply: the round trip in ticks;
-  $-8$\\
-53 & CONNECT & handle = address, length = port. Reply: the socket once established; $-1$ refused;
-  $-8$ no answer\\
-54 & LISTEN & handle = port. Reply: the socket; $-7$ in use\\
-55 & ACCEPT & handle = a listening socket. Reply: the next established connection, now the caller's\\
-56 & UDP & handle = port (0: any). Reply: the socket\\
-57 & SENDTO & data: address, port, payload. Reply: the bytes sent\\
-58 & RECVFROM & waits for a datagram. Reply: its bytes; data: sender's address and port, payload\\
-60 & RESOLVE & data = a host name. Reply: its first IPv4 address; data: up to four addresses and the
-  canonical name; $-4$ no such name, $-8$ no resolver answered\\
-61 & SETDNS & handle, length = the two resolvers\\
-\bottomrule
-\end{tabularx}
-\end{table}
+\input{gen-os-ops-net}
 
 A socket belongs to the process that made it. \texttt{proc} sends CLEANUP only to \texttt{fs},
 \texttt{tty} and \texttt{pipe}, so \texttt{net} looks at the process list every two seconds while
@@ -1381,6 +1177,13 @@ and echo the question; CNAME chains are followed. With no answer in a second the
 quads and \texttt{localhost} need no query. \texttt{net\_resolve} in the library does it for programs.
 
 \section{Boot}\label{sec:os-boot}
+
+\begin{figure}[htbp]
+\centering
+\input{gen-os-fig-bt}
+\caption{From the boot ROM to the login shell}\label{fig:os-boot}
+\end{figure}
+
 
 \begin{enumerate}
 \item The boot ROM loads the kernel's code and data into every core's Local Stores and the far image

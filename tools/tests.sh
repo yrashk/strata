@@ -65,6 +65,8 @@ t procs        full build-main "emu os" "tools/test-procs.sh $OS"
 t boot-jit     mid  build-main "emu os" "tools/test-boot-jit.sh $OS os/demo.txt"
 t wdb          mid  build-main "emu os" "tools/test-wdb.sh $OS"
 t fsunits      fast build-main '$B/prog/fs' 'python3 tools/check-fsunits.py $B/prog/fs'
+# the StrataOS pages (site/os/) against the servers' dispatch code and comments
+t web-os       fast build-main "os/kernel.s os/kunits os/servers os/ws os/lib site/os doc/manual" 'python3 tools/web-os.py --check'
 
 # ---- the C compiler inside StrataOS: a few tests of every rung and the example
 #      programs; the bootstrap (cc0 compiles cc.c, which reproduces itself)
