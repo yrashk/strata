@@ -81,6 +81,7 @@ DEMOS = {
     5: "9 2,5 2,5 @88:100,10 5,5 @88:100,20 @88:100,30 @136:146,250 .,5 m,10 2,60 .",   # Garden: a daisy sown and watered into bloom; left and come back to
     6: "9 3,5 1,5 @100:60,5 4,5 @200:120,5 n,5 7,5 @160:80,30 .",    # Paint: two regions, the next page, one more
     7: "9 4,5 @40:100,10 3,10 @30:30,10 p,200 .",                     # Music: a bar by a click, one by a key, a friend, a song
+    9: "9 1,10 !,30 R,80 m,10 3,40 .",              # the party, then Paint: no HOORAY! over it
     8: "9 1,1 {60,2 !,3 R,80 .,2 .,1 },20 .",   # sixty games, each in a new world
 }
 KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '!': 0xfd, '}': 0xfc}
@@ -490,8 +491,8 @@ def build(art, outdir, preview=None):
     fanfare = b''.join(bytes(p) for p in FANFARE) + b'\xff\xff'
     demos = bytearray()
     demodir = bytearray()
-    for n in range(1, 9):
-        demodir += struct.pack('<H', 16 + len(demos))
+    for n in range(1, 10):
+        demodir += struct.pack('<H', 18 + len(demos))
         for step in DEMOS.get(n, "1 .").split(','):
             t, k = step.split(' ', 1)
             if k.startswith('@'):       # a click
@@ -536,7 +537,7 @@ def build(art, outdir, preview=None):
              ('R_SONGS', pad8(bytes(songdir) + bytes(songs)), 'the songs: a u16 offset from here each, then '
               'u8 tics before the note, u8 note each; 255 ends one'),
              ('R_FANFARE', pad8(fanfare), 'the fanfare, likewise'),
-             ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: eight u16 offsets from here, then '
+             ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: nine u16 offsets from here, then '
               'u8 tics, u8 key (1..4: up, down, left, right; 0xfe: a click, x / 2 and y follow; 0xfd: all found; 0xfb: a loop begins, its count and 0 follow; 0xfc: it ends) each; 0 ends one')]
     res = bytearray()
     lines = ['; dat.s: the layout of kira.dat. Written by tools/kira-assets.py: do not edit.', '']

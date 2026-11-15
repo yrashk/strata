@@ -27,6 +27,11 @@
 #              voice, a song
 #      demo 8  sixty games of Friends one after another, each in a new world
 #              (all friends found, a step onto the blanket, a key)
+#      demo 9  the party, and from it by the menu into Paint: the party's
+#              HOORAY!, hearts and stars are Friends' and must not lie over
+#              another game. Besides the checksum, the page's picture is
+#              checked to be black and white only: it has no paint yet, so
+#              any colour in it is something left over it.
 #    (A demo's random numbers start from a fixed seed, so its worlds, its
 #    butterflies and its song are always the same ones.)
 # 2. `ws kira` on a machine with the sound device (-A: what it plays goes
@@ -43,7 +48,7 @@ set -e
 BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
-KIRA_CRC="1:10875dd2:6 2:b28d0fb6:4 3:a4a6212e:6 4:e8e347e2:6 5:e654c81a:4 6:8ac2eeac:4 7:453116f1:4 8:bb71d3b4:40"
+KIRA_CRC="1:10875dd2:6 2:b28d0fb6:4 3:a4a6212e:6 4:e8e347e2:6 5:e654c81a:4 6:8ac2eeac:4 7:453116f1:4 8:bb71d3b4:40 9:18e7ed29:6"
 T=$BUILD/test-kira
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W
@@ -76,6 +81,19 @@ print("demo %s: frame %dx%d: game picture crc %08x (expected %s)" % (sys.argv[3]
 sys.exit(0 if (w, h) == (1280, 800) and "%08x" % crc == sys.argv[2] else 1)
 PY
 done
+python3 - $T/frame9.ppm <<'PY' || fail "something of the party lies over the colouring page (demo 9)" out9
+import sys
+b = open(sys.argv[1], 'rb').read()
+p = b.split(b'\n', 3)
+w = int(p[1].split()[0])
+px = p[3]
+bad = 0
+for y in range(116, 116 + 504):            # the view: 320 x 168, three times
+    row = px[(y * w + 160) * 3:(y * w + 160 + 960) * 3]
+    bad += sum(1 for i in range(0, len(row), 3) if not (row[i] == row[i + 1] == row[i + 2]))
+print("demo 9: %d coloured pixels in the unpainted page" % bad)
+sys.exit(0 if bad == 0 else 1)
+PY
 
 # ---- 2. the pointer, sound, q, and the window server after it
 cp "$DISK" $T/disk.img
