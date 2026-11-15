@@ -15,7 +15,9 @@ critical path starts at the decoded instruction and does not touch the
 overlay map, and on the ECP5 85% of it is wire. The gate model's clock
 estimates (items 2 to 4 below, sections 2.3, 2.4 and the clock column of
 section 3) do not hold for the real flows. The cycle estimates do: the
-cycle model reproduces the measured core. Section 9 says what that changes.
+cycle model reproduces the measured core. Section 9 says what that changes;
+section 10 measures a decode / operand stage in place and route: +13% clock
+on the ECP5.
 
 **The answer in six lines** (as first written; see above).
 
@@ -820,3 +822,47 @@ the overlay search alone. One run each; the logs' timing parts are in
 4. Stage 1 stays in: it costs nothing in cycles, little in gates, and
    removes a path that a timing-driven flow could otherwise hit after the
    others are fixed.
+
+## 10. Measured: a decode / operand stage in front of execute (ECP5)
+
+The experiment section 9 proposed. `exp/reg_operands.py` writes a copy of
+`rtl/strata_core.sv` in which the decoded instruction (`d`), the three
+integer register reads, the two capability register reads and their
+granule-table lookups come from registers loaded in the cycle before (from
+the next instruction's decode), as a D stage would hold them. That machine
+does not run correctly (nothing stalls or forwards): it is for timing only.
+It went through the same ECP5 flow as section 9 (`results/runs/ecp5-regops-*`):
+
+| | 858a4f7 (main) | operands registered |
+|---|---|---|
+| Clock (nextpnr, routed) | 18.93 MHz | **21.35 MHz (+13%)** |
+| Critical path | 52.8 ns: 9.6 logic, 43.2 wire; from the decoded instruction | 46.9 ns: 12.1 logic, 34.8 wire; from the save table's read |
+| Logic cells / flip-flops | 52,992 / 7,334 | 52,479 / 7,808 (+474) |
+
+The new critical path starts at the save table (`csave` / `crestore`
+in `S_CT`, whose granule lookup the experiment left in execute) and runs
+through the granule table copy into the pc, the trap state, the capability
+registers and the register file. A real D stage would read the save table
+there too, so a few percent more might come from that; then the next wall
+is the execute stage's own fan-out across the core.
+
+**What it says.** On the FPGA a stage boundary in front of execute buys
+about 13%, not the 1.65x to 2.4x of the gate model. Weighed with the cycle
+model (section 2.2, StrataOS session, busy time against today's `STREAM`
+core):
+
+| Design | CPI | Clock | Against `STREAM` |
+|---|---|---|---|
+| 3 stages + predictor, registered redirect (no new long path) | about 1.23 | 1.0 | about 1.42x |
+| 5 stages + predictor | 1.28 | about 1.13 to 1.2 | about 1.55x to 1.64x |
+| 5 stages, no predictor | 1.89 | about 1.13 to 1.2 | about 1.05x to 1.11x |
+
+So the 5-stage core would add 10% to 15% over the 3-stage one, for a new
+core, new core proofs, forwarding of integer and capability registers and
+the hazard rules of section 4 in full. Not worth it on this evidence. The
+recommendation is the 3-stage core with a predictor and a registered
+redirect, behind a parameter like `STREAM`; and, separately, the D-stage
+register of this experiment could be worth keeping *within* that design if
+it costs no cycles there, which it would not in the 3-stage form (decode
+would have to happen a cycle earlier, from the fetched word, which the
+stream fetch's kept words make possible: a question for its design).

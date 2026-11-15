@@ -273,8 +273,10 @@ strata$ ws                          # the window server takes the screen
   uptime date devs hexdump cores sched seq grep wc upper spin`, `units` (a program
   that pages its own code), `as`, and `cc`, a C compiler.
 - **The editor** (`vi FILE`): vi keys (motions, counts, `d c y` operators,
-  put, many-level undo and redo, `.`, search, `:w :q :e :set nu`) on the
-  console or in a window, Strata assembly and Forth in the site's colours
+  put, many-level undo and redo, `.`, search, `:w :q :e :set nu`, visual
+  mode: `v V` Ctrl-V with their operators, `:'<,'>`, `gv`, the mouse in a
+  window) on the console or in a window, Strata assembly, Forth and C in
+  the site's colours
   (keyword tables generated from the assembler and Forth sources), the
   screen's size asked of the terminal, and the text kept in far memory, so a
   file far bigger than the 64 KiB Local Store opens (the 333 KiB shell

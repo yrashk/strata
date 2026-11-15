@@ -1250,7 +1250,10 @@ takes a timeout and a tag mask. `ws` and `sh` never busy-wait the CPU.
 Programs write plain bytes to stdout. The console passes them to the host
 terminal; `term` windows interpret this subset and ignore other
 escape sequences: `\n`, `\r`, `\b`, `\t`; ESC [ K; ESC [ n C / D; ESC [ 2 J;
-ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47;
+ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47, 7
+and 27 (reverse video on and off: a cell's foreground, its dim colour, or
+white for black and grey, becomes its background and its background,
+black if none, its foreground);
 ESC [ ? 25 l / h (the cursor off / on while a program draws); ESC [ 6 n
 (where is the cursor: `term` answers ESC [ row ; column R on the program's
 standard input, as a terminal would type it; `vi` learns the window's size
@@ -1801,7 +1804,8 @@ console (an ANSI terminal: `make boot`, the browser's terminal) and in a
 Forth and C in colour. FILE is a path (`/src/hello.s`, or a name under the current
 tag path); one that does not exist is created by `:w`. The screen is the
 text, a line a row (a long line scrolls the view sideways), and a status
-line: `-- INSERT --`, the file name, `[+]` when modified, line,column;
+line: `-- INSERT --` (or `-- VISUAL --`, `-- VISUAL LINE --`, `-- VISUAL
+BLOCK --`), the file name, `[+]` when modified, line,column;
 messages and the `:` and `/` lines take its place.
 
 - Moving: `h j k l` and the arrows, `w b e`, `0 ^ $`, `gg G`, `NG`, `%`,
@@ -1817,12 +1821,39 @@ messages and the `:` and `/` lines take its place.
   makes `d c y` linewise when it is a line motion (`j k G gg`); a character
   motion that leaves the line stops at its end or start (`dw` on the last
   word, `cw` changes to the end of the word).
+- Visual mode: `v` (characters), `V` (lines), Ctrl-V (a block) select from
+  the cursor to where the motions take it (every motion and count, Ctrl-F
+  and the rest, `/ ? n N`); `o` goes to the other end, `v V` Ctrl-V change
+  the kind (the same one again, Esc or Ctrl-C end it). The selection is in
+  reverse video over the text's colours (a selected newline: a cell after
+  the line). Its operators: `d x` (`X D`: the lines; `D` on a block: to
+  the ends of its lines), `c s` (`S R C` likewise), `y Y`, `> <` (a tab
+  before each line, or one tab or up to 8 spaces away; vi has no
+  shiftwidth: a level is a tab, vi's default, and a count shifts that many
+  levels), `~ u U` (case), `J`, `r` and a character (every selected byte),
+  `p P` (the register in the selection's place; the register stays), `:`
+  (the command line with `'<,'>` typed), and on a block `I` and `A` (the
+  text typed before or after the block on each of its lines; `A` after `$`:
+  at the ends of the lines, short lines padded with spaces) and `c`.
+  Characters yanked over lines are put back with the line split (`p P`);
+  a block is put as a block, at the cursor's column on its line and those
+  below. Each operation is one change for undo, and `.` does it again on
+  as many lines and bytes (columns) from the cursor. `gv` selects the last
+  selection again, whose ends are the marks `'<` and `'>` (`'<` and `` `< ``
+  are motions too). In a `term` window vi asks for mouse reports (ESC [ ?
+  1000 h): a click puts the cursor there, a release elsewhere selects from
+  the click to it (`term` reports presses and releases, not the moves
+  between, so the selection shows when the button comes up), the wheel
+  scrolls three lines.
 - Searching: `/text` and `?text` (plain text), `n`, `N`; the search goes
   round the end of the file and says so.
 - `:w`, `:w NAME` (the buffer keeps its name unless it had none), `:q`,
   `:q!`, `:wq`, `:x` and `ZZ` (written only if modified), `:e NAME`, `:e!`,
   `:N` (line N), `:set nu` / `:set nonu` (line numbers), `:syntax on` /
-  `:syntax off`. Ctrl-L asks the terminal its size and draws everything
+  `:syntax off`, `:d` and `:y` (lines). A range before a command: `N`,
+  `N,M`, `%`, `.`, `$`, `'<`, `'>` (`:'<,'>d`); alone it goes to its last
+  line; `:'<,'>w NAME` writes those lines to NAME (to the buffer's own
+  file only with `!`). Ctrl-L asks the terminal its size and draws everything
   again; Ctrl-G shows the file and its size.
 - **Highlighting.** `.s` is Strata assembly, `.fs` Strata Forth, `.c` and
   `.h` C; another name is plain unless the file carries the tag `src`
@@ -1902,14 +1933,15 @@ messages and the `:` and `/` lines take its place.
   split when the file is read); 96 KiB in the register; a change bigger
   than the 224 KiB history cannot be undone (the history before it goes).
   Every line is written with a newline after it.
-  No counts on inserts, no `f t`, no marks or named registers, no regular
-  expressions.
+  No counts on inserts, no `f t`, no marks but `'<` and `'>`, no named
+  registers, no regular expressions (and so no `:s`), no text objects.
 - **In Forth.** `forth vi.fs FILE` (or `include vi.fs` at the Forth prompt,
   then `vi FILE`) is the same editor written in Strata Forth
   (`lang/forth/vi.fs`, with `vi-text.fs` and `vi-edit.fs`; the README there
   has the details): the same keys, modes, highlighting (C too) and
   screen; given the same keys it writes the same files, and it draws the
-  same C frames (`tools/test-vic.sh -f`). Its code (about 68 KiB) is several
+  same C frames (`tools/test-vic.sh -f`) and visual mode's
+  (`tools/test-viv.sh -f`). Its code (about 68 KiB) is several
   times a program's I-LS: like everything Forth compiles, it is in code
   units the dispatcher pages into Forth's code cache (the units above, and
   the README's "Code paging"). Its text is in Forth's far heap:
@@ -2011,7 +2043,7 @@ demo/test guest images (`os/guests/`).
 
 #### The grant
 
-`guest [-d] <image> [cores] [MiB]` asks `proc`, which gets an arena from the
+`guest [-d] [-p] <image> [cores] [MiB]` asks `proc`, which gets an arena from the
 kernel (`MEMORY`), loads the guest image (a bare STX: a disk file tagged
 `guest`, named `<image>` or else `<image>.g`, so `guest forth` finds
 `forth.g` beside the StrataOS program `forth`) into the top of it, and calls
@@ -2218,6 +2250,82 @@ framebuffer, no device space), nor can files or the network.
 `tools/test-guest.sh` runs a session (arithmetic, a word on the worker,
 multicore.fs, Ctrl-], `guest attach`, `bye`, `guest stop`, the cores reused).
 
+#### StrataOS as a guest
+
+StrataOS itself runs as a guest: `guest -p strataos 6 24` boots the image
+`strataos.g` (the kernel and a RAM disk, `tools/mkguestos.py`; the disk's
+contents are `os/guests/strataos/` and a few programs, see the Makefile) on 6
+cores with a 24 MiB arena and gives it the console. Its kernel, servers and
+shell are the ones the host runs; what they need from devices a guest does not
+have is stood in for as follows (`os/kunits/gmode.s` has the kernel's side):
+
+- **What it is.** The image is `kernel.stx` itself, so the host's loader puts
+  the kernel's code and data into each core's Local Stores and jumps to
+  `kentry`, which tells a guest by its `c3`: core control over the guest's
+  cores (based at `8 * corebase`) instead of the device root (based at 0). Core
+  0 then makes a share of the code units (the image's far section, which the
+  loader copied to the start of its memory) and puts the clock where the device
+  root and the console would be; there is no platform table to read (the
+  number of cores is the guest's window, the save table's and overlay map's
+  sizes come from the host's, through the loader's `a1`), no T2 (the KST goes
+  into memory), no framebuffer, pointer, network or sound.
+- **Revocation.** StrataOS gives each process an arena it revokes when the
+  process ends, which needs a revocation domain (`cdom`); but a guest's memory
+  is revocable already (the host revokes it at `guest stop`), and `cdom` takes
+  no revocable capability. So the host revokes for it. With `-p`, `GSTART`
+  makes the arena three revocation units: the guest's own memory (the first 4
+  MiB, `GN_LOW`: the code units, the KST, core 0's buffers, the RAM disk), the
+  **pool** (from there to the image), and the image region. The guest's core 0
+  revokes a range of the pool by lending the host's core 0 a buffer (`u_ghrev`,
+  op `GH_REVOKE`: the range's offset and length, whole 256 KiB granules); the
+  host revokes it (a revocation touches only the units in the range, all
+  inside the pool) and gives back the fresh capability for it, then the buffer.
+  Two gifts to a guest's core must not make the host's core 0 wait: it takes
+  such a request only on the buffer the guest used first, which the guest can
+  lend again only once it has taken both gifts back. Nothing outside the pool
+  is touched; `guest stop` revokes the whole arena as for any guest.
+- **Time.** The timer has one `DEADLINE` and its `WAIT`, the host's. The
+  guest's core 0 has only the clock, so instead of waiting on the timer it
+  looks at its inbox and the clock in turn (`u_gwait`): its core is always
+  busy. Ticks, preemption and timed waits work as on the host.
+- **The disk.** A RAM disk: a section of the image (an ordinary `mkdisk` disk)
+  that the loader copied into the guest's memory. The kernel reads its boot
+  objects from it; `dev` asks the kernel for it (`GDISK`) when `fs` asks for the
+  disk, and `fs`, seeing memory instead of a device window, copies blocks
+  instead of submitting commands. It is the guest's alone and is gone when the
+  guest stops.
+- **The console.** `dev` gives `tty` the endpoint to the host's `tty` (`GCON`)
+  instead of the console's ports, and `tty` passes its programs' `READ`s,
+  `WRITE`s and `CONMODE`s on, one at a time; the host's `tty` answers the
+  guest's reads only while the console is attached to it, and the console's
+  one mode is the guest's meanwhile (the host's shell sets its own again
+  before it reads a line). The kernel's own lines (the banner, a fault) go the
+  same way, and `halt` in the guest closes the console when its cores have
+  stopped, so the console comes back to the host's shell (`guest stop` then
+  takes the cores back). The host's dispatcher answers on a core outside the
+  guest's window, which `cpoll` does not show: a guest's dispatcher takes such a
+  gift when `tany` says the inbox holds one and `cpoll` shows none.
+- **Core numbers.** Endpoints name physical nodes, but the guest's kernel numbers
+  its cores 0..N-1 (its window). The dispatcher keeps the window
+  (`w_cbase`, `w_ccount`): it restores it on every trap where the host's
+  kernel sets 0, adds `corebase` to a window's base and to the node of every
+  endpoint it mints for a core of the guest, and takes it off the node of an
+  endpoint it reads (`svc SEND`). A guest's worker tells its core 0 when it runs
+  the guest's code (until then the host's dispatcher on that core would drop
+  what the guest's core 0 gives it).
+
+Limits: it needs 6 cores for itself besides the host's 6, so a 12-core machine
+(as `make boot`; not the RTL's 8); its core 0 is always
+busy; the disk is a RAM disk of 3 MiB, lost when it stops, with the servers and
+a few programs (no `vi`, compilers or sources); there is no Ctrl-C (the host's
+Ctrl-C detaches the console), no framebuffer, network or sound in it; it runs
+no guests of its own (`GSTART` is refused); without `-p` the image does not
+even load (the host keeps 256 KiB for an image, 2 MiB with `-p`). A guest
+StrataOS is as confined as any guest: everything it holds is in its arena, and
+`guest stop` ends it. `tools/test-guest-os.sh` runs a session (the boot, a
+listing, a pipeline, a file written and read back, `ps`, Ctrl-], `guest stop`,
+the cores reused; then a second guest StrataOS halted from inside).
+
 #### Visibility
 
 A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
@@ -2300,6 +2408,14 @@ A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
   any non-blank byte) fails it. `tools/test-vic.sh -f` runs the same
   sessions with the Forth editor (`forth vi.fs`) and compares its frames
   with the same file.
+- `tools/test-viv.sh`: visual mode. Copies of one file are edited with each
+  kind of selection and each operator (undo, redo and `.` after them, `:`
+  on `'<,'>` with `:d :y :w`, block `I A c`, `gv`, `o`, `'<`, a selection
+  made with mouse reports typed on the console, the wheel); the frame at
+  the end of each stretch of visual mode (reverse video and colours, the
+  status line) and the files written are compared with
+  `tools/test-viv.out`. `-f` runs the same keys with `forth vi.fs` against
+  the same file.
 - `tools/test-nav.sh`: the file navigator. A scripted console session
   (`-j -T virtual`) copies a file into the other panel, answers F8's
   question n and then y, tags a file with the other panel's tag (F2) and

@@ -119,7 +119,7 @@ from = "fs (dev does not check: any program that asks gets them)"
 
 [op.reply]
 result = "0"
-attachments = { c6 = "a device capability for the block device's ports (its platform entry's base and size: 0x2000..0x22FF)", c7 = "a send-only endpoint to the block device's node (its entry's node), for its buffers" }
+attachments = { c6 = "a device capability for the block device's ports (its platform entry's base and size: 0x2000..0x22FF); in a guest StrataOS the RAM disk, memory (the kernel's GDISK)", c7 = "a send-only endpoint to the block device's node (its entry's node), for its buffers; none in a guest" }
 
 [op.errors]
 "-1" = "the machine has no block device (no platform entry of type 4)"
@@ -134,7 +134,7 @@ from = "tty (dev does not check: any program that asks gets them)"
 
 [op.reply]
 result = "0"
-attachments = { c6 = "a device capability for the console's ports (0x0000..0x00FF)" }
+attachments = { c6 = "a device capability for the console's ports (0x0000..0x00FF); in a guest StrataOS an endpoint to the host's tty (the kernel's GCON)" }
 
 [[op]]
 num = 46

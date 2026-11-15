@@ -47,7 +47,7 @@ exists today, what is known to be missing or rough, and what is planned.
   utilities; a file system of tags instead of directories; TCP/IP with DNS,
   `ping`, `nc` and an HTTP server; a window server with a terminal and
   demonstration clients; a text editor (`vi`); and guests, other operating
-  systems given whole cores beside StrataOS.
+  systems given whole cores beside StrataOS, StrataOS itself among them.
 - Strata Forth: native code generation, with capabilities, transfers and
   cores as words; on the bare machine, as a StrataOS program (new code in
   code units the kernel pages) and as a StrataOS guest. Network words and an
@@ -202,6 +202,3 @@ cores, and a real answer for the dual-port Local Stores.
 model for the emulator that keeps memory transfers in flight as the
 hardware would (legal under the as-if-synchronous rule: stalls only); data
 breakpoints on Forth's dictionary words; source-level stepping by line.
-
-**StrataOS as a guest of StrataOS.** A second, smaller StrataOS on whole
-cores beside the first, through the same guest grant.

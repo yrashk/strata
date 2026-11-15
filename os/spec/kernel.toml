@@ -6,7 +6,7 @@ title = "the system core"
 role = "processes, memory, time"
 reached = "an endpoint only proc holds (and dev, for HALT and FBLEND)"
 core = "core 0"
-sources = ["os/kunits/ops.s", "os/kunits/guest.s"]
+sources = ["os/kunits/ops.s", "os/kunits/guest.s", "os/kunits/gmode.s"]
 dispatch = { file = "os/kunits/ops.s", first = "ld\\s+t0,\\s*k_hdr-GPBASE", last = "^\\s*li\\s+a0,\\s*-1\\s*;\\s*unknown" }
 calls = "message"
 note = """Core 0 runs no programs: it answers these requests in its own event loop, with code units it \
@@ -234,7 +234,7 @@ data = [
   { type = "u64", name = "cores" },
   { type = "s64", name = "pin core", note = "the first core; −1 any" },
   { type = "u64", name = "allowed servers", note = "bit c: the guest may send requests to the server of core c" },
-  { type = "u64", name = "flags", note = "passed to the guest in its platform table" },
+  { type = "u64", name = "flags", note = "passed to the guest in its platform table; bit 0 (guest -p): a pool, for a guest StrataOS: the arena becomes three revocation units, the guest's memory below GN_LOW (4 MiB, its c0), the pool up to the image, the image region; the guest's core 0 asks core 0 to revoke ranges of the pool (doc/strataos.md, \"StrataOS as a guest\")" },
   { type = "u64", name = "console core", note = "the tty server's core: its endpoint is the guest's c1" },
   { type = "u64", name = "image offset", note = "where the image starts in the arena: the guest's memory is below it" },
 ]
@@ -310,3 +310,38 @@ attachments = { c6 = "an atomic segment: a 64-byte header (its first word: rings
 
 [op.errors]
 "-1" = "not from dev, T2 has no room for rings, or they were given already"
+
+[[op]]
+num = 15
+name = "GDISK"
+summary = "A guest StrataOS's RAM disk, for fs"
+from = "dev only, in a guest StrataOS, once"
+note = """In a guest StrataOS (doc/strataos.md, "StrataOS as a guest") the disk is a RAM disk: a section \
+of the guest image that the host's loader copied into the guest's memory. The kernel reads its boot \
+objects from it; dev asks for it when fs asks for the disk (GETDISK), and fs then copies its blocks."""
+
+[op.request]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "the RAM disk: writable memory, its length the disk's" }
+
+[op.errors]
+"-1" = "not from dev, not a guest, or given already"
+
+[[op]]
+num = 16
+name = "GCON"
+summary = "An endpoint to the host's tty, for a guest StrataOS's tty"
+from = "dev only, in a guest StrataOS"
+note = """The console of a guest StrataOS is the host's tty: dev asks for this when tty asks for the \
+console (GETCON), and tty passes its programs' READs and WRITEs on through it."""
+
+[op.request]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "an endpoint to the host's tty (read, write, copyable)" }
+
+[op.errors]
+"-1" = "not from dev, or not a guest"

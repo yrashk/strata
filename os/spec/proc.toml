@@ -302,12 +302,12 @@ num = 40
 name = "GUEST"
 summary = "Start a guest OS on whole cores"
 note = """proc gets an arena from the kernel (MEMORY), has fs load the image into its top 256 KiB \
-(LOADIMG), and asks the kernel to start the guest (GSTART) on a run of free cores, with tty as its \
-console. Any process may ask."""
+(LOADIMG; 2 MiB with a pool), and asks the kernel to start the guest (GSTART) on a run of free \
+cores, with tty as its console. Any process may ask."""
 
 [op.request]
 data = [
-  { type = "u64", name = "cores", note = "0 or less: 1" },
+  { type = "u64", name = "cores", note = "bits 0..7, 0: 1; bit 16 (guest -p): a pool, for a guest StrataOS (GSTART flags bit 0)" },
   { type = "u64", name = "arena MiB", note = "less than 2: 2" },
   { type = "text", name = "the guest image's path", note = "up to 240 bytes; the header's length is not used" },
 ]

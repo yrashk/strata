@@ -49,6 +49,8 @@ t nav-ws       mid  build-main "emu os" "tools/test-nav.sh -w $OS"
 t vic          fast build-main "emu os" "tools/test-vic.sh $OS"
 t vifs         mid  build-main "emu os" "tools/test-vifs.sh $OS"
 t vicfs        mid  build-main "emu os" "tools/test-vic.sh -f $OS"
+t viv          fast build-main "emu os" "tools/test-viv.sh $OS"
+t vivfs        mid  build-main "emu os" "tools/test-viv.sh -f $OS"
 t fs-progs     mid  build-main "emu os" "tools/test-fs-progs.sh $OS"
 t store        mid  build-main "emu os stdb" "tools/test-store.sh $OS"
 t files        fast "build-main build-test-disks" "emu stdb" 'tools/test-files.sh $B/bootrom.stx $B/files-test/disk.img'
@@ -62,6 +64,7 @@ t preempt      fast build-main "emu os" "tools/test-preempt.sh $OS"
 t forth-os     fast "build-main build-test-disks" "emu os \$B/forth-test/disk.img lang/forth/tests" 'lang/forth/tests/run-os.sh'
 t isolate      mid  "build-main build-test-disks" "emu" 'tools/test-isolate.sh $B/bootrom.stx $B/isol-test/disk.img'
 t guest        mid  build-main "emu os" "tools/test-guest.sh $OS"
+t guest-os     mid  build-main "emu os" "tools/test-guest-os.sh $OS"
 t procs        full build-main "emu os" "tools/test-procs.sh $OS"
 t boot-jit     mid  build-main "emu os" "tools/test-boot-jit.sh $OS os/demo.txt"
 t wdb          mid  build-main "emu os" "tools/test-wdb.sh $OS"
