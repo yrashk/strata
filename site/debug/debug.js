@@ -25,8 +25,9 @@ const V = "?v=" + BUILD;
 const ASSETS = "../play/debug/";
 const RUNS = new Set(["continue", "stepi", "next", "finish", "step-round", "until"]);
 // The JIT is for fast continues only (recorded runs step one instruction at
-// a time); off on iPhone and iPad, as on the play page (Safari there kills
-// the page once compiled WebAssembly fills its pool).
+// a time); off on iPhone and iPad (Safari there kills the page once compiled
+// WebAssembly fills its pool; the play page turns it on on iPads, with a
+// budget and a fallback, ../play/jit.js, which this page does not have).
 const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const JIT = IOS ? "-j" : "-J";
 

@@ -118,6 +118,8 @@ at the bottom centre; 64 pixels are one cell's height) and `<name>_td.png`:
 | `icon_can.png` | 24 x 24 | a watering can |
 | `icon_next.png` | 24 x 24 | an arrow to the right on a round button |
 | `icon_song.png` | 24 x 24 | a round button with a note and a play triangle |
+| `icon_new.png` | 24 x 24 | a round green button with a white arrow that goes round: start this game over |
+| `icon_yes.png` `icon_no.png` | 24 x 24 | the answers to "really?": a white tick on a round green button, a white cross on a round red one |
 | `pot_0.png` .. `pot_9.png` | 20 x 24 | a paint pot of each of the ten paint colours: red, orange, yellow, green, sky blue, blue, purple, pink, brown, white |
 
 ## The garden

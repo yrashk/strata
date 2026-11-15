@@ -379,6 +379,20 @@ kira-dat:
 	python3 tools/kira-art.py
 	python3 tools/kira-assets.py
 
+# plat, a city-building game in a window (os/progs/plat.s, os/progs/plat/): the
+# program, and its data file, which tools/plat-assets.py makes from the art
+# that tools/plat-art.py draws into os/progs/plat/art (the converted file is
+# in the tree: os/progs/plat/plat.dat; `make plat-dat` makes both again)
+PLAT_DAT := os/progs/plat/plat.dat
+$(BUILD)/prog/plat: os/progs/plat.s $(wildcard os/progs/plat/*.s) os/progs/wdoom/sound.s os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -I os/lib -g $@.map -o $@ $<
+
+.PHONY: plat-dat
+plat-dat:
+	python3 tools/plat-art.py
+	python3 tools/plat-assets.py
+
 # vi, the editor: its keyword tables come from the assembler, the Forth README,
 # the site's highlighter and cc's keywords and headers (tools/vi-syntax.py
 # writes them as an include)
@@ -526,6 +540,10 @@ DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc
 # kira and its data (tagged ws: the program opens /ws/kira.dat)
 DISK_FILES += $(BUILD)/prog/kira $(KIRA_DAT)
 DISK_ARGS  += -t bin $(BUILD)/prog/kira -t ws $(KIRA_DAT)
+
+# plat and its data (tagged ws: the program opens /ws/plat.dat)
+DISK_FILES += $(BUILD)/prog/plat $(PLAT_DAT)
+DISK_ARGS  += -t bin $(BUILD)/prog/plat -t ws $(PLAT_DAT)
 
 # wdoom and its data (tagged ws: the program opens /ws/wdoom.dat)
 DISK_FILES += $(BUILD)/prog/wdoom $(WDOOM_DAT)
