@@ -50,7 +50,8 @@ SPRITES = ['button', 'button_down',
            'tool_bulldoze', 'tool_road', 'tool_line', 'tool_res', 'tool_com', 'tool_ind',
            'tool_coal', 'tool_query',
            'speed_pause', 'speed_slow', 'speed_normal', 'speed_fast',
-           'icon_funds', 'icon_date', 'icon_pop', 'nopower', 'noroad', 'logo', 'app']
+           'icon_funds', 'icon_date', 'icon_pop', 'nopower', 'noroad', 'logo', 'app',
+           'tool_zoom_in', 'tool_zoom_out']
 
 # ---- the demos (`plat demo N`): (tics to wait, key), one tic a frame ---------------
 # Keys: U D L R the arrows, _ Space, ^ Enter, {N what follows up to } N times,
@@ -63,13 +64,31 @@ DEMOS = {
        "5 D,3 D,3 D,3 l,3 ^,{14,2 R,},2 ^,"
        "5 b,3 ^,{4,2 D,},2 ^,"
        "5 r,3 U,3 U,3 U,3 U,3 U,3 U,3 U,3 ^,{40,1 L,},2 ^,"
-       "5 i,3 _,10 z,10 R,10 z,10 .",
+       "5 i,3 _,10 z,10 R,10 x,10 x,10 x,10 .",
     # time: the fastest speed for a year and a half, then a pause
     2: "5 =,3 =,{30,30 .,},5 0,10 .",
     # what money stops: a long road with too little left for it
     3: "5 r,3 ^,{8,1 D,{126,1 R,},1 D,{126,1 L,},},2 ^,10 .",
     # at 32 pixels a cell: a power line west over the river
     4: "5 z,5 l,3 ^,{30,2 L,},2 ^,10 .",
+    # a town: a coal plant, a road, a power line to the zones and across the
+    # road, homes, shops and offices, industry; then two years at the
+    # fastest speed
+    5: "5 p,3 _,{4,1 L,},{4,1 D,},3 r,3 ^,{40,1 R,},3 ^,"
+       "{33,1 L,},{3,1 U,},3 l,3 ^,{3,1 R,},{5,1 D,},3 ^,"
+       "{2,1 R,},{4,1 U,},3 1,3 _,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+       "3 2,{3,1 R,},3 _,{3,1 R,},3 _,"
+       "3 3,{15,1 L,},{4,1 D,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+       "3 1,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+       "{10,1 U,},3 _,"
+       "5 =,3 =,{28,30 .,},5 0,10 .",
+    # the town in a file: a plant, a road, zones, a year; saved; bulldozed
+    # and taxed differently; the saved town back (the map must be the one
+    # that was saved)
+    6: "5 p,3 _,{4,1 R,},3 r,3 ^,{12,1 R,},3 ^,"
+       "{13,1 L,},1 U,3 l,3 ^,{8,1 R,},3 ^,{2,1 R,},1 U,3 1,3 _,"
+       "5 =,3 =,{12,30 .,},5 0,5 s,"
+       "5 b,3 ^,{6,1 L,},3 ^,5 ],5 ],10 o,10 .",
 }
 KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '_': 32, '^': 13, '}': 0xfc}
 
@@ -294,7 +313,7 @@ def build(art, outdir):
         equ('SP_' + name.upper(), i, 'sprites' if i == 0 else None)
     for i, (name, _) in enumerate(sounds):
         equ('SN_' + name, i, 'sounds' if i == 0 else None)
-    for name in ('panel', 'panel_light', 'panel_dark', 'text', 'text_dim', 'good', 'bad'):
+    for name in ('panel', 'panel_light', 'panel_dark', 'text', 'text_dim', 'good', 'bad', 'res', 'com', 'ind'):
         equ('C_' + name.upper(), ui[name], 'palette indices: the panels and the text' if name == 'panel' else None)
     for name, c in extra.items():
         equ(name, index[c], None)

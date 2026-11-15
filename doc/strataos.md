@@ -1526,11 +1526,17 @@ window whose process ends is removed.
   are synthesised (`tools/kira-assets.py`), and both are in a data file,
   `/ws/kira.dat`. `kira demo N` plays recorded keys and clicks one tic a
   frame. `os/progs/kira.s`, `os/progs/kira/`, `os/progs/PLAN-kira.md`.
-- **`plat`**: Plat, a city-building game (its first stage): a map of 128 x
-  128 cells seen from above, new land for every game (a river, lakes and
-  woods from a seed), roads (bridges over the water), power lines and the
-  bulldozer, paid for from a treasury, a calendar at three speeds. It
-  draws XRGB8888 at the window's own size, with cells of 16 or 32 pixels,
+- **`plat`**: Plat, a city-building game: a map of 128 x 128 cells seen
+  from above, new land for every game (a river, lakes and woods from a
+  seed), roads (bridges over the water), power lines, zones for homes,
+  shops and offices, and industry, coal power plants and the bulldozer,
+  paid for from a treasury; once a month power spreads from the plants
+  breadth first, zones grow or decline by power, a road in reach and
+  demand, the census counts residents and jobs, taxes and upkeep move the
+  treasury. The town is kept in `/ws/plat.sav`, with its population, year
+  and funds as attributes; buttons have tooltips (the window asks `ws`
+  for the pointer's moves with no button held: CREATE mode bit 1). It
+  draws XRGB8888 at the window's own size, with cells of 4 to 64 pixels,
   and only what changed: a tool's cells and their neighbours, a moved
   cursor, the whole map after a scroll; each piece is one DAMAGE
   rectangle, and the bar's numbers are drawn by the server's `wc_text`.

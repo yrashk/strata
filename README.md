@@ -384,6 +384,23 @@ from the shell, or `kira` from the palette; it is a preset on the play
 page.
 [`os/progs/PLAN-kira.md`](os/progs/PLAN-kira.md) has the design and the sizes.
 
+![plat: a small town by a river: a coal plant, a power line, a road, homes, shops and offices, industry, and an empty zone with a mark saying it has no road](site/img/plat.png)
+
+`plat` is Plat, a city-building game in the genre of the classic city
+simulators, with its own name, art and text, written in Strata assembly as
+a client of the window server. Every game has new land (a river, lakes,
+woods); the player lays roads (bridges over the water) and power lines,
+zones land for homes, shops and offices, and industry, and builds coal
+power plants. Once a month power spreads from the plants, zones with power
+and a road grow while their kind is in demand, the census counts the
+residents and the jobs, and taxes and upkeep move the treasury. Five zoom
+levels (at the smallest the whole map is in view), tooltips on the buttons,
+and the town is kept in a file with its population, year and funds as
+attributes. The art is original, drawn by a script (`tools/plat-art.py`).
+Run `ws plat` from the shell, or `plat` from the palette; it is a preset on
+the play page. [`os/progs/PLAN-city.md`](os/progs/PLAN-city.md) has the
+design, the stages and the sizes.
+
 
 `make ws-demo` runs the same renderers on the bare machine against a
 simulated twelve-core system (no OS needed), and the site's play page has
