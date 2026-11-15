@@ -385,7 +385,7 @@ from the shell, or `kira` from the palette; it is a preset on the play
 page.
 [`os/progs/PLAN-kira.md`](os/progs/PLAN-kira.md) has the design and the sizes.
 
-![plat: a small town by a river: a coal plant, a power line, a road, homes, shops and offices, industry, and an empty zone with a mark saying it has no road](site/img/plat.png)
+![plat: a small town by a river, with its yearly paper, the Plat Ledger, open over it](site/img/plat.png)
 
 `plat` is Plat, a city-building game in the genre of the classic city
 simulators, with its own name, art and text, written in Strata assembly as
@@ -397,7 +397,9 @@ month power spreads from the plants, zones with power and a road grow
 while their kind is in demand and the place suits them (land value,
 pollution, crime, traffic, each a map that can be shown over the town),
 the census counts the residents and the jobs, and taxes and upkeep move
-the treasury; the budget sets the tax rate and the services' funding. Five zoom
+the treasury; the budget sets the tax rate and the services' funding.
+Advisers speak up in the bar, and every year ends with the town's paper,
+the Plat Ledger, and the mayor's approval. Five zoom
 levels (at the smallest the whole map is in view), a minimap, tooltips on
 the buttons,
 and the town is kept in a file with its population, year and funds as

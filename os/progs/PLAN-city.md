@@ -388,6 +388,8 @@ Original art avoids both.
       police and fire stations, parks, the solar plant; maps of pollution,
       crime, traffic, land value and cover feeding growth; roads showing
       their traffic; the maps over the town; the minimap; the budget
-- [ ] Tier 2, second part: advisers and the town paper; the opinion of the
-      mayor; graphs; several cities
+- [x] Tier 2, second part: advisers with their portraits in the bar; the
+      Plat Ledger at every year's end (a headline from the town's worst
+      trouble, the mayor's approval); the town's history (H)
+- [ ] Several saved cities (with the gallery of tier 3)
 - [ ] Tier 3 as chosen
