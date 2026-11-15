@@ -223,8 +223,9 @@ from = "proc only"
 note = """proc gets the arena from MEMORY and loads the guest image at its top. The kernel takes N \
 contiguous empty worker cores out of its own scheduling, writes the guest platform table into the \
 arena, and gives each core the image share, a console endpoint, the clock and core control over the \
-guest's cores; the first core also gets the writable memory below the image. At most 4 guests run \
-at once; their ids are 240 and up."""
+guest's cores; the first core also gets the writable memory below the image. The arena is the \
+guest's from then on: FREE, CREATE and GSTART do not take it, and GSTOP frees it. At most 4 guests \
+run at once; their ids are 240 and up."""
 
 [op.request]
 attachment = "the arena, as MEMORY gave it, with the guest image at its top"
@@ -246,7 +247,7 @@ data = [
 attachments = { c6 = "on −5, or on −1 for an arena MEMORY did not give: the arena, given back" }
 
 [op.errors]
-"-1" = "not from proc, no arena came with it, or it is not one MEMORY gave out (that one is given back)"
+"-1" = "not from proc (an arena it sent is dropped), no arena came with it, or it is not one MEMORY gave out (that one is given back)"
 "-5" = "no run of that many empty worker cores (at the pinned core, if one is given), or 4 guests already run"
 
 [[op]]
