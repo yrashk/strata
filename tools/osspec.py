@@ -5,6 +5,9 @@
                         their form, and that each agrees with the code (the
                         ops its server's dispatch answers, the OP_* constants
                         of os/lib/sys.s). Exit 1 on any problem.
+  osspec.py --table OUT the debugger's table of the messages (strata-emu
+                        --os DIR reads DIR/msgops.txt): every op's name, the
+                        fields of its data, its errors (format: table()).
 
 os/spec/README.md describes the format. tools/web-os.py makes the site's and
 the manual's pages from what load() returns.
@@ -213,7 +216,57 @@ def load_all():
     return out
 
 
+def extent(part, reply):
+    """How far a message's data reaches: "len" (the header's length), "res" (a
+    reply's result counts the bytes) or "fix" (the fixed fields' sizes)."""
+    if "length" in part and part.get("data"):
+        return "len"
+    if reply and part.get("data") and re.search(r"\bbytes\b", part.get("result", "")) and \
+            "repeat" not in part["data"][0] and part["data"][0].get("type") in ("bytes", "text"):
+        return "res"
+    return "fix"
+
+
+def table(out):
+    """strata-msgops 1, then one line per item (fields separated by one space,
+    the last one is the rest of the line):
+      op SERVER NUM NAME REQ REP    REQ, REP: the data's extent (extent())
+      fq SERVER NUM TYPE NAME       a field of the request's data, in order
+      fr SERVER NUM TYPE NAME       ... of the reply's (TYPE rep: a repeated group)
+      e SERVER NUM CODE TEXT        what a negative result means (SERVER * NUM 0:
+                                    any message, the names of os/lib/sys.s)
+    SERVER is the file's key: kernel (the system core's endpoint), proc, dev,
+    fs, tty, pipe, net, ws, system (what proc sends every server, and the
+    kernel proc)."""
+    lines = ["strata-msgops 1"]
+    flat = lambda s: " ".join(str(s).split())
+    for spec, problems in load_all():
+        key = spec["server"]["key"]
+        if spec["server"].get("calls") != "message":
+            continue
+        for op in spec["op"]:
+            req, rep = op.get("request", {}), op.get("reply", {})
+            lines.append("op %s %d %s %s %s" % (key, op["num"], op["name"], extent(req, False), extent(rep, True)))
+            for tag, part in (("fq", req), ("fr", rep)):
+                for fd in part.get("data", []):
+                    if "repeat" in fd:
+                        lines.append("%s %s %d rep %s" % (tag, key, op["num"], flat(fd["repeat"])))
+                    else:
+                        lines.append("%s %s %d %s %s" % (tag, key, op["num"], fd["type"], flat(fd.get("name", "-"))))
+            for code, text in sorted(op.get("errors", {}).items(), key=lambda kv: -int(kv[0])):
+                lines.append("e %s %d %d %s" % (key, op["num"], int(code), flat(text)))
+    for l in read("os/lib/sys.s"):
+        m = re.match(r'^(E_[A-Z0-9_]+)\s*=\s*(-\d+)\s*;\s*"([^"]*)"', l)
+        if m:
+            lines.append("e * 0 %s %s %s" % (m.group(2), m.group(1), m.group(3)))
+    with open(out, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    return 0
+
+
 def main(argv):
+    if len(argv) == 3 and argv[1] == "--table":
+        return table(argv[2])
     names = [os.path.basename(a) for a in argv[1:]] or files()
     bad = 0
     for name in names:

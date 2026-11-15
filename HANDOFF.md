@@ -43,6 +43,9 @@ Unit, with capabilities for authority. The tree has:
   open items: `lang/cc/PLAN-cc.md`.
 - `dbg/` and `site/debug/`: the text debugger `strata-dbg` and the web
   debugger, both on the engine's JSON-lines protocol (`doc/debug-protocol.md`).
+  Under StrataOS they show every message to the kernel and the servers with
+  its reply (`msgs`; the web debugger's Messages window), named from
+  `os/spec/` through `build/msgops.txt` (`tools/osspec.py --table`).
 - `conformance/`: 32 self-checking tests run on the interpreter, the JIT and
   the RTL, plus a differential fuzzer.
 - `formal/`: SymbiYosys proofs of the RTL (added 2026-11-13, see below).
