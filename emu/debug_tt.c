@@ -263,6 +263,7 @@ static void misc_load(const Misc *m) {
     if (dbg_evlo > dbg_evseq) dbg_evlo = dbg_evseq;
   }
   dbg_tick = m->tick, dbg_poll_at = m->poll_at, dbg_pseq = m->pseq;
+  msg_rewind(dbg_tick);
   memcpy(dbg_tags, m->tags, sizeof dbg_tags);
   memcpy(dbg_pshadow, m->pshadow, sizeof dbg_pshadow);
   dbg_pnpend = m->pnpend;

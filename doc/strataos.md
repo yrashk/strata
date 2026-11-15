@@ -1526,6 +1526,33 @@ window whose process ends is removed.
   are synthesised (`tools/kira-assets.py`), and both are in a data file,
   `/ws/kira.dat`. `kira demo N` plays recorded keys and clicks one tic a
   frame. `os/progs/kira.s`, `os/progs/kira/`, `os/progs/PLAN-kira.md`.
+- **`plat`**: Plat, a city-building game: a map of 128 x 128 cells seen
+  from above, new land for every game (a river, lakes and woods from a
+  seed), roads and rail (bridges over the water), power lines, zones for
+  homes, shops and offices, and industry, police and fire stations, parks,
+  coal and solar power plants and the bulldozer,
+  paid for from a treasury; once a month power spreads from the plants
+  breadth first, zones grow or decline by power, a road in reach and
+  demand, the census counts residents and jobs, taxes and upkeep move the
+  treasury; maps of pollution, crime, traffic, land value and the
+  stations' cover (64 x 64 bytes each, in the arena) steer growth and can
+  be shown over the town. The simulation, the tools, the budget and the
+  file are code units of 2 KiB paged in by the kernel; the band sits
+  above them, and the arena is split there (`csplit`) to lend it for
+  DAMAGE. The town is kept in `/ws/plat-1.sav (one of four places)`, with its population, year
+  and funds as attributes; buttons have tooltips (the window asks `ws`
+  for the pointer's moves with no button held: CREATE mode bit 1). It
+  draws XRGB8888 at the window's own size, with cells of 4 to 64 pixels,
+  and only what changed: a tool's cells and their neighbours, a moved
+  cursor, the whole map after a scroll; each piece is one DAMAGE
+  rectangle, and the bar's numbers are drawn by the server's `wc_text`.
+  The map is 32 KiB of 16-bit cells in the arena above the data file's
+  far block; a cell is read and written with an 8-byte transfer. Its art
+  is drawn by a script (`tools/plat-art.py`), its sounds are synthesised
+  (`tools/plat-assets.py`), both in `/ws/plat.dat`. `plat demo N` plays
+  recorded keys one tic a frame and reports the treasury, the date and a
+  checksum of the map. `os/progs/plat.s`, `os/progs/plat/`,
+  `os/progs/PLAN-city.md`.
 - Any program can do the same through `os/lib/wsclient.s` and
   `os/lib/gfx.s` (surfaces, display lists, spans, text).
 - `make ws-demo` runs the same renderers on the bare machine against a

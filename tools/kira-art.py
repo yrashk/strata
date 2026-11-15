@@ -711,7 +711,7 @@ def make_small():
         im=Canvas(24,24);R(im,(3,0,20,23),'cream_light','gold_dark',2);im.rect(5,2,18,4,'pink_light');im.line(11,12,11,21,'green_dark',2);im.line(12,19,16,16,'green',2);flower(im,12,11,3,kind);save(f'icon_{kind}.png',im)
         for stage in (1,2,3):save(f'plant_{kind}_{stage}.png',plant(kind,stage))
     save('icon_can.png',can())
-    for kind in ('home','eyes','map','next','song'):
+    for kind in ('home','eyes','map','next','song','new','yes','no'):
         im=Canvas(24,24)
         if kind=='home':
             R(im,(4,10,20,23),'cream','gold_dark',1);P(im,[(1,11),(12,1),(23,11),(22,13),(12,5),(2,13)],'pink','pink_dark');R(im,(10,15,15,23),'violet','violet_dark',2);im.rect(6,13,8,16,'blue');im.put(13,19,'gold')
@@ -721,6 +721,24 @@ def make_small():
         elif kind=='map':
             P(im,[(1,4),(8,1),(16,4),(22,1),(23,20),(16,23),(8,20),(0,23)],'cream','gold_dark')
             im.line(8,3,8,19,'cream_shadow');im.line(16,5,16,21,'cream_shadow');im.line(3,18,7,12,'blue',2);im.line(7,12,13,15,'blue',2);im.line(13,15,20,8,'blue',2);E(im,(3,6,7,10),'green','green_dark');star(im,17,7,3,'pink_dark')
+        elif kind=='new':   # start over: a white arrow that goes round, on a round green button
+            E(im,(0,0,23,23),'green_light','green_dark');im.line(6,3,16,3,'mint')
+            for y in range(24):
+                for x in range(24):
+                    d=(2*x-23)**2+(2*y-23)**2
+                    if x>=12 and y<=10: continue                                   # (the ring's open quarter)
+                    if 10*10<d<=15*15: im.put(x,y,'white')                         # three quarters of a ring
+                    elif 8*8<d<=17*17: im.put(x,y,'green_dark')                    # ... and its edge
+            P(im,[(12,0),(18,5),(12,10)],'white','green_dark')                     # the arrow's head, at its top
+            im.rect(11,5,12,6,'white')
+        elif kind=='yes':   # a white tick on a green round button
+            E(im,(0,0,23,23),'green','green_dark');im.line(6,3,16,3,'green_light')
+            im.line(6,12,10,16,'green_dark',5);im.line(10,16,18,7,'green_dark',5)
+            im.line(6,12,10,16,'white',3);im.line(10,16,18,7,'white',3)
+        elif kind=='no':    # a white cross on a red round button
+            E(im,(0,0,23,23),'red','red_dark');im.line(6,3,16,3,'red_light')
+            im.line(7,7,16,16,'red_dark',5);im.line(16,7,7,16,'red_dark',5)
+            im.line(7,7,16,16,'white',3);im.line(16,7,7,16,'white',3)
         else:
             E(im,(0,0,23,23),'gold' if kind=='next' else 'pink','gold_dark' if kind=='next' else 'pink_dark');im.line(6,3,16,3,'gold_light' if kind=='next' else 'pink_light')
             if kind=='next':P(im,[(5,9),(12,9),(12,5),(19,12),(12,19),(12,15),(5,15)],'white','gold_dark')
@@ -1159,7 +1177,7 @@ def contract():
     for n in range(1,8):add(f'num_{n}',24,32)
     for n in FRIENDS+['picnic']:add('word_'+n,text_width('PICNIC TIME!' if n=='picnic' else n.upper(),2)+12,24)
     add('word_hooray',136,32);add('bar',320,32)
-    for n in ('home','eyes','map','tulip','daisy','sunflower','rose','can','next','song'):add('icon_'+n,24,24)
+    for n in ('home','eyes','map','tulip','daisy','sunflower','rose','can','next','song','new','yes','no'):add('icon_'+n,24,24)
     for n in range(10):add(f'pot_{n}',20,24)
     for k in ('tulip','daisy','sunflower','rose'):
         for n in (1,2,3):add(f'plant_{k}_{n}',32,48)

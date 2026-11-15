@@ -99,7 +99,8 @@ palette): there is no boot image of its own.
 A run's random numbers start from the clock, a demo's from a fixed seed.
 - Friends: the whole world, where Kira starts, where each friend hides,
   where the blanket lies.
-- Garden: the first garden (three patches planted already), where each
+- Garden: the first garden and every new one (three patches planted
+  already), where each
   butterfly flies next and how long it sits, which friend walks by and
   when.
 - Paint: which page is open first.
@@ -132,6 +133,14 @@ measured.
 - From above the screen flips at its edges and does not scroll.
 - The friends walk straight to their places in the parade, through
   whatever is in the way.
+- Friends, Garden and Paint can be started over: a button in the bar, an
+  arrow that goes round (in a garden where every patch is in bloom a frame
+  blinks around it). Because a garden is kept, a page takes long to paint
+  and a game of Friends may be nearly won, it asks first, in pictures:
+  the arrow, a tick and a cross. The tick starts the game over as it first
+  was (a new world; a garden as the first one was made; the blank page);
+  anything else, or ten seconds, leaves it. Friends also starts over by
+  itself after its party. Music has nothing to start over.
 - The garden is written when it is left or the program is quit with Q or
   by closing its tile; not when the machine is halted under it.
 - The colouring pages keep their colours only while the program runs.

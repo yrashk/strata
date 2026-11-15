@@ -43,6 +43,9 @@ Unit, with capabilities for authority. The tree has:
   open items: `lang/cc/PLAN-cc.md`.
 - `dbg/` and `site/debug/`: the text debugger `strata-dbg` and the web
   debugger, both on the engine's JSON-lines protocol (`doc/debug-protocol.md`).
+  Under StrataOS they show every message to the kernel and the servers with
+  its reply (`msgs`; the web debugger's Messages window), named from
+  `os/spec/` through `build/msgops.txt` (`tools/osspec.py --table`).
 - `conformance/`: 32 self-checking tests run on the interpreter, the JIT and
   the RTL, plus a differential fuzzer.
 - `formal/`: SymbiYosys proofs of the RTL (added 2026-11-13, see below).
@@ -201,10 +204,10 @@ Garden (kept in `/ws/kira.sav`), Paint, Music.
   program relies on); `tools/kira-assets.py` converts it and synthesises
   the sounds; `make kira-dat` runs both.
 - `tools/test-kira.sh` (in `make test`) compares the last frame of each
-  `kira demo N`. A change of art, of drawing, or of the order in which
+  `kira demo N` (N is 1..9, then a..g; its header says what each plays). A change of art, of drawing, or of the order in which
   random numbers are drawn needs new checksums, and may need the demos'
   clicks moved (their worlds come from a fixed seed).
-- Limits it is near: 36.9 of the 40 KiB of D-LS, 23.7 of the 32 KiB of
+- Limits it is near: 37.1 of the 40 KiB of D-LS, 25.7 of the 32 KiB of
   code. Adding a file to the disk moves what `tools/test-files.sh` and
   `tools/test-http.out` check.
 - Seen and heard: every game seen on the emulator and in a browser (the

@@ -101,7 +101,7 @@ $(BUILD)/sasm: asm/sasm.c asm/isa.h
 # the JIT (emu/jit/): each backend compiles to nothing on other hosts
 JIT_SRC := emu/jit/jit.c emu/jit/jit_arm64.c emu/jit/jit_x86_64.c
 # the debug engine (--debug): included by emu/emu.c
-DBG_ENGINE := emu/debug.h emu/debug.c emu/debug_sym.c emu/debug_tt.c emu/debug_io.c common/json.h
+DBG_ENGINE := emu/debug.h emu/debug.c emu/debug_sym.c emu/debug_tt.c emu/debug_io.c emu/debug_msg.c common/json.h
 
 $(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) $(DBG_ENGINE) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
 	@mkdir -p $(BUILD)
@@ -379,6 +379,20 @@ kira-dat:
 	python3 tools/kira-art.py
 	python3 tools/kira-assets.py
 
+# plat, a city-building game in a window (os/progs/plat.s, os/progs/plat/): the
+# program, and its data file, which tools/plat-assets.py makes from the art
+# that tools/plat-art.py draws into os/progs/plat/art (the converted file is
+# in the tree: os/progs/plat/plat.dat; `make plat-dat` makes both again)
+PLAT_DAT := os/progs/plat/plat.dat
+$(BUILD)/prog/plat: os/progs/plat.s $(wildcard os/progs/plat/*.s) os/progs/wdoom/sound.s os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -I os/lib -g $@.map -o $@ $<
+
+.PHONY: plat-dat
+plat-dat:
+	python3 tools/plat-art.py
+	python3 tools/plat-assets.py
+
 # vi, the editor: its keyword tables come from the assembler, the Forth README,
 # the site's highlighter and cc's keywords and headers (tools/vi-syntax.py
 # writes them as an include)
@@ -527,6 +541,10 @@ DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc
 DISK_FILES += $(BUILD)/prog/kira $(KIRA_DAT)
 DISK_ARGS  += -t bin $(BUILD)/prog/kira -t ws $(KIRA_DAT)
 
+# plat and its data (tagged ws: the program opens /ws/plat.dat)
+DISK_FILES += $(BUILD)/prog/plat $(PLAT_DAT)
+DISK_ARGS  += -t bin $(BUILD)/prog/plat -t ws $(PLAT_DAT)
+
 # wdoom and its data (tagged ws: the program opens /ws/wdoom.dat)
 DISK_FILES += $(BUILD)/prog/wdoom $(WDOOM_DAT)
 DISK_ARGS  += -t bin $(BUILD)/prog/wdoom -t ws $(WDOOM_DAT)
@@ -539,7 +557,12 @@ DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS)
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST)
 
-os: $(BUILD)/bootrom.stx $(BUILD)/disk.img
+os: $(BUILD)/bootrom.stx $(BUILD)/disk.img $(BUILD)/msgops.txt
+
+# the debugger's table of StrataOS's messages (strata-emu --os $(BUILD)), from
+# the same specifications as the site's and the manual's
+$(BUILD)/msgops.txt: tools/osspec.py os/spec/*.toml os/lib/sys.s
+	python3 tools/osspec.py --table $@
 
 # the same disk with an rc that starts the window server (make boot-ws)
 DISK_WS_ARGS := $(subst os/files/rc,os/files-ws/rc,$(DISK_ARGS))
@@ -850,7 +873,7 @@ $(BUILD)/examples/%.map: $(BUILD)/examples/%.stx
 	@test -f $@ || $(BUILD)/sasm -g $@ -o $< examples/$*.s
 	@touch $@
 
-wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS)
+wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS) $(BUILD)/msgops.txt
 	@mkdir -p $(WEB)/images $(WEB)/demos $(WEB)/debug/src/examples/lib
 	cp $(WEB_IMAGES) $(WEB)/images/
 	cp lang/forth/demos/*.fs $(WEB)/demos/
@@ -860,7 +883,7 @@ wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS)
 	cp examples/lib/*.s $(WEB)/debug/src/examples/lib/
 	echo $(DEBUG_EXAMPLES) | tr ' ' '\n' > $(WEB)/debug/index.txt
 	@mkdir -p $(WEB)/debug/os/prog
-	cp $(BUILD)/bootrom.map $(BUILD)/kernel.map $(WEB)/debug/os/
+	cp $(BUILD)/bootrom.map $(BUILD)/kernel.map $(BUILD)/msgops.txt $(WEB)/debug/os/
 	cp $(BUILD)/prog/*.map $(WEB)/debug/os/prog/
 	ls $(BUILD)/prog | sed -n 's/\.map$$//p' > $(WEB)/debug/os/prog.txt
 

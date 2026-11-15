@@ -61,6 +61,8 @@ static bool dbg_tt_due;            /* recording starts again at the next round's
 static void tt_restart(void); /* debug_tt.c */
 static const char *tt_off_why(void);
 static void tt_clear(void);
+static void msg_rewind(uint64_t tick); /* debug_msg.c */
+static bool dbg_in_fast;           /* inside dbg_fast_round(): dbg_tick is the round's first tick */
 static bool dbg_fastok;            /* a plain continue may run machine_round() (JIT, fast loop) */
 static bool dbg_trapped;           /* a trap was taken in this slot */
 static int dbg_trap_cause;
@@ -957,7 +959,9 @@ static int dbg_fast_round(void) {
   host_ptr_script_run(mach_steps);
   host_poll();
   net_host_poll();
+  dbg_in_fast = true;
   int r = machine_round();
+  dbg_in_fast = false;
   dbg_tick += (uint64_t)ncores;
   if (dbg_tick > dbg_frontier) dbg_frontier = dbg_tick;
   pend_diff();
@@ -1651,6 +1655,8 @@ static void source_json(JW *w, const char *file, int from, int n, char *err, siz
 
 
 /* Handles one request (a JSON object) and writes its answer into `w`. */
+#include "debug_msg.c" /* StrataOS's messages */
+
 static void dbg_request(const char *line, size_t len, JW *w) {
   char err[256] = "";
   JVal *rq = json_parse(line, len);
@@ -1684,6 +1690,7 @@ static void dbg_request(const char *line, size_t len, JW *w) {
     jw_bool(w, "virtual", virtual_time);
     jw_bool(w, "timetravel", dbg_tt);
     jw_bool(w, "os", os_aware);
+    jw_bool(w, "msgs", msg_on);
     jw_str(w, "state", dbg_state == ST_RUNNING ? "running" : dbg_state == ST_DONE ? "done" : "stopped");
     jw_arr(w, "maps");
     for (int i = 0; i < nmaps; i++) {
@@ -2275,6 +2282,19 @@ static void dbg_request(const char *line, size_t len, JW *w) {
   } else if (!strcmp(cmd, "backtrace")) {
     int ci = req_core(rq, err, sizeof err);
     if (ci >= 0) backtrace_json(w, &cores[ci]);
+  } else if (!strcmp(cmd, "msgs") || !strcmp(cmd, "msg") || !strcmp(cmd, "msgstats")) {
+    if (!msg_on) snprintf(err, sizeof err, "no messages: StrataOS awareness (--os) is off");
+    else if (!strcmp(cmd, "msgs")) msgs_json(w, rq);
+    else if (!strcmp(cmd, "msgstats")) msgstats_json(w, rq);
+    else {
+      Msg *m = msg_get(json_u64(json_get(rq, "seq"), ~0ull));
+      if (m) msg_fill(m);
+      if (!m) snprintf(err, sizeof err, "no message %llu (kept: %llu..%llu)", (unsigned long long)json_u64(json_get(rq, "seq"), 0),
+                       (unsigned long long)msg_lo, (unsigned long long)(msg_seq ? msg_seq - 1 : 0));
+      else {
+        msg_json(w, "msg", m, true);
+      }
+    }
   } else if (!strcmp(cmd, "processes")) {
     if (!os_aware) snprintf(err, sizeof err, "needs StrataOS awareness (--os DIR)");
     else {
@@ -2406,6 +2426,7 @@ static void dbg_setup(const char *img, const char *in_path, const char *disk_pat
     if (!map_load(path, SC_KERNEL, NULL)) fprintf(stderr, "strata-emu: --os: no %s (StrataOS awareness is off)\n", path);
     else os_aware = true;
   }
+  msg_init();
   for (int i = 0; i < MAXCORES; i++) dbg_pid_prev[i] = -1, dbg_bphold[i] = ~0ull;
   /* the capabilities the cores start with */
   for (int i = 0; i < ncores; i++)

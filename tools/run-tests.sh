@@ -199,7 +199,7 @@ if [ $changed = 1 ]; then
       tools/stdb/*) w="stdb stdb-test os" ;;
       conformance/*) w="" ;;
       tools/test-*|tools/compare*|tools/*.out|tools/*.js|tools/net-echo.py|tools/dlsgap.s) w="" ;;
-      tools/kira-*|tools/wdoom-assets.py|tools/web-code.py|tools/web-stamp.sh|tools/vi-shots.sh|tools/bench-jit.sh|tools/fs-progs-speed.sh) w="" ;;
+      tools/kira-*|tools/plat-*|tools/wdoom-assets.py|tools/web-code.py|tools/web-stamp.sh|tools/vi-shots.sh|tools/bench-jit.sh|tools/fs-progs-speed.sh) w="" ;;
       *) w=ALL ;;      # asm/, common/, the Makefile, the test runner, anything not listed
     esac
     [ "$w" = ALL ] && all=1

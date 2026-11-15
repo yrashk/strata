@@ -378,11 +378,36 @@ or, at the press of a button, through Kira's eyes (wdoom's raycaster with
 a floor for every cell and a sky). In Garden she sows seeds and waters
 them into flowers that butterflies visit, and the garden is kept in a
 file. Paint has three colouring pages, and Music a xylophone, the
-friends' voices and four songs. The art is original and is drawn by a
+friends' voices and four songs. A button starts a game over, after a
+question answered with a tick or a cross. The art is original and is drawn by a
 script (`tools/kira-art.py`); the sounds are synthesised. Run `ws kira`
 from the shell, or `kira` from the palette; it is a preset on the play
 page.
 [`os/progs/PLAN-kira.md`](os/progs/PLAN-kira.md) has the design and the sizes.
+
+![plat: a small town by a river, with its yearly paper, the Plat Ledger, open over it](site/img/plat.png)
+
+`plat` is Plat, a city-building game in the genre of the classic city
+simulators, with its own name, art and text, written in Strata assembly as
+a client of the window server. Every game has new land (a river, lakes,
+woods); the player lays roads and rail (bridges over the water) and power
+lines, zones land for homes, shops and offices, and industry, and builds
+police and fire stations, parks, and coal or solar power plants. Once a
+month power spreads from the plants, zones with power and a road grow
+while their kind is in demand and the place suits them (land value,
+pollution, crime, traffic, each a map that can be shown over the town),
+the census counts the residents and the jobs, and taxes and upkeep move
+the treasury; the budget sets the tax rate and the services' funding.
+Advisers speak up in the bar, and every year ends with the town's paper,
+the Plat Ledger, and the mayor's approval. Fires start now and then and
+spread where the fire stations' cover is thin. Five zoom
+levels (at the smallest the whole map is in view), a minimap, tooltips on
+the buttons,
+and the town is kept in a file with its population, year and funds as
+attributes. The art is original, drawn by a script (`tools/plat-art.py`).
+Run `ws plat` from the shell, or `plat` from the palette; it is a preset on
+the play page. [`os/progs/PLAN-city.md`](os/progs/PLAN-city.md) has the
+design, the stages and the sizes.
 
 
 `make ws-demo` runs the same renderers on the bare machine against a

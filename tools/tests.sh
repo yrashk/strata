@@ -57,6 +57,7 @@ t http         mid  "build-main build-test-disks" "emu" 'tools/test-http.sh $B/b
 t ws           mid  build-main "emu os" "tools/test-ws.sh $OS"
 t wdoom        mid  build-main "emu os" "tools/test-wdoom.sh $OS"
 t kira         full build-main "emu os" "tools/test-kira.sh $OS"
+t plat         full build-main "emu os" "tools/test-plat.sh $OS"
 t preempt      fast build-main "emu os" "tools/test-preempt.sh $OS"
 t forth-os     fast "build-main build-test-disks" "emu os \$B/forth-test/disk.img lang/forth/tests" 'lang/forth/tests/run-os.sh'
 t isolate      mid  "build-main build-test-disks" "emu" 'tools/test-isolate.sh $B/bootrom.stx $B/isol-test/disk.img'
@@ -64,6 +65,7 @@ t guest        mid  build-main "emu os" "tools/test-guest.sh $OS"
 t procs        full build-main "emu os" "tools/test-procs.sh $OS"
 t boot-jit     mid  build-main "emu os" "tools/test-boot-jit.sh $OS os/demo.txt"
 t wdb          mid  build-main "emu os" "tools/test-wdb.sh $OS"
+t dbg-msgs     fast build-main "emu dbg os \$B/kernel.map \$B/msgops.txt" "tools/test-dbg-msgs.sh $OS"
 t fsunits      fast build-main '$B/prog/fs' 'python3 tools/check-fsunits.py $B/prog/fs'
 # the StrataOS pages (site/os/) against the servers' dispatch code and comments
 t web-os       fast build-main "os/kernel.s os/kunits os/servers os/ws os/lib site/os doc/manual" 'python3 tools/web-os.py --check'

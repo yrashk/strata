@@ -7,7 +7,8 @@
 //
 // What the page shows comes from requests: per core `disasm`, `regs`,
 // `caps`; `tags` and `changes` (the Local Store map, live while running),
-// `mem` (its bytes), `log` (the transfer timeline),
+// `mem` (its bytes), `log` (the transfer timeline), `msgs` / `msg` /
+// `msgstats` (StrataOS's messages, live while running),
 // `provgraph` / `prov` (provenance), `breakpoints`, `status` (the recorded
 // run, for the time slider). Events: `console`, `stopped`, `done`.
 //
@@ -24,8 +25,9 @@ const V = "?v=" + BUILD;
 const ASSETS = "../play/debug/";
 const RUNS = new Set(["continue", "stepi", "next", "finish", "step-round", "until"]);
 // The JIT is for fast continues only (recorded runs step one instruction at
-// a time); off on iPhone and iPad, as on the play page (Safari there kills
-// the page once compiled WebAssembly fills its pool).
+// a time); off on iPhone and iPad (Safari there kills the page once compiled
+// WebAssembly fills its pool; the play page turns it on on iPads, with a
+// budget and a fallback, ../play/jit.js, which this page does not have).
 const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const JIT = IOS ? "-j" : "-J";
 
@@ -182,7 +184,13 @@ const floats = [];
 const FLOAT_MIN = 420, FLOAT_GAP = 12, FLOAT_MAXW = 1280;
 function floatTop() { return (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--navh")) || 64) + FLOAT_GAP; }
 function arrange() {
-  const auto = floats.filter((f) => f.on() && f.auto);
+  const all = floats.filter((f) => f.on() && f.auto);
+  // (the messages: over the page's lower right, the rest as below)
+  const msg = all.find((f) => f.kind === "msgs"), auto = all.filter((f) => f.kind !== "msgs");
+  if (msg) {
+    const w = Math.min(1200, innerWidth - 48), h = Math.min(720, innerHeight * 0.72);
+    msg.put({ x: innerWidth - w - 24, y: innerHeight - h - 24, w, h });
+  }
   if (!auto.length) return;
   const scr = auto.find((f) => f.kind === "screen"), con = auto.find((f) => f.kind === "console");
   const m = document.querySelector("main.dbg").getBoundingClientRect();
@@ -280,6 +288,7 @@ function floatable(panel, btn, key, onResize, kind) {
 }
 floatable($("screen-panel"), $("screen-float"), "strata-dbg-float-screen", fitScreen, "screen");
 floatable($("con-panel"), $("con-float"), "strata-dbg-float-console", refitTerm, "console");
+floatable($("msgs-panel"), $("msg-float"), "strata-dbg-float-msgs", () => {}, "msgs");
 // Alt+key as the desktop window sends it (spec 1.4): the xterm modified-key
 // forms, which cannot be typed by hand, so the window server tells Alt+P from
 // Esc and then p by the bytes, not by time. A character is ESC [ 27 ; 3 ;
@@ -405,6 +414,7 @@ async function poll() {
   if (s.ok) { pos = { tick: s.tick, round: s.round }; hist = s.history || hist; updateTime(); }
   drawTimeline();
   if (running) await refreshLs();
+  if (running) await refreshMsgs();
   if (running) setStatus(`running… tick ${pos.tick} · round ${pos.round} · ${s.steps || 0} steps`);
 }
 
@@ -423,6 +433,7 @@ async function refreshAll() {
       updateTime();
       drawTimeline();
       await refreshLs();
+      await refreshMsgs();
       await refreshBps();
       await refreshProv();
     } while (again);
@@ -1128,6 +1139,121 @@ addEventListener("keydown", (e) => {
 });
 
 // ---------------------------------------------------------------- starting
+// ---------------------------------------------------------------- messages
+// StrataOS's messages (the engine's `msgs`): one row per request, its reply
+// beside it, kept here by sequence number. `since` asks only for what is new
+// or newly answered; the filters are the engine's. Pause holds the rows (the
+// engine goes on recording); a click on a row shows it whole (`msg`); Summary
+// shows `msgstats`.
+const MSG_KEEP = 2000;
+let msgSince = 0, msgRows = new Map(), msgSel = -1, msgPaused = false, msgSum = false;
+function msgFilter() {
+  const f = {}, to = $("mf-server").value, fr = $("mf-from").value.trim(), o = $("mf-op").value.trim();
+  if (to) f.to = to;
+  if (fr) f.from = /^\d+$/.test(fr) ? +fr : fr;
+  if (o) f.op = /^\d+$/.test(o) ? +o : o.toUpperCase();
+  if ($("mf-wait").checked) f.waiting = true;
+  return f;
+}
+const MSG_HEAD = "<tr><th>#</th><th>tick</th><th>from (sender)</th><th>to (receiver)</th><th>op</th><th title=\"handle · length · mode\">h · len · mode</th><th>data</th><th>reply</th><th>reply data</th><th>rt</th></tr>";
+function msgReset() { $("msghead").innerHTML = MSG_HEAD; msgSince = 0; msgRows = new Map(); msgSel = -1; $("msglist").textContent = ""; $("msghex").textContent = ""; }
+async function refreshMsgs() {
+  if (!hello || !hello.msgs || msgPaused || !conn) return;
+  if (msgSum) return refreshMsgSum();
+  const r = await conn.request("msgs", Object.assign({ since: msgSince, max: 500 }, msgFilter()));
+  if (!r.ok) return;
+  if (r.truncated) msgRows = new Map(); // (more than one answer: start from the newest)
+  msgSince = r.version;
+  for (const k of msgRows.keys()) if (k >= r.next) msgRows.delete(k); // (gone back in time)
+  for (const m of r.msgs) msgRows.set(m.seq, m);
+  while (msgRows.size > MSG_KEEP) msgRows.delete(msgRows.keys().next().value);
+  drawMsgs(r);
+}
+// a process as name(pid); a server by its name (bold); the kernel
+const who = (name, pid, kind) => (kind === "name" ? esc(name) : kind === "process" ? esc(name) + `<span class="d">(${pid})</span>` :
+  `<span class="${kind === "kernel" ? "kern" : "srv"}">${esc(name)}</span>`);
+function drawMsgs(r) {
+  const box = $("msgbox"), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+  const rows = [...msgRows.values()].sort((a, b) => a.seq - b.seq);
+  let html = "";
+  for (const m of rows) {
+    const p = m.reply;
+    const att = (a) => (a ? a.map((k) => ` +${k.space} ${h(k.base)}+${h(k.len)}`).join("") : "");
+    const res = !p ? '<td class="wait">waiting</td><td></td><td></td>' :
+      `<td class="${p.result < 0 ? "err" : "k"}" title="${esc(p.error || "")}">${p.result}${p.error ? " " + esc(p.error) : ""}</td>` +
+      `<td title="${esc((p.data || "") + att(p.att))}">${esc(p.data || "")}${esc(att(p.att))}</td><td class="rn" title="${p.rt_rounds} rounds">${p.rt}</td>`;
+    html += `<tr data-seq="${m.seq}"${m.seq === msgSel ? ' class="sel"' : ""}><td class="d">${m.seq}</td><td class="d rn">${m.tick}</td>` +
+      `<td class="who">${who(m.fromname, m.from, m.fromkind)} <span class="d">c${m.fromcore}</span></td><td class="who">→ ${who(m.toname, m.to, m.tokind)} <span class="d">c${m.tocore}</span></td>` +
+      `<td><span class="opn">${esc(m.name || "op")}</span> <span class="d">${m.op}</span></td><td class="d">${m.handle} · ${m.len} · ${m.mode > 0xffff ? h(m.mode) : m.mode}</td>` +
+      `<td title="${esc((m.data || "") + att(m.att))}">${esc(m.data || "")}${esc(att(m.att))}</td>${res}</tr>`;
+  }
+  $("msglist").innerHTML = html;
+  $("msginfo").textContent = `${r.next} messages since power-on${msgPaused ? " · paused" : ""}; a click shows one whole`;
+  if (atEnd) box.scrollTop = box.scrollHeight;
+}
+async function refreshMsgSum() {
+  const r = await conn.request("msgstats", msgFilter());
+  if (!r.ok) return;
+  $("msghead").innerHTML = "<tr><th>from (sender)</th><th>to (receiver)</th><th>op</th><th>sent</th><th>replied</th><th>errors</th><th>average round trip (ticks)</th><th>longest</th></tr>";
+  $("msglist").innerHTML = r.stats.map((s) => `<tr><td class="who">${who(s.from, 0, s.fromkind === "process" ? "name" : s.fromkind)}</td>` +
+    `<td class="who">→ ${who(s.to, 0, s.to === "kernel" ? "kernel" : "server")}</td><td><span class="opn">${esc(s.name || "op")}</span> <span class="d">${s.op}</span></td>` +
+    `<td class="rn">${s.n}</td><td class="rn">${s.replied}</td><td class="rn ${s.errors ? "err" : "d"}">${s.errors}</td>` +
+    `<td class="rn">${s.avg_rt}</td><td class="rn d">${s.max_rt}</td></tr>`).join("");
+  $("msginfo").textContent = `summary of the ${r.next - r.first} messages kept`;
+}
+function hexLines(hx, label) {
+  let s = `<b>${label}</b>\n`;
+  for (let o = 0; o < hx.length / 2; o += 16) {
+    let txt = "";
+    s += `  ${o.toString(16).padStart(4, "0")} `;
+    for (let i = o; i < o + 16; i++) {
+      const b = hx.substr(2 * i, 2);
+      s += b ? " " + b : "   ";
+      if (i === o + 7) s += " ";
+      const k = parseInt(b, 16);
+      if (b) txt += k >= 32 && k < 127 ? String.fromCharCode(k) : ".";
+    }
+    s += "  " + esc(txt) + (o === 48 ? "   ← header: op handle length mode result pid; data from 0x40" : "") + "\n";
+  }
+  return s;
+}
+async function showMsg(seq) {
+  msgSel = seq;
+  for (const tr of $("msglist").querySelectorAll("tr")) tr.classList.toggle("sel", +tr.dataset.seq === seq);
+  const r = await conn.request("msg", { seq });
+  if (!r.ok) { $("msghex").textContent = r.error; return; }
+  const m = r.msg, p = m.reply;
+  const caps = (a) => (a || []).map((k) => `  attached: ${k.space} ${h(k.base)}+${h(k.len)} ${k.perms}${k.id ? " #" + k.id : ""}\n`).join("");
+  const party = (name, pid, kind) => (kind === "process" ? `${esc(name)}(${pid})` : kind === "kernel" ? "the kernel" : `the server ${esc(name)}`);
+  let s = `#${m.seq}  ${party(m.fromname, m.from, m.fromkind)} on core ${m.fromcore} → ${party(m.toname, m.to, m.tokind)} on core ${m.tocore}: ${esc(m.name || "op")} ${m.op}` +
+    `  handle ${m.handle} length ${m.len} mode ${m.mode}  buffer t3 ${m.buf}\n  tick ${m.tick} · round ${m.round} · ${esc(m.data || "")}\n` + caps(m.att);
+  s += hexLines(m.hex || "", `request (${m.bytes} data bytes)`);
+  if (p) {
+    s += `\nreply ${p.result}${p.error ? " (" + esc(p.error) + ")" : ""} from ${esc(p.proc)}(${p.pid}) on core ${p.core} · tick ${p.tick} · ${p.rt} ticks, ${p.rt_rounds} rounds later  ${esc(p.data || "")}\n` + caps(p.att);
+    s += hexLines(p.hex || "", `reply (${p.bytes} data bytes)`);
+  } else s += "\nno reply yet\n";
+  $("msghex").innerHTML = s;
+}
+$("msglist").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-seq]");
+  if (tr) showMsg(+tr.dataset.seq);
+});
+$("msgfilt").addEventListener("input", () => { msgReset(); refreshMsgs(); });
+$("msgfilt").addEventListener("submit", (e) => e.preventDefault());
+$("msg-pause").addEventListener("click", () => {
+  msgPaused = !msgPaused;
+  $("msg-pause").classList.toggle("on", msgPaused);
+  $("msg-pause").textContent = msgPaused ? "▶ Resume" : "❚❚ Pause";
+  if (!msgPaused) refreshMsgs();
+  else $("msginfo").textContent += " · paused";
+});
+$("msg-sum").addEventListener("click", () => {
+  msgSum = !msgSum;
+  $("msg-sum").classList.toggle("on", msgSum);
+  msgReset();
+  refreshMsgs();
+});
+
 async function fetchBytes(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error("cannot fetch " + url);
@@ -1148,6 +1274,7 @@ async function loadOs() {
   const files = await Promise.all([
     get("/os/bootrom.stx", "../play/images/bootrom.stx"), get("/disk.img", "../play/images/disk.img"),
     get("/os/bootrom.map", ASSETS + "os/bootrom.map"), get("/os/kernel.map", ASSETS + "os/kernel.map"),
+    get("/os/msgops.txt", ASSETS + "os/msgops.txt").catch(() => ({ path: "/os/msgops.txt", data: new ArrayBuffer(0) })),
     ...progs.map((n) => get("/os/prog/" + n + ".map", ASSETS + "os/prog/" + n + ".map"))]);
   const c = new WorkerConn();
   c.onEvent = onEvent;
@@ -1194,6 +1321,7 @@ async function connectWs(url) {
 function reset() {
   hello = null; ncores = 0; cur = 0; running = false; done = false; stopEv = null;
   evs = []; evNext = 0; hist = null; prevX = []; lastX = [];
+  msgReset();
   term.reset(); $("chain").textContent = ""; $("prov").textContent = "";
   $("screen-panel").classList.add("collapsed"); $("geom").textContent = "opens when the program draws";
   clearInterval(poller); poller = 0;
@@ -1204,6 +1332,7 @@ async function connected() {
   hello = await conn.request("hello");
   ncores = hello.ncores;
   $("osrun-wrap").hidden = $("osstop-wrap").hidden = !hello.os;
+  $("msgs-panel").hidden = !hello.msgs;
   const cs = await conn.request("cores");
   stopEv = { ev: hello.state === "done" ? "done" : "stopped", reason: hello.state === "running" ? "running" : "at the start", tick: cs.tick, round: cs.round, cores: cs.cores };
   if (hello.state === "done") { // (an engine whose machine stopped before this page connected)
