@@ -25,8 +25,8 @@
 ;             connection finishes on its own. mode bit0: only stop sending
 ;             (FIN after the data), the socket stays readable (shutdown)
 ;  50 STAT    -> sockets in use; data: u64 ip, u64 device STATUS, u64 packets
-;             in, out, dropped, u64 socket slots, 2 reserved; then 32 bytes
-;             per socket (see net_stat in os/lib/sys.s)
+;             in, out, dropped, u64 socket slots, u64 the two resolvers (0:
+;             none); then 32 bytes per socket (see net_stat in os/lib/sys.s)
 ;  51 SETIP   handle = the new address -> 0
 ;  52 PING    handle = address, length = payload bytes (<= 1400), mode =
 ;             timeout in ticks (0: 1 s) -> the round trip in ticks, -8
@@ -52,8 +52,11 @@
 ; it); other processes get -1. Every 2 s while sockets are open, net asks
 ; proc for the process list and closes the sockets of processes that ended.
 ;
-; TCP: 4 sockets (TCP or UDP), each with a 2 KiB receive ring (the window it
-; advertises) and a 2 KiB send buffer; segments of at most 1024 bytes (MSS
+; UDP: a datagram waits in its socket's receive ring with an 8-byte record in
+; front of it, so one of more than 1016 bytes is dropped.
+;
+; TCP: 8 sockets (TCP or UDP), each with a 1 KiB receive ring (the window it
+; advertises) and a 1 KiB send buffer; segments of at most 1024 bytes (MSS
 ; option); in-order receive only (out-of-order segments are dropped and
 ; acknowledged); retransmission of the oldest unacknowledged segment after
 ; 250 ms, doubling up to 8 s, at most 8 times, then the connection is reset;

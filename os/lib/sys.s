@@ -748,7 +748,7 @@ sys_catch:
         li    a4, 0                     ; ...
         j     sys_msg                   ; (tail call)
 
-; sys_ps(a0 = buffer, at least 32 * 32 bytes) -> a0 = number of 32-byte records
+; sys_ps(a0 = buffer, at least 64 * 32 bytes: proc keeps 64) -> a0 = number of 32-byte records
 sys_ps:
         li    a1, OP_PS                 ; the request
         j     sys_table                 ; shared path
@@ -1275,7 +1275,7 @@ ws_call:
         ld    a2, 16(sp)                ; handle
         ld    a3, 24(sp)                ; length
         li    a4, 0                     ; ...
-        call  sys_msg                   ; a0 = result (CREATE: the surface is in c6)
+        call  sys_msg                   ; a0 = result (CREATE: the window id; its size in the reply's data)
         ld    ra, 0(sp)                 ; restore ra
         addi  sp, sp, 32                ; release the frame
         ret                             ; done
@@ -2052,7 +2052,8 @@ net_setip:
 
 ; net_stat(a0 = buffer of 64 + 32 x 8 bytes) -> a0 = sockets in use; the buffer:
 ; u64 ip, u64 device STATUS, u64 packets in, u64 packets out, u64 packets
-; dropped (bad, or not for us), u64 socket slots, 2 reserved; then 32 bytes
+; dropped (bad, or not for us), u64 socket slots, u64 the two resolvers (0:
+; none); then 32 bytes
 ; per socket: u8 id, u8 state, u8 protocol (6 TCP, 17 UDP), u8 flags, u16
 ; local port, u16 remote port, u32 remote ip, u32 owner pid, u32 bytes
 ; received not yet read, u32 bytes sent not yet acknowledged, u32 peer window,

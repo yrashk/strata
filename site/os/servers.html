@@ -1389,7 +1389,7 @@
 <a href="#net-61"><span class="n">61</span><code>SETDNS</code><span>Set the resolvers</span></a>
 </div>
 <article class="op" id="net-1">
-<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/net.s:478"><code>READ</code></a><span class="sum">Read from a TCP connection</span></h4>
+<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/net.s:481"><code>READ</code></a><span class="sum">Read from a TCP connection</span></h4>
 <p>Waits while nothing has arrived and the connection is open. At most 1024 bytes are given at a time; reading reopens a small window to the peer.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1409,7 +1409,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-2">
-<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/net.s:485"><code>WRITE</code></a><span class="sum">Write to a TCP connection</span></h4>
+<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/net.s:488"><code>WRITE</code></a><span class="sum">Write to a TCP connection</span></h4>
 <p>Waits while the send buffer is full. Takes what fits, at most 1024 bytes; the library writes the rest.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1429,7 +1429,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-4">
-<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/net.s:519"><code>CLOSE</code></a><span class="sum">Close a socket, or stop sending on it</span></h4>
+<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/net.s:522"><code>CLOSE</code></a><span class="sum">Close a socket, or stop sending on it</span></h4>
 <p>Answered at once. TCP: what is still buffered is sent, then FIN, and the connection finishes on its own; a request another thread had waiting on the socket gets −1. A listener&#x27;s connections not yet accepted are reset. With mode bit 0 only sending stops (TCP): FIN after the data, and the socket stays readable until the peer closes; a UDP socket is left as it is.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1444,7 +1444,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-50">
-<h4><span class="n">50</span><a class="opname" href="../code/#os/servers/net.s:764"><code>STAT</code></a><span class="sum">The interface, its counters and the sockets in use</span></h4>
+<h4><span class="n">50</span><a class="opname" href="../code/#os/servers/net.s:767"><code>STAT</code></a><span class="sum">The interface, its counters and the sockets in use</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -1475,7 +1475,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-51">
-<h4><span class="n">51</span><a class="opname" href="../code/#os/servers/net.s:545"><code>SETIP</code></a><span class="sum">Set the interface&#x27;s address</span></h4>
+<h4><span class="n">51</span><a class="opname" href="../code/#os/servers/net.s:548"><code>SETIP</code></a><span class="sum">Set the interface&#x27;s address</span></h4>
 <p>Any process may set it.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1486,7 +1486,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-52">
-<h4><span class="n">52</span><a class="opname" href="../code/#os/servers/net.s:686"><code>PING</code></a><span class="sum">Send an ICMP echo request and wait for the reply</span></h4>
+<h4><span class="n">52</span><a class="opname" href="../code/#os/servers/net.s:689"><code>PING</code></a><span class="sum">Send an ICMP echo request and wait for the reply</span></h4>
 <p>The payload is the bytes 0, 1, 2, ... Up to 4 pings wait at once. A reply counts if it comes from the address pinged with the request&#x27;s sequence number.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1505,7 +1505,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-53">
-<h4><span class="n">53</span><a class="opname" href="../code/#os/servers/net.s:643"><code>CONNECT</code></a><span class="sum">Open a TCP connection</span></h4>
+<h4><span class="n">53</span><a class="opname" href="../code/#os/servers/net.s:646"><code>CONNECT</code></a><span class="sum">Open a TCP connection</span></h4>
 <p>Waits until the connection is established or fails. The SYN is sent again after 250 ms, doubling up to 8 s; after 8 retransmissions it is given up. A failed connection&#x27;s socket is freed.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1524,7 +1524,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-54">
-<h4><span class="n">54</span><a class="opname" href="../code/#os/servers/net.s:555"><code>LISTEN</code></a><span class="sum">Listen for TCP connections on a port</span></h4>
+<h4><span class="n">54</span><a class="opname" href="../code/#os/servers/net.s:558"><code>LISTEN</code></a><span class="sum">Listen for TCP connections on a port</span></h4>
 <p>Connections are established by net as they arrive, and wait for an ACCEPT.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1540,7 +1540,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-55">
-<h4><span class="n">55</span><a class="opname" href="../code/#os/servers/net.s:492"><code>ACCEPT</code></a><span class="sum">Take the next established connection of a listener</span></h4>
+<h4><span class="n">55</span><a class="opname" href="../code/#os/servers/net.s:495"><code>ACCEPT</code></a><span class="sum">Take the next established connection of a listener</span></h4>
 <p>Waits while none is there. The connection belongs to the caller from then on.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1558,7 +1558,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-56">
-<h4><span class="n">56</span><a class="opname" href="../code/#os/servers/net.s:584"><code>UDP</code></a><span class="sum">Make a UDP socket bound to a port</span></h4>
+<h4><span class="n">56</span><a class="opname" href="../code/#os/servers/net.s:587"><code>UDP</code></a><span class="sum">Make a UDP socket bound to a port</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the port (0: any free one, from 49152 up)</td></tr>
@@ -1573,7 +1573,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-57">
-<h4><span class="n">57</span><a class="opname" href="../code/#os/servers/net.s:610"><code>SENDTO</code></a><span class="sum">Send a datagram from a UDP socket</span></h4>
+<h4><span class="n">57</span><a class="opname" href="../code/#os/servers/net.s:613"><code>SENDTO</code></a><span class="sum">Send a datagram from a UDP socket</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the socket id</td></tr>
@@ -1590,7 +1590,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-58">
-<h4><span class="n">58</span><a class="opname" href="../code/#os/servers/net.s:499"><code>RECVFROM</code></a><span class="sum">Receive a datagram on a UDP socket</span></h4>
+<h4><span class="n">58</span><a class="opname" href="../code/#os/servers/net.s:502"><code>RECVFROM</code></a><span class="sum">Receive a datagram on a UDP socket</span></h4>
 <p>Waits while none is queued. Datagrams are queued in the socket&#x27;s 1 KiB ring with their sender; one that does not fit (with its 8-byte record, more than 1016 bytes in an empty ring) is dropped. What does not fit the length asked for is lost.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1612,7 +1612,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-60">
-<h4><span class="n">60</span><a class="opname" href="../code/#os/servers/net.s:3112"><code>RESOLVE</code></a><span class="sum">A host name&#x27;s IPv4 addresses (DNS)</span></h4>
+<h4><span class="n">60</span><a class="opname" href="../code/#os/servers/net.s:3115"><code>RESOLVE</code></a><span class="sum">A host name&#x27;s IPv4 addresses (DNS)</span></h4>
 <p>The name is taken in lower case, without a final dot. A dotted quad and <code>localhost</code> are answered at once; names in the cache (16 entries, for their TTL, at most an hour; names of 64 bytes or more are not kept) too. Otherwise an A query goes over UDP to port 53 of the first resolver; with no answer in a second, to the second, then each once more. CNAME chains are followed (up to 8). Two resolves may wait at once. A waiting RESOLVE is not interrupted by CANCEL.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1636,7 +1636,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="net-61">
-<h4><span class="n">61</span><a class="opname" href="../code/#os/servers/net.s:3196"><code>SETDNS</code></a><span class="sum">Set the resolvers</span></h4>
+<h4><span class="n">61</span><a class="opname" href="../code/#os/servers/net.s:3199"><code>SETDNS</code></a><span class="sum">Set the resolvers</span></h4>
 <p>With no second resolver every try goes to the first.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
