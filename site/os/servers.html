@@ -1313,7 +1313,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-70">
-<h4><span class="n">70</span><a class="opname" href="../code/#os/servers/db.s:417"><code>TREE</code></a><span class="sum">A handle to a tree of a namespace</span><span class="from">fs only</span></h4>
+<h4><span class="n">70</span><a class="opname" href="../code/#os/servers/db.s:418"><code>TREE</code></a><span class="sum">A handle to a tree of a namespace</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the namespace&#x27;s id</td></tr>
@@ -1330,7 +1330,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-71">
-<h4><span class="n">71</span><a class="opname" href="../code/#os/servers/db.s:431"><code>GET</code></a><span class="sum">A value by its key</span><span class="from">fs only</span></h4>
+<h4><span class="n">71</span><a class="opname" href="../code/#os/servers/db.s:432"><code>GET</code></a><span class="sum">A value by its key</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the tree</td></tr>
@@ -1347,7 +1347,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-72">
-<h4><span class="n">72</span><a class="opname" href="../code/#os/servers/db.s:446"><code>SEEK</code></a><span class="sum">The nearest record on one side of a key</span><span class="from">fs only</span></h4>
+<h4><span class="n">72</span><a class="opname" href="../code/#os/servers/db.s:447"><code>SEEK</code></a><span class="sum">The nearest record on one side of a key</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the tree</td></tr>
@@ -1371,7 +1371,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-73">
-<h4><span class="n">73</span><a class="opname" href="../code/#os/servers/db.s:480"><code>PUT</code></a><span class="sum">A record in, or replaced</span><span class="from">fs only</span></h4>
+<h4><span class="n">73</span><a class="opname" href="../code/#os/servers/db.s:481"><code>PUT</code></a><span class="sum">A record in, or replaced</span><span class="from">fs only</span></h4>
 <p>fs sends its puts in batches with its other calls instead (see the note above); the call is there for any other client.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1393,7 +1393,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-74">
-<h4><span class="n">74</span><a class="opname" href="../code/#os/servers/db.s:502"><code>DEL</code></a><span class="sum">A record out</span><span class="from">fs only</span></h4>
+<h4><span class="n">74</span><a class="opname" href="../code/#os/servers/db.s:503"><code>DEL</code></a><span class="sum">A record out</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the tree</td></tr>
@@ -1408,7 +1408,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-75">
-<h4><span class="n">75</span><a class="opname" href="../code/#os/servers/db.s:699"><code>VSIZE</code></a><span class="sum">A value&#x27;s length, whatever its size</span><span class="from">fs only</span></h4>
+<h4><span class="n">75</span><a class="opname" href="../code/#os/servers/db.s:700"><code>VSIZE</code></a><span class="sum">A value&#x27;s length, whatever its size</span><span class="from">fs only</span></h4>
 <p>The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1425,7 +1425,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-76">
-<h4><span class="n">76</span><a class="opname" href="../code/#os/servers/db.s:711"><code>VREAD</code></a><span class="sum">Part of a value, by offset</span><span class="from">fs only</span></h4>
+<h4><span class="n">76</span><a class="opname" href="../code/#os/servers/db.s:712"><code>VREAD</code></a><span class="sum">Part of a value, by offset</span><span class="from">fs only</span></h4>
 <p>The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8). The value may be any length: a file&#x27;s contents are one.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1442,7 +1442,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-77">
-<h4><span class="n">77</span><a class="opname" href="../code/#os/servers/db.s:728"><code>VWRITE</code></a><span class="sum">Part of a value written, by offset</span><span class="from">fs only</span></h4>
+<h4><span class="n">77</span><a class="opname" href="../code/#os/servers/db.s:729"><code>VWRITE</code></a><span class="sum">Part of a value written, by offset</span><span class="from">fs only</span></h4>
 <p>The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8). The value is made when it is not there; a short one stays in the tree.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1460,7 +1460,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-78">
-<h4><span class="n">78</span><a class="opname" href="../code/#os/servers/db.s:744"><code>VTRUNC</code></a><span class="sum">A value cut or grown to a length</span><span class="from">fs only</span></h4>
+<h4><span class="n">78</span><a class="opname" href="../code/#os/servers/db.s:745"><code>VTRUNC</code></a><span class="sum">A value cut or grown to a length</span><span class="from">fs only</span></h4>
 <p>The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1475,7 +1475,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-79">
-<h4><span class="n">79</span><a class="opname" href="../code/#os/servers/db.s:753"><code>VDEL</code></a><span class="sum">A value out, its extents freed</span><span class="from">fs only</span></h4>
+<h4><span class="n">79</span><a class="opname" href="../code/#os/servers/db.s:754"><code>VDEL</code></a><span class="sum">A value out, its extents freed</span><span class="from">fs only</span></h4>
 <p>The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1489,7 +1489,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-80">
-<h4><span class="n">80</span><a class="opname" href="../code/#os/servers/db.s:759"><code>VLOAD</code></a><span class="sum">A whole value into a lent arena</span><span class="from">fs only</span></h4>
+<h4><span class="n">80</span><a class="opname" href="../code/#os/servers/db.s:760"><code>VLOAD</code></a><span class="sum">A whole value into a lent arena</span><span class="from">fs only</span></h4>
 <p>The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8). A stream&#x27;s pages go from the disk straight into the arena, whole pages.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1508,7 +1508,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-81">
-<h4><span class="n">81</span><a class="opname" href="../code/#os/servers/db.s:772"><code>COMMIT</code></a><span class="sum">Everything changed, on the disk</span><span class="from">fs only</span></h4>
+<h4><span class="n">81</span><a class="opname" href="../code/#os/servers/db.s:773"><code>COMMIT</code></a><span class="sum">Everything changed, on the disk</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -1521,7 +1521,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-82">
-<h4><span class="n">82</span><a class="opname" href="../code/#os/servers/db.s:776"><code>ABORT</code></a><span class="sum">Back to the last commit</span><span class="from">fs only</span></h4>
+<h4><span class="n">82</span><a class="opname" href="../code/#os/servers/db.s:777"><code>ABORT</code></a><span class="sum">Back to the last commit</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -1534,7 +1534,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-83">
-<h4><span class="n">83</span><a class="opname" href="../code/#os/servers/db.s:785"><code>INFO</code></a><span class="sum">The store&#x27;s sizes</span><span class="from">fs only</span></h4>
+<h4><span class="n">83</span><a class="opname" href="../code/#os/servers/db.s:786"><code>INFO</code></a><span class="sum">The store&#x27;s sizes</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -1616,7 +1616,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-87">
-<h4><span class="n">87</span><a class="opname" href="../code/#os/servers/db.s:511"><code>SCAN</code></a><span class="sum">Records in key order, as many as fit</span><span class="from">fs only</span></h4>
+<h4><span class="n">87</span><a class="opname" href="../code/#os/servers/db.s:512"><code>SCAN</code></a><span class="sum">Records in key order, as many as fit</span><span class="from">fs only</span></h4>
 <p>fs reads ahead with it: a walk over a tree (SEEK after SEEK, GET after GET of growing keys) is answered from one SCAN, until it changes something.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1644,7 +1644,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-88">
-<h4><span class="n">88</span><a class="opname" href="../code/#os/servers/db.s:266"><code>FLUSH</code></a><span class="sum">Nothing but the batch that comes with it</span><span class="from">fs only</span></h4>
+<h4><span class="n">88</span><a class="opname" href="../code/#os/servers/db.s:267"><code>FLUSH</code></a><span class="sum">Nothing but the batch that comes with it</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>

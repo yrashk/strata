@@ -134,8 +134,8 @@ strata$ wait %1
 [1] done  sleep 0.05
 strata$ seq 3 > f2 &
 [1] PID
-[1] done  seq 3 > f2
 strata$ wait
+[1] done  seq 3 > f2
 strata$ cat f2
 1
 2
