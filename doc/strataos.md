@@ -431,8 +431,17 @@ greater length.
   platform's T2 is smaller), accessed only with far atomics (an atomic
   takes about 7 bus cycles in T2, 23 in T3): per-core counters, the published state of each core's thread
   slots, exit events, job records for threads being created, deadlines of
-  timed waits. Commands from the system core to a worker are a job record
-  plus a doorbell.
+  timed waits. Commands from the system core to a worker (a job record, a
+  notification, a kill, a freed zombie, a guest job, halt) are the command's
+  words, then the worker's pending word (G_PEND) set, then a doorbell; a
+  dispatcher swaps its pending word to 0 on every pass and reads its
+  commands only when it was set, so a pass with nothing posted costs one
+  atomic. What a dispatcher publishes (slot states, the running pid, the
+  runnable count, free pool slots) it writes only when it differs from what
+  it wrote last (a copy in its D-LS); the switch and trap timing counters
+  only when the core goes idle. In `os/demo.txt` (12 cores) this took the
+  KST's atomics from 612,000 to 126,000 and the session's far-bus cycles
+  down by 20%.
 - **Servers are processes** (user mode, scheduled like any other, each a
   server of one core; up to four servers per core, below):
   - `proc` (pid 1) — the process server: spawning (loading images through
@@ -748,7 +757,9 @@ to switch to having issued the next thread's restore (`w_out` + `w_in`),
 and **cycles per trap**, from a trap's entry to the `eret` that resumes a
 thread, its idle time not counted (on the emulator `cycle` counts
 instructions). The sums and counts are published in the KST core area
-(CA_SWCYC, CA_NSWP, CA_KCYC, CA_NTRAP) with the other per-core words.
+(CA_SWCYC, CA_NSWP, CA_KCYC, CA_NTRAP) with the other per-core words,
+each time the core goes idle (a core that never goes idle shows the
+figures of the last time it did).
 
 Measured on the RTL (8 cores, `os/demo.txt`, `strata-rtl -T virtual -g
 none`), one row per step of the 2026-11 switch work: the counters alone,
@@ -1917,7 +1928,7 @@ host opens `http://localhost:8080/`.
 `vi [FILE]` (`os/progs/vi.s`) edits a file in the manner of vi, on the
 console (an ANSI terminal: `make boot`, the browser's terminal) and in a
 `term` window (`make boot-ws`, Alt+Enter), with Strata assembly, Strata
-Forth and C in colour. FILE is a path (`/src/hello.s`, or a name under the current
+Forth, C, Stratalk and Prolog in colour. FILE is a path (`/src/hello.s`, or a name under the current
 tag path); one that does not exist is created by `:w`. The screen is the
 text, a line a row (a long line scrolls the view sideways), and a status
 line: `-- INSERT --` (or `-- VISUAL --`, `-- VISUAL LINE --`, `-- VISUAL
@@ -1972,8 +1983,8 @@ messages and the `:` and `/` lines take its place.
   file only with `!`). Ctrl-L asks the terminal its size and draws everything
   again; Ctrl-G shows the file and its size.
 - **Highlighting.** `.s` is Strata assembly, `.fs` Strata Forth, `.c` and
-  `.h` C; another name is plain unless the file carries the tag `src`
-  (assembly) or `forth`.
+  `.h` C, `.st` Stratalk, `.pl` Prolog (Stralog); another name is plain
+  unless the file carries the tag `src` (assembly) or `forth`.
   The rules are the site's (`site/hl.js`): for assembly, comment lines and
   `;` `#` `//` comments, labels, `NAME =` and CAPITALS, mnemonics by
   category (ALU, memory, branch, transfer, capability, system, paging,
@@ -2005,10 +2016,28 @@ messages and the `:` and `/` lines take its place.
   matters, as in C. The keywords are `cc`'s (`lang/cc/cc.c`'s `kw_names`)
   and the type names its headers', both read by `tools/vi-syntax.py`.
   `:syntax off` and `:syntax on` work as for the others.
+- **Stratalk** (`site/hl.js`'s `stLines`). Comments `"..."` 90 and strings
+  `'...'` 35 (both may run over lines; a doubled quote is inside); `$c` 35;
+  symbols (`#name:`, `#'text'`, `#+`, `#(`) 92; numbers (`16r1F`, `1.5e-3`)
+  32; keyword message parts (`at:` `put:`) 95, the control colour; `self
+  super nil true false thisContext` 34; names that start with a capital
+  (classes) 97; block arguments (`:x`) and `| temporaries |` (first on a
+  line) 93; `^`, `:=` and `>>` 31.
+- **Prolog** (`site/hl.js`'s `plLines`). Comments, `%` and `/* */` (which
+  may run over lines), 90; the atom that starts a line (a clause's head,
+  quoted or not) 97; variables (a capital or `_` first) 93; `:-` `-->` `?-`
+  and `!` 31; control (`-> ; \+ call catch throw findall bagof setof forall
+  once ignore not true fail false halt repeat between`) 95; the common
+  builtins (`is assert retract functor arg atom_codes write format length
+  append member sort ...`) and the comparison and arithmetic operators
+  (`= == \== =.. =:= =\= < > =< >= @< @>` ...) 34; other quoted atoms 92;
+  strings 35; numbers (`0'c`, `1.5e+3`) 32. The two word lists are the
+  site's (`ST_PSEUDO`, `PL_CTL`, `PL_BI`), read by `tools/vi-syntax.py`.
 - **Comments over lines.** Whether a row starts inside a comment (Forth's
-  `(`, C's `/*`) depends on every line above it. vi keeps that state for the
-  rows on the screen, for the last top line it worked out, and for every
-  16th line of the first 32768 (a bit each); a change to a line forgets the
+  `(`, C's and Prolog's `/*`, Stratalk's `"`) or a Stratalk string depends
+  on every line above it. vi keeps that state for the rows on the screen,
+  for the last top line it worked out, and for every 16th line of the
+  first 32768 (two bits each; `vi.fs`: of the first 16384); a change to a line forgets the
   states below it, and the states of the lines it passes are kept again as
   it scrolls. A top line far from the last one is worked out from the
   nearest kept state above it (15 lines at most), not from the start of
@@ -2512,12 +2541,16 @@ A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
   takes pictures of vi in the window server's terminal:
   `build/vi-shots/asm.png`, `forth.png` (`-f`: of `forth vi.fs`,
   `fs-asm.png`, `fs-forth.png`).
-- `tools/test-vic.sh`: the editor's C colours. A scripted session types a
-  C file with every kind of token, ends a comment by an edit, enters
-  `cc.c` in the middle of its first comment, opens a file whose comment
-  runs over 100 lines (from inside, after an edit far above ends it, and
-  scrolling back up into it), types a comment in insert mode while the
-  screen scrolls, and tries `:syntax off` and a `.h` file. Each session's
+- `tools/test-vic.sh`: the editor's C, Stratalk and Prolog colours. A
+  scripted session types a C file with every kind of token, ends a comment
+  by an edit, enters `cc.c` in the middle of its first comment, opens a
+  file whose comment runs over 100 lines (from inside, after an edit far
+  above ends it, and scrolling back up into it), types a comment in insert
+  mode while the screen scrolls, and tries `:syntax off` and a `.h` file;
+  then it types a `.st` and a `.pl` file with every colour of each, and
+  opens a `.st` file whose comment and then string run over 100 lines
+  (each from inside, and after an edit that makes the string a comment)
+  and a `.pl` file whose comment does. Each session's
   output is played into an 80 × 24 grid, and its last frame, with the
   colour of each run of cells, is compared with `tools/test-vic.out`; an
   SGR that changes nothing (the colour in effect, or another SGR before

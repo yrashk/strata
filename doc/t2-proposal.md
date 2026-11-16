@@ -429,6 +429,27 @@ lets T2 behave like T3, and nothing measured here pays for it.
 - On the FPGA board T3 is far slower than the model's 20 + n/8, so all of
   the measurements above understate T2 there.
 
+## 8a. Option 1, done
+
+The dispatchers now read their commands only when core 0 has set their
+pending word (`G_PEND`, set after every command), and publish a word only
+when it changed (the timing counters only when the core goes idle).
+`os/demo.txt`, 12 cores, `--bus-stats`:
+
+| | Before | After |
+|---|---|---|
+| KST atomics | 554,357 | 87,775 (-84%) |
+| T2 bus cycles | 4.05 M | 0.78 M |
+| All far-bus cycles | 17.04 M | 13.81 M (-19%) |
+
+Measured again on the main of 2026-11-16 (Local Store windows, resident
+threads, console rings): KST atomics 612,033 -> 126,293 (-79%), far-bus
+cycles 16.95 M -> 13.61 M (-20%).
+
+The session's output is the same except for figures that depend on
+timing (switch counts, the virtual clock, `ps` catching `proc` blocked
+rather than still running while it waits for the kernel's reply).
+
 ## 9. Recommendation
 
 1. Keep T2 the kernel's (model A), with one exception allowed later

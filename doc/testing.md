@@ -57,6 +57,12 @@ the last summary is `build/test/summary.txt`. `tools/run-tests.sh -n ...`
 says what would be built and run and does neither; `-j N` (or `JOBS=N` with
 make) sets how many tests run at once (default: one per processor).
 
+The machine has test slots, shared by every checkout (`~/.cache/strata/slots`,
+one per processor; `STRATA_SLOTS=N` sets how many): a test runs only while it
+holds one, so the runs of several checkouts together never run more tests at
+a time than there are slots. A test that waits for a slot does not count the
+wait in its time. A slot whose holder has died is taken back.
+
 ## What changed
 
 `make test-changed` (`tools/run-tests.sh -c -g [BASE]`) takes the files
@@ -70,7 +76,7 @@ committed or not, and runs the tests they can reach:
 | `os/`, `firmware/`, `lang/forth/`, `examples/` | those that boot StrataOS; for `examples/` and `lang/forth/` also those that run the examples and the bare-metal Forth |
 | `dbg/`, `web/`, `tools/stdb/` | the debuggers; the WebAssembly builds; the store's tests and those that boot StrataOS |
 | a test's script, its expected output, its input (`tools/test-sh.sh`, `tools/test-sh.out`, `os/demo.txt`, `conformance/tests/timer.s`) | that test |
-| `doc/`, `site/`, `fpga/`, `asic/`, `formal/` (not `formal/repro/`), `*.md` | none |
+| `doc/`, `site/`, `fpga/`, `asic/`, `formal/` (not `formal/repro/`), `*.md` | none (but a test that names the file: `doc/manual/web/stralog-ref.txt` reaches `stralog-ref` and `web-stralog`) |
 | `asm/`, `common/`, the `Makefile`, `tools/run-tests.sh`, `tools/tests.sh`, anything not listed | all |
 
 It then builds only what those tests need: a change in `os/progs/` does
