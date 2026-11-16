@@ -236,13 +236,16 @@ Unification, comparison and the type tests are builtins of the engine (`bi.s`). 
 
 ## =/2
 : ?X = ?Y
-Unifies `X` and `Y`: binds variables in either so that the two are the same term, or fails, binding nothing. There is no occurs check: `X = f(X)` makes a cyclic term, which Stralog cannot print, copy or compare (writing one ends Stralog with a resource error).
+Unifies `X` and `Y`: binds variables in either so that the two are the same term, or fails, binding nothing. There is no occurs check: `X = f(X)` makes a cyclic term. Stralog has no use for one: unifying, comparing or writing a cyclic term raises `resource_error(term_depth)`, and copying it or listing its variables `resource_error(findall)`, so an answer that would show one is an error.
+error: resource_error(term_depth) — both terms are cyclic, and alike as far as unification goes.
 ?- f(X, b) = f(a, Y).
 X = a, Y = b.
 ?- [H|T] = [1, 2, 3].
 H = 1, T = [2,3].
 ?- f(a) = g(a).
 false.
+?- X = f(X).
+Error: resource_error(findall)
 
 ## \=/2
 : @X \= @Y
@@ -261,6 +264,8 @@ true.
 false.
 ?- X = Y, X == Y.
 Y = X.
+?- X = f(X), Y = f(Y), X == Y.
+Error: resource_error(term_depth)
 
 ## \==/2
 : @X \== @Y
@@ -282,13 +287,17 @@ false.
 ## compare/3
 : compare(?Order, @X, @Y)
 Compares `X` and `Y` in the standard order and unifies `Order` with `<`, `=` or `>`.
-differs: ISO raises `type_error(atom, Order)` or `domain_error(order, Order)` when `Order` is not a variable or one of the three atoms; Stralog fails.
+error: type_error(atom, Order) — `Order` is neither a variable nor an atom.
+error: domain_error(order, Order) — `Order` is an atom other than `<`, `=` and `>`.
+error: resource_error(term_depth) — both terms are cyclic, and alike as far as the comparison goes.
 ?- compare(O, 1, a).
 O = (<).
 ?- compare(O, f(b), g(a)), compare(P, f(a, b), g(a)).
 O = (<), P = (>).
 ?- compare(=, X, X).
 true.
+?- compare(less, 1, 2).
+Error: domain_error(order,less)
 
 ## var/1
 : var(@Term)
@@ -385,7 +394,7 @@ N = f, A = 2.
 ?- functor(T, point, 3).
 T = point(_A,_B,_C).
 ?- functor(T, foo, 0), functor([a], N, A).
-T = foo, N = ., A = 2.
+T = foo, N = '.', A = 2.
 
 ## arg/3
 : arg(+N, +Term, ?Arg)
@@ -467,8 +476,8 @@ Integers only, of 61 bits: from -1152921504606846976 to 1152921504606846975 (-2<
 <tr><td><code>X /\ Y</code>, <code>X \/ Y</code>, <code>X xor Y</code>, <code>\ X</code></td><td>bitwise and, or, exclusive or, complement</td></tr>
 <tr><td><code>msb(X)</code></td><td>the index of the highest bit set, for X above 0</td></tr>
 </table>
-Comparison and evaluation raise the same errors: `instantiation_error` for an unbound variable in the expression; `type_error(evaluable, Name/Arity)` for an atom or compound that is not one of the functions (`foo + 1` gives `foo/0`), and a list, `"a"` among them; `evaluation_error(zero_divisor)` for `//`, `/`, `div`, `rem`, `mod` by 0 and `0 ** -1`; `evaluation_error(int_overflow)` for a result outside 61 bits, a shift left by a negative count or by 61 or more among them.
-differs: ISO and SWI-Prolog have floats, so in them `/` gives `3.5` and `**` a float; SWI-Prolog has unbounded integers. `X is "a"` evaluates to 97 in SWI-Prolog. `2 ** -1` raises `type_error(integer, 2)` here. `msb(X)` of 0 or a negative number raises `type_error(evaluable, msb/1)`.
+Comparison and evaluation raise the same errors: `instantiation_error` for an unbound variable in the expression; `type_error(evaluable, Name/Arity)` for an atom or compound that is not one of the functions (`foo + 1` gives `foo/0`), and a list, `"a"` among them; `evaluation_error(zero_divisor)` for `//`, `/`, `div`, `rem`, `mod` by 0 and `0 ** -1`; `evaluation_error(undefined)` for `msb` of 0 or less; `evaluation_error(int_overflow)` for a result outside 61 bits, a shift left by a negative count or by 61 or more among them.
+differs: ISO and SWI-Prolog have floats, so in them `/` gives `3.5` and `**` a float; SWI-Prolog has unbounded integers. `X is "a"` evaluates to 97 in SWI-Prolog. `2 ** -1` raises `type_error(integer, 2)` here.
 
 ## is/2
 : ?Result is +Expression
@@ -476,6 +485,7 @@ Evaluates `Expression` and unifies `Result` with its value. `Result` is not eval
 error: instantiation_error — `Expression` has an unbound variable.
 error: type_error(evaluable, Name/Arity) — `Expression` has a term that is not a function.
 error: evaluation_error(zero_divisor) — a division by 0.
+error: evaluation_error(undefined) — `msb` of 0 or less.
 error: evaluation_error(int_overflow) — a value outside 61 bits.
 ?- X is 7 * 6, Y is X // 4, Z is -7 mod 2.
 X = 42, Y = 10, Z = 1.
@@ -485,6 +495,10 @@ X = 1024, Y = 576460752303423488, Z = 5.
 Error: evaluation_error(int_overflow)
 ?- X is foo + 1.
 Error: type_error(evaluable,foo/0)
+?- X is msb(1000), Y is msb(1).
+X = 9, Y = 0.
+?- X is msb(0).
+Error: evaluation_error(undefined)
 
 ## =:=/2 =\=/2 </2 >/2 =</2 >=/2
 : +X =:= +Y
@@ -580,13 +594,17 @@ X = 97, C = z.
 `Length` is the number of bytes of `Atom`'s text. A number is accepted, with the length of its text.
 error: instantiation_error — `Atom` is a variable.
 error: type_error(atom, Atom) — `Atom` is compound.
-differs: ISO raises `type_error(atom, Atom)` for a number, `type_error(integer, Length)` for a `Length` that is not an integer and `domain_error(not_less_than_zero, Length)` for a negative one; Stralog accepts the number and fails in the other two cases. A non-ASCII character counts as several bytes.
+error: type_error(integer, Length) — `Length` is neither a variable nor an integer.
+error: domain_error(not_less_than_zero, Length) — `Length` is negative.
+differs: ISO raises `type_error(atom, Atom)` for a number; Stralog accepts it, as SWI-Prolog does. A non-ASCII character counts as several bytes.
 ?- atom_length(hello, N), atom_length('', Z).
 N = 5, Z = 0.
 ?- atom_length(12345, N).
 N = 5.
 ?- atom_length(X, 3).
 Error: instantiation_error
+?- atom_length(abc, three).
+Error: type_error(integer,three)
 
 ## number_codes/2
 : number_codes(+Number, ?Codes)
@@ -895,10 +913,13 @@ L = [_A,_B].
 T = [_A,_B].
 
 ## reverse/2
-: reverse(+List, ?Reversed)
-`Reversed` is `List` in the opposite order. `List` must be a proper list: with only `Reversed` given, it gives the answer and then, asked for another, runs until memory is full.
+: reverse(?List, ?Reversed)
+`Reversed` is `List` in the opposite order. Either may be the one given: each bounds the other's length, so asked for another answer it fails rather than looking for longer lists. With both unbound, it gives lists of length 0, 1, 2, ... on backtracking.
 ?- reverse([1, 2, 3], R).
 R = [3,2,1].
+?- reverse(X, [a, b]).
+X = [b,a] ;
+false.
 
 ## nth0/3
 : nth0(?Index, ?List, ?Elem)
@@ -1093,9 +1114,8 @@ true.
 : writeq(@Term)
 : writeq(+Stream, @Term)
 Writes `Term` so that it can be read back: atoms are quoted where they need to be, with `\n`, `\t` and `\'` escapes; an operator atom alone as an argument is put in parentheses; `- 1` (the compound) keeps its space, so that it does not read as the integer -1. `'$VAR'(N)` is written as a variable name.
-differs: the atom `'.'` is written without quotes, as `.`, which does not read back.
-?- writeq(f('A', 'b c', [], 'don''t', 'a\nb', - 1, -(-1), -, a=b)), nl.
-f('A','b c',[],'don\'t','a\nb',- 1,- -1,(-),a=b)
+?- writeq(f('A', 'b c', [], 'don''t', 'a\nb', - 1, -(-1), -, a=b, '.')), nl.
+f('A','b c',[],'don\'t','a\nb',- 1,- -1,(-),a=b,'.')
 true.
 
 ## write_canonical/1 write_canonical/2
@@ -1224,13 +1244,15 @@ error: instantiation_error — `File` or `Mode` is a variable.
 error: domain_error(io_mode, Mode) — `Mode` is not `read`, `write` or `append`.
 error: existence_error(source_sink, File) — `File` cannot be opened for reading.
 error: resource_error(stream) — two files are open already.
-differs: when `Stream` is not a variable, ISO raises an error; Stralog opens the file, then fails to unify, and the stream stays open.
+error: uninstantiation_error(Stream) — `Stream` is not a variable (the file is not opened).
 ?- open(note, write, S), write(S, 'hello.'), nl(S), close(S).
 S = '$stream'(2).
 ?- open(note, read, S), read(S, T), read(S, E), close(S).
 S = '$stream'(2), T = hello, E = end_of_file.
 ?- open(no_such_file, read, S).
 Error: existence_error(source_sink,no_such_file)
+?- open(note, read, s).
+Error: uninstantiation_error(s)
 
 ## close/1
 : close(+Stream)
@@ -1346,11 +1368,13 @@ N = 59.
 : phrase(:Body, ?List)
 : phrase(:Body, ?List, ?Rest)
 Runs a DCG body on a list: `phrase(B, List, Rest)` succeeds if `B` covers `List` up to `Rest`; `phrase/2` is `phrase/3` with `Rest = []`. `Body` is a nonterminal, a list (terminals), `{Goal}`, `!`, `\+ B`, `call(G)`, or bodies joined with `,`, `;` and `->`, as on the right of `-->`. Grammar rules `Head --> Body` in a consulted file are translated into clauses with two more arguments.
-error: type_error(atom, T) — `Body` is a number.
-differs: ISO-style DCG libraries raise an instantiation error for an unbound `Body`; Stralog's `phrase/2` then calls itself without end, so `Body` must be bound.
+error: instantiation_error — `Body` is a variable.
+error: type_error(callable, Body) — `Body` is a number.
 ?- phrase(([a], [b]), [a, b]).
 true.
 ?- phrase(("ab", [C]), "abc", R).
 C = 99, R = [].
+?- phrase(G, [a]).
+Error: instantiation_error
 ?- consult(calc), phrase(expr(T), "2*(3+4)"), V is T.
 T = 2*(3+4), V = 14.

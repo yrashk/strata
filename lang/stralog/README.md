@@ -99,7 +99,7 @@ Not there:
   - The mark bitmap and a prefix count every 64 cells go in the free heap above the top. Every cell moves through the same window and far cache as the rest of the engine.
   - The next collection comes when the heap has grown by half of what is free (at least 64 KiB).
   - `statistics/0` counts collections and the bytes they gave back. In `examples/sorting.pl`, `nrev_bench(200)` allocates 2.3 MB on a 3 MB heap and is collected once.
-- **Recursion depth:** unification, copying, comparing and writing recurse on the machine stack (8 KiB) except on a compound's last argument. Lists can be any length, but a term nested more than about 200 deep elsewhere raises `resource_error(term_depth)`.
+- **Recursion depth:** unification, copying, comparing and writing recurse on the machine stack (8 KiB) except on a compound's last argument. Lists can be any length, but a term nested more than about 200 deep elsewhere raises `resource_error(term_depth)`. There is no occurs check, and a cyclic term (`X = f(X)`) raises `resource_error(term_depth)` when it is unified with another, compared or written: unification and comparison count their steps along last arguments, and stop at the number of cells the heap could hold.
 - **Sizes:**
   - an arity of at most 255;
   - names of at most 1000 bytes;

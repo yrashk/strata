@@ -241,7 +241,8 @@ far cache: 179512 misses, 20012 write-backs (64-byte lines)</code></pre>
   (an argument is not bound enough), <code>type_error(Type, Culprit)</code> (it is the wrong kind of
   term), <code>domain_error(Domain, Culprit)</code> (the right kind, but out of range),
   <code>existence_error(procedure, Name/Arity)</code> (a call to an unknown predicate),
-  <code>permission_error(Action, Type, Culprit)</code>, <code>representation_error(What)</code>,
+  <code>permission_error(Action, Type, Culprit)</code>, <code>uninstantiation_error(Culprit)</code>
+  (it should have been a variable), <code>representation_error(What)</code>,
   <code>evaluation_error(What)</code>, <code>resource_error(What)</code> and
   <code>syntax_error(Message)</code>. The context is left unbound by the builtins the engine runs,
   and is the predicate's <code>Name/Arity</code> for those written in Prolog

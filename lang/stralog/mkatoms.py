@@ -58,6 +58,7 @@ ATOMS = [
     ('exist_err', 'existence_error', []), ('perm_err', 'permission_error', []),
     ('repr_err', 'representation_error', []), ('eval_err', 'evaluation_error', []),
     ('res_err', 'resource_error', []), ('syn_err', 'syntax_error', []),
+    ('uninst_err', 'uninstantiation_error', []), ('order', 'order', []),
     ('callable', 'callable', []), ('atom', 'atom', []), ('atomic', 'atomic', []),
     ('integer', 'integer', []), ('number', 'number', []), ('list', 'list', []),
     ('compound', 'compound', []), ('variable', 'variable', []),
