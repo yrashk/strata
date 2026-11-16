@@ -132,7 +132,7 @@ primtab:
         j     pj_reserve                ; 121 Jit reserve:
         j     pj_install                ; 122 Jit install:at:for:
         j     pj_enable                 ; 123 Jit enable:
-        j     prim_fail                 ; 124
+        j     pj_stats                  ; 124 native activations
         j     prim_fail                 ; 125
         j     prim_fail                 ; 126
         j     prim_fail                 ; 127

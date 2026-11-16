@@ -60,6 +60,8 @@ Stratalk class >> start [
     | args |
     Smalltalk at: #Transcript put: (StdioStream handle: 1).
     args := Smalltalk arguments.
+    Jit reset.
+    (args notEmpty and: [args first = '-j']) ifTrue: [Jit on. args := args copyFrom: 2 to: args size].
     interactive := false.
     args isEmpty ifTrue: [interactive := true. self banner. ^self repl].
     (args first = '-e' and: [args size >= 2]) ifTrue: [

@@ -131,6 +131,31 @@ One byte, then 0..2 operand bytes. `lang/stratalk/host/stc.py` lists them
 (`OPNAMES`). Literals: a method's selector and class are its last two;
 a block's class its last.
 
+## The JIT (`kernel/Jit.st`, `vm-jit.s`)
+
+`stratalk -j ...` or `Jit on`: a method activated 200 times is offered to
+the JIT (the VM counts activations in the method cache entry and sends
+`Jit jitCompile: method` from inside the method's new frame). The JIT is
+Stratalk code: it translates the bytecodes template by template into
+Strata code that keeps the interpreter's frames and registers, with the
+operands as constants and no dispatch. Temps, literals, pushes, stores,
+jumps, `==`, `~~` and the SmallInteger cases of `+ - * < > <= >= = ~=
+bitAnd: bitOr:` are done in place; sends, returns, closures, arrays and
+objects' slots call the resident VM (`jalr ra, gp, ...`).
+
+- **The code is paged, as memory is.** Each compiled method gets a code
+  unit of 1 KiB in the program's arena (c0); the kernel pages units into
+  the I-LS after the VM's resident code on a miss (`xslot` 10: 7 slots).
+  A method whose code is over 1 KiB stays interpreted.
+- **Returns are far links.** A send from native code passes the far
+  address to come back to; the callee's frame keeps it in its ip word
+  (`NATIVE` + the address), and the return goes there with `xret`, which
+  pages the unit back in if it was evicted meanwhile.
+- **The native table** (the specials' slot 15: pairs of method and c0
+  offset; header bit 53 says a method is in it) is where the method cache
+  finds a method's code. It keeps compiled methods alive.
+- `tests/run.sh -j` runs every test vector with the JIT on (`stratalk-jit`).
+
 ## The compilers
 
 - `host/stc.py`: the compiler on the host, which builds the image

@@ -3,13 +3,16 @@
 # lang/stratalk/tests: each NAME.st is typed into `stratalk -`, one
 # expression a line, and what it prints must be NAME.out.
 #   -h   on the host's reference interpreter (lang/stratalk/host) instead of
-#        StrataOS on the emulator (vm.st is the VM's alone)
+#        StrataOS on the emulator (vm.st and os.st are the VM's alone)
+#   -j   with the JIT on (stratalk -j -): what gets hot runs as native code
 set -u
 here=$(cd "$(dirname "$0")/../../.." && pwd)
 b="$here/${BUILD:-build}"
 t="$here/lang/stratalk/tests"
 host=0
+jit=
 if [ "${1:-}" = "-h" ]; then host=1; shift; fi
+if [ "${1:-}" = "-j" ]; then jit='-j '; shift; fi
 names=${*:-"arith blocks exceptions collections gc compiler vm os"}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -25,7 +28,7 @@ if [ $host = 1 ]; then
 fi
 # StrataOS: one session; each file is typed in after `stratalk -`, then ^D
 for n in $names; do
-  printf 'stratalk -\n' >> "$tmp/in.txt"
+  printf 'stratalk %s-\n' "$jit" >> "$tmp/in.txt"
   cat "$t/$n.st" >> "$tmp/in.txt"
   printf '\004echo ==end %s==\n' "$n" >> "$tmp/in.txt"
 done
@@ -40,7 +43,8 @@ raw = open(sys.argv[1], 'rb').read().decode('latin1').replace('\r', '')
 src = open(sys.argv[2]).read().splitlines()
 name = sys.argv[3]
 end = raw.index('==end %s==' % name)
-start = raw.rindex('strata$ stratalk -\n', 0, end) + len('strata$ stratalk -\n')
+import re
+start = [m.end() for m in re.finditer(r'strata\$ stratalk (-j )?-\n', raw[:end])][-1]
 lines = raw[start:end].split('\n')
 # the console echoes each typed line; what is left is the output
 out = []
@@ -52,8 +56,8 @@ for l in lines:
     out.append(l)
 print('\n'.join(out))
 PY
-  if cmp -s "$t/$n.out" "$tmp/$n.out"; then echo "stratalk $n ok"
-  else echo "stratalk $n FAIL"; diff "$t/$n.out" "$tmp/$n.out" | head -20; fails=1; fi
+  if cmp -s "$t/$n.out" "$tmp/$n.out"; then echo "stratalk $jit$n ok"
+  else echo "stratalk $jit$n FAIL"; diff "$t/$n.out" "$tmp/$n.out" | head -20; fails=1; fi
 done
 grep -q 'all cores halted' "$tmp/raw.out" || { echo "stratalk: the machine did not halt"; tail -5 "$tmp/raw.out"; fails=1; }
 exit $fails

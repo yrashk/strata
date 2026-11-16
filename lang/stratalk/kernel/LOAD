@@ -13,4 +13,5 @@ OS.st
 OSServers.st
 Window.st
 UI.st
+Jit.st
 Init.st

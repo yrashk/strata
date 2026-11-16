@@ -347,6 +347,9 @@ class Builder:
         specials[SP_START_RCVR] = self.classes['Stratalk'].oop
         specials[SP_START_SEL] = self.symbol('start')
         specials[SP_OVERFLOW] = self.symbol('stackOverflow')
+        if 'Jit' in self.classes:            # what the VM sends a hot method to
+            specials[13] = self.classes['Jit'].oop
+            specials[14] = self.symbol('jitCompile:')
         self.specials = self.array(specials)
         # the globals and the symbols: made last, every name is known by now
         for n in ('Smalltalk', 'Transcript', 'Processor'): self.global_assoc(n)
