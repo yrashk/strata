@@ -48,20 +48,32 @@ nav.top {
   clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
 }
 .pill.ghost { border-color: var(--edge); color: var(--text) !important; }
-/* a menu of links (Languages): opens on hover or focus, no script; on narrow
-   screens its links sit inline in the scrolling row (below) */
+/* a menu of links (Languages): a dropdown under its name, opened by a click
+   (site/nav.js), by hover where there is a mouse, or by keyboard focus. On a
+   phone the links fold behind the menu button (.burger, nav.js) and a menu
+   opens in place; without the script they scroll sideways (below). */
 .menu { position: relative; }
-.menu-btn { color: var(--dim); cursor: pointer; outline: none; }
-.menu-btn::after { content: " \25BE"; font-size: 0.8em; }
-.menu-btn:hover, .menu:focus-within .menu-btn, .menu.current .menu-btn { color: var(--text); }
-.drop {
-  display: none; position: absolute; top: calc(100% + 12px); left: -16px; z-index: 11;
-  flex-direction: column; gap: 10px; min-width: 130px; padding: 12px 16px;
-  background: rgba(7, 10, 18, 0.96); border: 1px solid rgba(31, 111, 139, 0.4);
+.menu-btn { color: var(--dim); cursor: pointer; outline: none; user-select: none; white-space: nowrap; }
+.menu-btn::after {
+  content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 2px 3px 7px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg);
+  transition: transform .15s;
 }
-.drop::before { content: ""; position: absolute; left: 0; right: 0; top: -14px; height: 14px; }
-.menu:hover .drop, .menu:focus-within .drop { display: flex; }
-.links .drop a[aria-current="page"] { color: var(--text); }
+.menu.open .menu-btn::after { transform: translateY(3px) rotate(-135deg); }
+.menu-btn:hover, .menu-btn:focus-visible, .menu.open .menu-btn, .menu.current .menu-btn { color: var(--text); }
+.drop {
+  display: none; position: absolute; top: calc(100% + 14px); left: -12px; z-index: 11;
+  flex-direction: column; min-width: 168px; padding: 6px;
+  background: rgba(9, 14, 26, 0.98); border: 1px solid rgba(31, 111, 139, 0.55);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(77, 225, 255, 0.05);
+}
+.drop::before { content: ""; position: absolute; left: 0; right: 0; top: -16px; height: 16px; }
+.drop a { padding: 8px 12px; border-left: 2px solid transparent; }
+.drop a:hover, .drop a:focus-visible { background: rgba(77, 225, 255, 0.08); color: var(--text); outline: none; }
+.links .drop a[aria-current="page"] { color: var(--text); border-left-color: var(--cyan); background: rgba(77, 225, 255, 0.06); }
+.menu.open .drop, .menu:focus-within .drop { display: flex; }
+@media (hover: hover) { .menu:hover .drop { display: flex; } }
+.burger { display: none; }
 
 /* ---------------------------------------------------------------- hero */
 .hero {
@@ -216,8 +228,40 @@ footer { margin-top: 80px; padding: 40px 32px 56px; text-align: center; color: v
            -webkit-overflow-scrolling: touch; }
   .links::-webkit-scrollbar { display: none; }
   .links a { flex: none; white-space: nowrap; }
-  .menu-btn { display: none; }
-  .menu, .menu .drop, .menu:hover .drop, .menu:focus-within .drop { display: contents; }
+  /* without nav.js: the menu's links inline in the scrolling row */
+  nav.top:not(.js) .menu-btn { display: none; }
+  nav.top:not(.js) .menu, nav.top:not(.js) .menu .drop { display: contents; }
+  /* with it: a menu button, and the links in a panel under the bar */
+  nav.top.js { padding-bottom: 10px; flex-wrap: nowrap; }
+  nav.top.js .burger {
+    display: flex; flex-direction: column; justify-content: center; gap: 5px;
+    width: 40px; height: 36px; padding: 0 9px; margin-left: auto;
+    background: none; border: 1px solid var(--edge); cursor: pointer;
+  }
+  .burger span { display: block; height: 2px; background: var(--text); transition: transform .2s, opacity .2s; }
+  nav.top.open .burger span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+  nav.top.open .burger span:nth-child(2) { opacity: 0; }
+  nav.top.open .burger span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+  nav.top.js .links {
+    display: none; position: absolute; top: 100%; left: 0; right: 0;
+    flex-direction: column; align-items: stretch; gap: 0; padding: 6px 0 12px;
+    max-height: calc(100vh - 60px); overflow-y: auto;
+    background: var(--bg); border-bottom: 1px solid rgba(31, 111, 139, 0.5);
+    box-shadow: 0 18px 30px rgba(0, 0, 0, 0.5); font-size: 16px;
+  }
+  nav.top.js.open .links { display: flex; }
+  nav.top.js .links > a, nav.top.js .menu-btn { display: block; padding: 12px 20px; }
+  nav.top.js .links a[href^="#"], nav.top.js .links a[href^="../#"] { display: block; }
+  nav.top.js .links .pill { margin: 10px 20px 0; align-self: flex-start; }
+  nav.top.js .menu-btn { display: flex; justify-content: space-between; align-items: center; }
+  nav.top.js .drop {
+    position: static; display: none; min-width: 0; padding: 0 0 4px; margin: 0;
+    background: none; border: 0; box-shadow: none;
+  }
+  nav.top.js .drop::before { display: none; }
+  nav.top.js .menu:hover .drop, nav.top.js .menu:focus-within .drop { display: none; }
+  nav.top.js .menu.open .drop { display: flex; }
+  nav.top.js .drop a { padding: 10px 20px 10px 36px; }
   main, .hero { padding-left: 16px; padding-right: 16px; }
   .cmds div { grid-template-columns: 1fr; gap: 2px; }
   .tier { width: 100% !important; }

@@ -168,7 +168,7 @@ or after the line; a basename is enough) or, under StrataOS, `prog:label`.
 | Request | Answer |
 |---|---|
 | `cores` | the position and `cores`: one summary per core (below) |
-| `regs {core}` | `pc` (with `sym`, `file`, `line`), `x` (32 values), `csr` (instret, mode, ccr, cause, epc, tval, tvec, the user-mode ones, scratch, sscratch, ttag, tdata, tgeom, takefrom, corebase, corecount, xslot, ipend), `halted`, `stall` |
+| `regs {core}` | `pc` (with `sym`, `file`, `line`), `x` (32 values), `csr` (instret, mode, ccr, cause, epc, tval, tvec, the user-mode ones, scratch, sscratch, ttag, tdata, tgeom, takefrom, corebase, corecount, xslot, wdata, wstack, wcode, ipend), `halted`, `stall` |
 | `caps {core}` | `caps`: 16 capabilities |
 | `ctab {core}` | `size`, `entries`: `slot`, `cap` for every valid entry of the save table |
 | `inbox {core}` | `from`: `node`, `caps` per sender with something queued |

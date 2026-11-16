@@ -5,10 +5,11 @@
 #   -h   on the host's reference interpreter (lang/stratalk/host) instead of
 #        StrataOS on the emulator (vm.st and os.st are the VM's alone)
 #   -j   with the JIT on (stratalk -j -): what gets hot runs as native code
+#   TESTS=DIR  the vectors are DIR/NAME.st and DIR/NAME.out (doc.sh)
 set -u
 here=$(cd "$(dirname "$0")/../../.." && pwd)
 b="$here/${BUILD:-build}"
-t="$here/lang/stratalk/tests"
+t="${TESTS:-$here/lang/stratalk/tests}"
 host=0
 jit=
 if [ "${1:-}" = "-h" ]; then host=1; shift; fi

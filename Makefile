@@ -750,12 +750,14 @@ $(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
 
 # the disk of tools/test-isolate.sh: the standard one plus dlsgap (tools/dlsgap.s),
-# which checks that no process sees what another left in its core's D-LS
-$(BUILD)/isol-test/dlsgap: tools/dlsgap.s os/lib/sys.s $(BUILD)/sasm
+# which checks that no process sees what another left in its core's D-LS, and
+# lsprot (tools/lsprot.s), which checks that user mode cannot reach the kernel's
+# part of the Local Stores
+$(BUILD)/isol-test/%: tools/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/isol-test
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
-$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap
+$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot
 
 # the disk of tools/test-files.sh: the standard one plus 300 small files tagged
 # many (f000 .. f299, each holding its own name): more files than one window
@@ -772,6 +774,13 @@ $(BUILD)/files-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 .PHONY: bench-store
 $(BUILD)/strata-emu-stats: emu/emu.c $(JIT_SRC) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
 	$(CC) $(CFLAGS) -DSTRATA_MSGSTATS $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
+# an emulator that counts what context switches move, and what they would
+# move with dirty-segment tracking (doc/ls-switch.md, tools/ls-stats.sh)
+$(BUILD)/strata-emu-ls: emu/emu.c $(JIT_SRC) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
+	$(CC) $(CFLAGS) -DSTRATA_LSSTATS $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
+.PHONY: ls-stats
+ls-stats: $(BUILD)/strata-emu-ls $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	tools/ls-stats.sh $(BUILD)/strata-emu-ls $(BUILD) $(BUILD)/disk.img
 $(BUILD)/bench/dbbench: tools/bench/dbbench.s os/lib/sys.s os/lib/kv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/bench
 	$(BUILD)/sasm -T 0x8000 -o $@ $<

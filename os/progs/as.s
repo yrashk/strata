@@ -614,6 +614,12 @@ kwtab:                                  ; keyword table (copied into the keyword
         .byte K_CSR, 24, 0, 0, 0        ; number 24
         .asciz "xslot"                  ; CSR 25
         .byte K_CSR, 25, 0, 0, 0        ; number 25
+        .asciz "wdata"                  ; CSR 26
+        .byte K_CSR, 26, 0, 0, 0        ; number 26
+        .asciz "wstack"                 ; CSR 27
+        .byte K_CSR, 27, 0, 0, 0        ; number 27
+        .asciz "wcode"                  ; CSR 28
+        .byte K_CSR, 28, 0, 0, 0        ; number 28
         .byte 0                         ; end of the table
 
 s_include: .asciz ".include"            ; the line form sasm reads as an include
