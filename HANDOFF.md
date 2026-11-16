@@ -332,6 +332,78 @@ measure. The server `db` is built to `build/sys/db` (`build/prog/db` is
 the program); the debugger takes a server's symbols from `build/sys/` first
 (`sys/db:label` in a breakpoint).
 
+## Stratalk (added 2026-11-16)
+
+`lang/stratalk/` is a Smalltalk for StrataOS: `stratalk` at the shell (a
+REPL with Tab completion), `stratalk FILE.st`, `stratalk -w` (a workspace
+window in `ws`), `stratalk -b` (a class browser). `lang/stratalk/README.md`
+has the design and the formats; `doc/stratalk-proposal.md` the proposal it
+was built from.
+- The VM is `vm*.s` (Strata assembly, 22 KiB of I-LS, 38 KiB of D-LS: the
+  D-LS is nearly full). The image is built on the host by
+  `lang/stratalk/host/stratalk.py build` from `kernel/*.st` (`LOAD` gives
+  the order) and read into an extra arena (c6) at start.
+- Two compilers: `host/stc.py` (builds the image) and `kernel/Compiler.st`
+  (the REPL's). They must give the same bytes; `stratalk-check` compares
+  every method. A change to one is a change to both.
+- `kernel/OSServers.st` is generated from `os/spec/*.toml` by
+  `host/osgen.py` (a class per server, two methods per op): when a spec
+  changes, run `python3 lang/stratalk/host/osgen.py
+  lang/stratalk/kernel/OSServers.st` (`stratalk-check` fails until then).
+- `host/stratalk.py run IMAGE` is a reference interpreter of the image
+  (everything far, nothing collected): `tests/run.sh -h` runs the test
+  vectors on it, `STRATALK_WATCH=N` prints the frames after N seconds.
+- Tests: `stratalk` (the vectors under StrataOS), `stratalk-jit` (the same
+  with the JIT on), `stratalk-host`, `stratalk-examples` (the examples'
+  outputs, under StrataOS and on the host), `stratalk-check`. The vectors'
+  expected outputs were worked out by hand and with Python, not by Stratalk.
+- The JIT is `kernel/Jit.st` (Stratalk) and `vm-jit.s`: hot methods (200
+  activations) to native code in 1 KiB units in c0, paged by the kernel
+  (xslot 10, the cache from 0xE400: 7 slots; the VM's resident code ends
+  at 0xE118, so code added to the VM takes slots away). A method's code
+  over 1 KiB stays interpreted; each compiled method has a unit of its own
+  (704 at most).
+- The site: `doc/manual/gen/genstratalk.py` makes stratalk/ (the prose is
+  `doc/manual/web/stratalk.html`; the playground `site/stratalk/stratalk.js`
+  boots StrataOS and types `stratalk -j`); the play page has a preset.
+- Capability registers: the heap is c6 (an extra arena). A Window keeps
+  ws's endpoint in c4 while open (pipe's; given back on close); a LOOKUP
+  moves the heap to c7 for the call and then gets the clock back.
+- Not done: floats, `become:`, class variables (class-side slots only),
+  class-side slots for classes made at run time, inline caches in native
+  code (a send from it takes the interpreter's path: `24 fibx` is 1.4x
+  faster with the JIT, not more), a manual chapter.
+## Stralog, a Prolog (added 2026-11-16)
+
+`lang/stralog/` holds Stralog, a Prolog in Strata assembly that runs as
+`stralog` under StrataOS: an ISO core Prolog with exceptions, assert,
+findall/bagof/setof, DCGs, files and op/3. `README.md` there has the
+language and its limits; `DESIGN.md` has the engine and how memory works.
+
+- **Memory:** terms live in the arena. The D-LS has windows onto the tops of
+  the heap, the trail and the choicepoint stack, plus a far cache on
+  `ltag`/`linst`. A heap collector (`gc.s`) runs between goals.
+- **Build:** the image is split by `lang/stralog/mkimg.py` into `/bin/stralog`
+  and its code units, `/bin/stralog.u`. `mkimg.py` also checks that no jump
+  leaves its 4 KiB unit. A unit function that calls another unit must itself
+  be called with `xcall`.
+- **Tests:** five sessions in `make test` (`lang/stralog/tests/run.sh`):
+  - `session`, `builtins`, `files`, `demos`;
+  - `iso`: 596 conformance vectors from Logtalk's tests, 584 of which pass;
+    the README lists the rest.
+  - `web-stralog` checks that the page describes every predicate.
+- **Web:** the page is `doc/manual/gen/genstralog.py` (stralog/ on the site),
+  with a playground that boots StrataOS and starts `stralog`
+  (`site/stralog/stralog.js`). The play page has a "Stralog" preset.
+- **Disk:** the examples are on the disk under `/stralog`; adding one moves
+  `tools/test-sh.out` and `tools/test-http.out`.
+- **Limits it is near:**
+  - the resident code ends at 0xB5xx, which leaves 4 code-cache slots;
+  - 20 units;
+  - D-LS data ends at 0x8C9x.
+  - The clause store is never reclaimed, so `iso.txt` runs the vectors in
+    groups, each in a fresh `stralog`.
+
 ## Open work
 
 **Waiting on a decision**
@@ -410,6 +482,7 @@ the program); the debugger takes a server's symbols from `build/sys/` first
 | `os/ws/README.md` | The window server |
 | `lang/forth/README.md` | Forth: bare metal, StrataOS, code paging, as a guest |
 | `lang/cc/DESIGN.md`, `lang/cc/PLAN-cc.md`, `lang/cc/tests/README.md` | The C compiler: design, state and scores, the test ladder |
+| `lang/stralog/README.md`, `lang/stralog/DESIGN.md` | Stralog: the language, limits, examples, conformance; the engine and its memory |
 | `emu/jit/README.md` | Native JIT |
 | `web/README.md` | Browser build: worker, fast interpreter, wasm JIT, networking |
 | `conformance/README.md`, `conformance/FINDINGS.md` | Conformance suite and what it found |

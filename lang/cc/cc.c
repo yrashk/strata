@@ -25,13 +25,15 @@
  */
 #include <strata.h>
 
-/* ---- the arena (offsets); 0x10000..0x4FFFF hold this program's own code units ---- */
+/* ---- the arena (offsets); 0x10000..0x3FFFF hold this program's own code units ---- */
 #define A_PT     0x00000        /* the parameter types of function types, 4 bytes each */
 #define A_CS     0x01000        /* the cases of the switch statements open, 16 bytes each */
 #define A_IDH    0x02000        /* identifier hash heads, 4 bytes each */
 #define A_SV     0x02800        /* the input stack as scan_mark found it */
 #define A_FIX    0x03000        /* fixups, 16 bytes each */
 #define A_FIXEND 0x10000
+#define A_TK     0x40000        /* a function's body as tokens: read ahead, then read again from here */
+#define A_TKEND  0x50000
 #define A_LIB    0x50000        /* cc.lib, up to its member cc.units */
 #define A_LIBEND 0x58000
 #define A_ID     0x58000        /* identifier records */
@@ -49,6 +51,7 @@
 #define A_DATA   0xC0000        /* the image: D-LS from 0 */
 #define A_RES    0xCA000        /* the image: the resident library, when the code is paged */
 #define A_TMP    0xCD000        /* a function being moved to the next code unit */
+#define A_PS     0xCE000        /* the names a function's body uses: 512 of 8 bytes */
 
 /* ---- tokens: a punctuator of one character is its ASCII code ---- */
 #define T_EOF 0
@@ -167,6 +170,7 @@ struct ty {
 #define SF_EXT 4                /* no address yet */
 #define SF_REF 8                /* the frame word holds the object's address */
 #define SF_VLA 16               /* ... which malloc gave: a variable-length array */
+#define SF_REG 32               /* kept in a callee-saved register: val is its index in ereg */
 #define NSY 700
 
 struct sym {
@@ -199,6 +203,7 @@ struct idr {
 #define VK_JMP 8                /* where control goes: val = a chain of jumps */
 #define VK_CMP 9                /* a comparison not made yet: registers reg and val, condition flags */
 #define VK_TMP 10               /* a value kept in the frame word at val */
+#define VK_SVAR 11              /* lvalue in the callee-saved register reg (8.. in ereg) */
 #define VF_S0 1                 /* VK_LOC, VK_LADDR: from s0, not sp */
 #define VF_INV 2                /* VK_JMP: the jumps are taken when it is false */
 #define VF_DIRTY 4              /* VK_REG, VK_TMP: the bits above the type's width are not its extension */
@@ -297,7 +302,8 @@ struct val *vp;                 /* the top entry */
 int rmask;                      /* evaluation registers in use */
 long idl[10];                   /* the identifier record last looked up */
 #define IDR ((struct idr *)idl)
-int ereg[8] = { 5, 6, 7, 28, 29, 30, 10, 0 };   /* t0-t5, a0, zero */
+int ereg[19] = { 5, 6, 7, 28, 29, 30, 10, 0,      /* t0-t5, a0, zero; */
+                 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27 };     /* s1-s11: variables */
 
 /* ---- input ---- */
 struct inp { long pos, end, mark; int kind, aux; };
@@ -347,6 +353,14 @@ int fn_sym, fn_ret, fn_s0, fn_sret, fn_va;
 int fn_live, fn_vla, fn_nsy0, brk_nsy, cnt_nsy;
 int ce_soft, ce_fail;           /* a trial reading of an expression: an unknown name is not an error */
 long fn_start, fn_pro, fn_fix0;
+int ra_on, ra_n, ra_used;       /* the function's register variables: names, which registers it uses */
+int ra_id[11], ra_own[11];      /* the name each of s1-s11 is for, and the symbol that has it now */
+int pscan, nvol, lastpv;        /* reading a body ahead; volatile qualifiers read; in the last parameter list */
+long tk_top, rp_pos, rp_end;    /* the tokens recorded; replaying them: the next, the end */
+int rp_on, rp_line, rp_pk;      /* replaying; the scanner's line after them; peek_ch of the token */
+long sv_rp;                     /* scan_mark while replaying: the record after the token */
+long pi_pc, pi_end, pi_fix;     /* x++ of a register variable: the copy of its old value */
+int pi_reg;
 int fr_cur, fr_max, fr_keep, sp_bias;
 long fn_rchain, brk_chain, cnt_chain, cnt_target;
 int scope, loop_depth;
@@ -400,6 +414,7 @@ void err(char *m, char *more)
 void errtok(char *m)
 {
     if (tok == 0) err(m, "end of file");
+    if (tok == T_ID && rp_on) { far_read(tk_val, idl, 80); err(m, IDR->name); }
     if (tok < 128) { tb[0] = tok; tb[1] = 0; }
     err(m, tb);
 }
@@ -1656,7 +1671,11 @@ int next1(void)
             unget(d);
             break;
         }
-        if (c == '#' && bol && in_kind == 1) { pp_direct(); continue; }
+        if (c == '#' && bol && in_kind == 1) {
+            if (pscan) { tok = 0; return 1; }   /* reading ahead stops before a directive */
+            pp_direct();
+            continue;
+        }
         break;
     }
     bol = 0;
@@ -1743,7 +1762,43 @@ int next1(void)
     return 1;
 }
 
-void next(void) { while (!next1()) ; }
+/* the next recorded token (A_TK): 16 bytes (token, type or the next
+   character, line, value), a string's bytes after it; after the last one
+   the scanner goes on */
+void rp_next(void)
+{
+    unsigned short *h = (unsigned short *)fw;
+    int n, i, k;
+    if (rp_pos >= rp_end) { rp_on = 0; line = rp_line; while (!next1()) ; return; }
+    far_read(rp_pos, fw, 16);
+    rp_pos = rp_pos + 16;
+    tok = h[0];
+    k = h[1];
+    line = ((int *)fw)[1];
+    tk_val = fw[1];
+    rp_pk = k;
+    if (tok == T_ID) {
+        far_read(tk_val + 8, fw, 8);
+        tk_sym = h[0];
+        tk_tag = h[1];
+    } else if (tok == T_STR) {
+        n = (int)tk_val;
+        i = str_cat ? str_len : 0;
+        if (i + n >= STRMAX - 4) err("string too long", 0);
+        far_read(rp_pos, iob, (n + 8) & ~7);
+        rp_pos = rp_pos + ((n + 8) & ~7);
+        for (k = 0; k < n; k++) strbuf[i + k] = ((char *)iob)[k];
+        str_len = i + n;
+        strbuf[str_len] = 0;
+        str_wide = tk_val >> 32;
+    } else tk_ty = k;
+}
+
+void next(void)
+{
+    if (rp_on) rp_next();
+    else while (!next1()) ;
+}
 
 void skip(int t)
 {
@@ -1763,6 +1818,7 @@ char *sv_fname;
 void scan_mark(void)
 {
     int i;
+    if (rp_on) { sv_rp = rp_pos; sv_tok = tok; sv_line = line; return; }
     far_write(A_SV, instk, NIN * 32);
     sv_sp = in_sp; sv_line = line; sv_bol = bol; sv_kind = in_kind; sv_aux = in_aux;
     sv_pos = in_pos; sv_end = in_end; sv_mark = in_mark; sv_shift = sf_shift;
@@ -1784,6 +1840,7 @@ void scan_rewind(void)
 {
     int i;
     long d = sf_shift - sv_shift;
+    if (rp_on) { rp_pos = sv_rp; tok = sv_tok; line = sv_line; return; }
     far_read(A_SV, instk, NIN * 32);
     for (i = 0; i < sv_sp; i++) if (instk[i].kind == 2) mac_busy(instk[i].aux);
     in_sp = sv_sp; line = sv_line; bol = sv_bol; in_kind = sv_kind; in_aux = sv_aux;
@@ -1929,7 +1986,7 @@ int mem_find(int t, int id)
 
 /* ================= registers, the frame, the value stack ================= */
 
-void g_wrap(int x, int t);
+void g_wrap(int x, int xs, int t);
 int gv_d(struct val *v);
 int mat_cmp(struct val *v);
 void g_resolve(long chain, long target);
@@ -1973,7 +2030,7 @@ void spill1(struct val *v)
     if (nocode && v <= vlive) return;
     if (v->kind == VK_CMP) mat_cmp(v);
     else if (v->kind == VK_JMP) gv_d(v);
-    if (v->kind != VK_REG && v->kind != VK_IND) return;
+    if ((v->kind != VK_REG && v->kind != VK_IND) || v->reg > 7) return;
     s = fr_alloc(8, 8);
     e_i(OP_SD, ereg[v->reg], X_SP, s + sp_bias);
     rfree(v->reg);
@@ -1997,7 +2054,7 @@ int ralloc(void)
             if (!(rmask >> r & 1)) { rmask = rmask | 1 << r; return r; }
         if (nocode) return 0;
         for (v = vs + 1; v <= vp; v++)
-            if ((v->kind == VK_REG || v->kind == VK_IND || v->kind == VK_CMP) && v->reg < 6) break;
+            if ((v->kind == VK_REG || v->kind == VK_IND || v->kind == VK_CMP) && (v->reg < 6 || (v->kind == VK_CMP && v->val < 6))) break;
         if (v > vp) err("expression too complex", 0);
         spill1(v);
     }
@@ -2022,6 +2079,19 @@ void vfree(struct val *v)
 }
 
 void vpop(void) { vfree(vp); vp--; }
+
+/* the value on top is not used: if it is the copy x++ made of a register
+   variable's old value, and nothing came after x++, the copy goes */
+void vdrop(void)
+{
+    long a = pi_pc;
+    if (!nocode && vp->kind == VK_REG && vp->reg == pi_reg && code_pc == pi_end && fix_top == pi_fix
+        && a >= cw_base && lab_pc <= a && code_rd(a) >> 21 == (OP_ADDI << 5 | ereg[pi_reg])) {
+        for (; a + 4 < code_pc; a = a + 4) code_wr(a, code_rd(a + 4));
+        code_pc = a;
+    }
+    vpop();
+}
 
 void vswap(void)
 {
@@ -2060,7 +2130,14 @@ void g_addi(int xd, int xs, long v)
 /* op x, off(base) */
 void g_bo(int op, int x, int base, long off)
 {
-    int s = base == X_TP ? X_T6 : X_TP;
+    int s = base == X_TP ? X_T6 : X_TP, w;
+    if (op == OP_LD && fits(off) && !nocode && code_pc - 4 >= cw_base && lab_pc < code_pc) {
+        w = code_rd(code_pc - 4);       /* just stored there: the register still holds it */
+        if ((w & ~(31 << 21)) == enc(OP_SD, 0, base, off)) {
+            if ((w >> 21 & 31) != x) e_i(OP_ADDI, x, w >> 21 & 31, 0);
+            return;
+        }
+    }
     if (fits(off)) { e_i(op, x, base, off); return; }
     g_li(s, off);
     e_r(A_ADD, s, s, base);
@@ -2098,6 +2175,10 @@ void g_mem(int op, int x, struct val *v)
         e_i(OP_LD, X_TP, X_SP, v->slot + sp_bias);
         g_bo(op, x, X_TP, a);
         break;
+    case VK_SVAR:
+        if (op >= OP_SD) e_i(OP_ADDI, ereg[v->reg], x, 0);
+        else e_i(OP_ADDI, x, ereg[v->reg], 0);
+        break;
     default:
         err("not an lvalue", 0);
     }
@@ -2124,20 +2205,33 @@ int st_op(int t)
     return OP_SD;
 }
 
-/* the bits of a narrow type extended over the register */
-void g_wrap(int x, int t)
+/* the bits of a narrow type in register xs extended over register x */
+void g_wrap(int x, int xs, int t)
 {
     int s = 64 - 8 * ty[t].size, u = ty[t].flags & TF_UNS;
-    if (s <= 0 || ty[t].kind == TK_BOOL) return;
-    if (u && s >= 48) { e_i(OP_ANDI, x, x, s == 56 ? 255 : 0xffff); return; }
-    e_i(OP_SLLI, x, x, s);
+    if (s <= 0 || ty[t].kind == TK_BOOL) { if (x != xs) e_i(OP_ADDI, x, xs, 0); return; }
+    if (u && s >= 48) { e_i(OP_ANDI, x, xs, s == 56 ? 255 : 0xffff); return; }
+    e_i(OP_SLLI, x, xs, s);
     e_i(u ? OP_SRLI : OP_SRAI, x, x, s);
+}
+
+/* a register variable's register is read, not written: a value in it that
+   is to change gets an evaluation register of its own */
+int own(struct val *v)
+{
+    int r = v->reg;
+    if (r < 8) return r;
+    v->reg = ralloc();
+    e_i(OP_ADDI, ereg[v->reg], ereg[r], 0);
+    return v->reg;
 }
 
 void clean(struct val *v)
 {
+    int r = v->reg;
     if (v->kind == VK_REG && (v->flags & VF_DIRTY)) {
-        g_wrap(ereg[v->reg], v->type);
+        if (r > 7) v->reg = ralloc();
+        g_wrap(ereg[v->reg], ereg[r], v->type);
         v->flags = v->flags & ~VF_DIRTY;
     }
 }
@@ -2234,7 +2328,7 @@ int mat_cmp(struct val *v)
     else r = ralloc();
     x = ereg[r];
     if (c < 2) {
-        if (a < 7 && b < 7) { e_r(A_XOR, x, xa, xb); xa = x; }
+        if (a != 7 && b != 7) { e_r(A_XOR, x, xa, xb); xa = x; }
         else if (a == 7) xa = xb;
         if (c == 0) e_i(OP_SLTIU, x, xa, 1);
         else e_r(A_SLTU, x, 0, xa);
@@ -2273,6 +2367,7 @@ int gv_d(struct val *v)
         e_i(OP_JAL, 0, 0, 2);
         g_resolve(v->val, code_pc);
         e_i(OP_ADDI, x, 0, !f);
+        lab_pc = code_pc;               /* where the jal lands */
         f = 0;
         break;
     case VK_TMP:
@@ -2280,8 +2375,11 @@ int gv_d(struct val *v)
         g_mem(OP_LD, ereg[r], v);
         f = v->flags & VF_DIRTY;
         break;
+    case VK_SVAR:
+        r = v->reg;
+        break;
     default:
-        r = v->kind == VK_IND ? v->reg : ralloc();
+        r = v->kind == VK_IND && v->reg < 8 ? v->reg : ralloc();
         g_load(ereg[r], v);
     }
     v->kind = VK_REG; v->reg = r; v->flags = f; v->sym = 0; v->bw = 0; v->val = 0;
@@ -2290,9 +2388,9 @@ int gv_d(struct val *v)
 
 int gv(struct val *v)
 {
-    int r = gv_d(v);
+    gv_d(v);
     clean(v);
-    return r;
+    return v->reg;
 }
 
 /* the value into the machine register x; the entry is dead afterwards */
@@ -2309,9 +2407,9 @@ void g_into(struct val *v, int x)
         break;
     case VK_TMP:
         g_mem(OP_LD, x, v);
-        if (v->flags & VF_DIRTY) g_wrap(x, v->type);
+        if (v->flags & VF_DIRTY) g_wrap(x, x, v->type);
         break;
-    case VK_LOC: case VK_GLOB: case VK_IND: case VK_SAVED:
+    case VK_LOC: case VK_GLOB: case VK_IND: case VK_SAVED: case VK_SVAR:
         g_load(x, v);
         if (v->kind == VK_IND) rfree(v->reg);
         break;
@@ -2336,9 +2434,12 @@ void v_addr(struct val *v)
         v->kind = VK_CONST;
         break;
     case VK_IND:
-        g_addi(ereg[v->reg], ereg[v->reg], v->val);
-        v->kind = VK_REG; v->val = 0;
+        r = v->reg > 7 && v->val ? ralloc() : v->reg;
+        g_addi(ereg[r], ereg[v->reg], v->val);
+        v->kind = VK_REG; v->reg = r; v->val = 0;
         break;
+    case VK_SVAR:
+        err("the address of a register variable", 0);
     case VK_SAVED:
         r = ralloc();
         e_i(OP_LD, ereg[r], X_SP, v->slot + sp_bias);
@@ -2377,7 +2478,7 @@ void v_deref(void)
 int is_lv(struct val *v)
 {
     int k = v->kind;
-    return k == VK_LOC || k == VK_GLOB || k == VK_IND || k == VK_SAVED;
+    return k == VK_LOC || k == VK_GLOB || k == VK_IND || k == VK_SAVED || k == VK_SVAR;
 }
 
 /* [lvalue] -> [lvalue, its value] */
@@ -2626,7 +2727,7 @@ void to_cmp(struct val *v)
     int r;
     if (v->kind == VK_CMP || v->kind == VK_JMP) return;
     r = gv(v);
-    if (is_fp(v->type)) e_i(OP_SLLI, ereg[r], ereg[r], ty[v->type].size == 4 ? 33 : 1);
+    if (is_fp(v->type)) { r = own(v); e_i(OP_SLLI, ereg[r], ereg[r], ty[v->type].size == 4 ? 33 : 1); }
     v->kind = VK_CMP; v->reg = r; v->val = 7; v->flags = 1; v->type = Y_INT;
 }
 
@@ -2637,7 +2738,11 @@ void icast(struct val *v, int to)
     v->type = to;
     if (k == VK_CONST) { if (!v->sym) v->val = cwrap(v->val, to); return; }
     if (k == VK_CMP || k == VK_JMP) return;
-    if (is_lv(v)) {
+    if (k == VK_SVAR) {                 /* the register holds the old type's value */
+        v->type = from;
+        gv_d(v);
+        v->type = to;
+    } else if (is_lv(v)) {
         if (st <= sf && !v->bw && tk(from) != TK_BOOL) return;      /* read as the new type */
         v->type = from;
         gv_d(v);
@@ -2650,8 +2755,9 @@ void icast(struct val *v, int to)
     }
     if (v->flags & VF_DIRTY) {
         if (st <= sf) return;
-        g_wrap(ereg[v->reg], from);
-        v->flags = v->flags & ~VF_DIRTY;
+        v->type = from;
+        clean(v);
+        v->type = to;
     }
     same = sf == st && !is_uns(from) == !is_uns(to);
     fit = sf < st && (is_uns(from) || !is_uns(to));
@@ -2843,11 +2949,18 @@ void g_arith(int op, int t)
     ra = cl ? gv(a) : gv_d(a);
     x = ereg[ra];
     dirty = a->flags & VF_DIRTY;
-    if (f) { e_i(f, x, x, c); vp--; }
-    else {
+    if (f) {
+        if (ra > 7) a->reg = ralloc();          /* a register variable: the result goes elsewhere */
+        e_i(f, ereg[a->reg], x, c);
+        vp--;
+    } else {
         rb = cl || op == T_SHL ? gv(b) : gv_d(b);
         dirty = dirty | (b->flags & VF_DIRTY);
-        e_r(alu_fn(op, u), x, x, ereg[rb]);
+        if (ra > 7) {
+            if (rb < 7) { a->reg = rb; b->kind = 0; }
+            else a->reg = ralloc();
+        }
+        e_r(alu_fn(op, u), ereg[a->reg], x, ereg[rb]);
         vpop();
     }
     if (op == '+' || op == '-' || op == '*' || op == T_SHL) dirty = VF_DIRTY;
@@ -2991,7 +3104,8 @@ void g_unop(int op)
             v->val = ty[t].size == 4 ? v->val ^ -0x80000000L : v->val ^ (1L << 63);
             return;
         }
-        r = gv(v);
+        gv(v);
+        r = own(v);
         if (ty[t].size == 4) e_i(OP_LUI, X_TP, 0, 0x8000);
         else { e_i(OP_ADDI, X_TP, 0, 1); e_i(OP_SLLI, X_TP, X_TP, 63); }
         e_r(A_XOR, ereg[r], ereg[r], X_TP);
@@ -3007,9 +3121,42 @@ void g_unop(int op)
     }
     r = gv_d(v);
     x = ereg[r];
-    e_r(A_SUB, x, 0, x);
+    if (r > 7) v->reg = ralloc();
+    e_r(A_SUB, ereg[v->reg], 0, x);
+    x = ereg[v->reg];
     if (op == '~') e_i(OP_ADDI, x, x, -1);
     if (ty[t].size < 8 && (op == '-' || is_uns(t))) v->flags = v->flags | VF_DIRTY;
+}
+
+/* the register variable in register r is about to change: the values on
+   the stack below top that read it get registers of their own */
+void sv_protect(int r, struct val *top)
+{
+    struct val *v;
+    if (nocode) return;
+    for (v = vs + 1; v <= top; v++)
+        if (v->kind == VK_CMP && (v->reg == r || v->val == r)) mat_cmp(v);
+        else if ((v->kind == VK_REG || v->kind == VK_IND) && v->reg == r) own(v);
+}
+
+/* [register variable, value] -> [value]: the value goes into the variable's
+   register; the instruction that computed it writes there itself if it can */
+void sv_store(void)
+{
+    struct val *l = vp - 1, *v = vp;
+    int r = gv(v), s = ereg[l->reg], a = code_pc - 4, w = 0, op;
+    sv_protect(l->reg, l - 1);
+    if (r != l->reg && !nocode) {
+        if (r < 7 && a >= cw_base && a >= fn_pro && lab_pc < code_pc) w = code_rd(a);
+        op = w >> 26 & 63;              /* an instruction that only writes the value's register? */
+        if (w && (w >> 21 & 31) == ereg[r] && ((op == 0 && (w & 0x7ff) < 16) || (op >= OP_ADDI && op <= OP_LUI)
+                                              || (op >= OP_LD && op <= OP_LBU)))
+            code_wr(a, (w & ~(31 << 21)) | s << 21);
+        else e_i(OP_ADDI, s, ereg[r], 0);
+    }
+    vfree(v);
+    l->kind = VK_REG; l->flags = 0; l->val = 0;
+    vp--;
 }
 
 /* [lvalue, value] -> [value]: the value, already of the lvalue's type, is stored */
@@ -3019,6 +3166,8 @@ void g_store(void)
     int t = l->type, x = 0, r, ru, w = l->bw, b = l->boff;
     if (is_agg(t)) { g_copy(); return; }
     if (!is_lv(l)) err("not an lvalue", 0);
+    if (l->kind == VK_SVAR) { sv_store(); return; }
+    if (w && !const0(v)) { gv(v); own(v); }
     if (!const0(v)) x = ereg[w ? gv(v) : gv_d(v)];
     if (!w) g_mem(st_op(t), x, l);
     else {                              /* a bit-field: into its place in the storage unit */
@@ -3304,7 +3453,8 @@ void v_sym(int s)
         return;
     case SC_AUTO:
         v = vpush(VK_LOC, p->type, p->val);
-        if (p->flags & SF_REF) { v->kind = VK_SAVED; v->slot = p->val; v->val = 0; }
+        if (p->flags & SF_REG) { v->kind = VK_SVAR; v->reg = p->val; v->val = 0; }
+        else if (p->flags & SF_REF) { v->kind = VK_SAVED; v->slot = p->val; v->val = 0; }
         else if (p->flags & SF_S0) v->flags = VF_S0;
         return;
     case SC_STATIC: case SC_FUNC:
@@ -3437,6 +3587,24 @@ void postinc(int d)
 {
     struct val t;
     int r, r2;
+    if (vp->kind == VK_SVAR) {          /* the old value is copied, the variable changes in place */
+        t = *vp;
+        r = ralloc();
+        pi_pc = code_pc;
+        pi_fix = fix_top;
+        e_i(OP_ADDI, ereg[r], ereg[t.reg], 0);
+        vp->kind = VK_REG; vp->reg = r;
+        vpush(0, 0, 0);
+        *vp = t;
+        v_dup();
+        vpush(VK_CONST, Y_INT, d);
+        g_binop('+');
+        g_cast(t.type);
+        g_store();
+        vpop();
+        pi_reg = r; pi_end = code_pc;
+        return;
+    }
     v_dup();
     r = gv(vp);
     r2 = ralloc();
@@ -3680,7 +3848,8 @@ void cond(void)
     agg = is_agg(ta);
     if (tk(ta) != TK_VOID) {
         if (agg) v_addr(vp);
-        r = gv(vp);
+        gv(vp);
+        r = own(vp);
     }
     vpop();
     e = g_jmp(0);
@@ -3747,7 +3916,7 @@ void expr(void)
 {
     assign();
     while (tok == ',') {
-        vpop();
+        vdrop();
         next();
         assign();
     }
@@ -3901,7 +4070,10 @@ int decl_spec(void)
         case K_TYPEDEF: case K_EXTERN: case K_STATIC:
             cls = tok;
             break;
-        case K_AUTO: case K_REGISTER: case K_CONST: case K_VOLATILE: case K_RESTRICT: case K_INLINE:
+        case K_VOLATILE:
+            nvol++;
+            break;
+        case K_AUTO: case K_REGISTER: case K_CONST: case K_RESTRICT: case K_INLINE:
             break;
         case K_SIGNED: sg = 1; break;
         case K_UNSIGNED: sg = 2; break;
@@ -3946,7 +4118,7 @@ done:
 /* the parameter list of a function type: tok is past the ( */
 int func_params(int ret)
 {
-    int ids[16], ts[16], n = 0, t, bt, sd = d_name, sp = pn_set, i, f = 0, m0 = nsy;
+    int ids[16], ts[16], n = 0, t, bt, sd = d_name, sp = pn_set, i, f = 0, m0 = nsy, pv = 0, v0;
     in_params++;
     if (tok == ')') f = TF_OLD;
     else if (tok == T_ID && !is_type()) {       /* an old-style list of names: int, until declared */
@@ -3962,6 +4134,7 @@ int func_params(int ret)
         }
     } else for (;;) {
         if (tok == T_ELL) { next(); f = TF_VARIADIC; break; }
+        v0 = nvol;
         bt = decl_spec();
         if (bt < 0) errtok("syntax error near ");
         if (bt == Y_VOID && tok == ')') break;
@@ -3973,6 +4146,7 @@ int func_params(int ret)
         if (n >= 16) err("too many parameters", 0);
         ids[n] = d_name;
         ts[n] = t;
+        if (nvol != v0) pv = pv | 1 << n;
         n++;
         if (tok != ',') break;
         next();
@@ -3991,6 +4165,7 @@ int func_params(int ret)
     if (!pn_set) {
         pn_set = 1;
         for (i = 0; i < n; i++) lastpn[i] = ids[i];
+        lastpv = pv;
     }
     return t;
 }
@@ -4013,9 +4188,10 @@ long dim_save(long p0, long p1)
    else -1), or for real: its value stays on the stack */
 long dim_eval(long a, int trial)
 {
-    int t = tok;
+    int t = tok, rp = rp_on;
     long n = far_ld(a), r = -1;
     struct dead d;
+    rp_on = 0;                          /* the text, not the tokens of the body */
     in_push(a + 8, a + 8 + n, 3, 0, 0);
     if (trial) { ce_soft = 1; ce_fail = 0; dead_on(&d); }
     next();
@@ -4032,6 +4208,7 @@ long dim_eval(long a, int trial)
     if (tok) errtok("syntax error near ");
     in_pop();
     tok = t;
+    rp_on = rp;
     return r;
 }
 
@@ -4106,7 +4283,7 @@ int declarator(int t)
     while (tok == '*') {
         next();
         t = ty_ptr(t);
-        while (tok == K_CONST || tok == K_VOLATILE || tok == K_RESTRICT) next();
+        while (tok == K_CONST || tok == K_VOLATILE || tok == K_RESTRICT) { nvol = nvol + (tok == K_VOLATILE); next(); }
     }
     if (tok == '(') {
         next();
@@ -4147,6 +4324,7 @@ int peek_ch(void)
 {
     long p;
     int c;
+    if (rp_on) return rp_pk;
     if (in_sp == 0 && !sf_eof && in_end - in_pos < 64) src_fill();
     for (p = in_pos; p < in_end; p++) {
         c = rb_get(p);
@@ -4443,10 +4621,161 @@ int func_decl(int id, int t)
     return sym_decl(id, SC_FUNC, t);
 }
 
+/* ================= register variables ================= */
+
+/* Before a function is compiled, its body is read once as tokens, which
+   are recorded in the arena (A_TK) and replayed to the parser. On the way,
+   the names it uses most (a use in a loop counts 4, in a loop in a loop 16,
+   ...) and whose address it never takes get the callee-saved registers
+   s1-s11: a local or a parameter of such a name, of an integer or pointer
+   type and not volatile, lives in its register instead of the frame. A
+   body with asm or setjmp keeps every variable in the frame. A body with a
+   directive of the preprocessor, or a [ in a parameter list or a type name
+   (whose text d_suffix needs), or too long for the source window or for
+   A_TK, is not recorded: the scanner goes back to the { and reads it again,
+   and its variables stay in the frame. */
+
+/* a use of the name id, of weight w, its address taken if amp: into its
+   entry in A_PS (identifier, uses, weighted uses) -> 0 if the table is full */
+int ps_use(int id, int w, int amp)
+{
+    unsigned short *e = (unsigned short *)fw;
+    int h = id >> 3 & 511, k;
+    for (k = 0; k < 400; k++, h = (h + 1) & 511) {
+        far_read(A_PS + 8 * h, fw, 8);
+        if (!((int *)fw)[0] || ((int *)fw)[0] == id) break;
+    }
+    if (k == 400) return 0;
+    ((int *)fw)[0] = id;
+    if (amp) e[2] = e[2] | 0x8000;
+    else if ((e[2] & 0x7fff) < 0x7fff) e[2]++;
+    w = e[3] + w;
+    e[3] = w > 0xffff ? 0xffff : w;
+    far_write(A_PS + 8 * h, fw, 8);
+    return 1;
+}
+
+/* the names used most, at least three times or in a loop, and never by address, get s1-s11 */
+void ra_rank(void)
+{
+    unsigned short *e;
+    int i, h, k, n, w, id;
+    for (k = 0; k < 4; k++) {
+        far_read(A_PS + 1024 * k, iob, 1024);
+        for (h = 0; h < 128; h++) {
+            e = (unsigned short *)(iob + h);
+            id = ((int *)(iob + h))[0];
+            n = e[2];
+            w = e[3];
+            if (!id || (n & 0x8000) || (n < 3 && w < 4)) continue;
+            for (i = ra_n; i > 0 && ra_own[i - 1] < w; i--)    /* ra_own: the weights, for now */
+                if (i < 11) { ra_own[i] = ra_own[i - 1]; ra_id[i] = ra_id[i - 1]; }
+            if (i < 11) { ra_own[i] = w; ra_id[i] = id; if (ra_n < 11) ra_n++; }
+        }
+    }
+    for (i = 0; i < 11; i++) ra_own[i] = 0;
+}
+
+/* tok is the { of a body; the parameters' names are pid[0..np) */
+void prescan(int *pid, int np)
+{
+    int bd = 1, pd = 0, prev = 0, amp = 0, ok = 1, cut = 0, nl = 0, pty = 0, i, k, n, id, *lr = lastpn;
+    ra_n = 0; ra_used = 0;
+    for (i = 0; i < 128; i++) iob[i] = 0;
+    for (i = 0; i < 4; i++) far_write(A_PS + 1024 * i, iob, 1024);
+    scan_mark();
+    i = in_sp;
+    pscan = 1;
+    tk_top = A_TK;
+    for (;;) {                          /* lr: the loops, as brace depth | parenthesis depth << 10 | where << 20:
+                                           0 the condition, 1 before the body, 2 a body in braces, 3 a body to its ; */
+        prev = tok;
+        if ((in_sp ? instk[0].pos : in_pos) - sf_pin > 0xC000 || tk_top + STRMAX + 32 > A_TKEND) { cut = 1; break; }
+        next();
+        if (!tok) { cut = 1; break; }
+        k = tok == T_ID || tok == '(' ? peek_ch() : tk_ty;    /* (peek_ch may fill the window through iob) */
+        ((unsigned short *)iob)[0] = tok;     /* the record */
+        ((unsigned short *)iob)[1] = k;
+        ((int *)iob)[1] = line;
+        iob[1] = tok == T_STR ? str_len | (long)str_wide << 32 : tk_val;
+        far_write(tk_top, iob, 16);
+        tk_top = tk_top + 16;
+        if (tok == T_STR) {
+            for (n = 0; n < str_len; n++) ((char *)iob)[n] = strbuf[n];
+            far_write(tk_top, iob, (str_len + 8) & ~7);
+            tk_top = tk_top + ((str_len + 8) & ~7);
+        }
+        if (nl && lr[nl - 1] >> 20 == 1 && tok != '{') lr[nl - 1] = bd | pd << 10 | (tok == ';' ? 4 : 3) << 20;
+        if (tok == '{') {
+            bd++;
+            if (nl && lr[nl - 1] >> 20 == 1) lr[nl - 1] = bd | 2 << 20;
+        } else if (tok == '}') {
+            if (!--bd) break;
+            while (nl && ((lr[nl - 1] >> 20 == 2 && bd < (lr[nl - 1] & 1023))
+                          || (lr[nl - 1] >> 20 == 3 && bd <= (lr[nl - 1] & 1023)))) nl--;
+        } else if (tok == '(') {
+            pd++;
+            if (pd < 32) pty = pty & ~(1 << pd);
+        } else if (tok == ')') {
+            pd--;
+            if (nl && !(lr[nl - 1] >> 20) && pd == (lr[nl - 1] >> 10 & 1023)) lr[nl - 1] = lr[nl - 1] | 1 << 20;
+        } else if (tok == ';') {
+            while (nl && lr[nl - 1] >> 20 >= 3 && (lr[nl - 1] & 0xfffff) == (bd | pd << 10)) nl--;
+        } else if (tok == K_FOR || tok == K_WHILE || tok == K_DO) {
+            if (nl < 16) lr[nl++] = bd | pd << 10 | (tok == K_DO) << 20;
+        } else if (tok == '[' && pd > 0 && (pd >= 32 || (pty >> pd & 1))) { cut = 1; break; }
+        if (pd > 0 && pd < 32 && ((tok >= K_CHAR && tok <= K_CONST) || tok == K_DOUBLE || tok == K_ENUM
+                || tok == K_FLOAT || tok == K_INT || tok == K_LONG || tok == K_SHORT || tok == K_SIGNED
+                || tok == K_STRUCT || tok == K_UNION || tok == K_UNSIGNED || tok == K_VOID || tok == K_VOLATILE
+                || tok == K_BOOL || (tok == T_ID && tk_sym && sy[tk_sym].cls == SC_TYPEDEF)))
+            pty = pty | 1 << pd;        /* a type in these parentheses */
+        if (tok == '&') amp = !(prev == T_ID || prev == T_NUM || prev == T_STR || prev == ']' || prev == T_INC || prev == T_DEC);
+        else if (tok == T_ID) {
+            id = tk_val;
+            n = slen(tb);
+            if (id == id_asm || id == id_asm2 || (n >= 6 && streq(tb + n - 6, "setjmp"))) ok = 0;
+            for (k = 0; k < np && pid[k] != id; k++) ;
+            if (ok && prev != '.' && prev != T_ARROW && (k < np || !tk_sym || sy[tk_sym].aux))
+                ok = ps_use(id, 1 << 2 * (nl < 3 ? nl : 3), amp);
+            amp = 0;
+        } else if (tok != '(') amp = 0;
+    }
+    pscan = 0;
+    ra_on = 0;
+    if (cut || in_sp || i) { scan_rewind(); return; }
+    sf_pin = -1;                        /* the tokens are kept: the scanner goes on after the } */
+    xh_hold = 0;
+    xh_top = sv_xh;
+    rp_on = 1;
+    rp_pos = A_TK;
+    rp_end = tk_top;
+    rp_line = line;
+    tok = '{';
+    ra_on = ok;
+    if (ok) ra_rank();
+}
+
+/* the variable s, of a type and a name that may have a register, gets one:
+   -> its index in ereg, or 0 */
+int ra_var(int s)
+{
+    int k, o, t = sy[s].type;
+    if (!ra_on || !(is_int(t) || is_ptr(t))) return 0;
+    for (k = 0; k < ra_n && ra_id[k] != sy[s].id; k++) ;
+    if (k == ra_n) return 0;
+    o = ra_own[k];
+    if (o && o < s && (sy[o].flags & SF_REG) && sy[o].val == 8 + k) return 0;   /* an outer one of the name has it */
+    sy[s].flags = SF_REG;
+    sy[s].val = 8 + k;
+    ra_own[k] = s;
+    ra_used = ra_used | 1 << k;
+    return 8 + k;
+}
+
 /* a declaration in a block */
 void local_decl(void)
 {
-    int bt = decl_spec(), cls = ds_class, t, id, s;
+    int v0 = nvol, bt = decl_spec(), cls = ds_class, t, id, s, r, i;
     if (tok == ';') { next(); return; }
     for (;;) {
         d_name = 0;
@@ -4462,7 +4791,21 @@ void local_decl(void)
         } else if (cls == K_STATIC) static_var(id, t, cls);
         else {
             s = sym_decl(id, SC_AUTO, t);
-            if (is_vm(t)) vla_new(s);
+            r = nvol == v0 && !is_vm(t) ? ra_var(s) : 0;
+            if (r) {
+                if (tok == '=') {
+                    next();
+                    for (i = 0; tok == '{'; i++) next();
+                    assign();
+                    rv();
+                    g_cast(t);
+                    vpush(VK_SVAR, t, 0)->reg = r;
+                    vswap();
+                    g_store();
+                    vpop();
+                    for (; i; i--) { if (tok == ',') next(); skip('}'); }
+                }
+            } else if (is_vm(t)) vla_new(s);
             else if (tok == '=') {
                 ini_static = 0;
                 t = fix_len(t);
@@ -4823,7 +5166,7 @@ void loop_stmt(void)
         scope++;
         if (is_type()) local_decl();
         else {
-            if (tok != ';') { expr(); vpop(); }
+            if (tok != ';') { expr(); vdrop(); }
             skip(';');
         }
         cnt_nsy = nsy;
@@ -4835,7 +5178,7 @@ void loop_stmt(void)
             a = g_jmp(0);
             cnt_target = here();
             expr();
-            vpop();
+            vdrop();
             g_jmp_to(top);
             g_resolve(a, code_pc);
         }
@@ -5039,10 +5382,43 @@ void stmt(void)
         }
     default:
         expr();
-        vpop();
+        vdrop();
         skip(';');
     }
     fr_cur = f > fr_keep ? f : fr_keep;
+}
+
+/* the code from a to code_pc moves n bytes (whole words) up, from its end
+   back, a piece at a time through iob and the code window; the fixups move
+   with it, and calls from it to code before a keep their targets */
+void code_open(long a, int n)
+{
+    long e = code_pc, p0, p1, s, d, p, f, l;
+    int w, o;
+    cw_flush();
+    for (p1 = e; p1 > a; p1 = p0) {
+        p0 = p1 - a > 1016 ? p1 - 1016 : a;
+        s = p0 & ~7;
+        d = (p0 + n) & ~7;
+        far_read(A_CODE + s - code_org, iob, ((p1 + 7) & ~7) - s);
+        far_read(A_CODE + d - code_org, cwl, ((p1 + n + 7) & ~7) - d);
+        for (p = p0; p < p1; p = p + 4) {
+            w = ((int *)iob)[(p - s) >> 2];
+            if (!paged && (w >> 26 & 63) == OP_JAL && (w >> 21 & 31) == X_RA) {
+                o = w & 0x1fffff;
+                if (o & 0x100000) o = o - 0x200000;
+                if (p + 4 * o < a) w = (w & ~0x1fffff) | ((o - n / 4) & 0x1fffff);
+            }
+            ((int *)cwl)[(p + n - d) >> 2] = w;
+        }
+        far_write(A_CODE + d - code_org, cwl, ((p1 + n + 7) & ~7) - d);
+    }
+    cw_seek(e + n);
+    for (f = fn_fix0; f < fix_top; f = f + 16) {
+        far_read(f, fw, 16);
+        l = ((int *)fw)[0];
+        if (((int *)fw)[3] != FK_DATA && l >= a && l < e) far_sw(f, l + n);
+    }
 }
 
 /* ================= functions ================= */
@@ -5056,6 +5432,7 @@ void g_fn_begin(void)
     if (paged && (code_pc & 4)) emit(0);        /* a function starts on a word */
     fn_start = code_pc;
     fn_fix0 = fix_top;
+    pi_end = -1;
     if (fn_s0) {                        /* all the arguments in a row: 8 i (s0) */
         e_i(OP_ADDI, X_SP, X_SP, -80);
         e_i(OP_SD, X_S0, X_SP, 0);
@@ -5097,14 +5474,28 @@ void g_fn_place(void)
 void g_fn_end(void)
 {
     long c = fn_rchain;
-    int f;
+    int f, b, i, n = 0;
     if (c && c == code_pc - 4 && lab_pc < code_pc && c >= cw_base) {
         fn_rchain = g_next(c, code_rd(c));      /* a return at the very end needs no jump */
         code_pc = c;
     }
     g_resolve(fn_rchain, code_pc);
+    b = (fr_max + 7) & ~7;                      /* the registers it uses are kept from b on */
+    for (i = 0; i < 11; i++) if (ra_used >> i & 1) n++;
+    if (n) fr_max = b + 8 * n;
     f = (fr_max + 15) & ~7;
     if (f > 32600) err("the function's frame is too large", 0);
+    if (n) {
+        code_open(fn_pro + 8, 4 * n);
+        for (i = n = 0; i < 11; i++)
+            if (ra_used >> i & 1) {
+                code_wr(fn_pro + 8 + 4 * n, enc(OP_SD, ereg[8 + i], X_SP, b + 8 * n));
+                e_i(OP_LD, ereg[8 + i], X_SP, b + 8 * n);
+                n++;
+            }
+    }
+    ra_used = 0;
+    ra_on = 0;
     e_i(OP_LD, X_RA, X_SP, f - 8);
     if (fn_s0) {
         e_i(OP_LD, X_S0, X_SP, f);
@@ -5122,10 +5513,11 @@ void g_fn_end(void)
 /* the definition of function s of type t: tok is { */
 void func_def(int s, int t)
 {
-    int np = ty[t].size, m = nsy, n0 = nty, p0 = npt, ids[16], i, k, pt, ps, off, slot;
+    int np = ty[t].size, m = nsy, n0 = nty, p0 = npt, ids[16], i, k, pt, ps, off, slot, r, pv = lastpv;
     struct sym *p;
     if (sy[s].flags & SF_DEF) err("defined twice: ", id_name(sy[s].id));
     for (i = 0; i < np; i++) ids[i] = lastpn[i];
+    prescan(ids, np);
     sy[s].type = t;
     fn_sym = s;
     fn_ret = ty[t].base;
@@ -5140,6 +5532,12 @@ void func_def(int s, int t)
     g_fn_begin();
     fn_live = 1;
     for (i = 0; i < np + k; i++) {
+        if (!fn_s0 && i >= k && ids[i - k] && !(ty[t].flags & TF_OLD) && !(pv >> (i - k) & 1)) {
+            ps = sym_decl(ids[i - k], SC_AUTO, pt_get(ty[t].aux + i - k));
+            r = ra_var(ps);
+            if (r) { e_i(OP_ADDI, ereg[r], X_A0 + i, 0); continue; }      /* arguments come clean */
+            scope_exit(ps);
+        }
         if (fn_s0) off = 8 * i;
         else {
             off = fr_alloc(8, 8);

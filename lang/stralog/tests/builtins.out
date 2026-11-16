@@ -1,0 +1,93 @@
+strata$ stralog
+Stralog 0.1
+?- X is 7 * 6, Y is X // 4, Z is X mod 5, W is -7 // 2, V is -7 mod 2.
+X = 42, Y = 10, Z = 2, W = -3, V = 1.
+?- X is 2 ** 10, Y is 1 << 59, Z is max(3, 9) - abs(-4) + gcd(12, 18).
+X = 1024, Y = 576460752303423488, Z = 11.
+?- X is 1 << 60.
+Error: evaluation_error(int_overflow)
+?- X is foo + 1.
+Error: type_error(evaluable,foo/0)
+?- X is 1 // 0.
+Error: evaluation_error(zero_divisor)
+?- X is Y + 1.
+Error: instantiation_error
+?- 1 + 2 =:= 3, 2 < 3, 3 >= 3, 4 =\= 5.
+true.
+?- assert(count(0)), retract(count(N)), N1 is N + 1, assert(count(N1)), count(V).
+N = 0, N1 = 1, V = 1 
+.
+?- asserta(p(1)), assertz(p(2)), asserta(p(0)), findall(X, p(X), L).
+L = [0,1,2].
+?- retract(p(1)), findall(X, p(X), L).
+L = [0,2] 
+.
+?- retractall(p(_)), findall(X, p(X), L).
+L = [].
+?- assert(q(1)), assert(q(2)), q(X), assert(q(3)), fail ; findall(Y, q(Y), L).
+L = [1,2,3,3].
+?- clause(ancestor(X, Y), B).
+false.
+?- [family], clause(ancestor(X, Y), B).
+B = parent(X,Y) ;
+B = (parent(X,_A),ancestor(_A,Y)) 
+.
+?- assert(age(peter, 7)), assert(age(ann, 11)), assert(age(pat, 8)), assert(age(tom, 11)).
+true.
+?- setof(A-N, age(N, A), L).
+L = [7-peter,8-pat,11-ann,11-tom].
+?- bagof(N, age(N, A), L).
+A = 7, L = [peter] ;
+A = 8, L = [pat] ;
+A = 11, L = [ann,tom] 
+.
+?- setof(N, A^age(N, A), L).
+L = [ann,pat,peter,tom].
+?- aggregate_all(count, age(_, _), C), aggregate_all(sum(A), age(_, A), S).
+C = 4, S = 37.
+?- msort([b, a, c, a], L), sort([b, a, c, a], S), keysort([2-a, 1-b, 2-c, 1-d], K).
+L = [a,a,b,c], S = [a,b,c], K = [1-b,1-d,2-a,2-c].
+?- predsort([O, A, B]>>compare(O, A, B), [3, 1, 2], L).
+L = [1,2,3].
+?- catch(throw(oops), E, (write(caught(E)), nl)).
+caught(oops)
+E = oops.
+?- catch(number_codes(N, "12x"), error(syntax_error(S), _), true).
+S = illegal_number.
+?- catch(atom_length(123456, L), E, true).
+L = 6.
+?- catch(foo(_), error(existence_error(procedure, PI), _), true).
+PI = foo/1.
+?- atom_codes(A, [0'h, 0'i]), atom_chars(B, [h, o]), char_code(C, 0'z), atom_length(hello, N).
+A = hi, B = ho, C = z, N = 5.
+?- number_codes(N, " 42"), atom_number('17', M), atom_concat(abc, def, X), atom_concat(Y, def, abcdef).
+N = 42, M = 17, X = abcdef, Y = abc 
+.
+?- findall(B-L, sub_atom(abc, B, L, _, b), Ps), upcase_atom(hello, U).
+Ps = [1-1], U = 'HELLO'.
+?- functor(F, point, 3), functor(foo(a, b), N, A), arg(2, foo(a, b), X), T =.. [g, 1, 2], g(1, 2) =.. L.
+F = point(_A,_B,_C), N = foo, A = 2, X = b, T = g(1,2), L = [g,1,2].
+?- copy_term(f(X, Y, X), C), term_variables(f(X, g(Y, X), Z), Vs), length(Vs, N).
+C = f(_A,_B,_A), Vs = [X,Y,Z], N = 3.
+?- X = f(A), Y = f(B), X \== Y, compare(O, 1, a), A = 1, X @< f(2).
+X = f(1), A = 1, Y = f(B), O = (<).
+?- length(L, 3), nth0(1, [a, b, c], E0), nth1(1, [a, b, c], E1), last([a, b, c], La), reverse([1, 2, 3], R).
+L = [_A,_B,_C], E0 = b, E1 = a, La = c, R = [3,2,1].
+?- between(1, 5, X), X * X > 10.
+X = 4 ;
+X = 5 ;
+false.
+?- succ(X, 4), plus(2, Y, 7), sum_list([1, 2, 3], S), max_list([3, 9, 2], M), numlist(1, 5, NL).
+X = 3, Y = 5, S = 6, M = 9, NL = [1,2,3,4,5].
+?- maplist([X, Y]>>(Y is X * 2), [1, 2, 3], L).
+L = [2,4,6] 
+.
+?- foldl([X, A0, A]>>(A is A0 + X), [1, 2, 3], 0, S).
+S = 6 
+.
+?- format("~w and ~q, ~a~n", [foo('A'), 'B c', d]).
+foo(A) and 'B c', d
+true.
+?- halt.
+strata$ halt
+StrataOS: all cores halted

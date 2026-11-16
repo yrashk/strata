@@ -127,7 +127,7 @@ strata$ cat /src/sh.s | wc
 7309 43848 350720
 strata$ rm /www/index.html
 strata$ echo GET / HTTP/1.0 | nc 127.0.0.1 80 > r12
-GET / 200 1797
+GET / 200 1925
 strata$ grep title < r12
 <html><head><meta charset="utf-8"><title>every file</title><link rel="stylesheet" href="/style.css"></head><body>
 strata$ rm r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15

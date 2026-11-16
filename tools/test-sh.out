@@ -166,8 +166,9 @@ cat: no such file: mo
 [1] strata$ cat /doc/motd  | wc
 26 264 1702
 strata$ cat 
-bin/    demo/   etc/    f2      forth/  s1      sys/    ws/
-cc/     doc/    f1      f3      guest/  src/    tfile   www/
+bin/       doc/       f1         forth/     s1         stratalk/  ws/
+cc/        etc/       f2         guest/     src/       sys/       www/
+demo/      examples/  f3         iso/       stralog/   tfile
 strata$ cat ^[[4D^[[K
 strata$ echo alpha > n1; echo beta > /notes/n2; echo gamma > /notes/work/n3
 strata$ ls -t; tag n1 notes; ls -t
@@ -187,6 +188,10 @@ forth/
 ws/
 www/
 cc/
+stratalk/
+examples/
+stralog/
+iso/
 guest/
 notes/
 work/
@@ -205,6 +210,10 @@ forth/
 ws/
 www/
 cc/
+stratalk/
+examples/
+stralog/
+iso/
 guest/
 notes/
 work/
@@ -273,6 +282,10 @@ forth/
 ws/
 www/
 cc/
+stratalk/
+examples/
+stralog/
+iso/
 guest/
 notes/
 work/
@@ -413,6 +426,10 @@ forth/
 ws/
 www/
 cc/
+stratalk/
+examples/
+stralog/
+iso/
 guest/
 proj/
 todo/

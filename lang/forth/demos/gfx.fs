@@ -15,14 +15,15 @@
 
 \ ---- the screen's geometry, from the platform table (device space $1000)
 create ptab 256 allot
-ptab $1000 256 3 tget  3 tag twait      \ the table, through c3 with tag tg3
-: entry ( i -- addr ) 32 * ptab 32 + + ;
-: fb-info ( -- info )                   \ the PT_FB entry's info word
-  ptab 8 + w@ 0 do i entry w@ 5 = if i entry 8 + @ unloop exit then loop 0 ;
-fb-info constant info
-info $ffff and constant width
-info 16 rshift $ffff and constant height
-info 32 rshift $ffff and constant stride
+ptab $1000 256 3 tget  3 tag twait      \ the table, through c3 (the devices) with tag tg3
+: entry ( i -- addr ) 32 * ptab 32 + + ; \ a 32-byte header (u16 entries at 8), 32 bytes an entry:
+: kind ( e -- n ) w@ ;  : info ( e -- u ) 8 + @ ; \ u16 type (5: a framebuffer), u64 info at 8
+: fb-info ( -- info )                   \ the framebuffer entry's info word
+  ptab 8 + w@ 0 do i entry kind 5 = if i entry info unloop exit then loop 0 ;
+fb-info constant geometry               \ u16 width, height, stride (bytes a row)
+geometry $ffff and constant width
+geometry 16 rshift $ffff and constant height
+geometry 32 rshift $ffff and constant stride
 .( framebuffer ) width . .( x ) height . .( stride ) stride . cr
 
 \ ---- the picture: fixed point with 16 fraction bits
@@ -49,24 +50,28 @@ create rowbuf 1280 4 * allot            \ one row of pixels (up to 1280 wide)
   dy * y0 +  width 0 do  i dx * x0 +  over iters color  rowbuf i 4 * + l!  loop drop ;
 
 \ ---- the jobs
+3 constant dev-cap                      \ c3: the devices (the platform table, PRESENT)
+9 constant fb-cap                       \ c9: the framebuffer
+11 constant rest-cap                    \ c11: what is left after a band is cut; the bands joined again
+7 constant next-cap                     \ c7: a band just taken back
 height workers + 1- workers / constant rows  \ rows per band
 rows stride * constant band              \ bytes per band
 : job ( k -- )                           \ worker k draws rows [(k-1)*rows, k*rows)
-  9 0 take                               \ our band: its offset 0 is our first row
+  fb-cap 0 take                          \ our band: its offset 0 is our first row
   1- rows *  rows 0 do
-    dup i + dup height < if row  rowbuf  i stride *  width 4 *  9 tput else drop then
+    dup i + dup height < if row  rowbuf  i stride *  width 4 *  fb-cap tput else drop then
   loop drop
-  9 0 give ;                             \ give the band back (after our transfers)
+  fb-cap 0 give ;                        \ give the band back (after our transfers)
 : deal ( -- )                            \ start the jobs, then hand out the bands
   cores 1 ?do  i 1 ['] job i spawn  loop
-  cores 1 ?do  9 band 11 csplit  9 i give  11 9 cmov  loop ;
+  cores 1 ?do  fb-cap band rest-cap csplit  fb-cap i give  rest-cap fb-cap cmov  loop ;
 : collect ( -- )                         \ bands back in order, joined
-  11 1 take  cores 2 ?do  7 i take  11 7 cjoin  loop
-  11 9 cjoin  11 9 cmov
+  rest-cap 1 take  cores 2 ?do  next-cap i take  rest-cap next-cap cjoin  loop
+  rest-cap fb-cap cjoin  rest-cap fb-cap cmov
   cores 1 ?do  i await  loop ;
 create present-word 0 ,
-: present ( -- ) present-word $4000 8 3 tput ; \ PRESENT: show the framebuffer
+: present ( -- ) present-word $4000 8 dev-cap tput ; \ PRESENT: show the framebuffer
 : draw ( -- ) deal collect present ;
 width 1280 > [if] .( wider than 1280: use -r WxH) cr abort [then]
 .( drawing with ) workers . .( workers, ) rows . .( rows each ... ) ' draw timeit cr
-9 .cap
+fb-cap .cap

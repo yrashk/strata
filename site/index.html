@@ -25,8 +25,15 @@
     <a href="arch/">Architecture</a>
     <a href="isa/">Instructions</a>
     <a href="os/">OS</a>
-    <a href="forth/">Forth</a>
-    <a href="c/">C</a>
+    <div class="menu">
+      <span class="menu-btn" tabindex="0" aria-haspopup="true">Languages</span>
+      <div class="drop">
+        <a href="forth/">Forth</a>
+        <a href="stratalk/">Stratalk</a>
+        <a href="stralog/">Stralog</a>
+        <a href="c/">C</a>
+      </div>
+    </div>
     <a href="hardware/">Hardware</a>
     <a href="play/">Play</a>
     <a href="debug/">Debug</a>
@@ -297,8 +304,46 @@ c2 /bin/cc: same</pre>
   </div>
 </section>
 
+<section id="stratalk" class="section">
+  <h2><span class="num">06</span>Stratalk, a Smalltalk</h2>
+  <div class="split">
+    <div>
+      <p>A Smalltalk whose object memory follows the machine. New objects are made <b>near</b>, in a
+        nursery in the core's data store; the survivors are written out to far memory in <b>one
+        transfer</b>. Far objects are read through a software cache on <code>ltag</code> /
+        <code>linst</code>, and every far store is a transfer you can count. Frames page out to a far
+        stack when recursion runs deep, and a JIT written in Stratalk compiles hot methods into code
+        units that StrataOS pages into the instruction store.</p>
+      <ul class="ticks">
+        <li>Pharo's syntax, closures with non-local return, ANSI exceptions, large integers</li>
+        <li>A compiler written in Stratalk, checked byte for byte against the bootstrap one</li>
+        <li>A REPL with completion; files; a workspace, class browser and inspector in the window server</li>
+        <li>Every StrataOS server's messages as classes, generated from their specifications</li>
+      </ul>
+      <p><a href="stratalk/">The classes, the examples and a playground →</a></p>
+    </div>
+    <div class="terminal">
+<pre><code data-session>strata$ stratalk
+st> 100 factorial printString size
+158
+st> [10 / 0] on: ZeroDivide do: [:e | e messageText]
+'division by zero'
+st> (1 to: 10) inject: 0 into: [:a :b | a + b]
+55
+st> Smalltalk vm at: 'scavenges'
+49</code></pre>
+    </div>
+  </div>
+  <figure class="shot">
+    <img src="img/stratalk-browser.png" alt="The Stratalk class browser in a window of the StrataOS window server" loading="lazy">
+    <figcaption><code>stratalk -b</code>: the class browser, a client of the window server written in
+      Stratalk; the source comes from the kernel's files on the disk.
+      <a href="play/?run=stratalk"><b>Try Stratalk in your browser&nbsp;&rarr;</b></a></figcaption>
+  </figure>
+</section>
+
 <section id="play" class="section">
-  <h2><span class="num">06</span>Try it in your browser</h2>
+  <h2><span class="num">07</span>Try it in your browser</h2>
   <div class="card accent">
     <p>The reference emulator, compiled to WebAssembly. Boot StrataOS on 12 cores and type at its
       shell, watch eight cores draw a Mandelbrot set into the framebuffer, or define words in Forth
@@ -308,7 +353,7 @@ c2 /bin/cc: same</pre>
 </section>
 
 <section id="build" class="section">
-  <h2><span class="num">07</span>Run it</h2>
+  <h2><span class="num">08</span>Run it</h2>
   <p class="intro">Needs a C compiler and Verilator&nbsp;5; SDL2 is optional (for the window). Or read it first:
     the <a href="code/">source browser</a> has every assembly, Forth and C program, syntax-coloured.</p>
   <div class="cmds">

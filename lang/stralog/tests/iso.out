@@ -1,0 +1,29 @@
+strata$ -m 4 stralog -g iso(1,8) /stralog/iso/iso_run
+FAIL lgt_call_1_17: ball(error(existence_error(procedure,fenix/1),A))
+FAIL lgt_call_1_18: ball(error(existence_error(procedure,scattered/2),A))
+iso 1-8: 40 of 42 vectors pass
+strata$ -m 4 stralog -g iso(9,16) /stralog/iso/iso_run
+iso 9-16: 94 of 94 vectors pass
+strata$ -m 4 stralog -g iso(17,24) /stralog/iso/iso_run
+line 18: Syntax error: unterminated quoted text
+FAIL iso_clause_2_04: wrong((A,call(A))==(call(A),call(A)))
+FAIL eddbali_clause_2_12: false
+iso 17-24: 83 of 85 vectors pass
+strata$ -m 4 stralog -g iso(25,32) /stralog/iso/iso_run
+FAIL sics_findall_3_09: false
+FAIL eclipse_findall_3_10: false
+iso 25-32: 99 of 101 vectors pass
+strata$ -m 4 stralog -g iso(33,40) /stralog/iso/iso_run
+iso 33-40: 132 of 132 vectors pass
+strata$ -m 4 stralog -g iso(41,48) /stralog/iso/iso_run
+FAIL iso_retract_1_05: true
+FAIL iso_retractall_1_01: ball(error(existence_error(procedure,{}/1),A))
+FAIL wg17_setof_3_45: ball(error(type_error(list,1),sort/2))
+FAIL eclipse_term_variables_2_10: false
+FAIL eclipse_term_variables_2_11: false
+iso 41-48: 101 of 106 vectors pass
+strata$ -m 4 stralog -g iso(49,56) /stralog/iso/iso_run
+FAIL sics_univ_2_17: ball(error(type_error(list,[]),A))
+iso 49-56: 35 of 36 vectors pass
+strata$ halt
+StrataOS: all cores halted

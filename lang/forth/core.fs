@@ -107,6 +107,16 @@ leave-stack leaves !                    \ empty
   chere %t1 %zero 0 bge,  swap resolve  resolve-leaves unloop, ; immediate
 : leave ( -- ) ahead, >leave ; immediate \ jump to the end of the loop
 
+\ ---- the dictionary: a word's header ------------------------------------------------
+\ Header layout (forth.s): +0 link, +2 hash link, +4 xt, +6 code size (u16),
+\ +8 flags, +9 fold kind, +10 name length (u8), +11 the name.
+: name>string ( nt -- addr u ) dup 11 + swap 10 + c@ ; \ the name
+: name>size ( nt -- u ) 6 + w@ ;                \ code bytes (inline body for primitives)
+: name>flags ( nt -- f ) 8 + c@ ;               \ flags
+: name>link ( nt -- nt' ) w@ ;                  \ the next older word
+: immediate? ( nt -- f ) name>flags 1 and 0<> ; \ ...
+\ (A CREATEd word's data field follows its name, aligned.)
+
 \ ---- more stack and arithmetic words -------------------------------------------------
 : 2@ ( addr -- x1 x2 ) dup cell+ @ swap @ ;     \ two cells
 : 2! ( x1 x2 addr -- ) swap over ! cell+ ! ;    \ ...
@@ -126,7 +136,7 @@ leave-stack leaves !                    \ empty
 : /string ( a u n -- a+n u-n ) rot over + -rot - ; \ drop n characters
 : unused ( -- n ) dict-limit here - ;           \ data space left
 : buffer: ( u "name" -- ) create allot ;        \ a named buffer
-: >body ( xt -- addr ) xt>name dup 10 + c@ + 11 + aligned ; \ data field of a CREATEd word
+: >body ( xt -- addr ) xt>name name>string + aligned ; \ data field of a CREATEd word
 : defer ( "name" -- ) create ['] abort , does> @ execute ; \ a changeable word
 : defer! ( xt deferred-xt -- ) >body ! ;       \ change it
 : defer@ ( deferred-xt -- xt ) >body @ ;        \ what it does now
@@ -215,21 +225,14 @@ variable hld                                    \ the next free place
 : to ( x "name" -- )                            \ store into a VALUE or a local
   parse-name 2dup local? if nip nip  %s1 %s4 rot cells sd,  pop,  exit then
   2dup find-name ?dup 0= if type -13 throw then nip nip
-  dup 10 + c@ + 11 + aligned                    \ its data field
+  name>string + aligned                         \ its data field
   state @ if postpone literal postpone ! else ! then ; immediate
 : [: ( -- orig old-xt quot-xt )                 \ start a quotation inside a definition
   ahead,  19 kvar @  mark dup 19 kvar !  prologue, ; immediate
 : ;] ( orig old-xt quot-xt -- )                 \ end it: its xt becomes a literal
   epilogue,  swap 19 kvar !  swap mark resolve  xtliteral ; immediate \ (one that moves with a paged definition)
 
-\ ---- the dictionary ------------------------------------------------------------------------
-\ Header layout (forth.s): +0 link, +2 hash link, +4 xt, +6 code size (u16),
-\ +8 flags, +9 fold kind, +10 name length (u8), +11 the name.
-: name>string ( nt -- addr u ) dup 11 + swap 10 + c@ ; \ the name
-: name>size ( nt -- u ) 6 + w@ ;                \ code bytes (inline body for primitives)
-: name>flags ( nt -- f ) 8 + c@ ;               \ flags
-: name>link ( nt -- nt' ) w@ ;                  \ the next older word
-: immediate? ( nt -- f ) name>flags 1 and 0<> ; \ ...
+\ ---- timing ------------------------------------------------------------------------------
 : timeit ( xt -- )                              \ run it and show what it cost
   cycles >r instret >r execute instret r> - cycles r> -
   ." [" . ." cycles, " . ." instructions]" ;

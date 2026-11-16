@@ -478,6 +478,18 @@ $(BUILD)/cc/cc.lib: $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS) $(BUILD
 $(BUILD)/strata-cc: lang/cc/cc.c lang/cc/host/host.c lang/cc/host/strata.h
 	@mkdir -p $(BUILD)
 	$(CC) -O2 -w -Ilang/cc/host -o $@ lang/cc/cc.c lang/cc/host/host.c
+# ---- Stratalk (lang/stratalk): the VM, a StrataOS program, and its image ----------
+STRATALK_VM := lang/stratalk/vm.s $(wildcard lang/stratalk/vm-*.s)
+STRATALK_ST := $(addprefix lang/stratalk/kernel/,$(shell sed -e 's/\#.*//' lang/stratalk/kernel/LOAD))
+STRATALK_EX := $(sort $(wildcard lang/stratalk/examples/*.st))
+STRATALK_DISK := $(BUILD)/prog/stratalk $(BUILD)/stratalk/stratalk.image $(STRATALK_ST) $(STRATALK_EX)
+$(BUILD)/prog/stratalk: $(STRATALK_VM) os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -I lang/stratalk -g $(BUILD)/prog/stratalk.map -o $@ lang/stratalk/vm.s
+$(BUILD)/stratalk/stratalk.image: $(STRATALK_ST) lang/stratalk/kernel/LOAD $(wildcard lang/stratalk/host/*.py)
+	@mkdir -p $(BUILD)/stratalk
+	python3 lang/stratalk/host/stratalk.py build -o $@ lang/stratalk/kernel/LOAD
+
 $(BUILD)/prog/cc: $(BUILD)/strata-cc $(BUILD)/cc/cc.lib lang/cc/cc.c
 	@mkdir -p $(BUILD)/prog
 	CC_LIB=$(BUILD)/cc/cc.lib $(BUILD)/strata-cc -p -h 0 -o $@ lang/cc/cc.c
@@ -495,6 +507,23 @@ $(BUILD)/prog/cc0: $(BUILD)/cc/cc0.lib
 	@touch $@
 $(BUILD)/cc/cc0.lib: $(BUILD)/cc/cc-full.stx $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS) $(BUILD)/cc/asm.tab
 	python3 lang/cc/lib/mklib.py --cc $(BUILD)/cc/cc-full.stx $(BUILD)/prog/cc0 $@ $(CC_LIBIN)
+
+# Stralog: assembled whole, then split into the program and its code units
+# (lang/stralog/mkimg.py, which also checks that no jump leaves its unit)
+STRALOG_SRC := $(wildcard lang/stralog/*.s) os/lib/sys.s
+$(BUILD)/stralog/atoms.s: lang/stralog/mkatoms.py
+	@mkdir -p $(BUILD)/stralog
+	python3 lang/stralog/mkatoms.py $@
+$(BUILD)/stralog/bootpl.s: lang/stralog/boot.pl lang/stralog/mkboot.py
+	@mkdir -p $(BUILD)/stralog
+	python3 lang/stralog/mkboot.py lang/stralog/boot.pl > $@
+$(BUILD)/stralog/stralog.stx: $(STRALOG_SRC) $(BUILD)/stralog/atoms.s $(BUILD)/stralog/bootpl.s $(BUILD)/sasm
+	$(BUILD)/sasm -T 0x8000 -I lang/stralog -I $(BUILD)/stralog -g $(BUILD)/stralog/stralog.map -o $@ lang/stralog/stralog.s
+$(BUILD)/prog/stralog: $(BUILD)/stralog/stralog.stx lang/stralog/mkimg.py
+	@mkdir -p $(BUILD)/prog
+	python3 lang/stralog/mkimg.py $< $(BUILD)/stralog/stralog.map $@ $(BUILD)/prog/stralog.u
+$(BUILD)/prog/stralog.u: $(BUILD)/prog/stralog
+	@touch $@
 
 # Every source on the disk carries a copy of the library after the program.
 $(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s
@@ -572,6 +601,14 @@ WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)
 DISK_ARGS  += -t www $(WWW_FILES)
 DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS) -t src,cc $(CC_ASRCS)
+# Stratalk: the VM, its image, and the kernel's sources (lang/stratalk)
+DISK_FILES += $(STRATALK_DISK)
+DISK_ARGS  += -t bin $(BUILD)/prog/stratalk -t stratalk $(BUILD)/stratalk/stratalk.image $(STRATALK_ST) -t stratalk,examples $(STRATALK_EX)
+# Stralog, the Prolog (lang/stralog): the program, its code units, the examples
+STRALOG_PL := $(sort $(wildcard lang/stralog/examples/*.pl))
+STRALOG_ISO := $(sort $(wildcard lang/stralog/tests/iso/*.pl))
+DISK_FILES += $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u $(STRALOG_PL) $(STRALOG_ISO)
+DISK_ARGS  += -t bin $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u -t stralog $(STRALOG_PL) -t stralog,iso $(STRALOG_ISO)
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
@@ -922,6 +959,9 @@ wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS) $(BUILD)/msgops.txt
 	cp $(WEB_IMAGES) $(WEB)/images/
 	cp lang/forth/demos/*.fs $(WEB)/demos/
 	ls lang/forth/demos | sed -n 's/\.fs$$//p' > $(WEB)/demos/index.txt
+	@mkdir -p $(WEB)/stralog
+	cp lang/stralog/examples/*.pl $(WEB)/stralog/
+	ls lang/stralog/examples | sed -n 's/\.pl$$//p' > $(WEB)/stralog/index.txt
 	cp $(DEBUG_ASSETS) $(WEB)/debug/
 	cp $(patsubst %,examples/%.s,$(DEBUG_EXAMPLES)) $(WEB)/debug/src/examples/
 	cp examples/lib/*.s $(WEB)/debug/src/examples/lib/
