@@ -63,7 +63,7 @@
       <p><a class="srcpath" href="../code/#lang/cc/cc.c">lang/cc/cc.c</a> is the compiler: the <code>cc</code> of StrataOS,
         written in the C it compiles. <a class="srcpath" href="../code/#lang/cc/cc.s">lang/cc/cc.s</a> and the files beside
         it are the bootstrap compiler, <code>cc0</code>: the same language again, in Strata assembly.</p>
-      <p>Both are on the disk, with the compiler's source, so the bootstrap can be run where it belongs, on the
+      <p>Both are on the disk, with their sources (<code>/src/cc.c</code>, and <code>cc0</code>'s in <code>/src/cc</code>), so the bootstrap can be run where it belongs, on the
         machine. One test of the build does exactly that, and compares the results byte for byte.</p>
       <ul class="ticks">
         <li><code>cc1</code> differs from <code>c2</code>: other compiler, other code</li>
