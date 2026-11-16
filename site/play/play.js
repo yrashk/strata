@@ -72,6 +72,12 @@ const PRESETS = {
     fitScreen: true,
     type: "stratalk -j\n",
     about: "Stratalk, a Smalltalk for Strata, under StrataOS (the page types stratalk -j at the shell's first prompt: the REPL, with the JIT on). Type an expression and Enter: 3 + 4, 100 factorial, (1 to: 10) collect: [:i | i * i], Proc ps, Smalltalk vm. Tab completes names and selectors; the arrows recall lines. (File named: '/stratalk/examples/queens.st') fileIn runs an example; Smalltalk quit leaves. In the window server (ws), stratalk -w opens a workspace and stratalk -b a class browser.",
+  stralog: {
+    files: ["bootrom.stx", "disk.img"],
+    args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
+    fitScreen: true,
+    type: "-m 8 stralog\n",
+    about: "Stralog, a Prolog written in Strata assembly (the page types -m 8 stralog at the shell's first prompt: an 8 MiB arena). Every term lives in far memory; the data Local Store holds windows onto the tops of the heap, the trail and the choicepoint stack, and a small far cache: statistics. shows what moved. Try [queens]. then queens2(8, Qs), show(Qs). The examples are in /prolog (zebra, animals, calc, roman, primes, graph, kb, meta, sorting, sendmore, hanoi, family); after an answer, ; asks for the next one. The Prolog page has them all with Try buttons.",
   },
   wdoom: {
     files: ["bootrom.stx", "disk-wdoom.img"],

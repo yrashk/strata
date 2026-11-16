@@ -70,27 +70,32 @@
         )
     ).
 
-% The answer: Name = Value for each bound variable; variables bound to each
-% other as X = Y; true if there is nothing to say.
+% The answer: Name = Value for each variable that is bound, with the query's
+% variables in the values written by their names and other variables as _A,
+% _B, ...; true if there is nothing to say.
 '$bindings'(Vs) :-
-    '$binds'(Vs, [], false, Any),
-    (   Any == false -> write(true) ; true ).
+    \+ \+ ( '$name_vars'(Vs),
+            term_variables(Vs, Fresh), '$name_fresh'(Fresh, 0),
+            '$binds'(Vs, false, Any),
+            ( Any == false -> write(true) ; true ) ).
 
-'$binds'([], _, Any, Any).
-'$binds'([N=V|Vs], Seen, Any0, Any) :-
-    (   var(V)
-    ->  (   '$seen_var'(Seen, V, M)
-        ->  '$sep'(Any0), write(M), write(' = '), write(N),
-            Any1 = true, Seen1 = Seen
-        ;   Any1 = Any0, Seen1 = [N-V|Seen]
-        ),
-        '$binds'(Vs, Seen1, Any1, Any)
-    ;   '$sep'(Any0), write(N), write(' = '), writeq(V),
-        '$binds'(Vs, Seen, true, Any)
+'$name_vars'([]).
+'$name_vars'([N=V|Vs]) :- ( var(V) -> V = '$VAR'(N) ; true ), '$name_vars'(Vs).
+
+'$name_fresh'([], _).
+'$name_fresh'([V|Vs], I) :-
+    L is 0'A + I mod 26, J is I // 26,
+    (   J =:= 0 -> atom_codes(N, [0'_, L]) ; number_codes(J, Js), atom_codes(N, [0'_, L|Js]) ),
+    V = '$VAR'(N), I1 is I + 1, '$name_fresh'(Vs, I1).
+
+'$binds'([], Any, Any).
+'$binds'([N=V|Vs], Any0, Any) :-
+    (   V == '$VAR'(N)
+    ->  '$binds'(Vs, Any0, Any)
+    ;   '$sep'(Any0), write(N), write(' = '),
+        write_term(V, [quoted(true), numbervars(true), priority(699)]),
+        '$binds'(Vs, true, Any)
     ).
-
-'$seen_var'([M-W|_], V, M) :- W == V, !.
-'$seen_var'([_|Ss], V, M) :- '$seen_var'(Ss, V, M).
 
 '$sep'(false) :- !.
 '$sep'(true) :- write(', ').
@@ -125,6 +130,9 @@
 consult(F) :- var(F), !, throw(error(instantiation_error, consult/1)).
 consult([]) :- !.
 consult([F|Fs]) :- !, consult(F), consult(Fs).
+consult(user) :- !,            % clauses typed in, up to the end of the input (Ctrl-D)
+    '$new_consult',
+    '$load'(user_input).
 consult(F) :-
     '$open_source'(F, S),
     '$new_consult',
@@ -168,9 +176,30 @@ repeat.
 repeat :- repeat.
 
 once(G) :- call(G), !.
+if(C, T, E) :- ( call(C) *-> call(T) ; call(E) ).
 ignore(G) :- ( call(G) -> true ; true ).
 forall(C, A) :- \+ ( call(C), \+ call(A) ).
 _ ^ G :- call(G).
+
+% ---- lambdas: [X1, ...]>>Goal, called with call/N ------------------------------
+% The lambda is copied for each call (its variables are its own, as with
+% yall's default), its parameters unified with the arguments; arguments beyond
+% the parameters are added to the goal.
+'>>'(Ps, B) :- copy_term(Ps-B, _-B1), call(B1).
+'>>'(Ps, B, A1) :- '$lambda'(Ps, B, [A1]).
+'>>'(Ps, B, A1, A2) :- '$lambda'(Ps, B, [A1, A2]).
+'>>'(Ps, B, A1, A2, A3) :- '$lambda'(Ps, B, [A1, A2, A3]).
+'>>'(Ps, B, A1, A2, A3, A4) :- '$lambda'(Ps, B, [A1, A2, A3, A4]).
+'>>'(Ps, B, A1, A2, A3, A4, A5) :- '$lambda'(Ps, B, [A1, A2, A3, A4, A5]).
+
+'$lambda'(Ps, B, As) :-
+    copy_term(Ps-B, Ps1-B1),
+    '$lambda_bind'(Ps1, As, Rest),
+    (   Rest == [] -> call(B1) ; G =.. [call, B1|Rest], call(G) ).
+
+'$lambda_bind'([], As, As) :- !.
+'$lambda_bind'([P|Ps], [A|As], Rest) :- !, P = A, '$lambda_bind'(Ps, As, Rest).
+'$lambda_bind'(_, [], []).
 
 % ---- the database ------------------------------------------------------------------
 clause(H, B) :- '$clauses'(H, Rs), '$member'(R, Rs), '$clause'(R, H, B).
@@ -197,12 +226,52 @@ discontiguous(_).
 
 current_predicate(N/A) :- '$preds'(L), '$member'(N/A, L).
 
-op(P, T, Ns) :- '$op_list'(Ns, P, T).
-'$op_list'([], _, _) :- !.
-'$op_list'([N|Ns], P, T) :- !, '$op'(P, T, N), '$op_list'(Ns, P, T).
-'$op_list'(N, P, T) :- '$op'(P, T, N).
+op(P, T, Ns) :-
+    (   var(P) -> throw(error(instantiation_error, op/3)) ; true ),
+    (   var(T) -> throw(error(instantiation_error, op/3)) ; true ),
+    (   integer(P) -> true ; throw(error(type_error(integer, P), op/3)) ),
+    (   P >= 0, P =< 1200 -> true ; throw(error(domain_error(operator_priority, P), op/3)) ),
+    (   atom(T) -> true ; throw(error(type_error(atom, T), op/3)) ),
+    (   memberchk(T, [xfx, xfy, yfx, fy, fx, xf, yf]) -> true
+    ;   throw(error(domain_error(operator_specifier, T), op/3))
+    ),
+    (   Ns == [] -> throw(error(permission_error(create, operator, []), op/3)) ; true ),
+    '$op_names'(Ns, Names),
+    '$op_bar'(Names, P, T),
+    '$op_list'(Names, P, T).
+
+% | can only be an infix operator of priority 1001 or more
+'$op_bar'(Ns, P, T) :-
+    (   memberchk('|', Ns), ( P < 1001 ; \+ memberchk(T, [xfx, xfy, yfx]) )
+    ->  throw(error(permission_error(create, operator, '|'), op/3))
+    ;   true
+    ).
+
+'$op_names'(N, _) :- var(N), !, throw(error(instantiation_error, op/3)).
+'$op_names'([], []) :- !.
+'$op_names'([N|Ns], [N|Ms]) :- !, '$op_name'(N), '$op_names'(Ns, Ms).
+'$op_names'(N, [N]) :- atom(N), !, '$op_name'(N).
+'$op_names'(N, _) :- throw(error(type_error(list, N), op/3)).
+
+'$op_name'(N) :- var(N), !, throw(error(instantiation_error, op/3)).
+'$op_name'(N) :- \+ atom(N), !, throw(error(type_error(atom, N), op/3)).
+'$op_name'(',') :- !, throw(error(permission_error(modify, operator, ','), op/3)).
+'$op_name'([]) :- !, throw(error(permission_error(create, operator, []), op/3)).
+'$op_name'(_).
+
+'$op_list'([], _, _).
+'$op_list'([N|Ns], P, T) :- '$op'(P, T, N), '$op_list'(Ns, P, T).
 
 current_op(P, T, N) :-
+    (   var(P) -> true
+    ;   integer(P), P >= 0, P =< 1200 -> true
+    ;   throw(error(domain_error(operator_priority, P), current_op/3))
+    ),
+    (   var(T) -> true
+    ;   memberchk(T, [xfx, xfy, yfx, fy, fx, xf, yf]) -> true
+    ;   throw(error(domain_error(operator_specifier, T), current_op/3))
+    ),
+    (   var(N) -> true ; atom(N) -> true ; throw(error(type_error(atom, N), current_op/3)) ),
     '$op_atoms'(L), '$member'(N, L), '$op_defs'(N, Ds), '$member'(P-T, Ds).
 
 % ---- lists ---------------------------------------------------------------------------
@@ -217,12 +286,34 @@ member(X, [_|T]) :- member(X, T).
 
 memberchk(X, L) :- member(X, L), !.
 
-length(L, N) :- var(N), !, '$len'(L, 0, N).
-length(L, N) :- integer(N), N >= 0, '$mklen'(N, L).
-'$len'([], N, N).
-'$len'([_|T], N0, N) :- N1 is N0 + 1, '$len'(T, N1, N).
+length(L, N) :-
+    '$skip'(L, 0, K, T),
+    (   nonvar(N), \+ integer(N) -> throw(error(type_error(integer, N), length/2)) ; true ),
+    (   integer(N), N < 0 -> throw(error(domain_error(not_less_than_zero, N), length/2)) ; true ),
+    (   T == [] -> N = K
+    ;   var(T) -> ( integer(N) -> M is N - K, M >= 0, '$mklen'(M, T) ; '$lenv'(T, K, N) )
+    ;   throw(error(type_error(list, L), length/2))
+    ).
+'$lenv'([], N, N).
+'$lenv'([_|T], K, N) :- K1 is K + 1, '$lenv'(T, K1, N).
 '$mklen'(0, L) :- !, L = [].
 '$mklen'(N, [_|T]) :- N1 is N - 1, '$mklen'(N1, T).
+
+% '$skip'(L, 0, K, T): L is K pairs and then T (not a pair)
+'$skip'(L, K0, K, T) :-
+    (   nonvar(L), L = [_|R] -> K1 is K0 + 1, '$skip'(R, K1, K, T) ; K = K0, T = L ).
+
+% a list, or an error: instantiation if it is partial, type otherwise
+'$must_list'(L, P) :-
+    '$skip'(L, 0, _, T),
+    (   T == [] -> true
+    ;   var(T) -> throw(error(instantiation_error, P))
+    ;   throw(error(type_error(list, L), P))
+    ).
+% a list or a partial list, or a type error
+'$may_list'(L, P) :-
+    '$skip'(L, 0, _, T),
+    (   ( T == [] ; var(T) ) -> true ; throw(error(type_error(list, L), P)) ).
 
 reverse(L, R) :- '$rev'(L, [], R).
 '$rev'([], A, A).
@@ -286,28 +377,144 @@ is_list([]).
 is_list([_|T]) :- is_list(T).
 
 % ---- arithmetic -----------------------------------------------------------------------
+between(L, H, X) :-
+    '$int'(L, between/3), '$int'(H, between/3), '$int_or_var'(X, between/3), fail.
 between(L, H, X) :- integer(X), !, X >= L, X =< H.
 between(L, H, L) :- L =< H.
 between(L, H, X) :- L < H, L1 is L + 1, between(L1, H, X).
 
-succ(X, Y) :- integer(X), !, X >= 0, Y is X + 1.
-succ(X, Y) :- Y > 0, X is Y - 1.
+succ(X, Y) :-
+    '$int_or_var'(X, succ/2), '$int_or_var'(Y, succ/2),
+    (   var(X), var(Y) -> throw(error(instantiation_error, succ/2)) ; true ),
+    (   integer(X), X < 0 -> throw(error(domain_error(not_less_than_zero, X), succ/2)) ; true ),
+    (   integer(Y), Y < 0 -> throw(error(domain_error(not_less_than_zero, Y), succ/2)) ; true ),
+    (   integer(X) -> Y is X + 1 ; Y > 0, X is Y - 1 ).
 
+plus(X, Y, Z) :-
+    '$int_or_var'(X, plus/3), '$int_or_var'(Y, plus/3), '$int_or_var'(Z, plus/3), fail.
 plus(X, Y, Z) :- integer(X), integer(Y), !, Z is X + Y.
 plus(X, Y, Z) :- integer(X), !, Y is Z - X.
 plus(X, Y, Z) :- X is Z - Y.
 
 % ---- atoms -----------------------------------------------------------------------------
+atom_codes(A, L) :- '$text_list'(L, codes, atom_codes/2), '$atom_codes'(A, L).
+atom_chars(A, L) :- '$text_list'(L, chars, atom_chars/2), '$atom_chars'(A, L).
+
+% the list of a text predicate: a list or a partial list, of codes or chars
+'$text_list'(L, How, P) :-
+    '$may_list'(L, P), '$text_elems'(L, How, P).
+'$text_elems'(L, _, _) :- var(L), !.
+'$text_elems'([], _, _).
+'$text_elems'([E|Es], How, P) :-
+    (   var(E) -> true
+    ;   How == codes -> ( integer(E) -> true ; throw(error(type_error(integer, E), P)) )
+    ;   atom(E), atom_length(E, 1) -> true
+    ;   throw(error(type_error(character, E), P))
+    ),
+    '$text_elems'(Es, How, P).
+
+atom_concat(A, B, C) :-
+    '$atomic_or_var'(A, atom_concat/3), '$atomic_or_var'(B, atom_concat/3),
+    '$atomic_or_var'(C, atom_concat/3), fail.
 atom_concat(A, B, C) :- atomic(A), atomic(B), !,
     atom_codes(A, Ca), atom_codes(B, Cb), append(Ca, Cb, Cc), atom_codes(C, Cc).
 atom_concat(A, B, C) :-
     atom_codes(C, Cc), append(Ca, Cb, Cc), atom_codes(A, Ca), atom_codes(B, Cb).
 
+'$atomic_or_var'(X, _) :- var(X), !.
+'$atomic_or_var'(X, _) :- atomic(X), !.
+'$atomic_or_var'(X, P) :- throw(error(type_error(atom, X), P)).
+
+'$int_or_var'(X, _) :- var(X), !.
+'$int_or_var'(X, _) :- integer(X), !.
+'$int_or_var'(X, P) :- throw(error(type_error(integer, X), P)).
+'$int'(X, P) :- var(X), !, throw(error(instantiation_error, P)).
+'$int'(X, P) :- '$int_or_var'(X, P).
+
+% sub_atom/5 works on codes, and makes an atom only of an answer (atoms are
+% never collected)
 sub_atom(A, B, L, After, Sub) :-
+    (   var(A) -> throw(error(instantiation_error, sub_atom/5)) ; true ),
+    (   atom(A) -> true ; throw(error(type_error(atom, A), sub_atom/5)) ),
+    (   var(Sub) -> true ; atom(Sub) -> true ; throw(error(type_error(atom, Sub), sub_atom/5)) ),
     atom_codes(A, Cs),
-    append(Pre, Rest, Cs), append(SubCs, Post, Rest),
-    length(Pre, B), length(SubCs, L), length(Post, After),
-    atom_codes(Sub, SubCs).
+    (   atom(Sub)
+    ->  atom_codes(Sub, SubCs),
+        append(Pre, Rest, Cs), append(SubCs, Post, Rest),
+        length(Pre, B), length(SubCs, L), length(Post, After)
+    ;   append(Pre, Rest, Cs), length(Pre, B),
+        append(SubCs, Post, Rest), length(SubCs, L), length(Post, After),
+        atom_codes(Sub, SubCs)
+    ).
+
+% number_codes/2, number_chars/2: the text is read as the reader reads a
+% number (0x, 0o, 0b, 0'c, a minus sign, layout before it); '$number_codes'
+% and '$number_chars' write one
+number_codes(N, L) :- '$num_text'(N, L, codes, number_codes/2).
+number_chars(N, L) :- '$num_text'(N, L, chars, number_chars/2).
+
+'$num_text'(N, L, How, P) :-
+    (   nonvar(N), \+ integer(N) -> throw(error(type_error(number, N), P)) ; true ),
+    '$skip'(L, 0, _, T),
+    (   T == [], nonvar(N), \+ ground(L)
+    ->  '$num_elems_partial'(L, How, P),
+        ( How == codes -> '$number_codes'(N, L0) ; '$number_chars'(N, L0) ), L = L0
+    ;   T == []
+    ->  '$num_elems'(L, How, P, Cs),
+        (   '$num_codes'(Cs, M) -> N = M
+        ;   throw(error(syntax_error(illegal_number), P))
+        )
+    ;   var(T)
+    ->  (   var(N) -> throw(error(instantiation_error, P))
+        ;   '$num_elems_partial'(L, How, P),
+            ( How == codes -> '$number_codes'(N, L0) ; '$number_chars'(N, L0) ), L = L0
+        )
+    ;   throw(error(type_error(list, L), P))
+    ).
+
+'$num_elems'([], _, _, []).
+'$num_elems'([E|Es], How, P, [C|Cs]) :- '$num_elem'(E, How, P, C), '$num_elems'(Es, How, P, Cs).
+'$num_elems_partial'(L, _, _) :- var(L), !.
+'$num_elems_partial'([], _, _).
+'$num_elems_partial'([E|Es], How, P) :-
+    ( var(E) -> true ; '$num_elem'(E, How, P, _) ), '$num_elems_partial'(Es, How, P).
+
+'$num_elem'(E, _, P, _) :- var(E), !, throw(error(instantiation_error, P)).
+'$num_elem'(E, codes, P, E) :- !,
+    (   integer(E) -> ( E >= 0, E =< 255 -> true ; throw(error(representation_error(character_code), P)) )
+    ;   throw(error(type_error(integer, E), P))
+    ).
+'$num_elem'(E, chars, P, C) :-
+    (   atom(E), atom_length(E, 1) -> char_code(E, C) ; throw(error(type_error(character, E), P)) ).
+
+% '$num_codes'(Cs, N): the codes are a number as the reader reads one:
+% layout, an optional minus, then 0'c, 0x.., 0o.., 0b.. or decimal digits
+'$num_codes'(Cs, N) :-
+    '$num_layout'(Cs, Cs1),
+    (   Cs1 = [0'-|Cs2] -> '$num_unsigned'(Cs2, M), N is -M
+    ;   '$num_unsigned'(Cs1, N)
+    ).
+'$num_layout'([C|Cs], R) :- C =< 32, !, '$num_layout'(Cs, R).
+'$num_layout'(Cs, Cs).
+'$num_unsigned'([0'0, 0''|Cs], N) :- !, '$num_quoted'(Cs, N).
+'$num_unsigned'([0'0, 0'x|Cs], N) :- !, '$num_digits'(Cs, 16, 0, N, 0).
+'$num_unsigned'([0'0, 0'o|Cs], N) :- !, '$num_digits'(Cs, 8, 0, N, 0).
+'$num_unsigned'([0'0, 0'b|Cs], N) :- !, '$num_digits'(Cs, 2, 0, N, 0).
+'$num_unsigned'(Cs, N) :- '$num_digits'(Cs, 10, 0, N, 0).
+'$num_quoted'([0'', 0''], 0'') :- !.
+'$num_quoted'([0'\\, C], N) :- !, '$num_escape'(C, N).
+'$num_quoted'([C], C) :- C =\= 0'\\, C =\= 0''.
+'$num_escape'(0'n, 10). '$num_escape'(0't, 9). '$num_escape'(0'\\, 0'\\).
+'$num_escape'(0'', 0''). '$num_escape'(0'", 0'"). '$num_escape'(0'`, 0'`).
+'$num_escape'(0'a, 7). '$num_escape'(0'b, 8). '$num_escape'(0'f, 12).
+'$num_escape'(0'v, 11). '$num_escape'(0'r, 13). '$num_escape'(0'0, 0).
+'$num_digits'([], _, N, N, K) :- K > 0.
+'$num_digits'([C|Cs], R, N0, N, K) :-
+    '$digit_value'(C, D), D < R, N1 is N0 * R + D, K1 is K + 1,
+    '$num_digits'(Cs, R, N1, N, K1).
+'$digit_value'(C, D) :- C >= 0'0, C =< 0'9, !, D is C - 0'0.
+'$digit_value'(C, D) :- C >= 0'a, C =< 0'z, !, D is C - 0'a + 10.
+'$digit_value'(C, D) :- C >= 0'A, C =< 0'Z, D is C - 0'A + 10.
 
 atom_number(A, N) :- atom(A), !,
     atom_codes(A, Cs), catch(number_codes(N, Cs), _, fail).
@@ -320,14 +527,37 @@ upcase_atom(A, U) :- atom_codes(A, Cs), '$upc'(Cs, Us), atom_codes(U, Us).
 '$upc'([C|Cs], [U|Us]) :- ( C >= 0'a, C =< 0'z -> U is C - 32 ; U = C ), '$upc'(Cs, Us).
 
 % ---- terms ------------------------------------------------------------------------------
+ground(T) :- term_variables(T, []).
 numbervars(T, S, E) :- term_variables(T, Vs), '$numbervars'(Vs, S, E).
 '$numbervars'([], E, E).
 '$numbervars'(['$VAR'(N)|Vs], N, E) :- N1 is N + 1, '$numbervars'(Vs, N1, E).
 
 % ---- sorting: a stable merge sort --------------------------------------------------------
-msort(L, S) :- length(L, N), '$msort'(N, L, S, [], std).
-keysort(L, S) :- length(L, N), '$msort'(N, L, S, [], key).
-sort(L, S) :- msort(L, S0), '$dedup'(S0, S).
+msort(L, S) :-
+    '$must_list'(L, msort/2), '$may_list'(S, msort/2),
+    length(L, N), '$msort'(N, L, S, [], std).
+keysort(L, S) :-
+    '$must_list'(L, keysort/2), '$may_list'(S, keysort/2),
+    '$pairs'(L, keysort/2), '$opt_pairs'(S, keysort/2),
+    length(L, N), '$msort'(N, L, S, [], key).
+sort(L, S) :-
+    '$must_list'(L, sort/2), '$may_list'(S, sort/2),
+    length(L, N), '$msort'(N, L, S0, [], std), '$dedup'(S0, S).
+
+'$pairs'([], _).
+'$pairs'([E|Es], P) :-
+    (   var(E) -> throw(error(instantiation_error, P))
+    ;   E = _-_ -> '$pairs'(Es, P)
+    ;   throw(error(type_error(pair, E), P))
+    ).
+'$opt_pairs'(L, _) :- var(L), !.
+'$opt_pairs'([], _) :- !.
+'$opt_pairs'([E|Es], P) :-
+    (   var(E) -> true
+    ;   E = _-_ -> true
+    ;   throw(error(type_error(pair, E), P))
+    ),
+    '$opt_pairs'(Es, P).
 predsort(P, L, S) :- length(L, N), '$msort'(N, L, S0, [], pred(P)), '$pdedup'(S0, S).
 
 % '$msort'(N, L, Sorted, Rest, How): the first N of L sorted; Rest the others
@@ -357,9 +587,12 @@ predsort(P, L, S) :- length(L, N), '$msort'(N, L, S0, [], pred(P)), '$pdedup'(S0
 '$pdedup'(L, L).
 
 % ---- all solutions ------------------------------------------------------------------------
-findall(T, G, L, Tail) :- findall(T, G, L0), append(L0, Tail, L).
+findall(T, G, L, Tail) :-
+    '$may_list'(L, findall/4), '$may_list'(Tail, findall/4),
+    findall(T, G, L0), append(L0, Tail, L).
 
 bagof(T, G, L) :-
+    '$may_list'(L, bagof/3),
     '$strip'(G, G1, Ex),
     term_variables(T+Ex, Bound), term_variables(G1, GVs),
     '$free'(GVs, Bound, W),
@@ -448,9 +681,11 @@ format(F, Args) :-
 
 % ---- statistics -------------------------------------------------------------------------------
 statistics :-
-    '$stats'([Calls, H, TR, B, HS, HSl, HB, TS, TSl, TB, CS, CSl, CB, FM, FW, At, Db, Fa, HSize, _]),
+    '$stats'([Calls, H, TR, B, HS, HSl, HB, TS, TSl, TB, CS, CSl, CB, FM, FW, At, Db, Fa, HSize, _,
+              GCs, GCFreed]),
     format('calls: ~d~n', [Calls]),
     format('heap: ~d of ~d bytes used; window: ~d spills, ~d slides, ~d bytes moved~n', [H, HSize, HS, HSl, HB]),
+    format('garbage collections: ~d, ~d bytes given back~n', [GCs, GCFreed]),
     format('trail: ~d bytes used; window: ~d spills, ~d slides, ~d bytes moved~n', [TR, TS, TSl, TB]),
     CPs is (B + 64) // 64,
     format('choicepoints: ~d frames; window: ~d spills, ~d slides, ~d bytes moved~n', [CPs, CS, CSl, CB]),

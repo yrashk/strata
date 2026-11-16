@@ -371,6 +371,36 @@ was built from.
   class-side slots for classes made at run time, inline caches in native
   code (a send from it takes the interpreter's path: `24 fibx` is 1.4x
   faster with the JIT, not more), a manual chapter.
+## Stralog, a Prolog (added 2026-11-16)
+
+`lang/prolog/` holds Stralog, a Prolog in Strata assembly that runs as
+`stralog` under StrataOS: an ISO core Prolog with exceptions, assert,
+findall/bagof/setof, DCGs, files and op/3. `README.md` there has the
+language and its limits; `DESIGN.md` has the engine and how memory works.
+
+- **Memory:** terms live in the arena. The D-LS has windows onto the tops of
+  the heap, the trail and the choicepoint stack, plus a far cache on
+  `ltag`/`linst`. A heap collector (`gc.s`) runs between goals.
+- **Build:** the image is split by `lang/prolog/mkimg.py` into `/bin/stralog`
+  and its code units, `/bin/stralog.u`. `mkimg.py` also checks that no jump
+  leaves its 4 KiB unit. A unit function that calls another unit must itself
+  be called with `xcall`.
+- **Tests:** five sessions in `make test` (`lang/prolog/tests/run.sh`):
+  - `session`, `builtins`, `files`, `demos`;
+  - `iso`: 596 conformance vectors from Logtalk's tests, 584 of which pass;
+    the README lists the rest.
+  - `web-prolog` checks that the page describes every predicate.
+- **Web:** the page is `doc/manual/gen/genprolog.py` (prolog/ on the site),
+  with a playground that boots StrataOS and starts `stralog`
+  (`site/prolog/prolog.js`). The play page has a "Stralog" preset.
+- **Disk:** the examples are on the disk under `/prolog`; adding one moves
+  `tools/test-sh.out` and `tools/test-http.out`.
+- **Limits it is near:**
+  - the resident code ends at 0xB5xx, which leaves 4 code-cache slots;
+  - 20 units;
+  - D-LS data ends at 0x8C9x.
+  - The clause store is never reclaimed, so `iso.txt` runs the vectors in
+    groups, each in a fresh `stralog`.
 
 ## Open work
 
@@ -443,6 +473,7 @@ was built from.
 | `os/ws/README.md` | The window server |
 | `lang/forth/README.md` | Forth: bare metal, StrataOS, code paging, as a guest |
 | `lang/cc/DESIGN.md`, `lang/cc/PLAN-cc.md`, `lang/cc/tests/README.md` | The C compiler: design, state and scores, the test ladder |
+| `lang/prolog/README.md`, `lang/prolog/DESIGN.md` | Stralog: the language, limits, examples, conformance; the engine and its memory |
 | `emu/jit/README.md` | Native JIT |
 | `web/README.md` | Browser build: worker, fast interpreter, wasm JIT, networking |
 | `conformance/README.md`, `conformance/FINDINGS.md` | Conformance suite and what it found |

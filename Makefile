@@ -606,8 +606,9 @@ DISK_FILES += $(STRATALK_DISK)
 DISK_ARGS  += -t bin $(BUILD)/prog/stratalk -t stratalk $(BUILD)/stratalk/stratalk.image $(STRATALK_ST) -t stratalk,examples $(STRATALK_EX)
 # Stralog, the Prolog (lang/prolog): the program, its code units, the examples
 STRALOG_PL := $(sort $(wildcard lang/prolog/examples/*.pl))
-DISK_FILES += $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u $(STRALOG_PL)
-DISK_ARGS  += -t bin $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u -t prolog $(STRALOG_PL)
+STRALOG_ISO := $(sort $(wildcard lang/prolog/tests/iso/*.pl))
+DISK_FILES += $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u $(STRALOG_PL) $(STRALOG_ISO)
+DISK_ARGS  += -t bin $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u -t prolog $(STRALOG_PL) -t prolog,iso $(STRALOG_ISO)
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
@@ -949,6 +950,9 @@ wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS) $(BUILD)/msgops.txt
 	cp $(WEB_IMAGES) $(WEB)/images/
 	cp lang/forth/demos/*.fs $(WEB)/demos/
 	ls lang/forth/demos | sed -n 's/\.fs$$//p' > $(WEB)/demos/index.txt
+	@mkdir -p $(WEB)/prolog
+	cp lang/prolog/examples/*.pl $(WEB)/prolog/
+	ls lang/prolog/examples | sed -n 's/\.pl$$//p' > $(WEB)/prolog/index.txt
 	cp $(DEBUG_ASSETS) $(WEB)/debug/
 	cp $(patsubst %,examples/%.s,$(DEBUG_EXAMPLES)) $(WEB)/debug/src/examples/
 	cp examples/lib/*.s $(WEB)/debug/src/examples/lib/

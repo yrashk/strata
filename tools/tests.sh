@@ -90,6 +90,11 @@ t stratalk-check mid  build-main "lang/stratalk os/spec" 'python3 lang/stratalk/
 t stratalk-host  mid  build-main "lang/stratalk" 'lang/stratalk/tests/run.sh -h'
 # ---- Stralog, the Prolog (lang/prolog): scripted sessions under StrataOS
 t stralog      fast build-main "emu os lang/prolog/tests" "lang/prolog/tests/run.sh session $OS"
+t stralog-bi   fast build-main "emu os lang/prolog/tests" "lang/prolog/tests/run.sh builtins $OS"
+t stralog-files fast build-main "emu os lang/prolog/tests" "lang/prolog/tests/run.sh files $OS"
+t stralog-demos fast build-main "emu os lang/prolog/tests lang/prolog/examples" "lang/prolog/tests/run.sh demos $OS"
+t stralog-iso  fast build-main "emu os lang/prolog/tests" "lang/prolog/tests/run.sh iso $OS"
+t web-prolog   fast build-main "lang/prolog doc/manual/gen/genprolog.py" 'python3 doc/manual/gen/genprolog.py --check'
 
 # ---- the framebuffer, the JIT, the debuggers --------------------------------------
 t fb           mid  build-main "emu rtl" 'tools/test-fb.sh $B/examples/gfx.stx'

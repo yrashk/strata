@@ -11,7 +11,9 @@ around that rather than hiding it:
   everything else.
 - `statistics/0` shows what moved between the two.
 
-The design, and the reasons for it, are in [DESIGN.md](DESIGN.md).
+The design, and the reasons for it, are in [DESIGN.md](DESIGN.md). The website's
+Stralog page (`doc/manual/gen/genprolog.py`) has every predicate, the examples
+with Try buttons, and a playground running it in StrataOS in the browser.
 
 ## Running it
 
@@ -52,7 +54,7 @@ Ds = [bob,liz,ann,pat,jim].
 
 It works on the console, which it puts in raw mode while a line is typed, and in a window server terminal, whose keys arrive as they are.
 
-**Consulting.** `consult/1` and `[File]` look for `File`, `File.pl`, `/prolog/File` and `/prolog/File.pl`, in that order. The examples are tagged `prolog`.
+**Consulting.** `[user]` reads clauses typed in, up to Ctrl-D. `consult/1` and `[File]` look for `File`, `File.pl`, `/prolog/File` and `/prolog/File.pl`, in that order. The examples are tagged `prolog`.
 
 ## The language
 
@@ -87,14 +89,21 @@ Not there:
 - **Memory:**
   - The arena's program memory is 832 KiB unless `-m N` gives more.
   - Above 512 KiB the heap, the trail (a 16th) and the choicepoint stack (a 32nd) share it. In the default arena that leaves 236 KiB of heap.
-  - Bodies are copied when a clause is called, so a long deterministic recursion uses heap until it backtracks, the query ends, or (milestone 5) the collector runs.
+  - Bodies are copied when a clause is called, so a long deterministic recursion uses heap until it backtracks, the query ends, or the collector runs.
   - A full heap raises `resource_error(memory)`.
+- **Garbage collection** (`gc.s`):
+  - When the heap passes three quarters of its size, the solve loop collects it between two goals, with a sliding mark-and-compact collector.
+  - The roots are the continuation, every choicepoint's goal and continuation, and the trail. The trail is tidied first: an entry whose cell is newer than its choicepoint's heap top undoes nothing, and would only keep cells alive.
+  - The mark bitmap and a prefix count every 64 cells go in the free heap above the top. Every cell moves through the same window and far cache as the rest of the engine.
+  - The next collection comes when the heap has grown by half of what is free (at least 64 KiB).
+  - `statistics/0` counts collections and the bytes they gave back. In `examples/sorting.pl`, `nrev_bench(200)` allocates 2.3 MB on a 3 MB heap and is collected once.
 - **Recursion depth:** unification, copying, comparing and writing recurse on the machine stack (8 KiB) except on a compound's last argument. Lists can be any length, but a term nested more than about 200 deep elsewhere raises `resource_error(term_depth)`.
 - **Sizes:**
   - an arity of at most 255;
   - names of at most 1000 bytes;
   - 64 variables in a clause read;
-  - 64 KiB of atoms, 184 KiB of clauses, 124 KiB of findall answers.
+  - 80 KiB of atoms, 168 KiB of clauses, 124 KiB of findall answers.
+  - Clauses that are retracted or replaced by a new consult keep their space. Atoms are never collected, so `sub_atom/5` makes atoms only of its answers.
 
 ## Files
 
@@ -109,5 +118,48 @@ Not there:
 | `init.s` | start-up: atoms, the builtin table, `boot.pl` |
 | `boot.pl` | what is written in Prolog: the top level, consult, lists, sorting, bagof, DCGs, format |
 | `mkatoms.py` `mkboot.py` `mkimg.py` | the build: predefined atoms; `boot.pl` as text; the split into the program and its code units, with the check that no jump leaves its unit |
-| `examples/` | Prolog programs on the disk, under `/prolog` |
-| `tests/` | the scripted sessions (`run.sh`, in `make test`) |
+| `gc.s` | the heap's garbage collector |
+| `examples/` | Prolog programs on the disk, under `/prolog` (below) |
+| `tests/` | the scripted sessions (`run.sh`, in `make test`): `session`, `builtins`, `files`, `demos`, `iso` |
+| `tests/iso/` | the ISO conformance vectors, and `iso_run.pl`, which runs them |
+
+## Examples
+
+On the disk under `/prolog`; consult one with `[queens]`:
+
+| file | what | try |
+|---|---|---|
+| `family.pl` | facts, rules, recursion, a cut | `ancestor(A, jim).` |
+| `queens.pl` | N queens, generate and test and column by column | `queens2(8, Qs), show(Qs).` |
+| `zebra.pl` | the zebra puzzle | `zebra(Owner).` |
+| `animals.pl` | an expert system that asks questions and remembers the answers | `identify.` |
+| `hanoi.pl` | the towers of Hanoi | `hanoi(3).` |
+| `primes.pl` | primes by trial division and a sieve with a lambda | `primes(60, Ps).` |
+| `sendmore.pl` | SEND + MORE = MONEY | `sendmore(L).` |
+| `calc.pl` | a calculator as a DCG | `calc("2 * (3 + 4) - 5", V).` |
+| `roman.pl` | Roman numerals both ways with a DCG | `roman(1987, R).` |
+| `graph.pl` | paths, breadth-first search, setof | `shortest(a, e, P).` |
+| `kb.pl` | a knowledge base of planets, with setof and aggregate_all | `in_order(Ps).` |
+| `meta.pl` | a meta-interpreter with proof trees | `proof(app([1], [2], L), P).` |
+| `sorting.pl` | quicksort, insertion sort, a naive-reverse benchmark | `nrev_bench(200).` |
+
+## Conformance
+
+`tests/iso/` holds 596 vectors in 49 files, one per builtin or control
+construct. They come from [Logtalk](https://logtalk.org/)'s tests
+(Apache-2.0), which carry the examples of the ISO/IEC 13211-1 standard and
+of Szabó and Szeredi's conformance suite.
+
+`tests/mkiso.py` makes them from a Logtalk checkout. It keeps the tests
+whose body is one goal, and leaves out floats, Logtalk's own notation and
+what Stralog does not have.
+
+`make test` runs them in groups, each in a fresh `stralog`
+(`tests/iso.txt`), and compares the result with `tests/iso.out`. Today 584
+pass. The 12 that do not:
+- `findall/3` does not check its result list;
+- `term_variables/2` does not check its second argument;
+- `=..` does not refuse `[]`;
+- a variable body is not turned into `call/1` when a clause is stored;
+- `retract/1` and `retractall/1` differ on two of the standard's examples;
+- two `call/1` tests need dynamic declarations that live inside Logtalk's test object.

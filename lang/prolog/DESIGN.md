@@ -100,9 +100,9 @@ The program's arena (c0, 832 KiB):
 | arena offsets | contents | reached through |
 |---|---|---|
 | 0x00000 | the image's `.far`: code units, `boot.pl` | `xcall`; the reader reads `boot.pl` |
-| 0x20000 | atom records (name, operators, predicate chain) | far cache |
-| 0x30000 | the atom hash: 1024 heads | far cache |
-| 0x32000 | predicates and clause templates | far cache |
+| 0x20000 | atom records (name, operators, predicate chain), 80 KiB | far cache |
+| 0x34000 | the atom hash: 1024 heads | far cache |
+| 0x36000 | predicates and clause templates | far cache |
 | 0x60000 | the findall and ball area | far cache |
 | 0x80000 | the heap (256 KiB) | its window, else the far cache |
 | 0xC0000 | the trail (32 KiB) | its window, else the far cache |
@@ -145,12 +145,14 @@ The program's arena (c0, 832 KiB):
 
 **Garbage collection:**
 
-- Until milestone 5: backtracking, plus the top level's failure-driven loop,
-  which gives back the heap of every query. A program that runs out of heap
-  raises `resource_error(memory)`.
-- Milestone 5: a mark-and-compact collector for the heap that streams it
-  through the D-LS in blocks, with a mark bitmap in the arena.
-- Atoms are never collected.
+- **Before any collection:** backtracking, and the top level's failure-driven loop, give back the heap of every query.
+- **When it runs:** a sliding mark-and-compact collector (`gc.s`) runs between two goals once the heap passes a limit. The first limit is three quarters of the heap; after each collection it is set at half of what is free (at least 64 KiB).
+- **Roots:** the continuation, every choicepoint's goal and continuation, and the trail.
+- **Trail tidying:** before marking, an entry whose cell is newer than the heap top of its own choicepoint is dropped. Such entries are left behind by cuts, for instance by tail recursion through if-then-else, and they would keep the cells alive.
+- **The collector's tables:** the mark bitmap (a bit per cell), a prefix table (the live cells before each 64) and the mark stack go in the free heap above the top. A live cell's new place is the heap's start plus eight times the live cells below it, and so is a choicepoint's saved heap top.
+- **Order is kept:** the live cells slide down in order, so each choicepoint still owns the heap above its saved top.
+- **Moving the cells:** everything is read and written through the heap window and the far cache, so the collector streams the heap through the D-LS like any other code. Afterwards the far cache drops what it held above the window's base: the bitmap and the table, which are dead.
+- **What cannot be collected:** a program whose live data outgrows the heap raises `resource_error(memory)`, and `-m N` gives it more room. Atoms are never collected, nor is the clause store.
 
 **Recursion limit:** unification, copying and writing recurse on the machine
 stack (8 KiB) and iterate on the last argument. Lists and right-nested
@@ -195,4 +197,5 @@ Each milestone is tested, merged, and `main` is pushed.
 4. **Files:** consult, `op/3`, DCGs, `statistics` with the transfer
    counters, and conformance vectors.
 5. **Demos:** N-queens, the zebra puzzle, a small expert system, and heap
-   GC.
+   GC. (All five are done: README.md has the state, the examples and the
+   conformance figures.)
