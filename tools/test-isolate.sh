@@ -22,7 +22,7 @@ check() { # $1 = which machine, $2 = its output
   # the scanner's verdict, and the filler's switches (ps: pid ppid state core cpus switches KiB name)
   ok=$(grep -c '^dlsgap: 9 looks, clean$' "$2")
   sw=$(awk '$4 == 6 && $8 == "dlsgap" && $6 >= 8 { k++ } END { print k + 0 }' "$2")
-  prot=$(grep -c '^lsprot: 7 of 7 refused, own parts fine$' "$2")
+  prot=$(grep -c '^lsprot: 8 of 8 refused, own parts fine$' "$2")
   if [ "$ok" = 1 ] && [ "$sw" -ge 1 ] && [ "$prot" = 1 ]; then
     printf '%-14s OK    nothing of the filler in the scanner'"'"'s D-LS gaps, 8 switches; the kernel'"'"'s parts out of reach (%s)\n' isolate "$1"
     return 0

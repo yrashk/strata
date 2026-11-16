@@ -112,8 +112,10 @@ Not verified:
 - **Parallel agents** worked in git worktrees (`.claude/worktrees/`), each on
   its own branch, merged into main by hand after review and a full test.
   When two branches touch `os/kernel.s`, check the worker's resident code
-  still ends below K0TEXT (0x7700): it ends at 0x76FC now, 4 bytes to spare
-  (workers have no kernel units: everything the dispatcher runs is resident);
+  still ends below K0TEXT (0x7700): it ends at 0x7450 now, 688 bytes to
+  spare. Workers have no kernel units; what does not fit goes into the
+  worker extension (`os/kunits/wext.s`, at most 0x900 bytes, copied over
+  core 0's code at 0x7700, 1.9 KiB used);
   core 0's own resident code (K0TEXT..0x8000) has 4 bytes to spare.
   Anything new on the worker side has to make room for itself.
 - Commit messages end with a `Co-Authored-By:` line naming the model that
@@ -333,18 +335,20 @@ the program); the debugger takes a server's symbols from `build/sys/` first
 ## Open work
 
 **Waiting on a decision**
-- *Local Store windows, steps 2 to 4* (`doc/ls-windows.md`). Step 1 is
-  done (2026-11-15, branch `claude/zen-kalam-10f6fb`): the CSRs `wdata`,
+- *Local Store windows: relocating code* (`doc/ls-windows.md`). Done on
+  branch `claude/zen-kalam-10f6fb` (2026-11-15): the CSRs `wdata`,
   `wstack`, `wcode` (26..28) bound and relocate user-mode Local Store
   addresses in the emulator (interpreter, fast loop, the three JITs), the
-  RTL and the debug engine (`conformance/tests/lswin.s`), and StrataOS
-  sets identity windows on every worker, so user mode can no longer reach
-  the dispatcher's data or the kernel's code (`tools/lsprot.s` in
-  `test-isolate`). Open: ECP5 synthesis with the windows (timing); the
-  dispatcher keeping several threads resident in relocated windows, so
-  that switches between them copy nothing; window-aware code relocation
-  in the JITs and the fast loop (they leave a relocated code window to
-  `step()` today).
+  RTL and the debug engine (`conformance/tests/lswin.s`); user mode cannot
+  reach the dispatcher's data or the kernel's code (`tools/lsprot.s` in
+  `test-isolate`); threads stay resident in D-LS slices that the windows
+  relocate, so a switch between two that fit moves only their code
+  (`os/kunits/wext.s`, the worker extension, copied to I-LS 0x7700 on
+  workers). Open: relocating the code too, which needs the JITs and the
+  fast loop to translate by physical I-LS address (today a relocated code
+  window runs in `step()`); `pipe` and `db` evict each other (their
+  extents are 35 and 40 KiB); `cc` could refuse a frame larger than the
+  8 KiB stack (it now faults instead of writing over the dispatcher).
 - *ASIC with two and six cores*: scripted (`asic/run.sh N`), paused by the
   user.
 
@@ -399,7 +403,7 @@ the program); the debugger takes a server's symbols from `build/sys/` first
 | `PLAN.md` | Decisions (do not reopen), per-step history, design notes (R: revocation by address, P: Local Store sizes) |
 | `doc/strataos.md` | The OS spec, incl. guests, code paging, the switch work's numbers |
 | `doc/ls-switch.md` | What a context switch copies, measured (`make ls-stats`), and the ways to copy less |
-| `doc/ls-windows.md` | User-mode Local Store windows: protection, and switches that copy nothing (design) |
+| `doc/ls-windows.md` | User-mode Local Store windows: protection and resident threads (design, what was done, numbers) |
 | `doc/debug-protocol.md` | The debug engine's protocol |
 | `os/PLAN-os.md` | Kernel and servers: decisions, deviations from the spec |
 | `os/progs/PLAN-sh.md` | The shell |

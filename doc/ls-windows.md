@@ -1,9 +1,10 @@
 # User-mode Local Store windows: protection and switches that copy nothing
 
 Status, 2026-11-15: the four decisions are taken as recommended (the end
-of this file). Step 1 is done: the ISA, the emulator, the RTL, the debug
-engine, the conformance test `lswin`, StrataOS's identity windows (the
-protection) and the documentation. Steps 2 to 4 are open. This is option
+of this file). Steps 1 to 4 are done for the D-LS: the ISA, the emulator,
+the RTL and the debug engine, the protection, threads that stay resident
+in relocated D-LS slices, ECP5 synthesis, the documentation. The code is
+not relocated yet (the end of "Step 3, as done" says why). This is option
 B of `doc/ls-switch.md`. It is the same hardware as the item "user-mode
 Local Store protection" that HANDOFF listed, so this document covers
 both.
@@ -207,6 +208,78 @@ In order, each step passing `make test` before the next:
   of each piece (the range check, the D-LS and I-LS relocation, the stream
   fetch's unit break, `xmap`, `ltag`, the transfer relocation) each make it
   fail.
+
+## Step 3, as done: resident threads (the D-LS)
+
+- **Slices.** The program part of a worker's D-LS is 48 1 KiB units
+  (0..39 and 56..63). A thread gets a data slice of its extent (whole KiB;
+  40 for a bare-metal program) and an 8 KiB stack slice, anywhere among
+  them, and keeps them while switched out. `wdata` maps [0, extent) and
+  `wstack` [0xE000, 0x10000) onto them at every switch-in.
+- **Eviction.** A thread without slices takes free units. When there are
+  not enough, the least recently run thread on the core goes first (a
+  dead one, ended or not started, first of all: its units come back with
+  nothing saved). A live one is saved as a switch used to save: its extent
+  without the scratch range, and its live stack. Its bytes are counted
+  before any transfer (the switch's atomics come first), its save is
+  issued before the restore that may land in the same units (I2).
+- **Isolation.** New slices are filled whole from the save area: the data
+  window and the 8 KiB stack. Resident slices are reachable only through
+  their owner's windows.
+- **Where the code is.** None of this fits the worker's resident kernel
+  (4 bytes were left). It is the worker extension, `os/kunits/wext.s`,
+  1.9 of the 2.25 KiB that core 0's own resident code occupies at I-LS
+  0x7700..0x7FFF and a worker never runs. It lives in the kernel's far
+  image; core 0 gives each worker a share of that image after the KST and
+  core control (`boot.s`, and `guest.s` for cores a guest gives back), and
+  `wboot` copies the extension to 0x7700. Moving the old save and restore
+  code out freed 684 bytes of the resident part. The bookkeeping uses
+  core 0's `k_hdr`/`k_cdata`/`k_hdr2` (128 + 16 bytes; workers never use
+  them), as core 0's stack already lives in the workers' records.
+- **What it found.** Programs that reached beyond their data extent now
+  fault instead of working by luck (that memory was lost on every switch
+  anyway): `tools/dlsgap.s` filled up to 0xA000 (its fill is now the rest
+  of its data window), `lang/cc/examples/vla.c`'s array did not fit the
+  8 KiB heap either (its `malloc` failed and it wrote through the null
+  pointer; it is 5.6 KiB now). `tools/lsprot.s` tries one more way:
+  past its own data window.
+
+Measured between two `uptime`s, 8 cores, `-T virtual`, the same sessions
+on step 1 (identity windows, copying on every switch) and now:
+
+| Workload | Switches | KiB moved, copying | KiB moved, resident | KiB per switch |
+|---|---:|---:|---:|---|
+| two `spin`s pinned to core 6 | 136 / 138 | 9,498 | 1,876 | 69.8 → 13.6 |
+| `cat /src/cc.c \| wc`, both on core 6 | 434 / 442 | 35,005 | 17,874 | 80.7 → 40.4 |
+| `cat \| upper \| wc`, all on core 6 | 853 / 848 | 64,767 | 33,228 | 75.9 → 39.2 |
+| `cat /src/cc.c` | 95 / 95 | 6,318 | 1,386 | 66.5 → 14.6 |
+| `cp /src/cc.c /x` | 101 / 101 | 7,057 | 1,443 | 69.9 → 14.3 |
+| `cc -o hi /src/hi.c` | 88 / 88 | 6,881 | 5,450 | 78.2 → 61.9 |
+
+The simulation predicted −87% for the two `spin`s and −54 to −59% for the
+pipelines; with 8 KiB stacks and the code still reloaded it is −80% and
+−49%. What is left is the code (7 to 15 KiB a switch), and the evictions
+where two threads do not fit: `pipe` (35 KiB) and `db` (40 KiB) on one
+core, and `cc`, whose data is large. The time of the workloads, machine
+and host, does not change measurably: on the emulator a transfer is a
+`memcpy`.
+
+**Not done: relocating the code.** `wcode` stays I-LS [0x8000, 0x10000)
+for every thread, so every switch still reloads the incoming code and
+throws away the JIT's translations of the old. Relocating code would let
+two programs' code stay too, but the fast paths cannot run relocated code
+yet: the JITs index their translations by I-LS address and chain `jalr`
+through that table, the fast loop decodes by I-LS address, and a block's
+link register and exit pc are the virtual pc. It needs every backend to
+translate by physical address with the block's relocation as a constant,
+and `jalr` to check the target's window before it looks up the table.
+Until then a relocated code window would run in `step()`, slower than the
+copy it saves.
+
+## Step 2: what the windows cost the hardware (ECP5)
+
+Not measured yet: one core synthesized and placed and routed with and
+without the windows is the next commit.
 
 ## Decisions
 

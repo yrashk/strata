@@ -579,14 +579,39 @@ and **the parts of its Local Stores it uses**. On a switch the dispatcher:
    **c8..c15 are a thread's own only while it is not
    switched out** (the dispatcher borrows c8 and c9 during a trap and
    gives them back); they do not survive a switch;
-4. copies the used D-LS out to the thread's **save area** in its arena:
-   the data extent (a StrataOS program's data section; for a bare-metal
-   program, which may use any address, all of 0..0x9FFF) and the live stack
-   (sp..0x10000) — not the whole 64 KiB;
-5. restores the next thread: D-LS back in, **code reloaded from the
-   process's image** in its arena (code is never saved: it is read-only),
-   the code units its cache held put back into their slots and mapped
-   again, capabilities, registers, `eret`.
+4. leaves the thread's D-LS where it is: a thread **stays resident**
+   (below) while it is switched out, and its D-LS is copied out to its
+   **save area** in its arena only when it is evicted: the data extent
+   (a StrataOS program's data section; for a bare-metal program, which
+   may use any address, all of 0..0x9FFF) without a scratch range, and
+   the live stack (sp..0x10000);
+5. loads the next thread: its D-LS back in only if it was not resident,
+   **code reloaded from the process's image** in its arena (code is never
+   saved: it is read-only), the code units its cache held put back into
+   their slots and mapped again, its Local Store windows, capabilities,
+   registers, `eret`.
+
+**Resident threads.** The program part of a worker's D-LS (1 KiB units
+0..39 and 56..63, 48 KiB) is shared out in slices: a thread gets a data
+slice as large as its data extent (whole KiB; all 40 for a bare-metal
+program) and an 8 KiB stack slice, anywhere in that part, and keeps them
+while it is switched out. The Local Store windows map its addresses onto
+them: `wdata` takes [0, extent) to its data slice and `wstack`
+[0xE000, 0x10000) to its stack slice, so the program sees the same
+addresses as ever, and cannot reach another thread's slices or the
+kernel's part. A switch to a resident thread moves no D-LS byte. A thread
+that has no slices gets free units; when there are not enough, the
+threads that ran least recently on the core are **evicted** (saved, as
+step 4 says; a dead thread's units are just taken back) until there are.
+Two small programs (`cat` and `wc`, two `spin`s) fit side by side and
+switch for nothing but their code; two that do not (`pipe` and `db`,
+whose extents are 35 and 40 KiB) evict each other on every switch. The
+bookkeeping is the worker extension (`os/kunits/wext.s`): code in the
+kernel's far image that `wboot` copies to I-LS 0x7700 (core 0's own code
+there is never run on a worker; the worker's resident part has no room
+left), through a share of the far image core 0 gives each worker. The
+code is not relocated: `wcode` stays I-LS [0x8000, 0x10000), and every
+switch reloads the incoming thread's code, as before.
 
 Nothing waits for the transfers of steps 4 and 5. A far atomic, `cgive`
 and `csend` wait until none of the core's memory transfers is in flight
@@ -598,11 +623,12 @@ effect, on the Local Store side as well as the far side, in issue order
 (invariant I2 of the manual's execution model), so the restore that
 follows cannot overtake it, and a store that would overwrite bytes the
 save still reads waits (I1). The next thread's code goes first (it is
-the I-LS, which the save does not read), then the save (tg14 data, tg15
-stack), then the restore (tg12 data, tg13 stack; a first load's data
-and a code mirror on tg14); with tags of their own no issue waits for a
-busy tag, only, past the fourth, for room in the Transfer Unit's
-four-entry queue, i.e. for the code and then the save to have moved.
+the I-LS, which no save reads), then the evicted threads' saves (tg14
+data, tg15 stack), then, for a thread that was not resident, the restore
+(tg12 data, tg13 stack; a first load's data and a code mirror on tg14);
+with tags of their own no issue waits for a busy tag, only, past the
+fourth, for room in the Transfer Unit's four-entry queue, i.e. for the
+code and then the saves to have moved.
 The thread then runs while its
 D-LS and code stream in: by the as-if-synchronous rule it cannot tell,
 since a load, store or fetch that touches bytes still arriving waits for
@@ -639,24 +665,21 @@ Two calls let a program reduce or correct what a switch does:
   program's code). It costs the cache's bytes per switch-in, which the
   switch counts in its KiB moved; `units` and `forth units.fs` show it.
 
-**What the next process may see.** What a switch leaves out (the D-LS
-above the data extent, below the live stack, a scratch range) still
-holds the previous thread's bytes. The dispatcher remembers whose bytes
-its D-LS holds (`w_dpid`): when it loads a thread of another process, and
-on a thread's first load, it restores the whole program D-LS,
-[0, 0xA000) and [0xE000, 0x10000) (48 KiB in two `tget`s), from the save
-area instead of only the extent and the stack. Outside those, the save
-area holds zeros (the arena is scrubbed when MEMORY hands it out, CREATE
-takes only such arenas, the program cannot reach its save area, and a
-switch writes there only the extent and the live stack) or older bytes of
-the same thread: never another process's. A first load takes the zeros
-and then the image's data section on top (transfers act in issue order),
-replacing a 40 KiB store loop (about 46,000 RTL cycles). A thread that
-returns to a core where nothing else ran meanwhile gets back only its
-extent and stack, as before. `tools/test-isolate.sh` checks it: two
-copies of `tools/dlsgap.s` pinned to one core, one filling its gaps with
-a pattern, the other looking for it in its own at its first load and
-after each of 8 switches back.
+**What the next process may see.** Only its own slices: the windows keep
+every other unit out of its reach. Units it is given anew may hold an
+evicted or dead thread's bytes, so a thread that was not resident gets
+both slices filled whole from its save area (its data window and 8 KiB
+of stack, two `tget`s), not just the extent and the live stack. Outside
+those, the save area holds zeros (the arena is scrubbed when MEMORY hands
+it out, CREATE takes only such arenas, the program cannot reach its save
+area, and an eviction writes there only the extent and the live stack)
+or older bytes of the same thread: never another process's. A first load
+takes the zeros and then the image's data section on top (transfers act
+in issue order). `tools/test-isolate.sh` checks it: two copies of
+`tools/dlsgap.s` pinned to one core, one filling what a switch does not
+keep (its data window above the extent, its stack below sp, its scratch
+range) with a pattern, the other looking for it in its own at its first
+load and after each of 8 switches back.
 
 Not covered, and why:
 - **The I-LS** above a program's resident code and its code units still
@@ -667,29 +690,36 @@ Not covered, and why:
   into it and execute it; overwriting it would cost up to 32 KiB of
   far-bus traffic per switch.
 
-**The kernel's part of the Local Stores is out of reach.** Every worker
-sets the Local Store windows (the CSRs `wdata`, `wstack`, `wcode`; the
-manual's "Local Store windows") once, in `wboot`, to the program's parts
-of its stores: data 0x0000..0x9FFF, stack 0xE000..0xFFFF, code and code
-cache I-LS 0x8000..0xFFFF, without relocation, the same for every thread.
-A user-mode load, store, transfer, `ltag`/`linst`, `xmap` or fetch outside
-them traps (`lsfault`, `ifault`), so a program can neither read nor write
-the dispatcher's data at 0xA000..0xDFFF (the records, and so the saved
-registers, of the other threads on the core) nor copy code over the
+**The kernel's part of the Local Stores is out of reach.** The Local
+Store windows (the CSRs `wdata`, `wstack`, `wcode`; the manual's "Local
+Store windows") give a thread its own slices and its code, I-LS
+0x8000..0xFFFF, and nothing else. A user-mode load, store, transfer,
+`ltag`/`linst`, `xmap` or fetch outside them traps (`lsfault`, `ifault`),
+so a program can neither read nor write the dispatcher's data at
+0xA000..0xDFFF (the records, and so the saved registers, of the other
+threads on the core) or another thread's slices, nor copy code over the
 kernel's or jump into it; the fault ends it like any other.
 `tools/test-isolate.sh` checks it with `tools/lsprot.s`, which tries each
-way in. The windows cost a switch nothing (they never change). Far memory
-is protected by capabilities either way. A program whose stack outgrows
-the 8 KiB at 0xE000 now faults instead of writing over the dispatcher's
-data (`lang/cc/examples/vla.c` did, with a 16 KiB array on its stack).
+way in, and one more: past its own data window. Far memory is protected
+by capabilities either way. A program that reaches past its data extent
+or below 0xE000 with its stack now faults instead of writing over
+whatever was there.
 
-**Where the bytes go.** `make ls-stats` (`tools/ls-stats.sh`, an emulator
-built with `-DSTRATA_LSSTATS`) counts what the switches of a few sessions
-move: 66 to 81 KiB per switch, 8 cores, `-T virtual`. The 48 KiB restore
-is 55 to 70% of it, the save of the outgoing extent most of the rest,
-code 7 to 15%; 473 of 480 switches were between two processes. Moving
-less needs the hardware to tell the dispatcher which bytes a program
-wrote or may reach: `doc/ls-switch.md` compares the ways.
+**What a switch moves.** Measured between two `uptime`s, 8 cores,
+`-T virtual` (`doc/ls-windows.md` has the sessions), KiB per switch:
+
+| Workload | Copying every switch | Resident threads |
+|---|---:|---:|
+| two `spin`s pinned to one core | 69.8 | 13.6 |
+| `cat /src/cc.c` | 66.5 | 14.6 |
+| `cp /src/cc.c /x` | 69.9 | 14.3 |
+| `cat \| wc`, both on one core | 80.7 | 40.4 |
+| `cat \| upper \| wc`, all on one core | 75.9 | 39.2 |
+| `cc -o hi /src/hi.c` | 78.2 | 61.9 |
+
+What is left is the code, reloaded on every switch, and the evictions
+where two threads do not fit side by side (`pipe` and `db` on one core,
+`cc`). `doc/ls-switch.md` has the analysis that led here.
 
 **The arena** (1 MiB unless the spawner asked for more, whole 256 KiB
 granules, zeroed when handed out), for a process with N threads, with

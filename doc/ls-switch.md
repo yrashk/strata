@@ -1,8 +1,9 @@
 # What a context switch copies, and how to copy less
 
-Status: analysis, 2026-11-15. Nothing here is implemented yet except the
-measurement (`make ls-stats`). Option A needs an ISA change and waits
-for a decision.
+Status: analysis, 2026-11-15. Option B was chosen and is implemented for
+the D-LS: `doc/ls-windows.md` has the design and what it measures now.
+`make ls-stats` measures the switch as it was before (commit 3e67e23):
+its recogniser does not know the transfers of resident threads.
 
 ## What a switch does today
 
