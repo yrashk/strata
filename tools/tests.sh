@@ -88,13 +88,13 @@ t stratalk-jit   mid  build-main "emu os lang/stratalk" 'lang/stratalk/tests/run
 t stratalk-examples mid build-main "emu os lang/stratalk" 'lang/stratalk/tests/examples.sh && lang/stratalk/tests/examples.sh -h'
 t stratalk-check mid  build-main "lang/stratalk os/spec" 'python3 lang/stratalk/host/stratalk.py check $B/stratalk/stratalk.image lang/stratalk/kernel/LOAD && python3 lang/stratalk/host/osgen.py --check lang/stratalk/kernel/OSServers.st'
 t stratalk-host  mid  build-main "lang/stratalk" 'lang/stratalk/tests/run.sh -h'
-# ---- Stralog, the Prolog (lang/prolog): scripted sessions under StrataOS
-t stralog      fast build-main "emu os lang/prolog/tests" "lang/prolog/tests/run.sh session $OS"
-t stralog-bi   fast build-main "emu os lang/prolog/tests" "lang/prolog/tests/run.sh builtins $OS"
-t stralog-files fast build-main "emu os lang/prolog/tests" "lang/prolog/tests/run.sh files $OS"
-t stralog-demos fast build-main "emu os lang/prolog/tests lang/prolog/examples" "lang/prolog/tests/run.sh demos $OS"
-t stralog-iso  fast build-main "emu os lang/prolog/tests" "lang/prolog/tests/run.sh iso $OS"
-t web-prolog   fast build-main "lang/prolog doc/manual/gen/genprolog.py" 'python3 doc/manual/gen/genprolog.py --check'
+# ---- Stralog, the Prolog (lang/stralog): scripted sessions under StrataOS
+t stralog      fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/run.sh session $OS"
+t stralog-bi   fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/run.sh builtins $OS"
+t stralog-files fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/run.sh files $OS"
+t stralog-demos fast build-main "emu os lang/stralog/tests lang/stralog/examples" "lang/stralog/tests/run.sh demos $OS"
+t stralog-iso  fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/run.sh iso $OS"
+t web-stralog   fast build-main "lang/stralog doc/manual/gen/genstralog.py" 'python3 doc/manual/gen/genstralog.py --check'
 
 # ---- the framebuffer, the JIT, the debuggers --------------------------------------
 t fb           mid  build-main "emu rtl" 'tools/test-fb.sh $B/examples/gfx.stx'

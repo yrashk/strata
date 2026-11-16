@@ -217,8 +217,8 @@
   let hlQueued = false, saveTimer = 0;
   function highlight() {
     hlQueued = false;
-    const lines = src.value.split("\n");
-    const html = src.value.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+    const html = window.StrataHL ? StrataHL.stLines(src.value.split("\n")).join("\n")
+      : src.value.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
     hlEl.innerHTML = html + "\n ";   // room for an empty last line
     fitSource();
   }

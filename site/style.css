@@ -48,6 +48,20 @@ nav.top {
   clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
 }
 .pill.ghost { border-color: var(--edge); color: var(--text) !important; }
+/* a menu of links (Languages): opens on hover or focus, no script; on narrow
+   screens its links sit inline in the scrolling row (below) */
+.menu { position: relative; }
+.menu-btn { color: var(--dim); cursor: pointer; outline: none; }
+.menu-btn::after { content: " \25BE"; font-size: 0.8em; }
+.menu-btn:hover, .menu:focus-within .menu-btn, .menu.current .menu-btn { color: var(--text); }
+.drop {
+  display: none; position: absolute; top: calc(100% + 12px); left: -16px; z-index: 11;
+  flex-direction: column; gap: 10px; min-width: 130px; padding: 12px 16px;
+  background: rgba(7, 10, 18, 0.96); border: 1px solid rgba(31, 111, 139, 0.4);
+}
+.drop::before { content: ""; position: absolute; left: 0; right: 0; top: -14px; height: 14px; }
+.menu:hover .drop, .menu:focus-within .drop { display: flex; }
+.links .drop a[aria-current="page"] { color: var(--text); }
 
 /* ---------------------------------------------------------------- hero */
 .hero {
@@ -202,6 +216,8 @@ footer { margin-top: 80px; padding: 40px 32px 56px; text-align: center; color: v
            -webkit-overflow-scrolling: touch; }
   .links::-webkit-scrollbar { display: none; }
   .links a { flex: none; white-space: nowrap; }
+  .menu-btn { display: none; }
+  .menu, .menu .drop, .menu:hover .drop, .menu:focus-within .drop { display: contents; }
   main, .hero { padding-left: 16px; padding-right: 16px; }
   .cmds div { grid-template-columns: 1fr; gap: 2px; }
   .tier { width: 100% !important; }

@@ -509,19 +509,19 @@ $(BUILD)/cc/cc0.lib: $(BUILD)/cc/cc-full.stx $(BUILD)/cc/libc.stx lang/cc/lib/mk
 	python3 lang/cc/lib/mklib.py --cc $(BUILD)/cc/cc-full.stx $(BUILD)/prog/cc0 $@ $(CC_LIBIN)
 
 # Stralog: assembled whole, then split into the program and its code units
-# (lang/prolog/mkimg.py, which also checks that no jump leaves its unit)
-STRALOG_SRC := $(wildcard lang/prolog/*.s) os/lib/sys.s
-$(BUILD)/stralog/atoms.s: lang/prolog/mkatoms.py
+# (lang/stralog/mkimg.py, which also checks that no jump leaves its unit)
+STRALOG_SRC := $(wildcard lang/stralog/*.s) os/lib/sys.s
+$(BUILD)/stralog/atoms.s: lang/stralog/mkatoms.py
 	@mkdir -p $(BUILD)/stralog
-	python3 lang/prolog/mkatoms.py $@
-$(BUILD)/stralog/bootpl.s: lang/prolog/boot.pl lang/prolog/mkboot.py
+	python3 lang/stralog/mkatoms.py $@
+$(BUILD)/stralog/bootpl.s: lang/stralog/boot.pl lang/stralog/mkboot.py
 	@mkdir -p $(BUILD)/stralog
-	python3 lang/prolog/mkboot.py lang/prolog/boot.pl > $@
+	python3 lang/stralog/mkboot.py lang/stralog/boot.pl > $@
 $(BUILD)/stralog/stralog.stx: $(STRALOG_SRC) $(BUILD)/stralog/atoms.s $(BUILD)/stralog/bootpl.s $(BUILD)/sasm
-	$(BUILD)/sasm -T 0x8000 -I lang/prolog -I $(BUILD)/stralog -g $(BUILD)/stralog/stralog.map -o $@ lang/prolog/stralog.s
-$(BUILD)/prog/stralog: $(BUILD)/stralog/stralog.stx lang/prolog/mkimg.py
+	$(BUILD)/sasm -T 0x8000 -I lang/stralog -I $(BUILD)/stralog -g $(BUILD)/stralog/stralog.map -o $@ lang/stralog/stralog.s
+$(BUILD)/prog/stralog: $(BUILD)/stralog/stralog.stx lang/stralog/mkimg.py
 	@mkdir -p $(BUILD)/prog
-	python3 lang/prolog/mkimg.py $< $(BUILD)/stralog/stralog.map $@ $(BUILD)/prog/stralog.u
+	python3 lang/stralog/mkimg.py $< $(BUILD)/stralog/stralog.map $@ $(BUILD)/prog/stralog.u
 $(BUILD)/prog/stralog.u: $(BUILD)/prog/stralog
 	@touch $@
 
@@ -604,11 +604,11 @@ DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS) -t src,cc $(CC_ASRCS)
 # Stratalk: the VM, its image, and the kernel's sources (lang/stratalk)
 DISK_FILES += $(STRATALK_DISK)
 DISK_ARGS  += -t bin $(BUILD)/prog/stratalk -t stratalk $(BUILD)/stratalk/stratalk.image $(STRATALK_ST) -t stratalk,examples $(STRATALK_EX)
-# Stralog, the Prolog (lang/prolog): the program, its code units, the examples
-STRALOG_PL := $(sort $(wildcard lang/prolog/examples/*.pl))
-STRALOG_ISO := $(sort $(wildcard lang/prolog/tests/iso/*.pl))
+# Stralog, the Prolog (lang/stralog): the program, its code units, the examples
+STRALOG_PL := $(sort $(wildcard lang/stralog/examples/*.pl))
+STRALOG_ISO := $(sort $(wildcard lang/stralog/tests/iso/*.pl))
 DISK_FILES += $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u $(STRALOG_PL) $(STRALOG_ISO)
-DISK_ARGS  += -t bin $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u -t prolog $(STRALOG_PL) -t prolog,iso $(STRALOG_ISO)
+DISK_ARGS  += -t bin $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u -t stralog $(STRALOG_PL) -t stralog,iso $(STRALOG_ISO)
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
@@ -950,9 +950,9 @@ wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS) $(BUILD)/msgops.txt
 	cp $(WEB_IMAGES) $(WEB)/images/
 	cp lang/forth/demos/*.fs $(WEB)/demos/
 	ls lang/forth/demos | sed -n 's/\.fs$$//p' > $(WEB)/demos/index.txt
-	@mkdir -p $(WEB)/prolog
-	cp lang/prolog/examples/*.pl $(WEB)/prolog/
-	ls lang/prolog/examples | sed -n 's/\.pl$$//p' > $(WEB)/prolog/index.txt
+	@mkdir -p $(WEB)/stralog
+	cp lang/stralog/examples/*.pl $(WEB)/stralog/
+	ls lang/stralog/examples | sed -n 's/\.pl$$//p' > $(WEB)/stralog/index.txt
 	cp $(DEBUG_ASSETS) $(WEB)/debug/
 	cp $(patsubst %,examples/%.s,$(DEBUG_EXAMPLES)) $(WEB)/debug/src/examples/
 	cp examples/lib/*.s $(WEB)/debug/src/examples/lib/

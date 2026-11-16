@@ -95,7 +95,7 @@ def class_html(c):
     for meta, sel, com, src in sorted(c["methods"], key=lambda m: (not m[0], m[1])):
         mid = "m-%s-%s%s" % (c["name"], "class-" if meta else "", anchor(sel))
         rows.append('<details class="meth" id="%s"><summary><code>%s%s</code><span>%s</span></summary>'
-                    '<pre class="lst"><code>%s</code></pre></details>' % (
+                    '<pre class="lst"><code class="language-stratalk">%s</code></pre></details>' % (
                         esc(mid), "class " if meta else "", esc(sel), esc(com), esc(src)))
     kind = {"subclass": "", "variableSubclass": " · indexed", "byteSubclass": " · bytes",
             "wordSubclass": " · words", "methodSubclass": " · compiled code"}.get(c["kind"], "")
@@ -125,7 +125,7 @@ def page_parts(files, classes, exs, intro):
           '<b>Try</b> here.</p>' % len(exs)]
     for name, com, src in exs:
         ex.append('<h3 id="ex-%s">%s.st <button type="button" class="small try-b" data-try="%s">Try</button></h3>'
-                  '<p>%s</p><pre class="lst"><code>%s</code></pre>' % (
+                  '<p>%s</p><pre class="lst"><code class="language-stratalk">%s</code></pre>' % (
                       esc(name), esc(name), esc(src.strip()), esc(com), esc(src.strip())))
     ex.append("</section>")
     main.append("\n".join(ex))
