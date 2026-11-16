@@ -301,13 +301,16 @@
   });
   src.addEventListener("blur", () => { tabFree = false; });
 
-  // Try: an example goes into the editor and runs
+  // Try: an example goes into the editor and runs; with data-lines (a session
+  // shown on the page) each of its lines runs as typed at the REPL, so each
+  // prints its value
   document.addEventListener("click", (e) => {
     const b = e.target.closest(".try-b");
     if (!b) return;
     if (!isOpen()) setOpen(true);
     load(b.dataset.try + "\n");
-    run(src.value);
+    if (b.dataset.lines !== undefined) for (const l of src.value.split("\n")) run(l);
+    else run(src.value);
     b.classList.add("sent");
     setTimeout(() => b.classList.remove("sent"), 600);
     if (!touch()) term.focus({ preventScroll: true });
