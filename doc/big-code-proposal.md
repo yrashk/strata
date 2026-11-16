@@ -10,8 +10,7 @@ present, with the code loaded on demand, so that large C programs,
 interpreters and games can be ported without being cut into code units by
 hand? Explicit units must stay possible.
 
-`doc/code-loading-proposal.md` (branch `claude/code-loading-service-916247`,
-not merged) asked where a loading service should live and recommended keeping
+`doc/code-loading-proposal.md` asked where a loading service should live and recommended keeping
 the miss mechanism in the dispatcher, adding code segments per thread, and
 putting the policy in `proc`. This document is about the other side: what a
 *program* must look like for that mechanism to page it, and who makes it look
@@ -39,8 +38,9 @@ the kernel side. Section 8 says where the two differ.
 - **For assembly, the assembler can do the same rewrite.** `sasm` sees the
   whole program; there is no linker. It can find the functions (the targets
   of calls), pack them into units, expand calls and returns, and reject what
-  it cannot rewrite safely. Stralog's `mkimg.py` already checks the hardest
-  rule (no jump leaves a unit) after assembly.
+  it cannot rewrite safely. Stralog's `mkimg.py` and the file server's
+  `tools/check-fsunits.py` already check the hardest rule (no jump leaves a
+  unit) after assembly, each for its own program.
 - **Measured working sets are small.** vi touches 16 KiB of its 31 KiB,
   wdoom 11 of 18, the Stratalk interpreter 16 of 24, and Stralog 26 KiB of
   its 128 KiB including units. Paged whole through 2 KiB units, all four miss
@@ -84,9 +84,12 @@ such transfer costs a handler, with the cost per 1000 instructions in the
 **Miss cost.** The dispatcher's miss path is 184.5 instructions on the current
 kernel, from the trap to the return to user mode. That is 42,393,629
 instructions for `cc`'s 229,811 misses, and 184.4 for Stralog's. The earlier
-proposal measured it on the RTL with 8 cores: 602, 614 and 870 cycles for 1,
-2 and 4 KiB units, and 320, 418 and 674 with `STREAM`. A hit costs the same
-as a plain call.
+proposal measured it on the RTL with 8 cores (on the tree of 2026-11-13; not
+repeated here): 320, 418 and 674 cycles for 1, 2 and 4 KiB units with the
+stream fetch, which is now the default, and 602, 614 and 870 with
+`STREAM` = 0. Without the stream fetch the dispatcher's instructions hide the
+transfer; with it the transfer shows, so smaller units are cheaper per miss.
+A hit costs the same as a plain call.
 
 ## 3. Measurements
 
@@ -131,8 +134,9 @@ robin. Each column is a code cache of that size.
 How to read the tables:
 
 - **Cost of a miss.** Each miss costs about 185 instructions of the dispatcher,
-  so 1 miss per 1000 instructions is +18.5% in instructions. On the RTL,
-  without `STREAM`, it is about 600 to 900 cycles per 1000 instructions.
+  so 1 miss per 1000 instructions is +18.5% in instructions. On the RTL as
+  built (stream fetch) it is about 320 to 670 cycles per 1000 instructions,
+  depending on the unit size.
 - **Pure run-time paging (option 1).** It would pay that cost at every page
   change. For 2 KiB pages that is +150% (wdoom), +250% (vi), +940% (`cc`),
   +1000% (Stratalk) and +1760% (Stralog), before the handler has emulated
@@ -146,14 +150,17 @@ How to read the tables:
   16 KiB cache (4 slots of 4 KiB) and pays +2.3% for 30,120 misses.
 - **`cc`.** No layout within 16 map entries helps much:
 
-  | `cc`, whole program paged, 28 KiB of cache | misses / 1000 | RTL cycles / 1000 instructions |
-  |---|---|---|
-  | 4 KiB units, 7 slots | 2.53 | about 2,200 |
-  | 2 KiB units, 14 slots | 3.03 | about 1,860 |
-  | 1 KiB units, 16 slots (the map is full) | 5.19 | about 3,100 |
-  | today: resident 8.7 KiB, 4 KiB units, 5 slots | 3.38 | about 2,940 |
-  | 1 KiB units, 28 slots (a map of 32) | 2.48 | about 1,490 |
-  | 512-byte units, 56 slots (a map of 64) | 1.73 | about 1,040 (estimate) |
+  | `cc`, whole program paged, 28 KiB of cache | misses / 1000 | RTL cycles in misses / 1000 instructions | the same, `STREAM` = 0 |
+  |---|---|---|---|
+  | 4 KiB units, 7 slots | 2.53 | about 1,710 | about 2,200 |
+  | 2 KiB units, 14 slots | 3.03 | about 1,270 | about 1,860 |
+  | 1 KiB units, 16 slots (the map is full) | 5.19 | about 1,660 | about 3,120 |
+  | today: resident 8.7 KiB, 4 KiB units, 5 slots | 3.38 | about 2,280 | about 2,940 |
+  | 1 KiB units, 28 slots (a map of 32) | 2.48 | about 790 | about 1,490 |
+  | 512-byte units, 56 slots (a map of 64) | 1.73 | about 520 (estimate) | about 1,040 (estimate) |
+
+  (Misses times the measured cost per miss; the cost of a 512-byte miss is
+  extrapolated.)
 
   LRU instead of round robin would save 15 to 20% of the misses. Nothing in
   the hardware tells the dispatcher which slot was used last.
@@ -335,8 +342,10 @@ existing pager, with three additions:
 **(b) A larger overlay map (NXMAP up to 32 or 64).**
 - *What it buys.* Smaller units can fill the window. For `cc` that halves the
   misses (2.48 per 1000 with 1 KiB units in 28 slots, 1.73 with 512 B units
-  in 56, against 3.03 with 2 KiB units). For the programs whose working set
-  fits, it changes nothing.
+  in 56, against 3.03 with 2 KiB units). With the stream fetch a small unit
+  is also cheaper per miss, so the time spent in misses falls by about 40%
+  (1 KiB) to 60% (512 B). For the programs whose working set fits, it
+  changes nothing.
 - *What it costs.*
   - Comparators on the `xcall`/`xret` path only, not on the fetch. The map
     is already a platform parameter (4 to 16), so the change is to its
@@ -428,7 +437,9 @@ turns them into functions. `sasm` takes the result as the pinned list. Pinning
   backtraces and anything that reads return addresses see far links.
 - **Switch cost.** A paged program's whole cache is reloaded on every switch,
   as resident code is now. Many paged programs sharing a core switch as
-  expensively as large resident programs do today.
+  expensively as large resident programs do today. Since threads keep their
+  data resident in D-LS slices, code is most of what a switch moves, so
+  this matters more than it did.
 - **One unit size per thread.** A program that both builds units and JITs
   code must agree on it.
 
