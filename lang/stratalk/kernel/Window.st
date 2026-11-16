@@ -1,18 +1,20 @@
 "Window.st: a window of the window server (ws), through its messages
  (os/ws/ws.s; os/spec/ws.toml). The server draws: text in its 8 x 16
  font, and filled rectangles, into the window's surface, and shows them.
- A Window keeps the endpoint to ws in register 4 while it is open
- (pipe's: files can still be read; closing gives it back)."
+ A Window keeps the endpoint to ws in a register that standard input and
+ output do not use while it is open: pipe's (4), or tty's (3) when they are
+ pipes (in a terminal of ws), or fs's (2); closing gives it back."
 
-Object subclass: #Window slots: 'server id width height title'.
+Object subclass: #Window slots: 'server id width height title register'.
 "A window of the window server, ws: a client's handle on one of the at
- most 4 tiles the server shows. Opening one looks ws up into capability
- register 4 (pipe's, so pipes and the store for programs are out of reach
- until it is closed); every draw is then a message to ws (TEXT, FILL,
- TITLE) and input comes as WindowEvents (EVENT). server is the Server
- endpoint, id the window's id (1..4) from CREATE, width and height the
- surface's size in pixels (kept up to date by resize events), title the
- name shown in its tag (8 bytes at most).
+ most 4 tiles the server shows. Opening one looks ws up into a capability
+ register that standard input and output do not use (pipe's, 4; else
+ tty's, 3; else fs's, 2), whose own server is out of reach until it is
+ closed; every draw is then a message to ws (TEXT, FILL, TITLE) and input
+ comes as WindowEvents (EVENT). server is the Server endpoint, id the
+ window's id (1..4) from CREATE, width and height the surface's size in
+ pixels (kept up to date by resize events), title the name shown in its
+ tag (8 bytes at most), register the capability register ws is in.
  Window rgb: 255 g: 0 b: 0 >>> 16711680"
 
 Object subclass: #WindowEvent slots: 'kind value width height'.
@@ -67,17 +69,18 @@ Window class >> open: aTitle [
 
 Window >> open: aTitle [
     "Opens the receiver as a window of ws and answers it. Looks ws up
-     (proc LOOKUP 'ws') into capability register 4, then sends CREATE with
+     (proc LOOKUP 'ws') into the register Window freeRegister answers, then sends CREATE with
      the title in the request's data; the reply's result becomes the id and
      its two u64 fields the width and height. Signals an Error if there is
      no ws, or if ws refuses (4 windows open, the boot splash showing),
-     giving register 4 back to pipe first."
+     giving the register back to its own server first."
     | data r |
-    server := Server named: 'ws' into: 4.
+    register := Window freeRegister.
+    server := Server named: 'ws' into: register.
     data := ByteArray new: 24.
     data putTitle: aTitle at: 16.
     r := server request: Window opCreate handle: 0 mode: 0 data: data replySize: 16.
-    r result <= 0 ifTrue: [Server restorePipe. ^Error new signal: 'ws refused the window'].
+    r result <= 0 ifTrue: [self giveBack. ^Error new signal: 'ws refused the window'].
     id := r result.
     width := r u64At: 0.
     height := r u64At: 8.
@@ -159,10 +162,27 @@ Window >> eventFrom: r [
     e isResize ifTrue: [width := e width. height := e height].
     ^e ]
 Window >> close [
-    "Closes the window (ws DESTROY) and gives register 4 back to pipe
-     (proc LOOKUP 'pipe')."
+    "Closes the window (ws DESTROY) and gives the register back to its own
+     server (giveBack)."
     server request: Window opDestroy handle: id mode: 0 data: nil replySize: 0.
-    Server restorePipe ]
+    self giveBack ]
+Window >> giveBack [
+    "Looks the register's own server up into it again (proc LOOKUP of proc,
+     fs, tty or pipe, for register 1 to 4), undoing what open: did."
+    Smalltalk osLookup: (#('proc' 'fs' 'tty' 'pipe') at: register) into: register ]
+Window class >> freeRegister [
+    "Answers a capability register that standard input, output and error do
+     not use, for ws's endpoint: 4 (pipe's), else 3 (tty's, when they are
+     pipes, as in a terminal of ws), else 2 (fs's)."
+    | used |
+    used := Smalltalk stdioRegisters.
+    #(4 3 2) do: [:r | ((used bitShift: 0 - r) bitAnd: 1) = 0 ifTrue: [^r]].
+    ^2 ]
+SystemDictionary >> stdioRegisters [
+    "Answers a bit mask of the capability registers that standard input,
+     output and error are reached through (bit r for register r). A VM
+     primitive (125); without it, tty's register 3."
+    <primitive: 125> ^1 bitShift: 3 ]
 Window >> printOn: aStream [
     "Writes 'a Window', the title and the size in pixels, as
      a Window 'workspc' 640x480."
