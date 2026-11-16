@@ -52,6 +52,15 @@ of empty cores). The boot servers are made in the order dev, blk, db, fs,
 proc; one that sends to another that does not run yet gets -1 and asks
 again a tick later.
 
+`fs` and `db` are made busy servers too (CREATE flag bit 14, core flag
+32): a busy server's core counts three more when a program is placed, so a
+program shares a core with the servers it waits on only when every other
+core is as full. A core with no server counts two more, so that on 8 cores
+the two empty ones stay free for a guest (`guest -d gdemo 2 8`): programs
+go beside `pipe` and `blk` on core 5 first, which costs `cat` 2% and the
+program store 5% against putting them on an empty core. Before, the login shell sat on core 2 beside `db` and
+every request it made while `db` worked swapped the two.
+
 ## Interfaces
 
 The full field-by-field description is `os/spec/blk.toml` and
@@ -110,7 +119,7 @@ and some 6,000 to 8,000 instructions in all.
 | OPEN of `/doc/motd` | 2 | 2 + 6 (tag, name, record) |
 | READ 4 KiB | 2; frame → D-LS → reply | 2 + 2; frame → db's D-LS → db's reply → fs's D-LS → reply: 2 more copies of the bytes |
 | WRITE 4 KiB | 2 | 2 + 2 (or 4: the batch first when it does not fit); one more copy |
-| creating a small file (OPEN, WRITE, CLOSE) | 6, a commit | 6 + about 22 (`fs` ↔ `db`), + 4 (`db` ↔ `blk`: the commit's WRITEVs) |
+| creating a small file (OPEN, WRITE, CLOSE) | 6, a commit | 6 + about 22 (`fs` ↔ `db`), + 4 (`db` ↔ `blk`: the commit's WRITEVs); with the value cache and the value items, 6 + 4 (a GET of the new name, the COMMIT) + 4 |
 | LOADIMG | 2; the device writes the arena | 2 + 8 (lookups, VLOAD) + 2 per run of pages read; the device still writes the arena |
 | a listing of 300 files | 4 (two parts) | 4 + about 34 (SCANs of the index and of the records, 4 KiB each) |
 | DBGET | 2 | 4 |
@@ -129,15 +138,15 @@ Before (main at 55f0543 plus the bench, one fs):
 
 | workload | ticks | messages | blk cmds | switches | KiB moved | instructions |
 |---|---:|---:|---:|---:|---:|---:|
-| boot to the shell | 9000 | 258 | 21 | 12 | 1160 | 2,531,969 |
+| boot to the shell | 9000 | 258 | 21 | 12 | 15,000 | 1.67 |
 | cat /src/cc.c (162 KB) | 81,897 | 239 | 45 | 90 | 8,370 | 9,363,404 |
-| wc < /src/cc.c | 86,419 | 163 | 45 | 86 | 7,826 | 9,575,796 |
-| ls /many (300 files) | 18,196 | 69 | 12 | 8 | 779 | 2,476,360 |
-| ls /bin | 5,397 | 61 | 6 | 4 | 389 | 1,085,648 |
-| cp /src/cc.c /x | 88,777 | 251 | 119 | 178 | 17,267 | 9,823,625 |
-| 100 small files (echo >) | 282,875 | 664 | 1,510 | 0 | 0 | 31,430,851 |
-| touch /many/f100 | 1,811 | 77 | 3 | 4 | 364 | 944,470 |
-| dbbench 200 | 210,758 | 883 | 1,291 | 818 | 78,526 | 22,113,569 |
+| wc < /src/cc.c | 86,419 | 163 | 45 | 86 | 94,386 | 1.09 |
+| ls /many (300 files) | 18,196 | 69 | 12 | 8 | 27,718 | 1.52 |
+| ls /bin | 5,397 | 61 | 6 | 4 | 10,763 | 1.99 |
+| cp /src/cc.c /x | 88,777 | 251 | 119 | 178 | 101,515 | 1.14 |
+| 100 small files (echo >) | 282,875 | 664 | 1,510 | 0 | 340,326 | 1.20 |
+| touch /many/f100 | 1,811 | 77 | 3 | 4 | 3,630 | 2.00 |
+| dbbench 200 | 210,758 | 883 | 1,291 | 818 | 271,705 | 1.29 |
 | — 200 DBBATCH puts | 170,757 | | | | | |
 | — 200 DBGETs | 33,312 | | | | | |
 | — a DBSCAN of 200 | 4,861 | | | | | |
@@ -150,15 +159,15 @@ After, the split with one message per store call ("naive", commit
 
 | workload | ticks before | naive | split | split / before | messages before → split | instructions before → split |
 |---|---:|---:|---:|---:|---:|---:|
-| boot to the shell | 9,000 | 16,000 | 16,000 | 1.78 | 258 → 617 | 2.53 M → 4.01 M |
+| boot to the shell | 9,000 | 16,000 | 16,000 | 1.78 | 15,000 | 1.67 |
 | cat /src/cc.c (162 KB) | 81,897 | 88,311 | 90,623 | 1.11 | 239 → 427 | 9.36 M → 11.08 M |
-| wc < /src/cc.c | 86,419 | 92,699 | 94,782 | 1.10 | 163 → 351 | 9.58 M → 11.28 M |
-| ls /many (300 files) | 18,196 | 79,757 | 28,882 | 1.59 | 69 → 141 | 2.48 M → 3.92 M |
-| ls /bin | 5,397 | 19,575 | 10,646 | 1.97 | 61 → 99 | 1.09 M → 1.80 M |
-| cp /src/cc.c /x | 88,777 | 106,702 | 104,193 | 1.17 | 251 → 589 | 9.82 M → 12.90 M |
-| 100 small files (echo >) | 282,875 | 717,471 | 420,071 | 1.49 | 664 → 3,090 | 31.4 M → 55.7 M |
-| touch /many/f100 | 1,811 | 2,961 | 3,077 | 1.70 | 77 → 99 | 0.94 M → 1.16 M |
-| dbbench 200 | 210,758 | 353,480 | 284,789 | 1.35 | 883 → 2,519 | 22.1 M → 37.0 M |
+| wc < /src/cc.c | 86,419 | 92,699 | 94,782 | 1.10 | 94,386 | 1.09 |
+| ls /many (300 files) | 18,196 | 79,757 | 28,882 | 1.59 | 27,718 | 1.52 |
+| ls /bin | 5,397 | 19,575 | 10,646 | 1.97 | 10,763 | 1.99 |
+| cp /src/cc.c /x | 88,777 | 106,702 | 104,193 | 1.17 | 101,515 | 1.14 |
+| 100 small files (echo >) | 282,875 | 717,471 | 420,071 | 1.49 | 340,326 | 1.20 |
+| touch /many/f100 | 1,811 | 2,961 | 3,077 | 1.70 | 3,630 | 2.00 |
+| dbbench 200 | 210,758 | 353,480 | 284,789 | 1.35 | 271,705 | 1.29 |
 | — 200 DBBATCH puts | 170,757 | 306,831 | 226,449 | 1.33 | | |
 | — 200 DBGETs | 33,312 | 38,723 | 49,982 | 1.50 | | |
 | — a DBSCAN of 200 | 4,861 | 5,115 | 5,512 | 1.13 | | |
@@ -184,6 +193,50 @@ makes dozens. The first version (a message per call) was 2.5 to 4.4 times
 slower on those; the read-ahead and the queued writes took most of that
 back, and the rest is the calls that must wait for an answer (lookups by
 path, the record read before a change).
+
+## Getting the time back
+
+The round trips that remain are the calls `fs` waits on. Three changes,
+measured one after the other (ticks, `make bench-store`):
+
+- **Placement** (above): programs are kept off the cores of `fs` and `db`.
+- **A value cache in `fs`** (`dbcall.s`, `kv_find`/`kv_set`): 24 entries
+  of a key up to 56 bytes and a value up to 248, from the answers of GETs
+  `fs` actually sent (a hit of the read-ahead is not cached: filling the
+  cache from listings cost more than it saved). `fs` is `db`'s only writer
+  of its trees, so its own puts and deletes go through the cache and it is
+  never stale; a value call (VWRITE, VDEL, ...) drops the tree's entries,
+  ABORT, SNAP and a failed call drop all of them.
+- **Value items** (`os/spec/db.toml`): the items that ride after a call's
+  data were puts and deletes; now also VDEL, a VWRITE of at most 512 bytes
+  and the move of a file's contents to its new key (what a write's CLOSE
+  does: VDEL, VSIZE, PUT, DEL as one item). Creating a file was a GET, a
+  VWRITE, a VDEL, a VSIZE and the COMMIT: five round trips; now a GET and
+  the COMMIT. The cost: a short write that fills the disk is not refused at
+  that WRITE but at the next call on the file (CLOSE at the latest), which
+  gives the file up as before (`tools/test-store.sh` part 10).
+
+| workload | before | as committed | + placement | + value cache | + value items (placement kept guest-safe) | / before |
+|---|---:|---:|---:|---:|---:|---:|
+| boot to the shell | 9,000 | 16,000 | 16,000 | 15,000 | 15,000 | 1.67 |
+| cat /src/cc.c | 81,897 | 90,623 | 88,084 | 87,892 | 89,503 | 1.09 |
+| wc < /src/cc.c | 86,419 | 94,782 | 92,652 | 92,532 | 94,386 | 1.09 |
+| ls /many (300 files) | 18,196 | 28,882 | 28,519 | 27,640 | 27,718 | 1.52 |
+| ls /bin | 5,397 | 10,646 | 10,431 | 10,722 | 10,763 | 1.99 |
+| cp /src/cc.c /x | 88,777 | 104,193 | 99,674 | 100,002 | 101,515 | 1.14 |
+| 100 small files (echo >) | 282,875 | 420,071 | 402,977 | 365,211 | 340,326 | 1.20 |
+| touch /many/f100 | 1,811 | 3,077 | 2,861 | 3,580 | 3,630 | 2.00 |
+| dbbench 200 | 210,758 | 284,789 | 259,772 | 259,575 | 271,705 | 1.29 |
+
+The last column is the branch as it is: placement as described above (the
+earlier columns put programs on the empty cores, which broke `guest`). The
+100 files went from 3,090 messages to 1,606 (664 with one `fs`) and
+from 606 context switches to 204. What is left is mostly the program store
+reached through `fs` (DBGET, DBBATCH: two hops where there was one), the
+lookups of a listing and of a path, and boot. The next steps of the plan:
+DBGET and DBSCAN sent to `db` directly, SCAN answered into a region the
+caller lends, and forwarding a request from `fs` to `db` so that `db`
+answers the program itself.
 
 ## Recommendation
 

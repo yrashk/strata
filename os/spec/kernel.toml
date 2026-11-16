@@ -32,7 +32,7 @@ attachment = "the arena, whole, as MEMORY gave it"
 data = [
   { type = "u64", name = "pid", note = "new and not 0: proc allocates pids" },
   { type = "u64", name = "threads", note = "0: one; at most 6" },
-  { type = "u64", name = "flags", note = "2 server, 8 privileged (mints endpoints in REPLY), 16 device capabilities, 32 alone on its core, 64 give the arena to proc at exit, bits 12..13 a server's index on its core (a request names it by header word 48: 0x53 << 56 | index; index 1..3 joins a core that has a server); other bits are ignored" },
+  { type = "u64", name = "flags", note = "2 server, 8 privileged (mints endpoints in REPLY), 16 device capabilities, 32 alone on its core, 64 give the arena to proc at exit, bits 12..13 a server's index on its core (a request names it by header word 48: 0x53 << 56 | index; index 1..3 joins a core that has a server), bit 14 a busy server (fs, db: programs are placed away from its core when another has room); other bits are ignored" },
   { type = "s64", name = "pin core", note = "−1 any; 0 is refused (−5)" },
   { type = "u8", name = "c1's core", note = "the core the endpoint in c1 names; 255 none. Only a StrataOS program's thread 0 gets c1..c4" },
   { type = "u8", name = "c2's core" },
@@ -117,7 +117,7 @@ data = [
     { type = "u8", name = "pid running", note = "low 8 bits; 0 none" },
     { type = "u8", name = "runnable", note = "threads ready to run there" },
     { type = "u8", name = "processes", note = "threads placed there" },
-    { type = "u8", name = "flags", note = "2 a server, 4 a process alone on it, 8 a guest's, 16 a server of index 1..3" },
+    { type = "u8", name = "flags", note = "2 a server, 4 a process alone on it, 8 a guest's, 16 a server of index 1..3, 32 a busy server (CREATE flag bit 14)" },
     { type = "u32", name = "cycles per switch", note = "the dispatcher's average; 0 before the first" },
     { type = "u64", name = "switches" },
     { type = "u64", name = "KiB moved", note = "by switches" },

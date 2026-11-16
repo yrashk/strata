@@ -482,7 +482,10 @@ greater length.
   and its own request held in c6 (PARK), and only its own queued and parked
   requests go back with -1 when it ends. A server of index 1..3 does not
   keep a server of index 0 away from its core, nor count as a process when
-  a program is placed (servers mostly wait).
+  a program is placed (servers mostly wait). A busy server (CREATE flag
+  bit 14: fs and db) does count, heavily: a program goes to its core only
+  when no other core has room, so the servers that answer most requests
+  are not also time-shared with the programs that send them.
 - **Every process time-shares worker cores**, preemptively; there are no
   exclusive cores. A StrataOS program (second code word `"SYS2"`) is one
   thread with no core window. A **multi-threaded process** (`-n N`, and
@@ -1030,7 +1033,13 @@ comes back when it is closed) and nothing else is lost. The
 store's server, `db`, works on trees larger than its Local Stores through a
 cache of 124 pages in far memory and three page buffers in its D-LS; `fs`
 reads ahead (a walk over a tree is answered from one SCAN of up to 4 KiB of
-records) and sends its puts and deletes with its next call. A boot object
+records), keeps a cache of the small values it has asked db for (its own
+writes go through it, so it is never stale; a failed call empties it), and
+sends its puts, deletes, writes of at most 512 bytes and renames of a
+file's contents with its next call, as items after that call's data
+(`os/spec/db.toml`): a file made by `echo > f` costs fs one GET and the
+COMMIT. A write that travels this way and fills the disk is reported by
+the next call on the file, CLOSE at the latest. A boot object
 (`proc`, `dev`, `fs`, `blk`, `db`: what the boot manifest lists) can be written from
 inside the OS (`cp new-fs /sys/fs`): at its close its contents are brought
 into one run of pages and the manifest is written anew, in the same

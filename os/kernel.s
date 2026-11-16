@@ -287,6 +287,8 @@ F_SYS    = 4                            ; a StrataOS program (c1..c5, c7)
 F_PRIV   = 8                            ; may mint endpoints in REPLY (proc, dev)
 F_DEVCAPS = 16                          ; gets the device root (c6) and framebuffer (c2): dev
 F_SOLO   = 32                           ; alone on its core (pending device reads: tty)
+F_BUSY   = 0x4000                       ; a server that works much (fs, db): programs are
+                                        ;   placed away from its core when they can be
 F_SIDX   = 0x3000                       ; a server's index on its core (bits 12, 13): which
 SIDX_SH  = 12                           ;   requests are its (header word 48, w_selsrv)
 F_GUEST  = 128                          ; a guest: whole cores in supervisor mode (core 0's records)

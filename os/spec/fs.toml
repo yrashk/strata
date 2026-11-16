@@ -52,7 +52,7 @@ data = [{ type = "bytes", name = "the bytes to write" }]
 result = "the bytes taken: the length, or 4032 when it was more; 0 for none"
 
 [op.errors]
-"-1" = "not an id open for writing, a write the disk had no room for (the file takes no more), or the disk is full"
+"-1" = "not an id open for writing, a write the disk had no room for (the file takes no more), or the disk is full. A write of at most 512 bytes goes to db with fs's next call to it, so a disk it fills is reported by a later call on the file, CLOSE at the latest"
 
 [[op]]
 num = 3

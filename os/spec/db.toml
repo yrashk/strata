@@ -19,9 +19,14 @@ handle, COMMIT, ABORT, SNAP and BOOT are taken from fs only (its pid); the store
 from anyone that reaches db, and fs hands programs' calls on. Every reply's word 56 is the commit under \
 way | the count of aborts << 48. A call that fills the disk answers −1 and one whose page fails its \
 checksum (or that the device refuses) −5; either gives up the commit under way, and the count of aborts \
-says so. A request from fs may carry a batch of puts and deletes after its data (header word 48 bits \
-16..31: its bytes; items {u8 1 put / 2 delete, u8 flag, u16 key length, u16 value length, u16 0, u64 \
-tree, key, value}, padded): db applies it first. A request names db by header word 48 = 0x53 << 56 | 1."""
+says so. A request from fs may carry a batch of writes after its data (header word 48 bits \
+16..31: its bytes; items {u8 kind, u8 flag, u16 key length, u16 value length, u16 the extents' tree, \
+u64 tree, key, value}, each padded to 8 bytes): db applies it first, in order. Kinds: 1 PUT, 2 DEL, \
+3 VDEL (a value and its extents), 4 VWRITE (the item's value is {u64 offset, the bytes}; flag 1: a \
+stream even when short), 5 a value moved (the key's value goes and the value under the key that is the \
+item's value moves to it, as VDEL, VSIZE, PUT, DEL would). fs sends its puts, deletes, writes of at \
+most 512 bytes and renames of a file's contents this way, so a file made by `echo > f` costs one GET \
+and the COMMIT. A request names db by header word 48 = 0x53 << 56 | 1."""
 
 [[op]]
 num = 64

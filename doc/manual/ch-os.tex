@@ -615,7 +615,16 @@ device's node, and waits with WAIT\_REPLY for the buffer's base. Program images 
 into the arena \texttt{proc} lends, passed on from \texttt{fs} to \texttt{db} to \texttt{blk}; the data
 never passes through a server's Local Store. \texttt{db} and \texttt{blk} are the second servers of
 \texttt{dev}'s and \texttt{pipe}'s cores: a request names a core's server by header word 48
-($\texttt{0x53} \ll 56 \mid$ index; anything else is index 0).
+($\texttt{0x53} \ll 56 \mid$ index; anything else is index 0). \texttt{fs} and \texttt{db} are
+created as busy servers (CREATE flag bit 14), so programs are placed on other cores when there is room.
+
+\texttt{fs} saves round trips to \texttt{db} three ways: it reads ahead (a walk over a tree is
+answered from one SCAN of up to 4~KiB of records), it keeps a cache of the small values it has asked
+for (its own writes go through the cache, so it is never stale; a failed call empties it), and it
+sends its puts, deletes, writes of at most 512 bytes and renames of a file's contents as items after
+the data of its next call, which \texttt{db} applies first, in order. A file made by
+\texttt{echo > f} costs one GET and the COMMIT; a short write that fills the disk is reported by the
+next call on the file, CLOSE at the latest.
 
 \input{gen-os-ops-db}
 
