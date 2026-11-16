@@ -13,20 +13,13 @@
 
 23 kvar @ [if] .( gfx.fs needs bare metal) cr abort [then]
 
-3 constant dev-cap                      \ c3: the devices (the platform table, PRESENT)
-9 constant fb-cap                       \ c9: the framebuffer
-11 constant rest-cap                    \ c11: what is left after a band is cut; the bands joined again
-7 constant next-cap                     \ c7: a band just taken back
-
 \ ---- the screen's geometry, from the platform table (device space $1000)
 create ptab 256 allot
-ptab $1000 256 dev-cap tget  dev-cap tag twait \ the table, through c3 with tag tg3
-: entries ( -- n ) ptab 8 + w@ ;        \ after a 32-byte header, 32 bytes an entry:
-: entry ( i -- addr ) 32 * ptab 32 + + ;
-: kind ( e -- n ) w@ ;                  \ u16 type (5: a framebuffer), ...
-: info ( e -- u ) 8 + @ ;               \ ... u64 info at 8
+ptab $1000 256 3 tget  3 tag twait      \ the table, through c3 (the devices) with tag tg3
+: entry ( i -- addr ) 32 * ptab 32 + + ; \ a 32-byte header (u16 entries at 8), 32 bytes an entry:
+: kind ( e -- n ) w@ ;  : info ( e -- u ) 8 + @ ; \ u16 type (5: a framebuffer), u64 info at 8
 : fb-info ( -- info )                   \ the framebuffer entry's info word
-  entries 0 do i entry kind 5 = if i entry info unloop exit then loop 0 ;
+  ptab 8 + w@ 0 do i entry kind 5 = if i entry info unloop exit then loop 0 ;
 fb-info constant geometry               \ u16 width, height, stride (bytes a row)
 geometry $ffff and constant width
 geometry 16 rshift $ffff and constant height
@@ -57,6 +50,10 @@ create rowbuf 1280 4 * allot            \ one row of pixels (up to 1280 wide)
   dy * y0 +  width 0 do  i dx * x0 +  over iters color  rowbuf i 4 * + l!  loop drop ;
 
 \ ---- the jobs
+3 constant dev-cap                      \ c3: the devices (the platform table, PRESENT)
+9 constant fb-cap                       \ c9: the framebuffer
+11 constant rest-cap                    \ c11: what is left after a band is cut; the bands joined again
+7 constant next-cap                     \ c7: a band just taken back
 height workers + 1- workers / constant rows  \ rows per band
 rows stride * constant band              \ bytes per band
 : job ( k -- )                           \ worker k draws rows [(k-1)*rows, k*rows)
