@@ -79,6 +79,13 @@ t cc-ladder    mid  build-main "emu os lang/cc/tests/ladder.py lang/cc/tests/lad
 t cc           mid  build-main "emu os" "tools/test-cc.sh $OS"
 t cc-boot      mid  build-main "emu os" "tools/test-cc-boot.sh $OS"
 
+# ---- Stratalk (lang/stratalk): the test vectors under StrataOS; the compiler in
+#      the image against the host's, every method; the server classes as os/spec
+#      gives them; the vectors on the host's reference interpreter
+t stratalk       mid  build-main "emu os lang/stratalk" 'lang/stratalk/tests/run.sh'
+t stratalk-check mid  build-main "lang/stratalk os/spec" 'python3 lang/stratalk/host/stratalk.py check $B/stratalk/stratalk.image lang/stratalk/kernel/LOAD && python3 lang/stratalk/host/osgen.py --check lang/stratalk/kernel/OSServers.st'
+t stratalk-host  mid  build-main "lang/stratalk" 'lang/stratalk/tests/run.sh -h'
+
 # ---- the framebuffer, the JIT, the debuggers --------------------------------------
 t fb           mid  build-main "emu rtl" 'tools/test-fb.sh $B/examples/gfx.stx'
 t jit          fast "build-main build-forth" "emu ex forth" 'tools/test-jit.sh'
