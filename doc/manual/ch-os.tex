@@ -231,7 +231,8 @@ Every process time-shares worker cores; no process owns a core. A process has on
   process spawned without server endpoints)\\
 \reg{c5} & its 4~KiB message buffer\\
 \reg{c6} & empty: capabilities that arrive with a reply land here\\
-\reg{c7} & the clock: a read-only device capability for the timer's NOW and FREQ registers\\
+\reg{c7} & the clock: a read-only device capability for the timer's NOW and FREQ registers (keep
+  nothing else there: see Section~\ref{sec:os-time})\\
 \reg{pc}, \reg{sp} & the image's entry at I-LS \hex{8000}; \reg{sp} = \hex{10000}, the top of the D-LS (programs do not set it)\\
 \bottomrule
 \end{tabularx}
@@ -701,6 +702,13 @@ output is the console, a file or a pipe. SPAWN passes three handles to the child
 \subsection{Time}\label{sec:os-time}
 Time needs no call. Every process holds the clock in \reg{c7}, a read-only capability for exactly the
 timer's NOW and FREQ registers (Section~\ref{sec:timer}): reading the clock is one 8-byte \insn{tget}.
+The kernel puts the clock in \reg{c7} when a program starts and on CLOCK (\texttt{sys\_clock}), and
+never otherwise: a context switch gives back what \reg{c7} held, whatever it was. So \reg{c7} is the
+clock's register: a program keeps and lends other capabilities from other registers (an attachment
+from \reg{c0} or \reg{c6}). After a reply put a second capability in \reg{c7}, or after the program
+lent \reg{c7} itself, it calls CLOCK before it reads the time: a read through an empty \reg{c7} is a
+\texttt{capinv} fault. (What \reg{c7} holds after a call may differ between a program alone on its
+core and one sharing it; a program must not depend on it.)
 Sleeping is WAIT\_REPLY with a timeout and nothing awaited. DEADLINE and WAIT belong to the system
 core.
 

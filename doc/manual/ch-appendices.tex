@@ -31,7 +31,8 @@ architectural requirement.
   (Table~\ref{tab:sficonv}) are: \reg{c0} memory root, \reg{c2} console output, \reg{c3} device root,
   \reg{c9} block I/O buffer, \reg{c12}--\reg{c15} scratch. StrataOS programs receive their arena in
   \reg{c0}, endpoints to the servers in \reg{c1}--\reg{c4}, their message buffer in \reg{c5} and the
-  clock in \reg{c7} (Table~\ref{tab:os-start}); \reg{c0}--\reg{c7} are preserved across context switches
+  clock in \reg{c7} (Table~\ref{tab:os-start}), which they keep there (the kernel restores it only on
+  CLOCK); \reg{c0}--\reg{c7} are preserved across context switches
   and \reg{c8}--\reg{c15} are not. A routine must not leave a live linear
   capability in a register its caller expects to be free, since a later write to it would trap.
 \item Transfer tags: \reg{tg15} is used for console output by the examples; \reg{tg12}--\reg{tg15} are

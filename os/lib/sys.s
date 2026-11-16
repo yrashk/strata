@@ -25,7 +25,11 @@
 ;   c5 the message buffer                      c6 capabilities that arrive
 ;   c7 the clock: read-only timer NOW/FREQ        with a reply land here
 ; A reply may carry up to two capabilities: they arrive in c6 and c7 (the
-; second one replaces the clock; `sys_clock` gets it back). Keep c6 free of
+; second one replaces the clock; `sys_clock` gets it back). c7 is the clock:
+; never keep or lend another capability there (lend from c0 or c6). The kernel
+; puts the clock in c7 only at the start and on sys_clock; a switch restores
+; what c7 held, so after c7 was lent or replaced call sys_clock before sys_now
+; (an empty c7 faults: capinv). Keep c6 free of
 ; linear capabilities while a call is out: what arrives would be dropped.
 ; A request may carry one too (an ATTACHMENT, e.g. a piece of the arena lent
 ; to the window server): send it with sys_msga, which uses svc SEND so that
