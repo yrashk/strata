@@ -496,6 +496,23 @@ $(BUILD)/prog/cc0: $(BUILD)/cc/cc0.lib
 $(BUILD)/cc/cc0.lib: $(BUILD)/cc/cc-full.stx $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS) $(BUILD)/cc/asm.tab
 	python3 lang/cc/lib/mklib.py --cc $(BUILD)/cc/cc-full.stx $(BUILD)/prog/cc0 $@ $(CC_LIBIN)
 
+# Stralog: assembled whole, then split into the program and its code units
+# (lang/prolog/mkimg.py, which also checks that no jump leaves its unit)
+STRALOG_SRC := $(wildcard lang/prolog/*.s) os/lib/sys.s
+$(BUILD)/stralog/atoms.s: lang/prolog/mkatoms.py
+	@mkdir -p $(BUILD)/stralog
+	python3 lang/prolog/mkatoms.py $@
+$(BUILD)/stralog/bootpl.s: lang/prolog/boot.pl lang/prolog/mkboot.py
+	@mkdir -p $(BUILD)/stralog
+	python3 lang/prolog/mkboot.py lang/prolog/boot.pl > $@
+$(BUILD)/stralog/stralog.stx: $(STRALOG_SRC) $(BUILD)/stralog/atoms.s $(BUILD)/stralog/bootpl.s $(BUILD)/sasm
+	$(BUILD)/sasm -T 0x8000 -I lang/prolog -I $(BUILD)/stralog -g $(BUILD)/stralog/stralog.map -o $@ lang/prolog/stralog.s
+$(BUILD)/prog/stralog: $(BUILD)/stralog/stralog.stx lang/prolog/mkimg.py
+	@mkdir -p $(BUILD)/prog
+	python3 lang/prolog/mkimg.py $< $(BUILD)/stralog/stralog.map $@ $(BUILD)/prog/stralog.u
+$(BUILD)/prog/stralog.u: $(BUILD)/prog/stralog
+	@touch $@
+
 # Every source on the disk carries a copy of the library after the program.
 $(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s
 	@mkdir -p $(BUILD)/src
@@ -572,6 +589,10 @@ WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)
 DISK_ARGS  += -t www $(WWW_FILES)
 DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS) -t src,cc $(CC_ASRCS)
+# Stralog, the Prolog (lang/prolog): the program, its code units, the examples
+STRALOG_PL := $(sort $(wildcard lang/prolog/examples/*.pl))
+DISK_FILES += $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u $(STRALOG_PL)
+DISK_ARGS  += -t bin $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u -t prolog $(STRALOG_PL)
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
