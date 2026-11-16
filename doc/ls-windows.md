@@ -278,8 +278,27 @@ copy it saves.
 
 ## Step 2: what the windows cost the hardware (ECP5)
 
-Not measured yet: one core synthesized and placed and routed with and
-without the windows is the next commit.
+One core, `fpga/synth.sh ecp5 1` and `fpga/pnr.sh` (LFE5U-85F, static
+placer, router1, 4 threads), Yosys 0.70 and nextpnr-ecp5 from the OSS CAD
+Suite, the same seed, on the RTL just before the windows (5c77750) and
+with them (cfa8add):
+
+| | Without windows | With windows | Change |
+|---|---:|---:|---:|
+| LUT4s (before packing) | 52,196 | 53,315 | +1,119 (+2.1%) |
+| flip-flops | 7,334 | 7,405 | +71 |
+| TRELLIS_COMB cells | 52,992 | 54,283 | +2.4% |
+| block RAMs (DP16KD) | 180 | 180 | 0 |
+| Fmax | 18.93 MHz | 17.86 MHz | −5.7% |
+
+Both deepest paths start at the decoded instruction and are mostly wire.
+Without the windows the path ends at the `pc`; with them it runs through
+the `ltag`/`linst` entry arithmetic to the register file's write (that
+arithmetic now includes the entry's relocation). The committed
+result in `fpga/results/ecp5-1/` (20.02 MHz) is an older run, with
+another nextpnr build. One seed of a design this full moves by a few per
+cent from run to run, so −5.7% is an estimate. The fallback the decision
+named (registering the Local Store address) is not needed at this cost.
 
 ## Decisions
 
