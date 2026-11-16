@@ -32,7 +32,7 @@ b { color: #fff; font-weight: 600; }
 
 /* ---------------------------------------------------------------- nav */
 nav.top {
-  position: sticky; top: 0; z-index: 10;
+  position: sticky; top: 0; z-index: 100;   /* above every page's panels and drawers (20-50): its menus open over them */
   display: flex; align-items: center; justify-content: space-between;
   gap: 16px; padding: 14px 32px;
   background: rgba(7, 10, 18, 0.82);
