@@ -167,11 +167,11 @@ variable #files                                 \ the files in dir-buf
 : list-dirs ( -- )                              \ every tag whose bit is set
   dir-facets @ 0= if exit then
   dir-buf fs-tags 0 ?do  dup subdir? if dup dir-item then  rec-next  loop drop ;
-: list-page ( -- )                              \ the listing, in HTML, to OUT
+: list-page ( -- )                              \ the listing, in HTML, to OUT; QUERY each pass, as
+  path 2@ fs-dir 0 max #files !                 \ list-dirs reads TAGS2 over the files in dir-buf
   s" <html><head><title>" out path 2@ out s" </title></head><body><h1>" out
   path 2@ out s" </h1><ul>" out out-nl
   list-files list-dirs  s" </ul></body></html>" out out-nl ;
-: serve-listing ( n -- ) #files !  ['] list-page serve-page ; \ the n files in dir-buf
 
 \ ---- the answer to a request --------------------------------------------------------------
 create pbuf 256 allot                           \ room for PATH followed by index.html
@@ -186,7 +186,7 @@ create pbuf 256 allot                           \ room for PATH followed by inde
     s" /httpd-ps.fs" s" ps-page" ['] (tool) catch \ loaded for the request and forgotten after
     if 2drop 2drop s" 500 Internal Server Error" error-page then exit then
   path 2@ s" /~/" str= if s" /" path 2! then     \ /~/: every file, as on the assembly httpd
-  path 2@ fs-dir dup 0< if drop s" 404 Not Found" error-page exit then  serve-listing ;
+  path 2@ fs-dir 0< if s" 404 Not Found" error-page exit then  ['] list-page serve-page ;
 : answer ( -- )                                 \ the request on conn
   0 #obuf !  0 #body !  read-request parse-request
   bad-request? if s" 400 Bad Request" error-page exit then
