@@ -345,7 +345,8 @@ the program); the debugger takes a server's symbols from `build/sys/` first
   The same windows, given a base as well as a bound, would let two programs
   share a core's Local Stores so that a switch between them moves nothing:
   `doc/ls-switch.md` (option B) measures that against the other ways of
-  making switches cheaper; the design of the windows is in progress.
+  making switches cheaper; `doc/ls-windows.md` designs the windows
+  (four decisions open).
 - *ASIC with two and six cores*: scripted (`asic/run.sh N`), paused by the
   user.
 
@@ -400,6 +401,7 @@ the program); the debugger takes a server's symbols from `build/sys/` first
 | `PLAN.md` | Decisions (do not reopen), per-step history, design notes (R: revocation by address, P: Local Store sizes) |
 | `doc/strataos.md` | The OS spec, incl. guests, code paging, the switch work's numbers |
 | `doc/ls-switch.md` | What a context switch copies, measured (`make ls-stats`), and the ways to copy less |
+| `doc/ls-windows.md` | User-mode Local Store windows: protection, and switches that copy nothing (design) |
 | `doc/debug-protocol.md` | The debug engine's protocol |
 | `os/PLAN-os.md` | Kernel and servers: decisions, deviations from the spec |
 | `os/progs/PLAN-sh.md` | The shell |

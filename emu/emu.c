@@ -361,9 +361,13 @@ static void lss_lazy(typeof(&lss[0]) k) { /* a lazy restore: only the segments o
   k->traps += (unsigned long long)__builtin_popcountll(t);
   k->need = 0;
 }
+static FILE *lss_log; /* STRATA_LSLOG=FILE: the switch's transfers, one per line (tools/ls-windows.py) */
 static void lss_xfer(Core *c, unsigned sub, uint64_t ls, uint64_t far, uint64_t len) {
   if (!c->id || !len) return;
   typeof(&lss[0]) k = &lss[c->id];
+  if (lss_log && !c->user && !(ls >= 0xA000 && ls < 0xE000 && sub != XF_GETX))
+    fprintf(lss_log, "%c %d %llx %llx %llx %llx\n", "GPX"[sub], c->id, (unsigned long long)far, (unsigned long long)ls,
+            (unsigned long long)len, (unsigned long long)k->dirty);
   uint64_t seg = dls_size / LSS_SEGS, m = lss_mask(ls, len);
   if (c->user) { k->touch |= m; if (sub == XF_GET) k->dirty |= m; return; }
   if (sub == XF_GETX) { k->code += len; k->codelen = len; return; }
@@ -1995,6 +1999,7 @@ int main(int argc, char **argv) {
 #endif
 #ifdef STRATA_LSSTATS
   if (getenv("STRATA_LSSTATS")) atexit(lss_dump);
+  if (getenv("STRATA_LSLOG") && !(lss_log = fopen(getenv("STRATA_LSLOG"), "w"))) { perror("STRATA_LSLOG"); exit(2); }
 #endif
   const char *path = NULL, *in_path = NULL, *ppm = NULL;
   const char *disk_path = NULL;

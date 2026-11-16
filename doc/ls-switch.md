@@ -191,6 +191,10 @@ user mode reaches. It is a much larger change, though:
 - the dispatcher has to allocate store space, and fall back to copying
   when programs do not fit (core 5's pair does not).
 
+`doc/ls-windows.md` designs it and simulates it with resident threads
+and eviction: −54 to −87% on the pinned workloads, −26 to −32% where
+servers share cores.
+
 ### C. Bounds without relocation (ISA: the protection proposal)
 
 With only the protection bounds, the kernel knows each thread's

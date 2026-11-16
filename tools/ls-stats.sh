@@ -20,7 +20,7 @@ run() { # name, workload lines
     name=$1; shift
     cp "$DISK" $T/d.img
     { for l in "$@"; do echo "$l"; done; echo halt; } > $T/$name.in
-    STRATA_LSSTATS=1 $EMU -c 8 -T virtual -g none -m 40000000000 -d $T/d.img -i $T/$name.in \
+    STRATA_LSSTATS=1 STRATA_LSLOG=$T/$name.log $EMU -c 8 -T virtual -g none -m 40000000000 -d $T/d.img -i $T/$name.in \
         $BUILD/bootrom.stx > $T/$name.out 2>&1 || { echo "ls-stats: $name: the emulator failed"; tail $T/$name.out; exit 1; }
 }
 
@@ -53,3 +53,5 @@ for n, label in [('boot', 'boot to the shell'), ('spin2', 'two spins on core 6')
           (save + rest + code) / sw, ms, mr, (ms + mr + code) / sw, (ms4 + mr4 + code) / sw, fit, (ms + lazy + code) / sw,
           traps / sw))
 PY
+echo
+python3 tools/ls-windows.py $T/boot.log $T/spin2.log $T/pipe1.log $T/pipe3.log $T/cat.log $T/cp.log
