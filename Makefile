@@ -935,6 +935,9 @@ wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS) $(BUILD)/msgops.txt
 	cp $(WEB_IMAGES) $(WEB)/images/
 	cp lang/forth/demos/*.fs $(WEB)/demos/
 	ls lang/forth/demos | sed -n 's/\.fs$$//p' > $(WEB)/demos/index.txt
+	@mkdir -p $(WEB)/prolog
+	cp lang/prolog/examples/*.pl $(WEB)/prolog/
+	ls lang/prolog/examples | sed -n 's/\.pl$$//p' > $(WEB)/prolog/index.txt
 	cp $(DEBUG_ASSETS) $(WEB)/debug/
 	cp $(patsubst %,examples/%.s,$(DEBUG_EXAMPLES)) $(WEB)/debug/src/examples/
 	cp examples/lib/*.s $(WEB)/debug/src/examples/lib/

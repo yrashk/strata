@@ -66,6 +66,13 @@ const PRESETS = {
     type: "cc /src/hi.c && hi\n",
     about: "StrataOS with its C compiler: the page types cc /src/hi.c && hi at the shell's first prompt, which compiles the program on the machine and runs it. Then try cat /src/hi.c, cc -o calc /src/calc.c, cc /src/math.c, cc /src/asm.c, or write a program with vi. cc is written in C and compiles itself; cc0, the compiler in assembly that it was bootstrapped from, is on the disk too, with the source in /src/cc.c.",
   },
+  stralog: {
+    files: ["bootrom.stx", "disk.img"],
+    args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
+    fitScreen: true,
+    type: "-m 8 stralog\n",
+    about: "Stralog, a Prolog written in Strata assembly (the page types -m 8 stralog at the shell's first prompt: an 8 MiB arena). Every term lives in far memory; the data Local Store holds windows onto the tops of the heap, the trail and the choicepoint stack, and a small far cache: statistics. shows what moved. Try [queens]. then queens2(8, Qs), show(Qs). The examples are in /prolog (zebra, animals, calc, roman, primes, graph, kb, meta, sorting, sendmore, hanoi, family); after an answer, ; asks for the next one. The Prolog page has them all with Try buttons.",
+  },
   wdoom: {
     files: ["bootrom.stx", "disk-wdoom.img"],
     args: ["-c", "12", "-d", "disk-wdoom.img", "bootrom.stx"],

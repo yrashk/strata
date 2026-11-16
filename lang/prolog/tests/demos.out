@@ -1,0 +1,108 @@
+strata$ -m 4 stralog
+Stralog 0.1
+?- [queens].
+true.
+?- queens2(8, Qs), show(Qs).
+ . . . Q . . . .
+ . Q . . . . . .
+ . . . . . . Q .
+ . . Q . . . . .
+ . . . . . Q . .
+ . . . . . . . Q
+ . . . . Q . . .
+ Q . . . . . . .
+Qs = [4,2,7,3,6,8,5,1] 
+.
+?- count_queens(6, N).
+N = 4.
+?- [zebra].
+true.
+?- zebra(Owner).
+Owner = japanese 
+.
+?- houses(Hs), member(h(C, N, P, water, S), Hs).
+Hs = [h(yellow,norwegian,fox,water,kools),h(blue,ukrainian,horse,tea,chesterfield),h(red,english,snails,milk,oldgold),h(ivory,spanish,dog,orange_juice,luckystrike),h(green,japanese,zebra,coffee,parliament)], C = yellow, N = norwegian, P = fox, S = kools 
+.
+?- [animals].
+true.
+?- identify([hair, tawny, dark_spots, eats_meat]).
+It is a cheetah.
+true.
+?- identify([feathers, swims, black_and_white]).
+It is a penguin.
+true.
+?- identify.
+Does it have, or is it, hair? yes.
+Does it have, or is it, eats_meat? no.
+Does it have, or is it, pointed_teeth? no.
+Does it have, or is it, hooves? yes.
+Does it have, or is it, long_neck? no.
+Does it have, or is it, black_stripes? yes.
+It is a zebra.
+true.
+?- [hanoi].
+true.
+?- hanoi(3).
+move a disc from left to right
+move a disc from left to middle
+move a disc from right to middle
+move a disc from left to right
+move a disc from middle to left
+move a disc from middle to right
+move a disc from left to right
+true.
+?- moves(20, N).
+N = 1048575.
+?- [primes].
+true.
+?- primes(60, Ps).
+Ps = [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59] 
+.
+?- nth_prime(100, P).
+P = 541.
+?- [sendmore].
+true.
+?- sendmore(L).
+L = [9,5,6,7,1,0,8,2] 
+.
+?- [graph].
+true.
+?- shortest(a, e, P).
+P = [a,b,e].
+?- reachable(a, L).
+L = [a,b,c,d,e,f].
+?- [kb].
+true.
+?- in_order(Ps).
+Ps = [mercury,venus,earth,mars,jupiter,saturn,uranus,neptune].
+?- setof(P, R^D^M^(planet(P, R, D, M), R > 20000), Big).
+Big = [jupiter,neptune,saturn,uranus].
+?- aggregate_all(sum(M), planet(_, _, _, M), Total).
+Total = 288.
+?- [meta].
+true.
+?- solve(app(X, Y, [1, 2])).
+X = [], Y = [1,2] ;
+X = [1], Y = [2] ;
+X = [1,2], Y = [] ;
+false.
+?- proof(app([1], [2], L), P).
+L = [1,2], P = app([1],[2],[1,2])-(app([],[2],[2])-true) 
+.
+?- [sorting].
+true.
+?- qsort([3,1,4,1,5,9,2,6], L), isort([3,1,2], L2).
+L = [1,1,2,3,4,5,6,9], L2 = [1,2,3].
+?- nrev_bench(200).
+reversed 200 elements, first now 200
+calls: 156643
+heap: 179512 of 3098624 bytes used; window: 1019 spills, 193 slides, 4184256 bytes moved
+garbage collections: 1, 2311368 bytes given back
+trail: 16 bytes used; window: 1 spills, 2 slides, 576 bytes moved
+choicepoints: 4 frames; window: 0 spills, 0 slides, 0 bytes moved
+far cache: 173677 misses, 20500 write-backs (64-byte lines)
+atoms: 25680 bytes, clauses: 112584 bytes, findall: 0 bytes
+true.
+?- halt.
+strata$ halt
+StrataOS: all cores halted

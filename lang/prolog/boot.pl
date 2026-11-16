@@ -130,6 +130,9 @@
 consult(F) :- var(F), !, throw(error(instantiation_error, consult/1)).
 consult([]) :- !.
 consult([F|Fs]) :- !, consult(F), consult(Fs).
+consult(user) :- !,            % clauses typed in, up to the end of the input (Ctrl-D)
+    '$new_consult',
+    '$load'(user_input).
 consult(F) :-
     '$open_source'(F, S),
     '$new_consult',

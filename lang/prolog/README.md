@@ -11,7 +11,9 @@ around that rather than hiding it:
   everything else.
 - `statistics/0` shows what moved between the two.
 
-The design, and the reasons for it, are in [DESIGN.md](DESIGN.md).
+The design, and the reasons for it, are in [DESIGN.md](DESIGN.md). The website's
+Stralog page (`doc/manual/gen/genprolog.py`) has every predicate, the examples
+with Try buttons, and a playground running it in StrataOS in the browser.
 
 ## Running it
 
@@ -52,7 +54,7 @@ Ds = [bob,liz,ann,pat,jim].
 
 It works on the console, which it puts in raw mode while a line is typed, and in a window server terminal, whose keys arrive as they are.
 
-**Consulting.** `consult/1` and `[File]` look for `File`, `File.pl`, `/prolog/File` and `/prolog/File.pl`, in that order. The examples are tagged `prolog`.
+**Consulting.** `[user]` reads clauses typed in, up to Ctrl-D. `consult/1` and `[File]` look for `File`, `File.pl`, `/prolog/File` and `/prolog/File.pl`, in that order. The examples are tagged `prolog`.
 
 ## The language
 
