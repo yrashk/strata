@@ -538,7 +538,9 @@ FORTH_DISK += $(BUILD)/forth-os/progs.pk
 # machine (cc0 -p -h 0 -o cc1 /src/cc.c); and some C programs to try
 CC_DISK := $(BUILD)/prog/cc $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib $(BUILD)/prog/cc0 $(BUILD)/cc/cc0.lib
 CC_SRCS := lang/cc/cc.c $(sort $(wildcard lang/cc/examples/*.c))
-DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(DBPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as $(CC_DISK) $(CC_SRCS) \
+# the bootstrap compiler's assembly and its runtime (lib/*.s), under /src/cc
+CC_ASRCS := lang/cc/cc.s $(sort $(wildcard lang/cc/cc-*.s)) $(sort $(wildcard lang/cc/lib/*.s))
+DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(DBPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as $(CC_DISK) $(CC_SRCS) $(CC_ASRCS) \
               $(BUILD)/prog/units $(BUILD)/prog/vi $(BUILD)/prog/nav $(SRCS) $(USRCS) $(BUILD)/src/vi.s $(FORTH_DISK)
 
 # The same files with their tags (mkdisk -t TAGS applies to the files after it).
@@ -569,7 +571,7 @@ DISK_ARGS  += -t bin $(BUILD)/prog/wdoom -t ws $(WDOOM_DAT)
 WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)
 DISK_ARGS  += -t www $(WWW_FILES)
-DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS)
+DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS) -t src,cc $(CC_ASRCS)
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)

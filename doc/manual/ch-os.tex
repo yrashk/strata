@@ -1309,7 +1309,8 @@ The C compiler (Section~\ref{sec:cc}) is on the disk too, and is self-hosting in
 106~KiB of code are paged in 4~KiB units from a second file, \texttt{/bin/cc.u}, whose large tables and
 its window on the source are in its arena, and which reads the library from \texttt{/bin/cc.lib}. The
 disk also carries the compiler's source, \texttt{/src/cc.c}, and \texttt{cc0}, the compiler in assembly
-it is bootstrapped from, so the bootstrap can be done on the machine:
+it is bootstrapped from (its source, \texttt{cc.s}, the \texttt{cc-*.s} beside it and its runtime, in
+\texttt{/src/cc}), so the bootstrap can be done on the machine:
 
 \begin{shell}
 cc0 -p -h 0 -o cc1 /src/cc.c

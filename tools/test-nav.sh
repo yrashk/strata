@@ -87,7 +87,7 @@ fi
   printf 'hq'; printf '\033'                     # hex, back, Esc: the search ends
   printf '%s' "${HOME}"; printf '\n'             # Home: "..", Enter: up to /
   printf '%s' "$E[F"; printf '\n'                # End: @before, Enter
-  printf '%s' "$DN$DN$DN$DN"; printf '\n'        # doc/ in the snapshot (bin deep demo doc)
+  printf '%s' "$DN$DN$DN$DN$DN"; printf '\n'     # doc/ in the snapshot (bin cc deep demo doc)
   printf '%s' "$DN${F8}"                         # F8 on about there: refused
   printf '\030echo ran in nav\n '                # Ctrl-X: the command line; a key after it
   printf '\030'                                  # Ctrl-X: the search again
