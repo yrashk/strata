@@ -55,7 +55,7 @@
   <div class="stats">
     <div class="stat hot"><b>521 / 521</b><span>conformance tests, both compilers</span></div>
     <div class="stat"><b>5,900</b><span>lines of C: the compiler</span></div>
-    <div class="stat"><b>13,900</b><span>lines of assembly: the bootstrap</span></div>
+    <div class="stat"><b>13,600</b><span>lines of assembly: the bootstrap</span></div>
     <div class="stat"><b>107 KiB</b><span>of its own code, paged in 4 KiB units</span></div>
     <div class="stat"><b>40 KiB</b><span>of data: all a program has</span></div>
   </div>
@@ -117,7 +117,8 @@ c2 /bin/cc: same</pre>
     <div class="card"><h3>One pass, no assembler, no linker</h3>
       <p>Code is emitted while the source is parsed, with what has not yet had to be computed kept on a stack of
         value descriptors. A function's body is read ahead once, so that the variables it uses most, and never
-        by address, can live in registers. The image is written directly; the run-time library is assembled
+        by address, can live in registers: <code>cc</code> compiling itself runs 12% fewer instructions, its code is 7% smaller,
+        and tight loops 21&ndash;29% fewer. The image is written directly; the run-time library is assembled
         once, at fixed addresses, and copied into every program.</p></div>
     <div class="card"><h3>No floating-point hardware</h3>
       <p><code>float</code> and <code>double</code> are IEEE 754 in software, round to nearest even, in the
