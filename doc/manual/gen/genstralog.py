@@ -14,10 +14,20 @@ Read from the sources:
     the file (it is on the disk, under /stralog) and run the query in the
     playground, and their text is shown.
 
-Written here: the grouping and the one-line description of each predicate
-(DESC). --check fails if a predicate of the sources has none, or if one
-described here is not in the sources. The prose in front of the reference
-is doc/manual/web/stralog.html.
+The reference is doc/manual/web/stralog-ref.txt: the groups, and an entry
+for each predicate (its templates, what it does, its errors, where it
+differs from ISO and SWI-Prolog, examples); its first comment says how it
+is written. --check fails if a predicate of the sources has no entry, if an
+entry is for a predicate that is not in the sources, or if an entry has no
+template or no example. The prose in front of the reference is
+doc/manual/web/stralog.html; its {{optable}} is the operator table, from
+lang/stralog/mkatoms.py.
+
+    python3 doc/manual/gen/genstralog.py --session DIR
+
+writes the reference's examples as a session (DIR/ref.txt) and what Stralog
+must print for it (DIR/ref.out), which lang/stralog/tests/ref.sh runs (the
+test stralog-ref).
 
 The page has a playground: StrataOS in the WebAssembly emulator, with
 `stralog` typed at its first prompt (site/stralog/stralog.js, which runs
@@ -36,158 +46,7 @@ WEB = os.path.join(HERE, "..", "web")
 
 esc = lambda s: html.escape(s, quote=True)  # noqa: E731
 
-# (group id, title, blurb, [(Name/Arity, description), ...])
-DESC = [
-    ("control", "Control", "Conjunction, disjunction, if-then-else and cut are run by the solve loop itself "
-     "(lang/stralog/solve.s); a cut inside call/N, \\+ or the condition of an if-then-else is local to it.", [
-        ("true/0", "Succeeds."), ("fail/0", "Fails."), ("false/0", "Fails."),
-        (",/2", "Conjunction: the first goal, then the second."),
-        (";/2", "Disjunction; with -> or *-> inside, if-then-else."),
-        ("|/2", "The same as ;."),
-        ("->/2", "If-then: the condition once, then the goal."),
-        ("*->/2", "Soft cut: every solution of the condition, then the goal."),
-        ("!/0", "Cut: the choices made since the clause was called are dropped."),
-        ("\\+/1", "Negation as failure: succeeds if the goal has no solution."),
-        ("not/1", "The same as \\+."),
-        ("call/1", "Calls a goal; cut inside it is local."),
-        ("call/2", "Calls a goal with one more argument (call/3 to call/8: more)."),
-        ("call/3", "call/2 with two more arguments."), ("call/4", "call/2 with three more arguments."),
-        ("call/5", "call/2 with four more arguments."), ("call/6", "call/2 with five more arguments."),
-        ("call/7", "call/2 with six more arguments."), ("call/8", "call/2 with seven more arguments."),
-        ("once/1", "The first solution of a goal."),
-        ("ignore/1", "Calls a goal once, and succeeds even if it fails."),
-        ("forall/2", "Succeeds if the second goal holds for every solution of the first."),
-        ("if/3", "if(C, T, E): (C *-> T ; E)."),
-        ("repeat/0", "Succeeds again on every backtrack."),
-        ("catch/3", "catch(Goal, Catcher, Recovery): Goal; if it throws a ball that unifies with Catcher, Recovery."),
-        ("throw/1", "Throws a copy of a ball to the nearest catch/3 whose catcher unifies with it."),
-        ("halt/0", "Ends Stralog."), ("halt/1", "Ends Stralog with an exit status."),
-        (">>/2", "A lambda with no arguments: [X1, ...]>>Goal, its variables copied for each call."),
-        (">>/3", "[X]>>Goal called with one argument, as maplist/3 and the like do (>>/4 to >>/7: more)."),
-        (">>/4", "A lambda called with two arguments."), (">>/5", "A lambda called with three arguments."),
-        (">>/6", "A lambda called with four arguments."), (">>/7", "A lambda called with five arguments."),
-        ("^/2", "V^Goal: Goal (in bagof/3 and setof/3, V is not a free variable)."),
-    ]),
-    ("terms", "Terms", "Unification, comparison in the standard order (variables, numbers, atoms, compounds), "
-     "and taking terms apart.", [
-        ("=/2", "Unifies two terms."), ("\\=/2", "Succeeds if two terms do not unify (and binds nothing)."),
-        ("==/2", "Identical terms."), ("\\==/2", "Terms that are not identical."),
-        ("@</2", "Before, in the standard order of terms."), ("@>/2", "After, in the standard order."),
-        ("@=</2", "Before or identical."), ("@>=/2", "After or identical."),
-        ("compare/3", "compare(Order, X, Y): Order is <, = or >."),
-        ("var/1", "An unbound variable."), ("nonvar/1", "Not an unbound variable."),
-        ("atom/1", "An atom."), ("number/1", "A number (an integer: there are no floats)."),
-        ("integer/1", "An integer."), ("atomic/1", "An atom or a number."),
-        ("compound/1", "A compound term."), ("callable/1", "An atom or a compound."),
-        ("is_list/1", "A proper list."), ("ground/1", "A term without variables."),
-        ("functor/3", "functor(T, Name, Arity): a term's name and arity, or a term made of them."),
-        ("arg/3", "arg(N, T, A): the Nth argument of a compound."),
-        ("=../2", "T =.. [Name|Args]: a term and the list of its name and arguments."),
-        ("copy_term/2", "A copy of a term with fresh variables."),
-        ("term_variables/2", "The variables of a term, in the order they first occur."),
-        ("numbervars/3", "Binds a term's variables to '$VAR'(N), which print as A, B, ..."),
-        ("term_to_atom/2", "Reads a term from an atom's text."),
-    ]),
-    ("arith", "Arithmetic", "Integers of 61 bits; a result outside them raises evaluation_error(int_overflow). "
-     "The functions: + - * // / mod rem div min max abs sign gcd ** ^ >> << /\\ \\/ xor \\ msb; / divides "
-     "and truncates, as there are no floats.", [
-        ("is/2", "X is Expression: evaluates it."),
-        ("=:=/2", "Equal values."), ("=\\=/2", "Different values."), ("</2", "Less."), (">/2", "Greater."),
-        ("=</2", "Less or equal."), (">=/2", "Greater or equal."),
-        ("between/3", "between(L, H, X): X from L to H, one at a time."),
-        ("succ/2", "succ(X, Y): Y is X + 1, either way round, for natural numbers."),
-        ("plus/3", "plus(X, Y, Z): Z is X + Y, given any two."),
-    ]),
-    ("atoms", "Atoms and text", "Text is a list of codes or of one-character atoms; double-quoted text is a "
-     "list of codes.", [
-        ("atom_codes/2", "An atom and the list of its codes."),
-        ("atom_chars/2", "An atom and the list of its one-character atoms."),
-        ("char_code/2", "A one-character atom and its code."),
-        ("atom_length/2", "The length of an atom's name."),
-        ("number_codes/2", "A number and its text, as codes (0x, 0o, 0b and 0'c too)."),
-        ("number_chars/2", "A number and its text, as characters."),
-        ("atom_number/2", "An atom whose text is a number, and the number."),
-        ("atom_concat/3", "Two atoms and the atom of the two together; with the third given, every split."),
-        ("sub_atom/5", "sub_atom(A, Before, Length, After, Sub): the parts of an atom."),
-        ("upcase_atom/2", "An atom in capitals."),
-    ]),
-    ("db", "The database", "Clauses added and removed while the program runs. A call sees the clauses there were "
-     "when it was made (the logical update view).", [
-        ("assert/1", "Adds a clause at the end."), ("assertz/1", "Adds a clause at the end."),
-        ("asserta/1", "Adds a clause at the beginning."),
-        ("retract/1", "Removes a clause that unifies; on backtracking, the next one."),
-        ("retractall/1", "Removes every clause whose head unifies."),
-        ("abolish/1", "abolish(Name/Arity): removes all of a predicate's clauses."),
-        ("clause/2", "clause(Head, Body): the clauses of a predicate."),
-        ("dynamic/1", "Declares predicates dynamic: Name/Arity, or several in a list or with commas."),
-        ("discontiguous/1", "Accepted and ignored."),
-        ("current_predicate/1", "current_predicate(Name/Arity): the predicates with clauses."),
-        ("consult/1", "Reads a file's clauses (File, File.pl, then the same in /stralog); consult(user) reads "
-         "them from the input until Ctrl-D."),
-        ("./2", "[File, ...]: consult/1."),
-    ]),
-    ("all", "All solutions", "", [
-        ("findall/3", "findall(T, Goal, L): T for every solution of Goal."),
-        ("findall/4", "The same, with a tail for the list."),
-        ("bagof/3", "Like findall/3, but grouped by the free variables of the goal (V^Goal: not V); "
-         "fails if there is no solution."),
-        ("setof/3", "bagof/3, sorted, without duplicates."),
-        ("aggregate_all/3", "aggregate_all(count | sum(E) | bag(E) | set(E), Goal, Result)."),
-    ]),
-    ("lists", "Lists and sorting", "Written in Prolog in lang/stralog/boot.pl.", [
-        ("append/3", "Two lists and the two together."), ("member/2", "An element of a list."),
-        ("memberchk/2", "member/2, once."), ("length/2", "The length of a list, or lists of a length."),
-        ("reverse/2", "A list reversed."), ("nth0/3", "The element at an index from 0."),
-        ("nth1/3", "The element at an index from 1."), ("last/2", "The last element."),
-        ("select/3", "An element and the list without it."), ("selectchk/3", "select/3, once."),
-        ("permutation/2", "The permutations of a list."),
-        ("delete/3", "A list without the elements that unify with one."),
-        ("exclude/3", "The elements for which a goal fails."), ("include/3", "The elements for which it succeeds."),
-        ("maplist/2", "A goal holds for every element."),
-        ("maplist/3", "A goal for every pair of elements of two lists."),
-        ("maplist/4", "A goal for every three elements of three lists."),
-        ("foldl/4", "foldl(G, List, A0, A): G called with each element and an accumulator."),
-        ("sum_list/2", "The sum of a list of numbers."), ("max_list/2", "The largest."),
-        ("min_list/2", "The smallest."), ("numlist/3", "numlist(L, H, List): the integers from L to H."),
-        ("msort/2", "Sorts in the standard order, keeping duplicates."),
-        ("sort/2", "Sorts in the standard order, without duplicates."),
-        ("keysort/2", "Sorts Key-Value pairs by key, keeping the order of equal keys."),
-        ("predsort/3", "Sorts with a comparison predicate."),
-    ]),
-    ("io", "Input and output", "Streams: user_input, user_output, and files opened with open/3. "
-     "read/1 and the top level read from user_input through a line editor.", [
-        ("write/1", "Writes a term."), ("print/1", "Writes a term as writeq/1 does."),
-        ("writeq/1", "Writes a term so that it can be read back."),
-        ("write_canonical/1", "writeq/1 without operators."),
-        ("write/2", "write/1 to a stream (print/2, writeq/2, write_canonical/2: the same)."),
-        ("print/2", "print/1 to a stream."), ("writeq/2", "writeq/1 to a stream."),
-        ("write_canonical/2", "write_canonical/1 to a stream."),
-        ("write_term/2", "Writes with options: quoted(true), ignore_ops(true), numbervars(true), priority(P)."),
-        ("write_term/3", "write_term/2 to a stream."), ("writeln/1", "Writes a term and a newline."),
-        ("nl/0", "A newline."), ("nl/1", "A newline to a stream."), ("tab/1", "Spaces."),
-        ("put_char/1", "Writes a character."), ("put_char/2", "To a stream."),
-        ("get_char/1", "Reads a character (end_of_file at the end)."), ("get_char/2", "From a stream."),
-        ("peek_char/1", "The next character, left there."), ("peek_char/2", "From a stream."),
-        ("read/1", "Reads a term."), ("read/2", "From a stream."),
-        ("read_term/2", "Reads a term with options: variable_names(Vs)."), ("read_term/3", "From a stream."),
-        ("format/1", "format/2 with no arguments."),
-        ("format/2", "Formatted output: ~w ~a ~d ~q ~p ~s ~n ~~."),
-        ("open/3", "open(File, read | write | append, Stream)."), ("open/4", "The same, with options (ignored)."),
-        ("close/1", "Closes a stream."), ("set_input/1", "The current input stream."),
-        ("set_output/1", "The current output stream."), ("current_input/1", "The current input stream."),
-        ("current_output/1", "The current output stream."), ("flush_output/0", "Sends the buffered output."),
-        ("flush_output/1", "The same, for a stream."),
-    ]),
-    ("system", "Operators and the system", "", [
-        ("op/3", "op(Priority, Type, Names): defines operators (priority 0 removes them)."),
-        ("current_op/3", "The operators."),
-        ("statistics/0", "What the engine has moved between the Local Store and far memory: each window's "
-         "spills, slides and bytes, the far cache's misses and write-backs, the collections."),
-        ("statistics/2", "statistics(runtime, [Ms, _]), statistics(inferences, Calls)."),
-        ("phrase/2", "phrase(Rule, List): a DCG rule covers the list."),
-        ("phrase/3", "phrase(Rule, List, Rest): the same, leaving Rest."),
-    ]),
-]
+REF = "doc/manual/web/stralog-ref.txt"
 
 
 def read(rel):
@@ -287,14 +146,206 @@ def pred_id(pi):
     return "p-" + re.sub(r"[^A-Za-z0-9]", lambda m: "_%02x" % ord(m.group(0)), pi)
 
 
-def page_main(intro, exs):
+# ---------------------------------------------------------------- the reference
+# doc/manual/web/stralog-ref.txt: the entries, in groups. Its first comment
+# says how it is written.
+
+def parse_ref(text):
+    """[{id, title, blurb: [lines], entries: [{pis, tmpl, text, errors, differs, examples}]}]"""
+    groups, g, e = [], None, None
+    lines = [l for l in re.sub(r"\A\s*<!--.*?-->\s*", "", text, flags=re.S).split("\n")]
+    i = 0
+    while i < len(lines):
+        l = lines[i]
+        if l.startswith("# "):
+            gid, _, title = l[2:].partition("|")
+            g = {"id": gid.strip(), "title": title.strip(), "blurb": [], "entries": []}
+            groups.append(g)
+            e = None
+        elif l.startswith("## "):
+            e = {"pis": l[3:].split(), "tmpl": [], "text": [], "errors": [], "differs": [], "examples": []}
+            g["entries"].append(e)
+        elif e is None:
+            if l.strip():
+                g["blurb"].append(l)
+        elif l.startswith(": "):
+            e["tmpl"].append(l[2:])
+        elif l.startswith("error: "):
+            f, _, w = l[7:].partition(" — ")
+            e["errors"].append((f.strip(), w.strip()))
+        elif l.startswith("differs: "):
+            e["differs"].append(l[9:])
+        elif l.startswith("?- ") or l.startswith("strata$ "):
+            block = []
+            while i < len(lines) and lines[i].strip():
+                block.append(lines[i])
+                i += 1
+            e["examples"].append(block)
+            continue
+        elif l.strip():
+            e["text"].append(l)
+        i += 1
+    return groups
+
+
+def reference():
+    return parse_ref(read(REF))
+
+
+def cat_v(s):
+    """what cat -v makes of the text (run.sh's transcript goes through it)"""
+    out = []
+    for b in s.encode():
+        if b >= 128:
+            out.append("M-")
+            b -= 128
+        out.append("^?" if b == 127 else ("^" + chr(b + 64)) if b < 32 and b != 10 and b != 9 else chr(b))
+    return "".join(out)
+
+
+def session(groups):
+    """(the lines typed, the transcript expected) for every example that runs:
+    a query; `| text`, a line typed for the program; an answer ending in ` ;`,
+    after which ; was typed; `.` alone, Enter after an answer that may have
+    had others (the answer line ends in a space)."""
+    inp, out = [], []
+    for g in groups:
+        for e in g["entries"]:
+            for b in e["examples"]:
+                if b[0].startswith("strata$"):                  # a shell transcript: shown, not run
+                    continue
+                for l in b:
+                    if l.startswith("?- "):
+                        inp.append(l[3:])
+                        out.append(l)
+                    elif l.startswith("| "):
+                        inp.append(l[2:])
+                        out.append(l[2:])
+                    elif l == ".":
+                        inp.append("")
+                        out[-1] += " "
+                        out.append(l)
+                    else:
+                        if l.endswith(" ;"):
+                            inp.append(";")
+                        out.append(l)
+    return inp, out
+
+
+def write_session(d):
+    """the test stralog-ref's session (ref.txt) and what it must print (ref.out)"""
+    inp, out = session(reference())
+    with open(os.path.join(d, "ref.txt"), "w") as f:
+        f.write("stralog\n" + "\n".join(inp) + "\nhalt.\nhalt\n")
+    with open(os.path.join(d, "ref.out"), "w") as f:
+        f.write(cat_v("strata$ stralog\nStralog 0.1\n" + "\n".join(out) +
+                      "\n?- halt.\nstrata$ halt\nStrataOS: all cores halted\n"))
+
+
+def optable():
+    """the operators Stralog starts with (lang/stralog/mkatoms.py), as a table"""
+    src = read(PL + "/mkatoms.py")
+    by = {}
+    for m in re.finditer(r"\('\w+', '((?:[^'\\]|\\.)*)', \[([^\]]*)\]\)", src):
+        name = m.group(1).encode().decode("unicode_escape")
+        for p, t in re.findall(r"\((\d+), '(\w+)'\)", m.group(2)):
+            by.setdefault((int(p), t), []).append(name)
+    rows = "".join('<tr><td>%d</td><td><code>%s</code></td><td>%s</td></tr>' % (
+        p, t, " ".join("<code>%s</code>" % esc(n) for n in ns)) for (p, t), ns in
+        sorted(by.items(), key=lambda kv: (-kv[0][0], kv[0][1])))
+    return ('<table class="optab"><tr><th>priority</th><th>type</th><th>operators</th></tr>%s</table>' % rows)
+
+
+def ref_ids(groups):
+    return {pi: pred_id(pi) for g in groups for e in g["entries"] for pi in e["pis"]}
+
+
+def inline(s, ids):
+    """text with `code` (a link when it is a predicate indicator), and links to
+    the Terms and syntax chapter"""
+    out, last = [], 0
+    for m in re.finditer(r"`([^`]+)`", s):
+        out.append(esc(s[last:m.start()]))
+        c = m.group(1)
+        out.append('<a href="#%s"><code>%s</code></a>' % (ids[c], esc(c)) if c in ids else "<code>%s</code>" % esc(c))
+        last = m.end()
+    out.append(esc(s[last:]))
+    return "".join(out).replace("Terms and syntax", '<a href="#syntax">Terms and syntax</a>')
+
+
+def gloss(e):
+    """an entry's first sentence: its line in the index"""
+    t = re.sub(r"`([^`]*)`", r"\1", " ".join(e["text"]))
+    m = re.match(r"(.+?\.)(\s|$)", t)
+    return m.group(1) if m else t
+
+
+def example_html(b):
+    if b[0].startswith("strata$"):
+        return '<pre class="lst"><code class="language-prolog" data-session>%s</code></pre>' % esc("\n".join(b))
+    parts, ans = [], []
+
+    def flush():
+        if ans:
+            parts.append('<pre class="ans">%s</pre>' % "\n".join(ans))
+            ans.clear()
+    for l in b:
+        if l.startswith("?- "):
+            flush()
+            q = l[3:]
+            parts.append('<div class="try"><button type="button" class="try-b" data-try="%s" title="Ask this in '
+                         'the playground">Try</button><code class="language-prolog">?- %s</code></div>' % (
+                             esc(q), esc(q)))
+        elif l.startswith("| "):
+            ans.append('<span class="typed">%s</span>' % esc(l[2:]))
+        else:
+            ans.append(esc(l))
+    flush()
+    return '<div class="ex-s">%s</div>' % "".join(parts)
+
+
+def entry_html(e, ids):
+    aid = pred_id(e["pis"][0])
+    title = " ".join('<code%s>%s</code>' % ("" if k == 0 else ' id="%s"' % pred_id(pi), esc(pi))
+                     for k, pi in enumerate(e["pis"]))
+    h = ['<article class="word" id="%s" data-name="%s" data-k="%s">' % (
+        aid, esc(e["pis"][0]), esc(" ".join(e["pis"] + e["tmpl"] + [gloss(e)]).lower())),
+        '<header class="word-h"><h3><a href="#%s">%s</a></h3></header>' % (aid, title)]
+    h.append('<div class="tmpl">%s</div>' % "".join('<code class="stack">%s</code>' % esc(t) for t in e["tmpl"]))
+    h += ['<p class="word-d">%s</p>' % inline(p, ids) for p in e["text"]]
+    if e["errors"]:
+        h.append('<div class="errs"><h4>Errors</h4><dl>%s</dl></div>' % "".join(
+            '<dt><code>%s</code></dt><dd>%s</dd>' % (esc(f), inline(w, ids)) for f, w in e["errors"]))
+    for d in e["differs"]:
+        h.append('<p class="differs"><b>Differs.</b> %s</p>' % inline(d, ids))
+    h.append('<div class="exs">%s</div>' % "".join(example_html(b) for b in e["examples"]))
+    h.append("</article>")
+    return "\n".join(h)
+
+
+def blurb_html(lines, ids):
+    out = []
+    for l in lines:
+        if l.startswith("<"):
+            out.append(l)
+        elif l.startswith("differs: "):
+            out.append('<p class="differs"><b>Differs.</b> %s</p>' % inline(l[9:], ids))
+        else:
+            out.append("<p>%s</p>" % inline(l, ids))
+    return "\n".join(out)
+
+
+def page_main(intro, exs, groups):
     side, main = [], []
+    ids = ref_ids(groups)
     side.append('    <div class="doc-find"><input id="filter" type="search" placeholder="Filter predicates…  ( / )" '
                 'autocomplete="off" spellcheck="false" aria-label="Filter predicates by name or description" '
                 'data-items="article.word" data-prefix="p-" data-noun="predicates"><p id="count" class="doc-count" '
                 'aria-live="polite"></p></div>')
     side.append('    <details class="doc-ix" id="ix" open><summary>Index</summary><nav class="doc-toc" aria-label="Predicates">')
     side.append('      <div class="ix-group" id="ix-intro"><a class="ix-ch" href="#intro"><span>Stralog</span></a>'
+                '<a class="ix-ch" href="#syntax"><span>Terms and syntax</span></a>'
+                '<a class="ix-ch" href="#reading"><span>Reading the entries</span></a>'
                 '<a class="ix-ch" href="#examples"><span>Examples</span><em>%d</em></a>'
                 '<a class="ix-ch" href="#playground"><span>Playground</span></a></div>' % len(exs))
     # the examples
@@ -323,45 +374,56 @@ def page_main(intro, exs):
         '<a class="ix" href="#ex-%s" data-for="ex-%s"><code>%s</code><span>%s</span></a>' % (
             e["name"], e["name"], esc(e["file"]), esc(e["title"])) for e in exs) + "</div>")
     # the reference
-    for (g, title, blurb, preds) in DESC:
+    for g in groups:
+        n = sum(len(e["pis"]) for e in g["entries"])
         side.append('      <div class="ix-group" data-ch="%s"><a class="ix-ch" href="#g-%s"><span>%s</span><em>%d</em></a>'
-                    % (g, g, title, len(preds)))
-        for pi, d in preds:
-            side.append('        <a class="ix" href="#%s" data-for="%s"><code>%s</code><span>%s</span></a>' % (
-                pred_id(pi), pred_id(pi), esc(pi), esc(d)))
+                    % (g["id"], g["id"], g["title"], n))
+        for e in g["entries"]:
+            for pi in e["pis"]:
+                side.append('        <a class="ix" href="#%s" data-for="%s"><code>%s</code><span>%s</span></a>' % (
+                    pred_id(pi), pred_id(e["pis"][0]), esc(pi), esc(gloss(e))))
         side.append("      </div>")
-        arts = "\n".join('<article class="word" id="%s" data-name="%s" data-k="%s"><header class="word-h"><h3>'
-                         '<a href="#%s"><code>%s</code></a></h3></header><p class="word-d">%s</p></article>' % (
-                             pred_id(pi), esc(pi), esc((pi + " " + d).lower()), pred_id(pi), esc(pi), esc(d))
-                         for pi, d in preds)
         main.append('<section class="chap" id="g-%s" data-ch="%s">\n<h2><span class="num">%d predicates</span>%s</h2>\n'
-                    '%s\n<div class="preds">%s</div>\n</section>' % (g, g, len(preds), title,
-                                                                     "<p>%s</p>" % esc(blurb) if blurb else "", arts))
+                    '%s\n<div class="preds">%s</div>\n</section>' % (
+                        g["id"], g["id"], n, esc(g["title"]), blurb_html(g["blurb"], ids),
+                        "\n".join(entry_html(e, ids) for e in g["entries"])))
     side.append("    </nav></details>")
     side.append('    <p class="doc-keys"><kbd>/</kbd> filter · <kbd>Enter</kbd> first match · <kbd>Esc</kbd> clear</p>')
     return "\n".join(side), intro + "\n" + "\n".join(main)
 
 
 def check():
-    described = {pi for (_, _, _, preds) in DESC for (pi, _) in preds}
+    groups = reference()
+    entries = [e for g in groups for e in g["entries"]]
+    described = [pi for e in entries for pi in e["pis"]]
     have = source_preds()
     bad = 0
-    for pi in sorted(have - described):
-        print("genstralog: %s is in the sources but not described" % pi)
+    for pi in sorted(have - set(described)):
+        print("genstralog: %s is in the sources but has no entry" % pi)
         bad += 1
-    for pi in sorted(described - have):
-        print("genstralog: %s is described but not in the sources" % pi)
+    for pi in sorted(set(described) - have):
+        print("genstralog: %s has an entry but is not in the sources" % pi)
         bad += 1
-    print("genstralog: %d predicates described, %d in the sources" % (len(described), len(have)))
+    for pi in sorted({pi for pi in described if described.count(pi) > 1}):
+        print("genstralog: %s has more than one entry" % pi)
+        bad += 1
+    for e in entries:
+        for what, k in (("template", "tmpl"), ("description", "text"), ("example", "examples")):
+            if not e[k]:
+                print("genstralog: the entry for %s has no %s" % (" ".join(e["pis"]), what))
+                bad += 1
+    print("genstralog: %d predicates in %d entries, %d in the sources" % (len(described), len(entries), len(have)))
     return bad
 
 
 def write(out, page, link_sources=None, files=None):
     """stralog/index.html under out; page is genweb.page."""
     exs = examples()
-    n = sum(len(p) for (_, _, _, p) in DESC)
+    groups = reference()
+    n = sum(len(e["pis"]) for g in groups for e in g["entries"])
     intro = web_file("stralog.html").replace("{{preds}}", str(n)).replace("{{examples}}", str(len(exs)))
-    side, main = page_main(intro, exs)
+    intro = intro.replace("{{optable}}", optable())
+    side, main = page_main(intro, exs, groups)
     head = ('<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">\n'
             '<link rel="stylesheet" href="stralog.css?v=__BUILD__">')
     tail = (web_file("stralog-play.html") +
@@ -383,6 +445,9 @@ def write(out, page, link_sources=None, files=None):
 def main():
     if sys.argv[1:] == ["--check"]:
         sys.exit(1 if check() else 0)
+    if sys.argv[1:2] == ["--session"]:
+        write_session(sys.argv[2])
+        return
     sys.path.insert(0, HERE)
     import genweb  # noqa: E402
     out = sys.argv[1]

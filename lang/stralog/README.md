@@ -12,8 +12,10 @@ around that rather than hiding it:
 - `statistics/0` shows what moved between the two.
 
 The design, and the reasons for it, are in [DESIGN.md](DESIGN.md). The website's
-Stralog page (`doc/manual/gen/genstralog.py`) has every predicate, the examples
-with Try buttons, and a playground running it in StrataOS in the browser.
+Stralog page (`doc/manual/gen/genstralog.py`) has the syntax, a reference entry
+for every predicate (templates, errors, differences from ISO and SWI-Prolog,
+examples: `doc/manual/web/stralog-ref.txt`), the example programs with Try
+buttons, and a playground running it in StrataOS in the browser.
 
 ## Running it
 
@@ -120,7 +122,7 @@ Not there:
 | `mkatoms.py` `mkboot.py` `mkimg.py` | the build: predefined atoms; `boot.pl` as text; the split into the program and its code units, with the check that no jump leaves its unit |
 | `gc.s` | the heap's garbage collector |
 | `examples/` | Prolog programs on the disk, under `/stralog` (below) |
-| `tests/` | the scripted sessions (`run.sh`, in `make test`): `session`, `builtins`, `files`, `demos`, `iso` |
+| `tests/` | the scripted sessions (`run.sh`, in `make test`): `session`, `builtins`, `files`, `demos`, `iso`; and `ref.sh`, which runs the examples of the website's predicate reference (`doc/manual/web/stralog-ref.txt`) |
 | `tests/iso/` | the ISO conformance vectors, and `iso_run.pl`, which runs them |
 
 ## Examples

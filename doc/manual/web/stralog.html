@@ -2,7 +2,9 @@
   The prose of the website's Stralog section (stralog/), written for the web
   from lang/stralog/README.md and DESIGN.md. doc/manual/gen/genstralog.py puts
   it in front of the examples and the predicate reference, which it
-  generates from the sources. Placeholders (counts): {{preds}} {{examples}}.
+  generates from the sources and doc/manual/web/stralog-ref.txt.
+  Placeholders: {{preds}} {{examples}} (counts), {{optable}} (the operator
+  table, from lang/stralog/mkatoms.py).
   The playground panel is stralog-play.html.
 -->
 <header class="doc-head">
@@ -101,4 +103,162 @@ far cache: 179512 misses, 20012 write-backs (64-byte lines)</code></pre>
 <p>The conformance vectors are ISO's and Szabó and Szeredi's, by way of Logtalk's tests
   (Apache-2.0); 584 of the 596 that fit Stralog pass. The README lists the twelve that do not.</p>
 <p class="pg-open-p"><button type="button" class="btn pg-open" data-pg-open>Open the playground</button></p>
+</section>
+
+<section class="chap" id="syntax" data-unfiltered>
+<h2><span class="num">The language</span>Terms and syntax</h2>
+<p>A Prolog program, a query and the data it works on are all terms. There are four kinds:
+  atoms, numbers, variables and compound terms. Lists and strings are compound terms written
+  another way. This is how Stralog reads and writes each.</p>
+
+<h3 id="atoms">Atoms</h3>
+<p>An atom is a name. It is written in one of four ways:</p>
+<ul>
+  <li><b>a letter word:</b> a lower-case letter, then letters, digits and <code>_</code>:
+    <code>foo</code>, <code>hello_world</code>, <code>x2</code>;</li>
+  <li><b>a symbol word:</b> a run of <code>+ - * / \ ^ &lt; &gt; = ~ : . ? @ # &amp; $</code>:
+    <code>=..</code>, <code>--&gt;</code>, <code>\==</code>. A clause ends with <code>.</code>
+    followed by layout, so <code>X = +.</code> does not end: <code>+.</code> is one atom;</li>
+  <li><b>a solo atom:</b> <code>!</code>, <code>;</code>, <code>[]</code> and <code>{}</code>;</li>
+  <li><b>quoted:</b> any text in single quotes, <code>'hello world'</code>, <code>'Abc'</code>,
+    <code>''</code>. A quote inside is doubled (<code>'don''t'</code>) or escaped
+    (<code>'don\'t'</code>).</li>
+</ul>
+<p>Escapes, in quoted atoms and in strings: <code>\n</code> newline, <code>\t</code> tab,
+  <code>\r</code>, <code>\a</code>, <code>\b</code>, <code>\f</code>, <code>\v</code>,
+  <code>\0</code>, <code>\e</code> escape, <code>\s</code> space, <code>\\</code>, <code>\'</code>,
+  <code>\"</code>, <code>\`</code>, <code>\x41\</code> (hexadecimal) and <code>\101\</code>
+  (octal). A backslash at the end of a line continues the text on the next. Any other escape is a
+  syntax error.</p>
+<p>An atom's text is bytes: what the source had, UTF-8 if it was. <code>atom_length/2</code>
+  counts bytes. A name has at most 1000 bytes. Atoms are never collected; there are 80&nbsp;KiB of
+  them. <code>[]</code> is an ordinary atom, the same as <code>'[]'</code>, as in ISO (in
+  SWI-Prolog&nbsp;7 it is a special constant).</p>
+
+<h3 id="numbers">Numbers</h3>
+<p>Stralog's numbers are integers of 61 bits, from -2<sup>60</sup> to 2<sup>60</sup>-1
+  (-1152921504606846976 to 1152921504606846975). There are no floats, so <code>1.5</code> and
+  <code>1.0e10</code> are syntax errors, and no big integers: arithmetic beyond 61 bits raises
+  <code>evaluation_error(int_overflow)</code>.</p>
+<ul>
+  <li><code>42</code>, <code>007</code>: decimal;</li>
+  <li><code>0x1F</code>, <code>0o17</code>, <code>0b101</code>: hexadecimal, octal, binary (the
+    prefix in lower case);</li>
+  <li><code>0'a</code>: the code of a character, 97; <code>0'\n</code> is 10, <code>0' </code>
+    32, and <code>0'''</code> or <code>0''</code> 39 (a quote).</li>
+</ul>
+<p>A <code>-</code> directly before a number makes it negative: <code>-1</code> is the integer
+  -1. With layout between them, or in parentheses, it is the operator: <code>- 1</code> and
+  <code>-(1)</code> are the compound term <code>-(1)</code>, and <code>integer(- 1)</code> fails.
+  SWI-Prolog reads <code>- 1</code> as the integer. The smallest integer cannot be written as
+  one number (its digits alone are too large); <code>X is -1152921504606846975 - 1</code> makes
+  it.</p>
+
+<h3 id="variables">Variables</h3>
+<p>A variable starts with a capital letter or <code>_</code>: <code>X</code>, <code>Result</code>,
+  <code>_Acc</code>. <code>_</code> alone is the anonymous variable: each <code>_</code> is a
+  different one. The scope of a variable is its clause, or its query; a clause or query read has
+  at most 64 named variables. In answers, the top level writes a query's variables by their names
+  and the other variables as <code>_A</code>, <code>_B</code>, ...; <code>write/1</code> writes
+  them as <code>_</code> and a number.</p>
+
+<h3 id="compound">Compound terms</h3>
+<p>A compound term is a name and arguments: <code>point(1, 2)</code>,
+  <code>f(g(X), [a])</code>. There is no space between the name and <code>(</code>
+  (<code>f (a)</code> is a syntax error). Its name is an atom, its arity the number of
+  arguments, at most 255; <code>point/2</code> is the usual way to write a name and an arity
+  together, and the reference uses it for predicates. Arguments are terms of priority 999 at
+  most: an argument with an operator above that (<code>:-</code>, <code>;</code>,
+  <code>-&gt;</code>, the comma) goes in parentheses, <code>f((a :- b))</code>. Operators make
+  compound terms too: <code>1+2</code> is <code>+(1, 2)</code>, and <code>{a, b}</code> is
+  <code>'{}'((a, b))</code>.</p>
+
+<h3 id="lists">Lists</h3>
+<p>A list is <code>[]</code>, the empty list, or a cell <code>'.'(Head, Tail)</code> whose tail
+  is a list. It is written in brackets: <code>[a, b, c]</code> is
+  <code>'.'(a, '.'(b, '.'(c, [])))</code>, and <code>[H|T]</code> is a cell with head
+  <code>H</code> and tail <code>T</code>; <code>[a, b|T]</code> has two elements and then
+  <code>T</code>. A <em>partial list</em> ends in a variable, <code>[a|_]</code>; a
+  <em>proper list</em> ends in <code>[]</code>. The cell's name is <code>'.'</code>, as in ISO
+  (SWI-Prolog&nbsp;7 uses <code>'[|]'</code>).</p>
+
+<h3 id="strings">Strings</h3>
+<p>Text in double quotes is a list of codes: <code>"abc"</code> is <code>[97,98,99]</code>, and
+  <code>""</code> is <code>[]</code>. Back quotes read the same: <code>`abc`</code> is
+  <code>[97,98,99]</code>. Stralog has no string type and no <code>double_quotes</code> flag
+  (there are no flags: no <code>set_prolog_flag/2</code>); it always reads double quotes as ISO's
+  <code>double_quotes</code> flag set to <code>codes</code> would. This suits DCGs:
+  <code>phrase(greeting, "hello")</code>. The answers show code lists as lists of numbers;
+  <code>format("~s", [Codes])</code> and <code>atom_codes/2</code> turn them back into text.</p>
+
+<h3 id="operators">Operators</h3>
+<p>An operator is an atom that can be written before (prefix), between (infix) or after (postfix)
+  its arguments. Each has a priority from 1 to 1200, and a type that says where its arguments
+  go and how it groups with itself: <code>f</code> is the operator, <code>x</code> an argument of
+  lower priority, <code>y</code> one of lower or equal priority. So <code>yfx</code> groups to the
+  left (<code>1-2-3</code> is <code>(1-2)-3</code>), <code>xfy</code> to the right
+  (<code>a,b,c</code> is <code>a,(b,c)</code>), and <code>xfx</code> not at all
+  (<code>1 = 2 = 3</code> is a syntax error, and so is <code>2**3**4</code>). A term written with
+  an operator has the operator's priority; a term in parentheses, or that is not an operator term,
+  has priority 0. <code>op/3</code> defines more operators, and changes or removes these:</p>
+{{optable}}
+<p>An atom that is an operator can still be an atom: <code>X = (+)</code>, <code>f(-, +)</code>.
+  <code>writeq/1</code> puts such an atom in parentheses as an argument, and writes
+  <code>- (1)</code> with its space so that it reads back as the compound.</p>
+
+<h3 id="comments">Comments and clauses</h3>
+<p><code>%</code> starts a comment to the end of the line; <code>/* ... */</code> is a comment
+  that may span lines. A clause, a query or a term read by <code>read/1</code> ends with
+  <code>.</code> followed by layout or <code>%</code>. In a file, <code>:- Goal.</code> is a
+  directive (run as the file is consulted), <code>Head :- Body.</code> a rule,
+  <code>Head --&gt; Body.</code> a grammar rule, and anything else a fact.</p>
+</section>
+
+<section class="chap" id="reading" data-unfiltered>
+<h2><span class="num">The reference</span>Reading the entries</h2>
+<p>Each entry gives the predicate's template, what it does, the errors it raises, where it
+  differs from ISO Prolog or SWI-Prolog, and examples.</p>
+<h3 id="modes">Templates and modes</h3>
+<p>A template, like <code>atom_length(+Atom, ?Length)</code>, names each argument and says how it
+  must be given with a mode before it:</p>
+<ul>
+  <li><code>+</code>: given (bound) when it is called; a variable there is usually an
+    <code>instantiation_error</code>;</li>
+  <li><code>-</code>: an output, normally an unbound variable, that the predicate binds (if it is
+    bound, the result is unified with it);</li>
+  <li><code>?</code>: either;</li>
+  <li><code>@</code>: any term, which the predicate does not bind;</li>
+  <li><code>:</code>: a goal, or a closure that gets more arguments, which the predicate
+    calls.</li>
+</ul>
+<p>A predicate that can be used in several directions has a template for each. The argument's
+  name says what it must be: <code>Atom</code>, <code>List</code>, <code>Goal</code> and so on;
+  <code>Name/Arity</code> is a predicate indicator. Unless an entry says that a predicate gives
+  several answers on backtracking, it succeeds at most once.</p>
+<h3 id="errors">Errors</h3>
+<p>Errors are thrown as ISO error terms, <code>error(Formal, Context)</code>, which
+  <code>catch/3</code> catches. The entries list the formal terms: <code>instantiation_error</code>
+  (an argument is not bound enough), <code>type_error(Type, Culprit)</code> (it is the wrong kind of
+  term), <code>domain_error(Domain, Culprit)</code> (the right kind, but out of range),
+  <code>existence_error(procedure, Name/Arity)</code> (a call to an unknown predicate),
+  <code>permission_error(Action, Type, Culprit)</code>, <code>representation_error(What)</code>,
+  <code>evaluation_error(What)</code>, <code>resource_error(What)</code> and
+  <code>syntax_error(Message)</code>. The context is left unbound by the builtins the engine runs,
+  and is the predicate's <code>Name/Arity</code> for those written in Prolog
+  (<code>boot.pl</code>).</p>
+<p>At the top level an uncaught error prints as <code>Error: </code> and the formal term;
+  <code>Error: unknown procedure Name/Arity</code> for a call to a predicate that does not exist;
+  <code>Syntax error: </code> and the message for a query that could not be read; and
+  <code>Error: uncaught </code> and the ball for anything thrown that is not an
+  <code>error/2</code> term. A predicate that fails where ISO raises an error says so under
+  "differs".</p>
+<h3 id="sessions">The examples</h3>
+<p>The examples are top-level sessions, as Stralog prints them. <code>?-</code> is the prompt; a
+  line that ends in <code>;</code> is an answer after which <code>;</code> was typed to ask for
+  the next, and a <code>.</code> alone on a line is the end of an answer that might have had
+  others, after which Enter was pressed. A line shaded as input was typed (for
+  <code>read/1</code> and <code>get_char/1</code>). <b>Try</b> asks the query in the playground,
+  where earlier queries' clauses and operators are still there. Every example on this page is run
+  by <code>make test</code> (the test <code>stralog-ref</code>), in one session, in the order of
+  the page, and its output must be what is shown here.</p>
 </section>
