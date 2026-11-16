@@ -80,6 +80,9 @@ t cc           mid  build-main "emu os" "tools/test-cc.sh $OS"
 t cc-own       mid  build-main "emu os lang/cc/tests/ladder.py lang/cc/tests/own" 'CC_OUT=$B/test-cc-own lang/cc/tests/run.sh lang/cc/tests/own/*.c'
 t cc-boot      mid  build-main "emu os" "tools/test-cc-boot.sh $OS"
 
+# ---- Stralog, the Prolog (lang/prolog): scripted sessions under StrataOS
+t stralog      fast build-main "emu os lang/prolog/tests" "lang/prolog/tests/run.sh session $OS"
+
 # ---- the framebuffer, the JIT, the debuggers --------------------------------------
 t fb           mid  build-main "emu rtl" 'tools/test-fb.sh $B/examples/gfx.stx'
 t jit          fast "build-main build-forth" "emu ex forth" 'tools/test-jit.sh'

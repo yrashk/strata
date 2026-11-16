@@ -172,7 +172,8 @@ constant or a variable as an operand becomes an immediate or a single load;
 nothing is emitted for a name until it is used. Evaluation registers are a
 stack (`t0` first), so the live ones are always the lowest. Before a call,
 every live register is stored into a frame slot and its descriptor becomes
-"local" or "saved". That is all the register allocation there is.
+"local" or "saved". That is all the register allocation of temporaries
+there is; variables are below ("Register variables").
 
 **Narrow values.** A register holding an `int` computed by `add`, `sub`,
 `mul`, `sll` or a cast has garbage above bit 31. The descriptor says so
@@ -181,8 +182,9 @@ upper bits matter: before a comparison, a division, a right shift, a
 conversion to a wider type, an index, an argument or a return. A store never
 needs them. Values loaded from memory are clean.
 
-This is the only optimisation, and it comes with the descriptors for free.
-Variables live in memory; there is no register allocation for them.
+It comes with the descriptors for free. In `cc0` variables live in their
+frame slots; `cc.c` keeps its most used scalars in registers ("Register
+variables" below), and the rest in the frame, in the D-LS.
 
 ### Output
 
