@@ -432,7 +432,10 @@ it as a preset. See [`os/ws/README.md`](os/ws/README.md).
 assembly. It accepts the same language and writes byte-identical images, so
 it can assemble programs (and itself) on the emulator, on the RTL, or as a
 StrataOS program. `.include` lines are skipped (the program has no file
-system of its own): put the included files into the input yourself.
+system of its own): put the included files into the input yourself. Like
+`sasm -T 0x8000`, it assembles a StrataOS program with paged code and far
+data; it has no command line, so a program says `.resident` (`sasm -r`) or
+`.near` (`sasm -n`) itself.
 
 ```bash
 build/sasm -o as.stx os/progs/as.s                   # bare metal build
@@ -442,8 +445,9 @@ build/strata-emu -c 1 -i all.s as.stx > prog.stx     # source on the console in,
 ```
 
 `tools/test-as.sh` checks it against `sasm` on every example, the kernel,
-the boot ROM, itself, a feature test and a set of inputs both must reject,
-and runs it under a StrataOS boot.
+the boot ROM, itself, a feature test, StrataOS programs with paged code and
+far data and a set of inputs both must reject, and runs it under a StrataOS
+boot.
 
 ### `cc`: a C compiler that compiles itself
 

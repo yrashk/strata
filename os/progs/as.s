@@ -22,18 +22,35 @@
 ; whole input. Errors print `line N: message` and stop (bare metal: halt with
 ; a0 = 1; StrataOS: exit with a0 = 0, so no output).
 ;
+; A StrataOS program (text origin 0x8000) is assembled, as sasm does by
+; default, with paged code and far data (asm/sasm.c, "paged code and far
+; data"): its code is cut into groups of functions, the pinned ones stay in
+; .text, the others are packed into 2 KiB code units in a section of their
+; own (kind 5, the image's first), and a 4 KiB far data cache is appended to
+; .data. `as` has no command line: the directives `.resident` (no paging,
+; sasm's -r) and `.near` (no far data cache, sasm's -n) turn them off, and
+; `.pinned` keeps a function resident. Bare metal (origin 0) is unchanged.
+;
 ; How it works
+;   * Before pass 1, a pre-scan (up to four more passes over the source, as
+;     sasm's prescan) finds the .text labels, the functions (call targets),
+;     the labels whose address is taken, the regions and the groups.
 ;   * Two passes over the source, like sasm. Pass 1 defines the symbols and
 ;     measures each section; pass 2 encodes. The size of every `li` is
 ;     decided in pass 1 (1, 2 or 6 instructions) and replayed in pass 2.
+;     With paged code pass 1 repeats until the layout of the groups stops
+;     changing; a symbol is defined in a pass 1 if its record carries that
+;     pass's generation number.
 ;   * Loads and stores reach only the data Local Store (D-LS), so all tables
 ;     live there: symbols, keywords, the line buffer. The source stays in
 ;     system memory and is streamed through a 1 KiB D-LS window, once per
 ;     pass, with `tget`.
-;   * Emission within a section only moves forward (`.org` cannot go back),
-;     so after pass 1 the place of every section in the output file is
-;     known. Pass 2 writes each section through its own 256-byte D-LS window
-;     straight to its final place, flushing a full window with `tput`.
+;   * Emission within a section only moves forward (`.org` cannot go back;
+;     paged groups go to the units in source order), so after pass 1 the
+;     place of every section in the output file is known. Pass 2 writes each
+;     section through its own 256-byte D-LS window straight to its final
+;     place, flushing a full window with `tput` (and zero windows over a
+;     gap, such as the rest of a code unit).
 ;   * Nothing ever waits for a transfer: a load from a D-LS range that a
 ;     `tget` is still filling stalls, and so does a store into a range that
 ;     a `tput` is still reading.
@@ -45,9 +62,11 @@
 ; D-LS map (everything below 0xA000, the limit for StrataOS programs)
 ;   0x0000 initialised tables and variables     0x1800 character classes
 ;   0x1900 keyword hash heads                   0x1B00 small scratch buffers
+;   0x1C00 the units' output window   0x1D00 a line's labels   0x1E00 the entry's target
 ;   0x2000 source window   0x2400 line buffer   0x2800 output windows
 ;   0x2C00 li sizes        0x3000 symbol hash heads
-;   0x3800..0xA000 record heap (keywords, then symbols; bare metal: to 0xE000)
+;   0x3800..0xA000 record heap (keywords, then symbols and, with paged code,
+;                  the region table; bare metal: to 0xE000)
 ;   stack: down from 0x10000 (StrataOS gives it to the running program)
 
 ; ---- encoding constants (mirrors asm/isa.h) ----------------------------------
@@ -59,6 +78,19 @@ OP_LUI   = 0x0A                         ; load upper immediate
 OP_JAL   = 0x28                         ; jump and link
 OP_JALR  = 0x29                         ; jump and link register
 OP_TWAIT = 0x31                         ; wait for transfer tags
+OP_CAP   = 0x34                         ; capability group
+OP_CSRW  = 0x39                         ; write a CSR
+OP_XCALL = 0x3E                         ; xcall / xret
+CF_BASE  = 6                            ; capability group: cbase
+ALU_ADD  = 0                            ; ALU function: add
+ALU_ORF  = 3                            ; ALU function: or
+XRET_FN  = 16                           ; xcall group: the return bit (xret)
+CSR_TTAG = 8                            ; CSR numbers the start-up stub writes: ttag
+CSR_TDATA = 9                           ; tdata
+CSR_TGEOM = 10                          ; tgeom
+CSR_XSLOT = 25                          ; xslot
+RT6      = 31                           ; t6: the scratch register of the rewrites
+RT0      = 5                            ; t0: the stub's scratch register
 ILS_BYTES = 65536                       ; instruction Local Store size
 DLS_BYTES = 65536                       ; data Local Store size
 T2_BYTES = 262144                       ; cluster store size
@@ -67,6 +99,35 @@ SK_ILS   = 1                            ; STX section kinds: instruction LS
 SK_DLS   = 2                            ; data LS
 SK_T3    = 3                            ; system memory
 SK_T2    = 4                            ; cluster store
+SK_UNITS = 5                            ; paged code units (image offsets)
+S_UNITS  = 4                            ; section index of the units
+UNIT     = 2048                         ; code unit size (sasm's default -u 2)
+ULG      = 11                           ; its log2 (the stub's xslot)
+GEOM     = 6 | 5 << 6 | 2 << 12 | 1 << 16 ; tgeom: 64-byte lines, 32 sets, 2 ways, FA
+CLINES   = 4096                         ; the far data cache: lines (sasm's -c 4)
+CTAGS    = 768                          ; and tags (32 sets, 2 ways, 3 dwords)
+FL_TL    = 1                            ; symbol record flags: a .text label
+FL_FUNC  = 2                            ; a function (a call target)
+FL_TAKEN = 4                            ; its address is taken
+RG_GRP   = 0                            ; region record (16 bytes): its group (u16, the group's first region)
+RG_JOIN  = 2                            ; joined to the next region (u8)
+RG_PIN   = 3                            ; the region is pinned (u8)
+RG_GPIN  = 4                            ; group: pinned (u8: 1, or 2 if larger than a unit)
+RG_BASE  = 8                            ; group: where it starts (u32)
+RG_LOC   = 12                           ; group: where it is now (u32; its size after layout_groups)
+RGSZ     = 16                           ; record size
+W_NOP    = OP_ADDI << 26                ; instructions of the rewrites: nop
+W_JR6    = OP_JALR << 26 | RT6 << 16    ; jalr zero, t6, 0
+W_ORI6   = OP_ORI << 26 | RT6 << 21     ; ori t6, zero, 0
+W_XC6    = OP_XCALL << 26 | RT6 << 16 | 15 ; xcall zero, c15, t6
+W_XRET   = OP_XCALL << 26 | XRET_FN     ; xret zero
+W_CBASE  = OP_CAP << 26 | 1 << 21 | 15 << 16 | CF_BASE ; cbase ra, c15
+W_ADDRA  = 1 << 21 | 1 << 16 | RT6 << 11 | ALU_ADD ; add ra, ra, t6
+W_T6ONE  = OP_ADDI << 26 | RT6 << 21 | 1 ; addi t6, zero, 1
+W_T6SH   = OP_SLLI << 26 | RT6 << 21 | RT6 << 16 | 63 ; slli t6, t6, 63
+W_ORRA   = 1 << 21 | 1 << 16 | RT6 << 11 | ALU_ORF ; or ra, ra, t6
+W_XSL1   = OP_ADDI << 26 | RT0 << 21 | ULG ; addi t0, zero, ULG
+W_CSRW0  = OP_CSRW << 26 | RT0 << 16    ; csrw 0, t0
 
 ; ---- instruction formats: index into the handler table `jtab` --------------
 F_R      = 0                            ; rd, rs1, rs2
@@ -94,7 +155,7 @@ F_CSRR   = 21                           ; rd, csr
 F_CSRW   = 22                           ; csr, rs
 F_SYS    = 23                           ; no operands: op, imm = fn
 F_RRK    = 24                           ; rd, rs: imm = fn (ltag, mv, seqz)
-F_LINST  = 25                           ; rs (linst, jr)
+F_LINST  = 25                           ; rs (linst)
 F_XMAP   = 26                           ; idx, rs1, cap, rs2
 F_XUNMAP = 27                           ; idx
 F_XCALL  = 28                           ; rd, cap, rs
@@ -116,10 +177,32 @@ D_EQU    = 43                           ; .equ .set
 F_XRET   = 44                           ; rs (xret)
 F_CSEND  = 45                           ; cs, ce (csend)
 F_MKEP   = 46                           ; cd, rs (cmkep)
+P_JR     = 47                           ; rs (jr: xret rs with paged code)
+P_JALR   = 48                           ; rd, rs, imm (jalr, rewritten in paged code)
+D_RES    = 49                           ; .resident (the pre-scan's)
+D_NEAR   = 50                           ; .near (the pre-scan's)
+D_PIN    = 51                           ; .pinned (the pre-scan's)
 ANY      = 255                          ; operand count not checked up front
+GX       = 1 << 4                       ; h_gen operand kinds: x register
+GC       = 2 << 4                       ; capability register
+GCSR     = 3 << 4                       ; CSR
+GM       = 4 << 4                       ; offset(base): offset (signed 16 bits), base in rs1
+GE       = 5 << 4                       ; an expression, + 16 * its range (check_imm's)
+QRD      = 0                            ; h_gen operand fields: rd
+QRS1     = 1                            ; rs1
+QRS2     = 2                            ; rs2
+QIMM     = 3                            ; the 16-bit immediate
+QFN7     = 4                            ; function: value << 7
+QFN5     = 5                            ; function: (value & 63) << 5
+QFN      = 6                            ; function: value
 K_OP     = 1                            ; keyword class: instruction or directive
 K_REG    = 2                            ; keyword class: integer register name
 K_CSR    = 3                            ; keyword class: CSR name
+KS_NONE  = 0                            ; keyword group step: none
+KS_FMT   = 1                            ; the format (a register's or CSR's number) + 1
+KS_OP    = 2                            ; the opcode + 1
+KS_FN    = 3                            ; the function + 1
+KS_FN2   = 4                            ; the function * 2
 
 ; ---- memory map ----------------------------------------------------------------
 STACKTOP = 0x10000                      ; top of the D-LS: the stack grows down
@@ -132,11 +215,15 @@ HDRBUF   = 0x1B60                       ; STX header staging (16 bytes)
 BYTEBUF  = 0x1B70                       ; console input byte (8 bytes)
 OPS      = 0x1B80                       ; up to 8 operand pointers
 MAXOPS   = 8                            ; operand limit, as in sasm
+UWIN     = 0x1C00                       ; the units' output window (256 bytes)
+LABS     = 0x1D00                       ; a line's labels: up to 8 of (name, length, hash)
+MAXLABS  = 8                            ; (sasm's pre-scan keeps 8)
+ENTBUF   = 0x1E00                       ; the entry's `j` target (255 characters and a NUL)
 INBUF    = 0x2000                       ; source window (also input gathering and output copying)
 INSZ     = 1024                         ; its size
 LINEBUF  = 0x2400                       ; current line, NUL-terminated
 LINEMAX  = 1000                         ; longest line accepted
-WINBUF   = 0x2800                       ; four section output windows
+WINBUF   = 0x2800                       ; four section output windows (the units': UWIN)
 WINSZ    = 256                          ; bytes per window
 LITAB    = 0x2C00                       ; li sizes, 2 bits each
 LIMAX    = 4096                         ; li/la limit
@@ -177,13 +264,17 @@ S_FADJ   = 56                           ; pass 2: arena offset of address 0 of t
 S_HDR    = 64                           ; file offset of the section header
 S_BASE   = 72                           ; section base: lowest address rounded down to 8
 SREC     = 80                           ; record size
+NSECT    = 5                            ; .text .data .far .cluster and the units
 
 ; ---- symbol / keyword record (in the heap, 8-byte aligned) -----------------------
 R_VAL    = 0                            ; value (8 bytes)
 R_NEXT   = 8                            ; next record in the chain (u16, 0 = end)
 R_LEN    = 10                           ; name length (u8)
 R_SECT   = 11                           ; section, 255 = none (keywords: class)
-R_NAME   = 12                           ; name bytes follow
+R_REG    = 12                           ; .text label: its region (u16, 0xFFFF = none)
+R_FL     = 14                           ; flags (FL_TL, FL_FUNC, FL_TAKEN)
+R_GEN    = 15                           ; the pass 1 that defined it (0 = not yet)
+R_NAME   = 16                           ; name bytes follow
 
 ; =============================================================================
         .data                           ; D-LS image: tables and variables
@@ -208,418 +299,238 @@ v_nops:   .dword 0                      ; operand count of the current line
 v_rest:   .dword 0                      ; text after the mnemonic
 v_op:     .dword 0                      ; opcode of the current instruction
 v_fn:     .dword 0                      ; function field / flag of it
+v_fmt:    .dword 0                      ; format of the current instruction
 v_total:  .dword 0                      ; image length
 v_count:  .dword 0                      ; number of sections in the image
 
-sects:                                  ; section records: .text .data .far .cluster
-        .dword 0, 0, 0, ILS_BYTES, SK_ILS, 0, 0, 0 ; .text: loc, lo, size, limit, kind, window
+v_paged:  .dword -1                     ; paged code: 1, 0, -1 = by the text origin
+v_far:    .dword -1                     ; far data: 1, 0, -1 = by the text origin
+v_gen:    .dword 0                      ; generation of the current pass 1
+v_first:  .dword 0                      ; line of the first .text instruction (0 = none)
+v_firstj: .dword 0                      ; 1 if it is `j`
+v_own15:  .dword 0                      ; first line naming c15 (0 = none)
+v_owncode: .dword 0                     ; first line paging code itself (xcall, xmap, csrw xslot ...)
+v_owncache: .dword 0                    ; first line managing a data cache (ltag, csrw ttag ...)
+v_psect:  .dword 0                      ; pre-scan: the section a line starts in
+v_ltext:  .dword 0                      ; pre-scan: 1 if the line is .text code (not a section directive)
+v_nlabs:  .dword 0                      ; labels of the line (in LABS)
+v_mk:     .dword 0                      ; its mnemonic: 0 none, 1 a mnemonic (MBUF), 2 `name = expr`
+v_mrec:   .dword 0                      ; its keyword record, 0 if unknown
+v_mfmt:   .dword 0                      ; its format, 255 if none
+v_mop:    .dword 0                      ; its opcode
+v_mfn:    .dword 0                      ; its function
+v_mrest:  .dword 0                      ; the text after it (after `=` for `name = expr`)
+v_regctr: .dword -1                     ; the last region started (-1 = none yet)
+v_nreg:   .dword 0                      ; number of regions
+v_regs:   .dword 0                      ; the region table (RGSZ bytes per region)
+v_lastreg: .dword -1                    ; pre-scan: region of the last .text line
+v_lastterm: .dword 1                    ; pre-scan: its last instruction ended it
+v_laid:   .dword 0                      ; 1 once layout_groups has placed the groups
+v_pend:   .dword 0                      ; the end of the pinned code
+v_lreg:   .dword -1                     ; the current line's region, -1 if not paged code
+v_lgrp:   .dword -1                     ; its group
+v_lgrec:  .dword 0                      ; the group's record
+v_lpaged: .dword 0                      ; 1 if the group is paged (not pinned)
+v_uloc:   .dword 0                      ; the location of the section the line was moved to
+v_entry:  .dword 0                      ; 1 once the entry's target is in ENTBUF
+v_stubat: .dword 0                      ; where pass 1 put the start-up stub
+v_cacheat: .dword 0                     ; and where it put the cache
+
+sects:                                  ; section records: .text .data .far .cluster, the units
+        .dword 0, 0, 0, ILS_BYTES, SK_ILS, 0, WINBUF, 0 ; .text: loc, lo, size, limit, kind, window
         .dword 0, 0                     ; header offset, base
-        .dword 0, 0, 0, DLS_BYTES, SK_DLS, 0, 0, 0 ; .data
+        .dword 0, 0, 0, DLS_BYTES, SK_DLS, 0, WINBUF + 256, 0 ; .data
         .dword 0, 0                     ; header offset, base
-        .dword 0, 0, 0, T3_BYTES, SK_T3, 0, 0, 0 ; .far
+        .dword 0, 0, 0, T3_BYTES, SK_T3, 0, WINBUF + 512, 0 ; .far
         .dword 0, 0                     ; header offset, base
-        .dword 0, 0, 0, T2_BYTES, SK_T2, 0, 0, 0 ; .cluster
+        .dword 0, 0, 0, T2_BYTES, SK_T2, 0, WINBUF + 768, 0 ; .cluster
         .dword 0, 0                     ; header offset, base
+        .dword 0, 0, 0, 0x100000, SK_UNITS, 0, UWIN, 0 ; the units (image offsets, 1 MiB at most)
+        .dword 0, 0                     ; header offset, base
+sorder: .byte 4, 0, 1, 2, 3             ; the order of the sections in the image: the units first
+        .align 8                        ; (the tables below are words)
 
 jtab:                                   ; handler for each format, by format number
-        .word h_r, h_i, h_iu, h_sh, h_lui, h_ld, h_b, h_jal ; F_R .. F_JAL
-        .word h_xf, h_twait, h_tpoll, h_amo, h_cdcs, h_cdcsrx, h_rdcs, h_cpoll ; F_XF .. F_CPOLL
-        .word h_csrx, h_ctake, h_cd, h_csslot, h_cdslot, h_csrr, h_csrw, h_sys ; F_CSRX .. F_SYS
-        .word h_rrk, h_linst, h_xmap, h_xunmap, h_xcall, h_r0, h_li, h_j ; F_RRK .. P_J
+        .word h_gen, h_gen, h_gen, h_gen, h_gen, h_gen, h_b, h_jal ; F_R .. F_JAL
+        .word h_xf, h_twait, h_tpoll, h_gen, h_gen, h_gen, h_gen, h_gen ; F_XF .. F_CPOLL
+        .word h_gen, h_ctake, h_gen, h_gen, h_gen, h_gen, h_gen, h_gen ; F_CSRX .. F_SYS
+        .word h_gen, h_gen, h_gen, h_gen, h_gen, h_gen, h_li, h_j ; F_RRK .. P_J
         .word h_ret, h_tfence, h_bz, h_b2, d_sect, d_nop, d_ascii, d_data ; P_RET .. D_DATA
-        .word d_space, d_align, d_org, d_equ, h_xret, h_csend, h_mkep ; D_SPACE .. F_MKEP
+        .word d_space, d_align, d_org, d_equ, h_gen, h_gen, h_gen, h_jr ; D_SPACE .. P_JR
+        .word h_jalr, d_nop, d_nop, d_nop ; P_JALR .. D_PIN
 
-; Keyword table: name, then class, format, operand count, opcode, function.
-; Copied into the keyword hash at start-up. An empty name ends it.
+ez_ops: .asciz "|^&<>+-*/%"             ; e_bin's operators
+ez_lvl: .byte 0, 1, 2, 3, 3, 4, 4, 5     ; and their levels
+        .byte 5, 5                      ; ...
+        .align 4                        ; (words follow)
+ez_jt:  .word ez_or, ez_xor, ez_and, ez_shl, ez_shr, ez_add, ez_sub, ez_mul ; and code
+        .word ez_div, ez_rem            ; ...
+
+gdesc:                                  ; h_gen's operands, 4 specs per format (0: none)
+        .byte GX|QRD, GX|QRS1, GX|QRS2, 0, GX|QRD, GX|QRS1, GE|QIMM, 0 ; F_R; F_I
+        .byte GX|QRD, GX|QRS1, GE+16|QIMM, 0, GX|QRD, GX|QRS1, GE+32|QIMM, 0 ; F_IU; F_SH
+        .byte GX|QRD, GE+48|QIMM, 0, 0, GX|QRD, GM|QIMM, 0, 0 ; F_LUI; F_LD
+        .dword 0, 0                     ; F_B .. F_TWAIT (their own handlers)
+        .byte 0, 0, 0, 0, GX|QRD, GC|QFN7, GX|QRS1, GX|QRS2 ; F_TPOLL; F_AMO
+        .byte GC|QRD, GC|QRS1, 0, 0, GC|QRD, GC|QRS1, GX|QRS2, 0 ; F_CDCS; F_CDCSRX
+        .byte GX|QRD, GC|QRS1, 0, 0, GX|QRD, 0, 0, 0 ; F_RDCS; F_CPOLL
+        .byte GC|QRS1, GX|QRS2, 0, 0, GC|QRD, 0, 0, 0 ; F_CSRX; F_CTAKE (one operand)
+        .byte GC|QRD, 0, 0, 0, GC|QRS1, GE+64|QFN5, 0, 0 ; F_CD; F_CSSLOT
+        .byte GC|QRD, GE+64|QFN5, 0, 0, GX|QRD, GCSR|QIMM, 0, 0 ; F_CDSLOT; F_CSRR
+        .byte GCSR|QIMM, GX|QRS1, 0, 0, 0, 0, 0, 0 ; F_CSRW; F_SYS
+        .byte GX|QRD, GX|QRS1, 0, 0, GX|QRS1, 0, 0, 0 ; F_RRK; F_LINST
+        .byte GE+80|QRD, GX|QRS1, GC|QFN, GX|QRS2, GE+80|QRD, 0, 0, 0 ; F_XMAP; F_XUNMAP
+        .byte GX|QRD, GC|QFN, GX|QRS1, 0, GX|QRD, GX|QRS2, 0, 0 ; F_XCALL; P_R0
+        .dword 0, 0, 0, 0, 0, 0, 0      ; P_LI .. D_EQU (their own handlers)
+        .byte GX|QRS1, 0, 0, 0, GC|QRS1, GC|QRD, 0, 0 ; F_XRET; F_CSEND
+        .byte GC|QRD, GX|QRS2, 0, 0     ; F_MKEP
+        .align 8                        ; (variables follow)
+
+; Keyword table, in groups: class, format (a register's or CSR's number),
+; operand count, opcode, function, step; then the group's names, separated
+; by blanks. Each name after the first adds the step to its predecessor's
+; fields: KS_NONE nothing, KS_FMT 1 to the format (the number), KS_OP 1 to
+; the opcode, KS_FN 1 to the function, KS_FN2 doubles the function. Copied
+; into the keyword hash at start-up; a class of 0 ends it.
 kwtab:                                  ; keyword table (copied into the keyword hash at start-up)
-        .asciz "add"                    ; rd = rs1 + rs2
-        .byte K_OP, F_R, 3, 0x00, 0     ; ALU, function 0
-        .asciz "sub"                    ; rd = rs1 - rs2
-        .byte K_OP, F_R, 3, 0x00, 1     ; ALU, function 1
-        .asciz "and"                    ; bitwise and
-        .byte K_OP, F_R, 3, 0x00, 2     ; ALU, function 2
-        .asciz "or"                     ; bitwise or
-        .byte K_OP, F_R, 3, 0x00, 3     ; ALU, function 3
-        .asciz "xor"                    ; bitwise exclusive or
-        .byte K_OP, F_R, 3, 0x00, 4     ; ALU, function 4
-        .asciz "sll"                    ; shift left
-        .byte K_OP, F_R, 3, 0x00, 5     ; ALU, function 5
-        .asciz "srl"                    ; shift right logical
-        .byte K_OP, F_R, 3, 0x00, 6     ; ALU, function 6
-        .asciz "sra"                    ; shift right arithmetic
-        .byte K_OP, F_R, 3, 0x00, 7     ; ALU, function 7
-        .asciz "slt"                    ; set if less than
-        .byte K_OP, F_R, 3, 0x00, 8     ; ALU, function 8
-        .asciz "sltu"                   ; set if less than, unsigned
-        .byte K_OP, F_R, 3, 0x00, 9     ; ALU, function 9
-        .asciz "mul"                    ; multiply
-        .byte K_OP, F_R, 3, 0x00, 10    ; ALU, function 10
-        .asciz "mulhu"                  ; multiply, high half unsigned
-        .byte K_OP, F_R, 3, 0x00, 11    ; ALU, function 11
-        .asciz "divu"                   ; divide unsigned
-        .byte K_OP, F_R, 3, 0x00, 12    ; ALU, function 12
-        .asciz "remu"                   ; remainder unsigned
-        .byte K_OP, F_R, 3, 0x00, 13    ; ALU, function 13
-        .asciz "div"                    ; divide
-        .byte K_OP, F_R, 3, 0x00, 14    ; ALU, function 14
-        .asciz "rem"                    ; remainder
-        .byte K_OP, F_R, 3, 0x00, 15    ; ALU, function 15
-        .asciz "addi"                   ; add immediate
-        .byte K_OP, F_I, 3, 0x01, 0     ; opcode 0x01
-        .asciz "slti"                   ; set if less than immediate
-        .byte K_OP, F_I, 3, 0x08, 0     ; opcode 0x08
-        .asciz "sltiu"                  ; unsigned form
-        .byte K_OP, F_I, 3, 0x09, 0     ; opcode 0x09
-        .asciz "jalr"                   ; jump and link register
-        .byte K_OP, F_I, 3, 0x29, 0     ; opcode 0x29
-        .asciz "andi"                   ; and immediate (zero-extended)
-        .byte K_OP, F_IU, 3, 0x02, 0    ; opcode 0x02
-        .asciz "ori"                    ; or immediate
-        .byte K_OP, F_IU, 3, 0x03, 0    ; opcode 0x03
-        .asciz "xori"                   ; xor immediate
-        .byte K_OP, F_IU, 3, 0x04, 0    ; opcode 0x04
-        .asciz "slli"                   ; shift left immediate
-        .byte K_OP, F_SH, 3, 0x05, 0    ; opcode 0x05
-        .asciz "srli"                   ; shift right logical immediate
-        .byte K_OP, F_SH, 3, 0x06, 0    ; opcode 0x06
-        .asciz "srai"                   ; shift right arithmetic immediate
-        .byte K_OP, F_SH, 3, 0x07, 0    ; opcode 0x07
-        .asciz "lui"                    ; load upper immediate
-        .byte K_OP, F_LUI, 2, 0x0A, 0   ; opcode 0x0A
-        .asciz "ld"                     ; load 64 bits
-        .byte K_OP, F_LD, 2, 0x10, 0    ; opcode 0x10
-        .asciz "lw"                     ; load 32 bits, signed
-        .byte K_OP, F_LD, 2, 0x11, 0    ; opcode 0x11
-        .asciz "lwu"                    ; load 32 bits, unsigned
-        .byte K_OP, F_LD, 2, 0x12, 0    ; opcode 0x12
-        .asciz "lh"                     ; load 16 bits, signed
-        .byte K_OP, F_LD, 2, 0x13, 0    ; opcode 0x13
-        .asciz "lhu"                    ; load 16 bits, unsigned
-        .byte K_OP, F_LD, 2, 0x14, 0    ; opcode 0x14
-        .asciz "lb"                     ; load 8 bits, signed
-        .byte K_OP, F_LD, 2, 0x15, 0    ; opcode 0x15
-        .asciz "lbu"                    ; load 8 bits, unsigned
-        .byte K_OP, F_LD, 2, 0x16, 0    ; opcode 0x16
-        .asciz "sd"                     ; store 64 bits
-        .byte K_OP, F_LD, 2, 0x18, 0    ; opcode 0x18
-        .asciz "sw"                     ; store 32 bits
-        .byte K_OP, F_LD, 2, 0x19, 0    ; opcode 0x19
-        .asciz "sh"                     ; store 16 bits
-        .byte K_OP, F_LD, 2, 0x1A, 0    ; opcode 0x1A
-        .asciz "sb"                     ; store 8 bits
-        .byte K_OP, F_LD, 2, 0x1B, 0    ; opcode 0x1B
-        .asciz "beq"                    ; branch if equal
-        .byte K_OP, F_B, 3, 0x20, 0     ; opcode 0x20
-        .asciz "bne"                    ; branch if not equal
-        .byte K_OP, F_B, 3, 0x21, 0     ; opcode 0x21
-        .asciz "blt"                    ; branch if less than
-        .byte K_OP, F_B, 3, 0x22, 0     ; opcode 0x22
-        .asciz "bge"                    ; branch if greater or equal
-        .byte K_OP, F_B, 3, 0x23, 0     ; opcode 0x23
-        .asciz "bltu"                   ; unsigned less than
-        .byte K_OP, F_B, 3, 0x24, 0     ; opcode 0x24
-        .asciz "bgeu"                   ; unsigned greater or equal
-        .byte K_OP, F_B, 3, 0x25, 0     ; opcode 0x25
-        .asciz "jal"                    ; jump and link
-        .byte K_OP, F_JAL, 2, 0x28, 0   ; opcode 0x28
-        .asciz "tget"                   ; transfer far -> D-LS
-        .byte K_OP, F_XF, 5, 0x30, 0    ; transfer group, get
-        .asciz "tput"                   ; transfer D-LS -> far
-        .byte K_OP, F_XF, 5, 0x30, 1    ; transfer group, put
-        .asciz "tgetx"                  ; transfer far -> I-LS
-        .byte K_OP, F_XF, 5, 0x30, 2    ; transfer group, get code
-        .asciz "twait"                  ; wait for tags
-        .byte K_OP, F_TWAIT, ANY, 0x31, 0 ; opcode 0x31
-        .asciz "tpoll"                  ; poll tags
-        .byte K_OP, F_TPOLL, ANY, 0x32, 0 ; opcode 0x32
-        .asciz "tamo.add"               ; far atomic add
-        .byte K_OP, F_AMO, 4, 0x33, 0   ; atomic group, add
-        .asciz "tamo.swap"              ; far atomic swap
-        .byte K_OP, F_AMO, 4, 0x33, 1   ; atomic group, swap
-        .asciz "tamo.cas"               ; far compare and swap
-        .byte K_OP, F_AMO, 4, 0x33, 2   ; atomic group, cas
-        .asciz "tamo.and"               ; far atomic and
-        .byte K_OP, F_AMO, 4, 0x33, 3   ; atomic group, and
-        .asciz "tamo.or"                ; far atomic or
-        .byte K_OP, F_AMO, 4, 0x33, 4   ; atomic group, or
-        .asciz "cmov"                   ; move a capability
-        .byte K_OP, F_CDCS, 2, 0x34, 0  ; capability group, mov
-        .asciz "cjoin"                  ; join two capabilities
-        .byte K_OP, F_CDCS, 2, 0x34, 2  ; capability group, join
-        .asciz "cshare"                 ; read-only copyable share
-        .byte K_OP, F_CDCS, 2, 0x34, 3  ; capability group, share
-        .asciz "catomic"                ; atomic-only capability
-        .byte K_OP, F_CDCS, 2, 0x34, 4  ; capability group, atom
-        .asciz "csplit"                 ; split a capability
-        .byte K_OP, F_CDCSRX, 3, 0x34, 1 ; capability group, split
-        .asciz "crestrict"              ; drop permissions
-        .byte K_OP, F_CDCSRX, 3, 0x34, 5 ; capability group, restrict
-        .asciz "cbase"                  ; capability base
-        .byte K_OP, F_RDCS, 2, 0x34, 6  ; capability group, base
-        .asciz "clen"                   ; capability length
-        .byte K_OP, F_RDCS, 2, 0x34, 7  ; capability group, len
-        .asciz "cperms"                 ; capability permissions
-        .byte K_OP, F_RDCS, 2, 0x34, 8  ; capability group, perms
-        .asciz "cvalid"                 ; capability validity
-        .byte K_OP, F_RDCS, 2, 0x34, 14 ; capability group, valid
-        .asciz "cpoll"                  ; inbox senders
-        .byte K_OP, F_CPOLL, 1, 0x34, 15 ; capability group, poll
-        .asciz "cgive"                  ; give a capability to a node
-        .byte K_OP, F_CSRX, 2, 0x34, 9  ; capability group, give
-        .asciz "ctake"                  ; take a capability from the inbox
-        .byte K_OP, F_CTAKE, ANY, 0x34, 10 ; capability group, take
-        .asciz "cclear"                 ; clear a capability register
-        .byte K_OP, F_CD, 1, 0x34, 11   ; capability group, clear
-        .asciz "csave"                  ; capability -> table slot
-        .byte K_OP, F_CSSLOT, 2, 0x34, 12 ; capability group, save
-        .asciz "crestore"               ; table slot -> capability
-        .byte K_OP, F_CDSLOT, 2, 0x34, 13 ; capability group, restore
-        .asciz "cdom"                   ; make a revocation domain
-        .byte K_OP, F_CDCS, 2, 0x35, 0  ; second capability group, dom
-        .asciz "crevoke"                ; revoke a domain's capabilities
-        .byte K_OP, F_CDCS, 2, 0x35, 1  ; second capability group, revoke
-        .asciz "cundom"                 ; dissolve a domain
-        .byte K_OP, F_CDCS, 2, 0x35, 2  ; second capability group, undom
-        .asciz "csend"                  ; send a capability to an endpoint
-        .byte K_OP, F_CSEND, 2, 0x35, 3 ; second capability group, send
-        .asciz "crecv"                  ; receive a capability from an endpoint
-        .byte K_OP, F_CDCS, 2, 0x35, 4  ; second capability group, recv
-        .asciz "cmkep"                  ; make an endpoint capability
-        .byte K_OP, F_MKEP, 2, 0x35, 5  ; second capability group, mkep
-        .asciz "csavex"                 ; capability -> table slot x[rs]
-        .byte K_OP, F_CSRX, 2, 0x35, 6  ; second capability group, save (cs in rs1, slot in rs2)
-        .asciz "crestorex"              ; table slot x[rs] -> capability
-        .byte K_OP, F_MKEP, 2, 0x35, 7  ; second capability group, restore (cd, slot in rs2)
-        .asciz "tany"                   ; wait for any of tags or the inbox
-        .byte K_OP, F_RRK, 2, 0x36, 0   ; opcode 0x36
-        .asciz "csrr"                   ; read a CSR
-        .byte K_OP, F_CSRR, 2, 0x38, 0  ; opcode 0x38
-        .asciz "csrw"                   ; write a CSR
-        .byte K_OP, F_CSRW, 2, 0x39, 0  ; opcode 0x39
-        .asciz "halt"                   ; stop the core
-        .byte K_OP, F_SYS, 0, 0x3A, 0   ; system group, halt
-        .asciz "eret"                   ; return from a trap
-        .byte K_OP, F_SYS, 0, 0x3A, 1   ; system group, eret
-        .asciz "svc"                    ; ask the supervisor for a service
-        .byte K_OP, F_SYS, 0, 0x3A, 2   ; system group, svc
-        .asciz "ltag"                   ; software cache lookup
-        .byte K_OP, F_RRK, 2, 0x3B, 0   ; opcode 0x3B
-        .asciz "linst"                  ; software cache install
-        .byte K_OP, F_LINST, 1, 0x3C, 0 ; opcode 0x3C
-        .asciz "xmap"                   ; map an overlay
-        .byte K_OP, F_XMAP, 4, 0x3D, 0  ; opcode 0x3D
-        .asciz "xunmap"                 ; unmap an overlay
-        .byte K_OP, F_XUNMAP, 1, 0x3D, 0 ; opcode 0x3D, unmap bit
-        .asciz "xcall"                  ; call through an overlay
-        .byte K_OP, F_XCALL, 3, 0x3E, 0 ; opcode 0x3E
-        .asciz "xret"                   ; return through a far link
-        .byte K_OP, F_XRET, 1, 0x3E, 16 ; opcode 0x3E, return bit
-        .asciz "nop"                    ; pseudo: addi zero, zero, 0
-        .byte K_OP, F_SYS, 0, 0x01, 0   ; as an operand-less addi
-        .asciz "mv"                     ; pseudo: addi rd, rs, 0
-        .byte K_OP, F_RRK, 2, 0x01, 0   ; addi, immediate 0
-        .asciz "seqz"                   ; pseudo: sltiu rd, rs, 1
-        .byte K_OP, F_RRK, 2, 0x09, 1   ; sltiu, immediate 1
-        .asciz "snez"                   ; pseudo: sltu rd, zero, rs
-        .byte K_OP, P_R0, 2, 0x00, 9    ; ALU sltu
-        .asciz "neg"                    ; pseudo: sub rd, zero, rs
-        .byte K_OP, P_R0, 2, 0x00, 1    ; ALU sub
-        .asciz "li"                     ; pseudo: load immediate
-        .byte K_OP, P_LI, 2, 0, 0       ; sized in pass 1
-        .asciz "la"                     ; pseudo: load address
-        .byte K_OP, P_LI, 2, 0, 1       ; always 2 instructions
-        .asciz "j"                      ; pseudo: jal zero, target
-        .byte K_OP, P_J, 1, 0x28, 0     ; rd = 0
-        .asciz "call"                   ; pseudo: jal ra, target
-        .byte K_OP, P_J, 1, 0x28, 1     ; rd = 1
-        .asciz "ret"                    ; pseudo: jalr zero, ra, 0
-        .byte K_OP, P_RET, 0, 0x29, 0   ; fixed encoding
-        .asciz "jr"                     ; pseudo: jalr zero, rs, 0
-        .byte K_OP, F_LINST, 1, 0x29, 0 ; like linst with opcode jalr
-        .asciz "tfence"                 ; pseudo: twait 0xffff
-        .byte K_OP, P_TFENCE, 0, 0x31, 0 ; fixed encoding
-        .asciz "beqz"                   ; pseudo: beq rs, zero
-        .byte K_OP, P_BZ, 2, 0x20, 0    ; not swapped
-        .asciz "bnez"                   ; pseudo: bne rs, zero
-        .byte K_OP, P_BZ, 2, 0x21, 0    ; not swapped
-        .asciz "bltz"                   ; pseudo: blt rs, zero
-        .byte K_OP, P_BZ, 2, 0x22, 0    ; not swapped
-        .asciz "bgez"                   ; pseudo: bge rs, zero
-        .byte K_OP, P_BZ, 2, 0x23, 0    ; not swapped
-        .asciz "bgtz"                   ; pseudo: blt zero, rs
-        .byte K_OP, P_BZ, 2, 0x22, 1    ; swapped
-        .asciz "blez"                   ; pseudo: bge zero, rs
-        .byte K_OP, P_BZ, 2, 0x23, 1    ; swapped
-        .asciz "bgt"                    ; pseudo: blt rs2, rs1
-        .byte K_OP, P_B2, 3, 0x22, 0    ; swapped blt
-        .asciz "ble"                    ; pseudo: bge rs2, rs1
-        .byte K_OP, P_B2, 3, 0x23, 0    ; swapped bge
-        .asciz "bgtu"                   ; pseudo: bltu rs2, rs1
-        .byte K_OP, P_B2, 3, 0x24, 0    ; swapped bltu
-        .asciz "bleu"                   ; pseudo: bgeu rs2, rs1
-        .byte K_OP, P_B2, 3, 0x25, 0    ; swapped bgeu
-        .asciz ".text"                  ; directive: instruction LS section
-        .byte K_OP, D_SECT, ANY, 0, 0   ; section 0
-        .asciz ".data"                  ; directive: data LS section
-        .byte K_OP, D_SECT, ANY, 0, 1   ; section 1
-        .asciz ".far"                   ; directive: system memory section
-        .byte K_OP, D_SECT, ANY, 0, 2   ; section 2
-        .asciz ".cluster"               ; directive: cluster store section
-        .byte K_OP, D_SECT, ANY, 0, 3   ; section 3
-        .asciz ".global"                ; directive: ignored
-        .byte K_OP, D_NOP, ANY, 0, 0    ; nothing to do
-        .asciz ".globl"                 ; directive: ignored
-        .byte K_OP, D_NOP, ANY, 0, 0    ; nothing to do
-        .asciz ".ascii"                 ; directive: string bytes
-        .byte K_OP, D_ASCII, ANY, 0, 0  ; no terminator
-        .asciz ".asciz"                 ; directive: string bytes and a NUL
-        .byte K_OP, D_ASCII, ANY, 0, 1  ; with terminator
-        .asciz ".string"                ; directive: same as .asciz
-        .byte K_OP, D_ASCII, ANY, 0, 1  ; with terminator
-        .asciz ".byte"                  ; directive: 1-byte values
-        .byte K_OP, D_DATA, ANY, 0, 1   ; width 1
-        .asciz ".half"                  ; directive: 2-byte values
-        .byte K_OP, D_DATA, ANY, 0, 2   ; width 2
-        .asciz ".word"                  ; directive: 4-byte values
-        .byte K_OP, D_DATA, ANY, 0, 4   ; width 4
-        .asciz ".dword"                 ; directive: 8-byte values
-        .byte K_OP, D_DATA, ANY, 0, 8   ; width 8
-        .asciz ".space"                 ; directive: fill bytes
-        .byte K_OP, D_SPACE, ANY, 0, 0  ; size [, fill]
-        .asciz ".zero"                  ; directive: same as .space
-        .byte K_OP, D_SPACE, ANY, 0, 0  ; size [, fill]
-        .asciz ".align"                 ; directive: pad to a power of two
-        .byte K_OP, D_ALIGN, ANY, 0, 0  ; alignment
-        .asciz ".org"                   ; directive: pad up to an address
-        .byte K_OP, D_ORG, ANY, 0, 0    ; address
-        .asciz ".equ"                   ; directive: define a constant
-        .byte K_OP, D_EQU, ANY, 0, 0    ; name, value
-        .asciz ".set"                   ; directive: same as .equ
-        .byte K_OP, D_EQU, ANY, 0, 0    ; name, value
-        .asciz "zero"                   ; register x0
-        .byte K_REG, 0, 0, 0, 0         ; number 0
-        .asciz "ra"                     ; register x1
-        .byte K_REG, 1, 0, 0, 0         ; number 1
-        .asciz "sp"                     ; register x2
-        .byte K_REG, 2, 0, 0, 0         ; number 2
-        .asciz "gp"                     ; register x3
-        .byte K_REG, 3, 0, 0, 0         ; number 3
-        .asciz "tp"                     ; register x4
-        .byte K_REG, 4, 0, 0, 0         ; number 4
-        .asciz "t0"                     ; register x5
-        .byte K_REG, 5, 0, 0, 0         ; number 5
-        .asciz "t1"                     ; register x6
-        .byte K_REG, 6, 0, 0, 0         ; number 6
-        .asciz "t2"                     ; register x7
-        .byte K_REG, 7, 0, 0, 0         ; number 7
-        .asciz "s0"                     ; register x8
-        .byte K_REG, 8, 0, 0, 0         ; number 8
-        .asciz "fp"                     ; register x8, other name
-        .byte K_REG, 8, 0, 0, 0         ; number 8
-        .asciz "s1"                     ; register x9
-        .byte K_REG, 9, 0, 0, 0         ; number 9
-        .asciz "a0"                     ; register x10
-        .byte K_REG, 10, 0, 0, 0        ; number 10
-        .asciz "a1"                     ; register x11
-        .byte K_REG, 11, 0, 0, 0        ; number 11
-        .asciz "a2"                     ; register x12
-        .byte K_REG, 12, 0, 0, 0        ; number 12
-        .asciz "a3"                     ; register x13
-        .byte K_REG, 13, 0, 0, 0        ; number 13
-        .asciz "a4"                     ; register x14
-        .byte K_REG, 14, 0, 0, 0        ; number 14
-        .asciz "a5"                     ; register x15
-        .byte K_REG, 15, 0, 0, 0        ; number 15
-        .asciz "a6"                     ; register x16
-        .byte K_REG, 16, 0, 0, 0        ; number 16
-        .asciz "a7"                     ; register x17
-        .byte K_REG, 17, 0, 0, 0        ; number 17
-        .asciz "s2"                     ; register x18
-        .byte K_REG, 18, 0, 0, 0        ; number 18
-        .asciz "s3"                     ; register x19
-        .byte K_REG, 19, 0, 0, 0        ; number 19
-        .asciz "s4"                     ; register x20
-        .byte K_REG, 20, 0, 0, 0        ; number 20
-        .asciz "s5"                     ; register x21
-        .byte K_REG, 21, 0, 0, 0        ; number 21
-        .asciz "s6"                     ; register x22
-        .byte K_REG, 22, 0, 0, 0        ; number 22
-        .asciz "s7"                     ; register x23
-        .byte K_REG, 23, 0, 0, 0        ; number 23
-        .asciz "s8"                     ; register x24
-        .byte K_REG, 24, 0, 0, 0        ; number 24
-        .asciz "s9"                     ; register x25
-        .byte K_REG, 25, 0, 0, 0        ; number 25
-        .asciz "s10"                    ; register x26
-        .byte K_REG, 26, 0, 0, 0        ; number 26
-        .asciz "s11"                    ; register x27
-        .byte K_REG, 27, 0, 0, 0        ; number 27
-        .asciz "t3"                     ; register x28
-        .byte K_REG, 28, 0, 0, 0        ; number 28
-        .asciz "t4"                     ; register x29
-        .byte K_REG, 29, 0, 0, 0        ; number 29
-        .asciz "t5"                     ; register x30
-        .byte K_REG, 30, 0, 0, 0        ; number 30
-        .asciz "t6"                     ; register x31
-        .byte K_REG, 31, 0, 0, 0        ; number 31
-        .asciz "cycle"                  ; CSR 0
-        .byte K_CSR, 0, 0, 0, 0         ; number 0
-        .asciz "instret"                ; CSR 1
-        .byte K_CSR, 1, 0, 0, 0         ; number 1
-        .asciz "cause"                  ; CSR 2
-        .byte K_CSR, 2, 0, 0, 0         ; number 2
-        .asciz "epc"                    ; CSR 3
-        .byte K_CSR, 3, 0, 0, 0         ; number 3
-        .asciz "tval"                   ; CSR 4
-        .byte K_CSR, 4, 0, 0, 0         ; number 4
-        .asciz "tvec"                   ; CSR 5
-        .byte K_CSR, 5, 0, 0, 0         ; number 5
-        .asciz "ccr"                    ; CSR 6
-        .byte K_CSR, 6, 0, 0, 0         ; number 6
-        .asciz "coreid"                 ; CSR 7
-        .byte K_CSR, 7, 0, 0, 0         ; number 7
-        .asciz "ttag"                   ; CSR 8
-        .byte K_CSR, 8, 0, 0, 0         ; number 8
-        .asciz "tdata"                  ; CSR 9
-        .byte K_CSR, 9, 0, 0, 0         ; number 9
-        .asciz "tgeom"                  ; CSR 10
-        .byte K_CSR, 10, 0, 0, 0        ; number 10
-        .asciz "ncores"                 ; CSR 11
-        .byte K_CSR, 11, 0, 0, 0        ; number 11
-        .asciz "scratch"                ; CSR 12
-        .byte K_CSR, 12, 0, 0, 0        ; number 12
-        .asciz "stalls"                 ; CSR 13
-        .byte K_CSR, 13, 0, 0, 0        ; number 13
-        .asciz "takefrom"               ; CSR 14
-        .byte K_CSR, 14, 0, 0, 0        ; number 14
-        .asciz "corebase"               ; CSR 15
-        .byte K_CSR, 15, 0, 0, 0        ; number 15
-        .asciz "corecount"              ; CSR 16
-        .byte K_CSR, 16, 0, 0, 0        ; number 16
-        .asciz "reserved17"             ; CSR 17
-        .byte K_CSR, 17, 0, 0, 0        ; number 17
-        .asciz "status"                 ; CSR 18
-        .byte K_CSR, 18, 0, 0, 0        ; number 18
-        .asciz "ucause"                 ; CSR 19
-        .byte K_CSR, 19, 0, 0, 0        ; number 19
-        .asciz "uepc"                   ; CSR 20
-        .byte K_CSR, 20, 0, 0, 0        ; number 20
-        .asciz "utval"                  ; CSR 21
-        .byte K_CSR, 21, 0, 0, 0        ; number 21
-        .asciz "utvec"                  ; CSR 22
-        .byte K_CSR, 22, 0, 0, 0        ; number 22
-        .asciz "sscratch"               ; CSR 23
-        .byte K_CSR, 23, 0, 0, 0        ; number 23
-        .asciz "ipend"                  ; CSR 24
-        .byte K_CSR, 24, 0, 0, 0        ; number 24
-        .asciz "xslot"                  ; CSR 25
-        .byte K_CSR, 25, 0, 0, 0        ; number 25
-        .asciz "wdata"                  ; CSR 26
-        .byte K_CSR, 26, 0, 0, 0        ; number 26
-        .asciz "wstack"                 ; CSR 27
-        .byte K_CSR, 27, 0, 0, 0        ; number 27
-        .asciz "wcode"                  ; CSR 28
-        .byte K_CSR, 28, 0, 0, 0        ; number 28
+        .byte K_OP, F_R, 3, 0x00, 0, KS_FN ; the ALU group, functions 0..15
+        .asciz "add sub and or xor sll srl sra slt sltu mul mulhu divu remu div rem" ; ...
+        .byte K_OP, F_I, 3, 0x01, 0, KS_NONE ; rd = rs1 + imm
+        .asciz "addi"                   ; ...
+        .byte K_OP, F_I, 3, 0x08, 0, KS_OP ; set if less than immediate (signed, unsigned)
+        .asciz "slti sltiu"             ; ...
+        .byte K_OP, P_JALR, 3, 0x29, 0, KS_NONE ; jump and link register (rewritten in paged code)
+        .asciz "jalr"                   ; ...
+        .byte K_OP, F_IU, 3, 0x02, 0, KS_OP ; and, or, xor immediate (zero-extended)
+        .asciz "andi ori xori"          ; ...
+        .byte K_OP, F_SH, 3, 0x05, 0, KS_OP ; shifts by an immediate
+        .asciz "slli srli srai"         ; ...
+        .byte K_OP, F_LUI, 2, 0x0A, 0, KS_NONE ; load upper immediate
+        .asciz "lui"                    ; ...
+        .byte K_OP, F_LD, 2, 0x10, 0, KS_OP ; loads, opcodes 0x10..0x16
+        .asciz "ld lw lwu lh lhu lb lbu" ; ...
+        .byte K_OP, F_LD, 2, 0x18, 0, KS_OP ; stores, opcodes 0x18..0x1B
+        .asciz "sd sw sh sb"            ; ...
+        .byte K_OP, F_B, 3, 0x20, 0, KS_OP ; branches, opcodes 0x20..0x25
+        .asciz "beq bne blt bge bltu bgeu" ; ...
+        .byte K_OP, F_JAL, 2, 0x28, 0, KS_NONE ; jump and link
+        .asciz "jal"                    ; ...
+        .byte K_OP, F_XF, 5, 0x30, 0, KS_FN ; transfers: get, put, get code
+        .asciz "tget tput tgetx"        ; ...
+        .byte K_OP, F_TWAIT, ANY, 0x31, 0, KS_NONE ; wait for tags
+        .asciz "twait"                  ; ...
+        .byte K_OP, F_TPOLL, ANY, 0x32, 0, KS_NONE ; poll tags
+        .asciz "tpoll"                  ; ...
+        .byte K_OP, F_AMO, 4, 0x33, 0, KS_FN ; far atomics, functions 0..4
+        .asciz "tamo.add tamo.swap tamo.cas tamo.and tamo.or" ; ...
+        .byte K_OP, F_CDCS, 2, 0x34, 0, KS_NONE ; move a capability
+        .asciz "cmov"                   ; ...
+        .byte K_OP, F_CDCSRX, 3, 0x34, 1, KS_NONE ; split a capability
+        .asciz "csplit"                 ; ...
+        .byte K_OP, F_CDCS, 2, 0x34, 2, KS_FN ; join, read-only share, atomic-only
+        .asciz "cjoin cshare catomic"   ; ...
+        .byte K_OP, F_CDCSRX, 3, 0x34, 5, KS_NONE ; drop permissions
+        .asciz "crestrict"              ; ...
+        .byte K_OP, F_RDCS, 2, 0x34, 6, KS_FN ; base, length, permissions
+        .asciz "cbase clen cperms"      ; ...
+        .byte K_OP, F_CSRX, 2, 0x34, 9, KS_NONE ; give a capability to a node
+        .asciz "cgive"                  ; ...
+        .byte K_OP, F_CTAKE, ANY, 0x34, 10, KS_NONE ; take one from the inbox
+        .asciz "ctake"                  ; ...
+        .byte K_OP, F_CD, 1, 0x34, 11, KS_NONE ; clear a capability register
+        .asciz "cclear"                 ; ...
+        .byte K_OP, F_CSSLOT, 2, 0x34, 12, KS_NONE ; capability -> table slot
+        .asciz "csave"                  ; ...
+        .byte K_OP, F_CDSLOT, 2, 0x34, 13, KS_NONE ; table slot -> capability
+        .asciz "crestore"               ; ...
+        .byte K_OP, F_RDCS, 2, 0x34, 14, KS_NONE ; capability validity
+        .asciz "cvalid"                 ; ...
+        .byte K_OP, F_CPOLL, 1, 0x34, 15, KS_NONE ; inbox senders
+        .asciz "cpoll"                  ; ...
+        .byte K_OP, F_CDCS, 2, 0x35, 0, KS_FN ; revocation domains: make, revoke, dissolve
+        .asciz "cdom crevoke cundom"    ; ...
+        .byte K_OP, F_CSEND, 2, 0x35, 3, KS_NONE ; send a capability to an endpoint
+        .asciz "csend"                  ; ...
+        .byte K_OP, F_CDCS, 2, 0x35, 4, KS_NONE ; receive one
+        .asciz "crecv"                  ; ...
+        .byte K_OP, F_MKEP, 2, 0x35, 5, KS_NONE ; make an endpoint capability
+        .asciz "cmkep"                  ; ...
+        .byte K_OP, F_CSRX, 2, 0x35, 6, KS_NONE ; capability -> table slot x[rs]
+        .asciz "csavex"                 ; ...
+        .byte K_OP, F_MKEP, 2, 0x35, 7, KS_NONE ; table slot x[rs] -> capability
+        .asciz "crestorex"              ; ...
+        .byte K_OP, F_RRK, 2, 0x36, 0, KS_NONE ; wait for any of tags or the inbox
+        .asciz "tany"                   ; ...
+        .byte K_OP, F_CSRR, 2, 0x38, 0, KS_NONE ; read a CSR
+        .asciz "csrr"                   ; ...
+        .byte K_OP, F_CSRW, 2, 0x39, 0, KS_NONE ; write a CSR
+        .asciz "csrw"                   ; ...
+        .byte K_OP, F_SYS, 0, 0x3A, 0, KS_FN ; the system group: stop, return from a trap, a service
+        .asciz "halt eret svc"          ; ...
+        .byte K_OP, F_RRK, 2, 0x3B, 0, KS_NONE ; software cache lookup
+        .asciz "ltag"                   ; ...
+        .byte K_OP, F_LINST, 1, 0x3C, 0, KS_NONE ; software cache install
+        .asciz "linst"                  ; ...
+        .byte K_OP, F_XMAP, 4, 0x3D, 0, KS_NONE ; map an overlay
+        .asciz "xmap"                   ; ...
+        .byte K_OP, F_XUNMAP, 1, 0x3D, 16, KS_NONE ; unmap an overlay (the unmap bit)
+        .asciz "xunmap"                 ; ...
+        .byte K_OP, F_XCALL, 3, 0x3E, 0, KS_NONE ; call through an overlay
+        .asciz "xcall"                  ; ...
+        .byte K_OP, F_XRET, 1, 0x3E, 16, KS_NONE ; return through a far link
+        .asciz "xret"                   ; ...
+        .byte K_OP, F_SYS, 0, 0x01, 0, KS_NONE ; pseudo: addi zero, zero, 0
+        .asciz "nop"                    ; ...
+        .byte K_OP, F_RRK, 2, 0x01, 0, KS_NONE ; pseudo: addi rd, rs, 0
+        .asciz "mv"                     ; ...
+        .byte K_OP, F_RRK, 2, 0x09, 1, KS_NONE ; pseudo: sltiu rd, rs, 1
+        .asciz "seqz"                   ; ...
+        .byte K_OP, P_R0, 2, 0x00, 9, KS_NONE ; pseudo: sltu rd, zero, rs
+        .asciz "snez"                   ; ...
+        .byte K_OP, P_R0, 2, 0x00, 1, KS_NONE ; pseudo: sub rd, zero, rs
+        .asciz "neg"                    ; ...
+        .byte K_OP, P_LI, 2, 0, 0, KS_FN ; pseudo: load immediate (sized in pass 1), address (2 instructions)
+        .asciz "li la"                  ; ...
+        .byte K_OP, P_J, 1, 0x28, 0, KS_FN ; pseudo: jal zero / jal ra, target (rd = function)
+        .asciz "j call"                 ; ...
+        .byte K_OP, P_RET, 0, 0x29, 0, KS_NONE ; pseudo: jalr zero, ra, 0 (xret ra with paged code)
+        .asciz "ret"                    ; ...
+        .byte K_OP, P_JR, 1, 0x29, 0, KS_NONE ; pseudo: jalr zero, rs, 0 (xret rs with paged code)
+        .asciz "jr"                     ; ...
+        .byte K_OP, P_TFENCE, 0, 0x31, 0, KS_NONE ; pseudo: twait 0xffff
+        .asciz "tfence"                 ; ...
+        .byte K_OP, P_BZ, 2, 0x20, 0, KS_OP ; pseudo: beq, bne, blt, bge rs, zero
+        .asciz "beqz bnez bltz bgez"    ; ...
+        .byte K_OP, P_BZ, 2, 0x22, 1, KS_OP ; pseudo: blt, bge zero, rs (swapped)
+        .asciz "bgtz blez"              ; ...
+        .byte K_OP, P_B2, 3, 0x22, 0, KS_OP ; pseudo: blt, bge, bltu, bgeu rs2, rs1 (swapped)
+        .asciz "bgt ble bgtu bleu"      ; ...
+        .byte K_OP, D_SECT, ANY, 0, 0, KS_FN ; directives: the sections 0..3
+        .asciz ".text .data .far .cluster" ; ...
+        .byte K_OP, D_RES, ANY, 0, 0, KS_FMT ; directives the pre-scan reads: no paged code,
+        .asciz ".resident .near .pinned" ; no far data cache, keep this function resident
+        .byte K_OP, D_NOP, ANY, 0, 0, KS_NONE ; directives: ignored
+        .asciz ".global .globl"         ; ...
+        .byte K_OP, D_ASCII, ANY, 0, 0, KS_FN ; string bytes, without and with a NUL
+        .asciz ".ascii .asciz"          ; ...
+        .byte K_OP, D_ASCII, ANY, 0, 1, KS_NONE ; the same as .asciz
+        .asciz ".string"                ; ...
+        .byte K_OP, D_DATA, ANY, 0, 1, KS_FN2 ; values of widths 1, 2, 4, 8
+        .asciz ".byte .half .word .dword" ; ...
+        .byte K_OP, D_SPACE, ANY, 0, 0, KS_NONE ; fill bytes: size [, fill]
+        .asciz ".space .zero"           ; ...
+        .byte K_OP, D_ALIGN, ANY, 0, 0, KS_NONE ; pad to a power of two
+        .asciz ".align"                 ; ...
+        .byte K_OP, D_ORG, ANY, 0, 0, KS_NONE ; pad up to an address
+        .asciz ".org"                   ; ...
+        .byte K_OP, D_EQU, ANY, 0, 0, KS_NONE ; define a constant: name, value
+        .asciz ".equ .set"              ; ...
+        .byte K_REG, 0, 0, 0, 0, KS_FMT ; integer registers x0..x31
+        .asciz "zero ra sp gp tp t0 t1 t2 s0 s1 a0 a1 a2 a3 a4 a5 a6 a7 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 t3 t4 t5 t6" ; ...
+        .byte K_REG, 8, 0, 0, 0, KS_NONE ; x8, other name
+        .asciz "fp"                     ; ...
+        .byte K_CSR, 0, 0, 0, 0, KS_FMT ; CSRs 0..28
+        .asciz "cycle instret cause epc tval tvec ccr coreid ttag tdata tgeom ncores scratch stalls takefrom corebase corecount reserved17 status ucause uepc utval utvec sscratch ipend xslot wdata wstack wcode" ; ...
         .byte 0                         ; end of the table
 
 s_include: .asciz ".include"            ; the line form sasm reads as an include
@@ -672,6 +583,24 @@ m_space:  .asciz ".space needs a known non-negative size" ; bad size
 m_align:  .asciz ".align needs a power of two" ; bad alignment
 m_org:    .asciz ".org cannot move backwards" ; bad address
 m_equ:    .asciz ".equ name, value"     ; wrong operand count
+m_c15:    .asciz "paged code uses c15 (.resident)" ; c15 is the kernel's
+m_owncode: .asciz "pages its own code (.resident)" ; xcall, xmap, csrw xslot
+m_owncache: .asciz "has its own data cache (.near)" ; ltag, csrw ttag
+m_entry:  .asciz "the first instruction must be j" ; paged code or far data
+m_jalr:   .asciz "paged code: only jalr ra, rs, 0" ; (rs not ra or t6)
+m_orgp:   .asciz ".org in paged code"   ; (.resident)
+m_ent2:   .asciz "the entry's target is not code" ; j to a constant
+m_settle: .asciz "the layout does not settle" ; 21 passes
+m_room:   .asciz "no room for two code units" ; past 0x10000
+m_dfar:   .asciz "the far data cache ends past 0xA000 (.near)" ; too much data
+s_c15:    .asciz "c15"                  ; the operands the pre-scan looks for
+s_xslot:  .asciz "xslot"                ; ...
+s_ttag:   .asciz "ttag"                 ; ...
+s_tdata:  .asciz "tdata"                ; ...
+s_tgeom:  .asciz "tgeom"                ; ...
+s_pinit:  .asciz "__pinit"              ; the start-up stub
+s_fclines: .asciz "__fc_lines"          ; the far data cache's lines
+s_fctags: .asciz "__fc_tags"            ; and its tags
 
         .align 8                        ; 64-bit table entries
 ranges: .dword -32768, 32767            ; 0: signed 16 bits (lowest, highest)
@@ -733,8 +662,52 @@ st_bare:                                ; bare metal: our own layout of system m
         sd    t0, v_outmax(zero)        ; remember
         call  read_console              ; console input -> system memory
 st_go:                                  ; both modes: assemble
+        call  prescan                   ; labels, functions, regions, groups
+        li    s2, 0                     ; s2 = pass 1 iterations done
+st_p1:                                  ; loop: one pass 1
+        ld    t0, v_gen(zero)           ; a new generation of definitions
+        addi  t0, t0, 1                 ; (symbols of an earlier pass 1 read as undefined)
+        sd    t0, v_gen(zero)           ; ...
         li    a0, 1                     ; pass 1: symbols and sizes
         call  run_pass                  ; over the whole source
+        ld    t0, v_paged(zero)         ; paged code?
+        beqz  t0, st_chk                ; no: one pass 1 is enough
+        call  layout_groups             ; place the groups: a0 = 1 if anything moved
+        beqz  s2, st_again              ; (the first layout always counts as a change)
+        beqz  a0, st_chk                ; settled
+st_again:                               ; the layout changed
+        li    t0, 20                    ; sasm gives up after 21 passes
+        beq   s2, t0, st_unsettled      ; ...
+        addi  s2, s2, 1                 ; one more
+        j     st_p1                     ; again
+st_unsettled:                           ; error: the layout keeps moving
+        li    a0, m_settle              ; does not settle
+        j     fail_noline               ; report
+st_chk:                                 ; the limits of paged code and far data
+        ld    t0, v_paged(zero)         ; paged code?
+        beqz  t0, st_chkfar             ; no
+        ld    t1, v_far(zero)           ; the stub: 2 instructions for paging,
+        li    t2, 9                     ; 9 for the cache,
+        mul   t1, t1, t2                ; ...
+        addi  t1, t1, 2 + 3             ; 3 for the jump on
+        slli  t1, t1, 2                 ; bytes
+        ld    t2, v_pend(zero)          ; the end of the pinned code
+        add   t1, t1, t2                ; and the stub
+        li    t2, 2 * UNIT              ; and two units
+        add   t1, t1, t2                ; ...
+        li    t2, 0x10000               ; must fit the I-LS
+        bgeu  t2, t1, st_chkfar         ; they do
+        li    a0, m_room                ; no room for the units
+        j     fail_noline               ; report
+st_chkfar:                              ; far data: the cache must end below 0xA000
+        ld    t0, v_far(zero)           ; far data?
+        beqz  t0, st_lay                ; no
+        ld    t1, sects+SREC+S_SIZE(zero) ; the end of .data with the cache
+        li    t2, 0xA000                ; StrataOS's limit
+        bgeu  t2, t1, st_lay            ; below it
+        li    a0, m_dfar                ; too much data
+        j     fail_noline               ; report
+st_lay:                                 ; the image
         call  layout                    ; place the sections in the image
         li    a0, 2                     ; pass 2: encode
         call  run_pass                  ; over the whole source again
@@ -750,9 +723,10 @@ st_copy:                                ; bare metal: the image goes to the cons
 
 ; ---- init_tables(): character classes, empty hashes, the keyword table -------------
 init_tables:                            ; routine entry
-        addi  sp, sp, -16               ; frame
+        addi  sp, sp, -24               ; frame
         sd    ra, 0(sp)                 ; save the return address
-        sd    s0, 8(sp)                 ; and s0
+        sd    s0, 8(sp)                 ; and s0, s1
+        sd    s1, 16(sp)                ; ...
         li    a0, CCLASS                ; clear the class table
         li    a1, 256                   ; 256 bytes
         call  zero_mem                  ; zero it
@@ -805,32 +779,73 @@ init_tables:                            ; routine entry
         li    t0, HEAP                  ; the heap starts empty
         sd    t0, v_heap(zero)          ; heap top
         li    s0, kwtab                 ; s0 = keyword table cursor
-it_kw:                                  ; loop: one keyword table entry
-        lbu   t0, 0(s0)                 ; first character of the name
-        beqz  t0, it_done               ; empty name: end of table
-        mv    a0, s0                    ; the name
-        call  strhash                   ; a1 = length, a2 = hash
-        add   t0, s0, a1                ; t0 = the NUL after the name
-        lbu   a6, 1(t0)                 ; a6 = class
-        lbu   a5, 2(t0)                 ; a5 = format (or number)
-        lbu   t1, 3(t0)                 ; operand count
+it_grp:                                 ; loop: one group of the table
+        lbu   a6, 0(s0)                 ; a6 = class
+        beqz  a6, it_done               ; 0: end of table
+        lbu   a5, 1(s0)                 ; a5 = format (or number)
+        lbu   t1, 2(s0)                 ; operand count
         slli  t1, t1, 8                 ; into bits 8..15
         or    a5, a5, t1                ; merge
-        lbu   t1, 4(t0)                 ; opcode
+        lbu   t1, 3(s0)                 ; opcode
         slli  t1, t1, 16                ; into bits 16..23
         or    a5, a5, t1                ; merge
-        lbu   t1, 5(t0)                 ; function
+        lbu   t1, 4(s0)                 ; function
         slli  t1, t1, 24                ; into bits 24..31
-        or    a5, a5, t1                ; merge: a5 = record value
-        addi  s0, t0, 6                 ; s0 = next entry
+        or    a5, a5, t1                ; merge: a5 = the first record's value
+        lbu   s1, 5(s0)                 ; s1 = step
+        addi  s0, s0, 6                 ; s0 = the names
+it_name:                                ; loop: one name of the group
+        lbu   t0, 0(s0)                 ; next character
+        li    t1, ' '                   ; a blank between names?
+        bne   t0, t1, it_n1             ; no
+        addi  s0, s0, 1                 ; skip it
+        j     it_name                   ; continue
+it_n1:                                  ; the end of the group?
+        bnez  t0, it_one                ; no: a name
+        addi  s0, s0, 1                 ; past the NUL
+        j     it_grp                    ; next group
+it_one:                                 ; a name: its length and hash
+        mv    a0, s0                    ; a0 = the name
+        li    a1, 0                     ; a1 = length
+        li    a2, 0                     ; a2 = hash
+it_h:                                   ; loop: one character
+        add   t0, s0, a1                ; character
+        lbu   t0, 0(t0)                 ; ...
+        beqz  t0, it_ins                ; the NUL ends it
+        li    t1, ' '                   ; and so does a blank
+        beq   t0, t1, it_ins            ; ...
+        slli  t1, a2, 5                 ; hash * 32
+        add   a2, a2, t1                ; hash * 33
+        add   a2, a2, t0                ; + character
+        addi  a1, a1, 1                 ; one more
+        j     it_h                      ; continue
+it_ins:                                 ; add the record
+        add   s0, s0, a1                ; past the name
         li    a3, KWHASH                ; keyword heads
         li    a4, KWMASK                ; their mask
-        call  insert                    ; add the record
-        j     it_kw                     ; next entry
+        call  insert                    ; (keeps a5, a6)
+        li    t1, 1                     ; the next name's value: by the step
+        li    t0, KS_FMT                ; the format
+        beq   s1, t0, it_step           ; ...
+        slli  t1, t1, 16                ; the opcode
+        li    t0, KS_OP                 ; ...
+        beq   s1, t0, it_step           ; ...
+        slli  t1, t1, 8                 ; the function
+        li    t0, KS_FN                 ; ...
+        beq   s1, t0, it_step           ; ...
+        srli  t1, a5, 24                ; the function doubled: add it again
+        slli  t1, t1, 24                ; ...
+        li    t0, KS_FN2                ; ...
+        beq   s1, t0, it_step           ; ...
+        li    t1, 0                     ; none
+it_step:                                ; step
+        add   a5, a5, t1                ; ...
+        j     it_name                   ; next name
 it_done:                                ; table copied
         ld    ra, 0(sp)                 ; restore
-        ld    s0, 8(sp)                 ; restore
-        addi  sp, sp, 16                ; pop
+        ld    s0, 8(sp)                 ; ...
+        ld    s1, 16(sp)                ; ...
+        addi  sp, sp, 24                ; pop
         ret                             ; done
 
 ; zero_mem(a0 = address, a1 = length): both multiples of 8
@@ -905,33 +920,81 @@ run_pass:                               ; routine entry
         sd    ra, 0(sp)                 ; save the return address
         mv    tp, a0                    ; tp = pass
         li    t0, sects                 ; t0 = first section record
-        li    t1, 4                     ; t1 = sections left
+        li    t1, NSECT                 ; t1 = sections left
         li    t2, -1                    ; t2 = "nothing emitted yet"
 rp_reset:                               ; loop: reset one section record
         sd    zero, S_LOC(t0)           ; location 0
         sd    t2, S_LO(t0)              ; no lowest address yet
+        li    t3, 2                     ; pass 2 keeps the sizes pass 1 measured
+        beq   tp, t3, rp_keep           ; ...
+        sd    zero, S_SIZE(t0)          ; pass 1 (each of them) measures again
+rp_keep:                                ; record reset
         addi  t0, t0, SREC              ; next record
         addi  t1, t1, -1                ; one fewer
-        bnez  t1, rp_reset              ; all four
+        bnez  t1, rp_reset              ; all five
         ld    t0, v_org(zero)           ; text origin
         sd    t0, sects+S_LOC(zero)     ; .text starts there
         sd    zero, v_cs(zero)          ; start in .text
         li    s11, sects                ; s11 = its record
         sd    zero, v_lii(zero)         ; first li
-        sd    zero, v_line(zero)        ; no line read yet
-        sd    zero, v_pos(zero)         ; at the start of the source
-        li    t0, -1                    ; no window contents yet: a huge window
-        srli  t0, t0, 1                 ; offset puts every position "before" it
-        sd    t0, v_chunk(zero)         ; and forces a fetch
+        li    t0, -1                    ; no region yet
+        sd    t0, v_regctr(zero)        ; ...
+rp_rew:                                 ; back to the start of the source
+        call  rewind                    ; ...
 rp_loop:                                ; loop: one source line
         call  read_line                 ; next line into LINEBUF
         beqz  a0, rp_done               ; end of the source
         call  do_line                   ; assemble it
         j     rp_loop                   ; continue
 rp_done:                                ; end of the source
+        ld    t0, v_paged(zero)         ; paged code or far data?
+        ld    t1, v_far(zero)           ; ...
+        or    t0, t0, t1                ; ...
+        beqz  t0, rp_ret                ; neither: nothing more
+        sd    zero, v_cs(zero)          ; the start-up stub goes into .text
+        li    s11, sects                ; ...
+        li    t0, 2                     ; pass 2 puts it where pass 1 did
+        beq   tp, t0, rp_stub           ; ...
+        ld    t1, v_pend(zero)          ; paged code: after the pinned code
+        ld    t0, v_paged(zero)         ; ...
+        bnez  t0, rp_st1                ; ...
+        ld    t1, S_SIZE(s11)           ; otherwise after the code
+        addi  t1, t1, 3                 ; rounded up to a word
+        srli  t1, t1, 2                 ; ...
+        slli  t1, t1, 2                 ; ...
+        bnez  t1, rp_st1                ; (if there is any)
+        ld    t1, v_org(zero)           ; or at the text origin
+rp_st1:                                 ; pass 1: remember the place
+        sd    t1, v_stubat(zero)        ; ...
+        ld    t0, sects+SREC+S_SIZE(zero) ; and the end of .data, for the cache
+        sd    t0, v_cacheat(zero)       ; ...
+rp_stub:                                ; emit the stub
+        ld    t1, v_stubat(zero)        ; its place
+        sd    t1, S_LOC(s11)            ; ...
+        call  emit_stub                 ; __pinit
+        ld    t0, v_far(zero)           ; far data?
+        beqz  t0, rp_ret                ; no
+        li    t0, 1                     ; the cache goes into .data
+        sd    t0, v_cs(zero)            ; ...
+        li    s11, sects + SREC         ; ...
+        ld    t1, v_cacheat(zero)       ; after the program's data
+        sd    t1, S_LOC(s11)            ; ...
+        call  emit_cache                ; __fc_lines, __fc_tags
+        sd    zero, v_cs(zero)          ; back to .text
+        li    s11, sects                ; ...
+rp_ret:                                 ; pass done
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, 16                ; pop
         ret                             ; pass done
+
+; rewind(): read the source again from its first line
+rewind:                                 ; routine entry (leaf)
+        sd    zero, v_line(zero)        ; no line read yet
+        sd    zero, v_pos(zero)         ; at the start of the source
+        li    t0, -1                    ; no window contents yet: a huge window
+        srli  t0, t0, 1                 ; offset puts every position "before" it
+        sd    t0, v_chunk(zero)         ; and forces a fetch
+        ret                             ; done
 
 ; ---- read_line() -> a0 = 1 if a line was read, 0 at the end -------------------------
 ; Like fgets plus sasm's cleanup: the line ends at '\n', and its text ends
@@ -1002,28 +1065,22 @@ do_line:                                ; routine entry
         sd    s2, 24(sp)                ; ...
         sd    s3, 32(sp)                ; ...
         sd    s4, 40(sp)                ; ...
+        li    t0, -1                    ; not (yet) a line of paged code
+        sd    t0, v_lreg(zero)          ; ...
+        sd    zero, v_lpaged(zero)      ; ...
         li    a0, LINEBUF               ; the raw line
-        call  skipws                    ; first non-blank
-        li    t0, s_include             ; ".include"
-        li    t1, 8                     ; 8 characters
-dl_inc:                                 ; loop: compare with ".include"
-        lbu   t2, 0(a0)                 ; line character
-        lbu   t3, 0(t0)                 ; expected character
-        bne   t2, t3, dl_noinc          ; differs: not an include
-        addi  a0, a0, 1                 ; next
-        addi  t0, t0, 1                 ; next
-        addi  t1, t1, -1                ; one fewer
-        bnez  t1, dl_inc                ; all 8
-        lbu   t2, 0(a0)                 ; the character after ".include"
-        lbu   t2, CCLASS(t2)            ; its class
-        andi  t2, t2, C_SP              ; white space?
-        bnez  t2, dl_ret                ; an include line: skipped (supply the file as input)
-dl_noinc:                               ; an ordinary line
+        call  is_include                ; an .include line?
+        bnez  a0, dl_ret                ; yes: skipped (supply the file as input)
         li    a0, LINEBUF               ; the line
         call  strip_comment             ; cut ; # // comments
         li    a0, LINEBUF               ; the line
         call  trim                      ; drop surrounding white space
         mv    s0, a0                    ; s0 = cursor
+        ld    t0, v_paged(zero)         ; paged code?
+        beqz  t0, dl_label              ; no
+        ld    t0, v_cs(zero)            ; a .text line?
+        bnez  t0, dl_label              ; no
+        call  map_line                  ; to where its group is
 dl_label:                               ; loop: one leading label
         lbu   t0, 0(s0)                 ; next character
         lbu   t0, CCLASS(t0)            ; its class
@@ -1079,38 +1136,10 @@ dl_set:                                 ; define the constant
         call  sym_define                ; define the constant
         j     dl_ret                    ; done
 dl_mnem:                                ; a mnemonic or directive
-        li    t0, MBUF                  ; t0 = lower-cased copy
-        mv    t1, s0                    ; t1 = source cursor
-        li    t2, 0                     ; t2 = characters kept
-        li    t3, 0                     ; t3 = hash
-dm_loop:                                ; loop: copy one mnemonic character
-        lbu   t4, 0(t1)                 ; next character
-        beqz  t4, dm_end                ; end of line
-        li    t5, ' '                   ; blank ends the mnemonic
-        beq   t4, t5, dm_end            ; ...
-        li    t5, 9                     ; and so does a tab
-        beq   t4, t5, dm_end            ; ...
-        addi  t1, t1, 1                 ; consumed
-        li    t5, 63                    ; sasm keeps 63 characters
-        bgeu  t2, t5, dm_loop           ; drop the rest
-        addi  t5, t4, -'A'              ; upper case?
-        sltiu t5, t5, 26                ; t5 = 1 if A..Z
-        slli  t5, t5, 5                 ; 32 if so
-        add   t4, t4, t5                ; lower-case it
-        add   t5, t0, t2                ; destination
-        sb    t4, 0(t5)                 ; keep it
-        addi  t2, t2, 1                 ; one more
-        slli  t5, t3, 5                 ; hash * 32
-        add   t3, t3, t5                ; hash * 33
-        add   t3, t3, t4                ; + character
-        j     dm_loop                   ; continue
-dm_end:                                 ; mnemonic copied
-        add   t5, t0, t2                ; end of the copy
-        sb    zero, 0(t5)               ; terminate it
-        sd    t1, v_rest(zero)          ; the operands follow
-        mv    a0, t0                    ; look the mnemonic up
-        mv    a1, t2                    ; length
-        mv    a2, t3                    ; hash
+        mv    a0, s0                    ; copy it into MBUF
+        call  get_mnem                  ; a0 = the operands, a1 = length, a2 = hash
+        sd    a0, v_rest(zero)          ; the operands follow
+        li    a0, MBUF                  ; look the mnemonic up
         li    a3, KWHASH                ; among the keywords
         li    a4, KWMASK                ; ...
         call  find                      ; a0 = record or 0
@@ -1131,6 +1160,7 @@ dl_check:                               ; validate the keyword record
         bne   t0, t1, dl_unknown        ; (not a register or CSR name)
         ld    t0, R_VAL(s1)             ; packed fields
         andi  t1, t0, 255               ; t1 = format
+        sd    t1, v_fmt(zero)           ; (h_gen's descriptor)
         srli  t2, t0, 8                 ; operand count
         andi  t2, t2, 255               ; t2 = operand count
         srli  t3, t0, 16                ; opcode
@@ -1155,6 +1185,16 @@ dl_unknown:                             ; error: unknown mnemonic or directive
         li    a1, MBUF                  ; the mnemonic
         j     fail_s                    ; report (message in a0)
 dl_ret:                                 ; every handler ends here
+        ld    t0, v_lreg(zero)          ; a line of paged code?
+        bltz  t0, dl_out                ; no
+        ld    t1, v_lgrec(zero)         ; its group goes on
+        ld    t2, S_LOC(s11)            ; from here
+        sw    t2, RG_LOC(t1)            ; ...
+        ld    t2, v_uloc(zero)          ; the section's own location back
+        sd    t2, S_LOC(s11)            ; ...
+        sd    zero, v_cs(zero)          ; and .text
+        li    s11, sects                ; ...
+dl_out:                                 ; line done
         ld    ra, 0(sp)                 ; restore
         ld    s0, 8(sp)                 ; ...
         ld    s1, 16(sp)                ; ...
@@ -1165,68 +1205,6 @@ dl_ret:                                 ; every handler ends here
         ret                             ; line done
 
 ; ---- instruction handlers (jumped to from do_line) ----------------------------------
-h_r:                                    ; rd, rs1, rs2
-        ld    a0, OPS(zero)             ; rd
-        call  xreg                      ; number
-        mv    s0, a0                    ; s0 = rd
-        ld    a0, OPS+8(zero)           ; rs1
-        call  xreg                      ; number
-        mv    s1, a0                    ; s1 = rs1
-        ld    a0, OPS+16(zero)          ; rs2
-        call  xreg                      ; number
-        mv    a3, a0                    ; a3 = rs2
-        ld    a4, v_fn(zero)            ; function
-        j     h_enc_r01                 ; encode with rd = s0, rs1 = s1
-
-h_i:                                    ; rd, rs1, signed imm16
-        li    s3, 0                     ; range: signed 16 bits
-        j     h_imm                     ; common part
-h_iu:                                   ; rd, rs1, unsigned imm16
-        li    s3, 1                     ; range: unsigned 16 bits
-        j     h_imm                     ; common part
-h_sh:                                   ; rd, rs1, shift amount
-        li    s3, 2                     ; range: 0..63
-h_imm:                                  ; common part of the immediate forms
-        ld    a0, OPS(zero)             ; rd
-        call  xreg                      ; number
-        mv    s0, a0                    ; s0 = rd
-        ld    a0, OPS+8(zero)           ; rs1
-        call  xreg                      ; number
-        mv    s1, a0                    ; s1 = rs1
-        ld    a0, OPS+16(zero)          ; immediate
-        call  eval                      ; value
-        mv    s2, a0                    ; s2 = immediate
-        mv    a1, s3                    ; which range
-        call  check_imm                 ; pass 2 range check
-        mv    a3, s2                    ; immediate
-        j     h_enc_i01                 ; encode with rd = s0, rs1 = s1
-
-h_lui:                                  ; rd, imm16 (either reading)
-        ld    a0, OPS(zero)             ; rd
-        call  xreg                      ; number
-        mv    s0, a0                    ; s0 = rd
-        ld    a0, OPS+8(zero)           ; immediate
-        call  eval                      ; value
-        mv    s2, a0                    ; s2 = immediate
-        li    a1, 3                     ; range -32768..65535
-        call  check_imm                 ; pass 2 range check
-        li    s1, 0                     ; rs1 = 0
-        mv    a3, s2                    ; immediate
-        j     h_enc_i01                 ; encode
-
-h_ld:                                   ; reg, offset(base)
-        ld    a0, OPS+8(zero)           ; memory operand
-        call  memop                     ; a0 = offset, a1 = base
-        mv    s2, a0                    ; s2 = offset
-        mv    s1, a1                    ; s1 = base register
-        li    a1, 0                     ; signed 16 bits
-        call  check_imm                 ; pass 2 range check
-        ld    a0, OPS(zero)             ; data register
-        call  xreg                      ; number
-        mv    s0, a0                    ; s0 = it
-        mv    a3, s2                    ; offset
-        j     h_enc_i01                 ; encode
-
 h_b:                                    ; rs1, rs2, target
         ld    a0, OPS(zero)             ; first register
         call  xreg                      ; number
@@ -1236,6 +1214,14 @@ h_b:                                    ; rs1, rs2, target
         mv    s1, a0                    ; s1 = it
         ld    a0, OPS+16(zero)          ; target
 h_bt:                                   ; common part of the branches: target in a0
+        mv    s2, a0                    ; s2 = target
+        ld    a0, v_op(zero)            ; to a function in another group of paged code?
+        mv    a1, s0                    ; ...
+        mv    a2, s1                    ; ...
+        mv    a3, s2                    ; ...
+        call  pbranch                   ; then it is rewritten
+        bnez  a0, dl_ret                ; (it was)
+        mv    a0, s2                    ; an ordinary branch
         li    a1, 16                    ; 16-bit word offset
         call  pcrel                     ; a0 = offset
         mv    a3, a0                    ; immediate
@@ -1268,10 +1254,49 @@ h_jal:                                  ; rd, target
         ld    a0, OPS(zero)             ; rd
         call  xreg                      ; number
         mv    s0, a0                    ; s0 = rd
+        li    t0, 2                     ; jal zero or jal ra?
+        bgeu  s0, t0, hjl_go            ; no: always as written
+        ld    a1, OPS+8(zero)           ; target
+        seqz  a2, s0                    ; jal zero is a jump
+        call  ptransfer                 ; paged code: rewritten?
+        bnez  a0, dl_ret                ; (it was)
+hjl_go:                                 ; as written
         ld    a0, OPS+8(zero)           ; target
         j     h_jt                      ; common part
 h_j:                                    ; j / call: rd from the table
         ld    s0, v_fn(zero)            ; rd = 0 or 1
+        bnez  s0, hj_x                  ; call
+        ld    t0, v_line(zero)          ; the program's first instruction?
+        ld    t1, v_first(zero)         ; ...
+        bne   t0, t1, hj_x              ; no
+        ld    t0, v_paged(zero)         ; with paged code or far data
+        ld    t1, v_far(zero)           ; ...
+        or    t0, t0, t1                ; ...
+        beqz  t0, hj_x                  ; neither: as written
+        ld    a0, OPS(zero)             ; the entry: keep its target
+        li    a1, ENTBUF                ; (255 characters of it, as sasm)
+        li    a2, 255                   ; ...
+hj_cp:                                  ; loop: copy one character
+        lbu   t0, 0(a0)                 ; character
+        beqz  t0, hj_cpe                ; end
+        beqz  a2, hj_cpe                ; or no more room
+        sb    t0, 0(a1)                 ; keep it
+        addi  a0, a0, 1                 ; next
+        addi  a1, a1, 1                 ; ...
+        addi  a2, a2, -1                ; ...
+        j     hj_cp                     ; continue
+hj_cpe:                                 ; copied
+        sb    zero, 0(a1)               ; terminate
+        li    t0, 1                     ; the stub jumps on to it
+        sd    t0, v_entry(zero)         ; ...
+        li    a0, s_pinit               ; and the entry jumps to the stub
+        j     h_jt                      ; (j __pinit)
+hj_x:                                   ; any other j or call
+        mv    a0, s0                    ; rd
+        ld    a1, OPS(zero)             ; target
+        seqz  a2, s0                    ; j is a jump
+        call  ptransfer                 ; paged code: rewritten?
+        bnez  a0, dl_ret                ; (it was)
         ld    a0, OPS(zero)             ; target
 h_jt:                                   ; common part of jal/j/call: target in a0
         li    a1, 21                    ; 21-bit word offset
@@ -1345,79 +1370,6 @@ h_tpbad:                                ; error: tpoll needs two operands
         li    a0, m_tpoll               ; usage
         j     fail                      ; report
 
-h_amo:                                  ; rd, cap, addr, value
-        ld    a0, OPS+8(zero)           ; capability
-        call  creg                      ; number
-        slli  s4, a0, 7                 ; s4 = cap << 7
-        ld    t0, v_fn(zero)            ; atomic operation
-        or    s4, s4, t0                ; s4 = function field
-        ld    a0, OPS(zero)             ; rd
-        call  xreg                      ; number
-        mv    s0, a0                    ; s0 = rd
-        ld    a0, OPS+16(zero)          ; address register
-        call  xreg                      ; number
-        mv    s1, a0                    ; s1 = rs1
-        ld    a0, OPS+24(zero)          ; value register
-        call  xreg                      ; number
-        mv    a3, a0                    ; a3 = rs2
-        mv    a4, s4                    ; function
-        j     h_enc_r01                 ; encode
-
-h_cdcs:                                 ; cd, cs
-        ld    a0, OPS(zero)             ; cd
-        call  creg                      ; number
-        mv    s0, a0                    ; s0 = cd
-        ld    a0, OPS+8(zero)           ; cs
-        call  creg                      ; number
-        mv    s1, a0                    ; s1 = cs
-        li    a3, 0                     ; no rs2
-        ld    a4, v_fn(zero)            ; function
-        j     h_enc_r01                 ; encode
-
-h_cdcsrx:                               ; cd, cs, rs
-        ld    a0, OPS(zero)             ; cd
-        call  creg                      ; number
-        mv    s0, a0                    ; s0 = cd
-        ld    a0, OPS+8(zero)           ; cs
-        call  creg                      ; number
-        mv    s1, a0                    ; s1 = cs
-        ld    a0, OPS+16(zero)          ; rs
-        call  xreg                      ; number
-        mv    a3, a0                    ; rs2 field
-        ld    a4, v_fn(zero)            ; function
-        j     h_enc_r01                 ; encode
-
-h_rdcs:                                 ; rd, cs
-        ld    a0, OPS(zero)             ; rd
-        call  xreg                      ; number
-        mv    s0, a0                    ; s0 = rd
-        ld    a0, OPS+8(zero)           ; cs
-        call  creg                      ; number
-        mv    s1, a0                    ; s1 = cs
-        li    a3, 0                     ; no rs2
-        ld    a4, v_fn(zero)            ; function
-        j     h_enc_r01                 ; encode
-
-h_cpoll:                                ; rd
-        ld    a0, OPS(zero)             ; rd
-        call  xreg                      ; number
-        mv    s0, a0                    ; s0 = rd
-        li    s1, 0                     ; no rs1
-        li    a3, 0                     ; no rs2
-        ld    a4, v_fn(zero)            ; function
-        j     h_enc_r01                 ; encode
-
-h_csrx:                                 ; cs, rs (cgive)
-        ld    a0, OPS(zero)             ; cs
-        call  creg                      ; number
-        mv    s1, a0                    ; s1 = cs (rs1 field)
-        ld    a0, OPS+8(zero)           ; rs
-        call  xreg                      ; number
-        mv    a3, a0                    ; rs2 field
-        li    s0, 0                     ; no rd
-        ld    a4, v_fn(zero)            ; function
-        j     h_enc_r01                 ; encode
-
 h_ctake:                                ; cd [, rs]
         ld    t0, v_nops(zero)          ; operands
         li    t1, 2                     ; with a sender?
@@ -1435,74 +1387,65 @@ h_ctake:                                ; cd [, rs]
 h_ct1:                                  ; ctake cd
         li    t1, 1                     ; otherwise exactly one operand
         bne   t0, t1, dl_count          ; wrong number
-h_cd:                                   ; cd (cclear, ctake)
-        ld    a0, OPS(zero)             ; cd
-        call  creg                      ; number
-        mv    s0, a0                    ; s0 = cd
-        li    s1, 0                     ; no rs1
-        li    a3, 0                     ; no rs2
-        ld    a4, v_fn(zero)            ; function
-        j     h_enc_r01                 ; encode
+        j     h_gen                     ; (as cclear)
+h_ret:                                  ; ret = jalr zero, ra, 0 (paged code: xret ra)
+        li    s1, 1                     ; rs1 = ra
+h_xr:                                   ; jalr zero, s1, 0 or xret s1
+        ld    t0, v_paged(zero)         ; paged code?
+        bnez  t0, h_xr1                 ; yes: xret
+        li    s0, 0                     ; rd = zero
+        li    a3, 0                     ; offset 0
+        j     h_enc_i01                 ; encode
+h_xr1:                                  ; xret s1: returns through a far link too
+        slli  a0, s1, 16                ; rs1
+        li    t0, W_XRET                ; xret
+        or    a0, a0, t0                ; ...
+        call  emit_insn                 ; emit
+        j     dl_ret                    ; done
 
-h_csslot:                               ; cs, slot
-        li    s3, 0                     ; capability goes in rs1
-        j     h_slot                    ; common part
-h_cdslot:                               ; cd, slot
-        li    s3, 1                     ; capability goes in rd
-h_slot:                                 ; common part of csave/crestore
-        ld    a0, OPS(zero)             ; capability register
-        call  creg                      ; number
-        mv    s2, a0                    ; s2 = it
-        ld    a0, OPS+8(zero)           ; slot
+h_jr:                                   ; jr rs = jalr zero, rs, 0 (paged code: xret rs)
+        ld    a0, OPS(zero)             ; rs
+        call  xreg                      ; number
+        mv    s1, a0                    ; s1 = rs
+        j     h_xr                      ; encode
+
+h_jalr:                                 ; jalr rd, rs, imm
+        ld    a0, OPS+16(zero)          ; immediate
         call  eval                      ; value
-        mv    s4, a0                    ; s4 = slot
-        li    a1, 4                     ; range 0..63
+        mv    s2, a0                    ; s2 = immediate
+        li    a1, 0                     ; signed 16 bits
         call  check_imm                 ; pass 2 range check
-        andi  a4, s4, 63                ; slot bits
-        slli  a4, a4, 5                 ; into place
-        ld    t0, v_fn(zero)            ; function
-        or    a4, a4, t0                ; function field
-        li    s0, 0                     ; rd
-        li    s1, 0                     ; rs1
-        li    a3, 0                     ; rs2
-        beqz  s3, h_slot_s              ; csave: capability in rs1
-        mv    s0, s2                    ; crestore: capability in rd
-        j     h_enc_r01                 ; encode
-h_slot_s:                               ; csave
-        mv    s1, s2                    ; capability in rs1
-        j     h_enc_r01                 ; encode
-
-h_csrr:                                 ; rd, csr
         ld    a0, OPS(zero)             ; rd
         call  xreg                      ; number
         mv    s0, a0                    ; s0 = rd
-        ld    a0, OPS+8(zero)           ; csr
-        call  csrnum                    ; number
-        mv    a3, a0                    ; immediate
-        li    s1, 0                     ; no rs1
-        j     h_enc_i01                 ; encode
-
-h_csrw:                                 ; csr, rs
         ld    a0, OPS+8(zero)           ; rs
         call  xreg                      ; number
-        mv    s1, a0                    ; s1 = rs1
-        ld    a0, OPS(zero)             ; csr
-        call  csrnum                    ; number
-        mv    a3, a0                    ; immediate
-        li    s0, 0                     ; no rd
+        mv    s1, a0                    ; s1 = rs
+        ld    t0, v_paged(zero)         ; paged code?
+        beqz  t0, hjr_as                ; no: as written
+        bnez  s0, hjr_lp                ; jalr zero, rs, 0
+        beqz  s2, h_xr1                 ; is xret rs, everywhere
+hjr_lp:                                 ; in paged code only jalr ra, rs, 0
+        ld    t0, v_lpaged(zero)        ; is this paged code?
+        beqz  t0, hjr_as                ; no: as written
+        li    t0, 1                     ; rd must be ra
+        bne   s0, t0, hjr_bad           ; ...
+        bnez  s2, hjr_bad               ; no offset
+        beq   s1, t0, hjr_bad           ; rs not ra
+        li    t0, RT6                   ; nor t6
+        beq   s1, t0, hjr_bad           ; ...
+        ld    a0, S_LOC(s11)            ; ra = a far link to the instruction after
+        addi  a0, a0, 4 * 8             ; (7 for the link, the jalr)
+        call  flink                     ; ...
+        li    s0, 0                     ; jalr zero, rs, 0
+        li    a3, 0                     ; ...
         j     h_enc_i01                 ; encode
-
-h_sys:                                  ; no operands: imm = function (halt, eret, nop)
-        li    s0, 0                     ; rd
-        li    s1, 0                     ; rs1
-        ld    a3, v_fn(zero)            ; immediate
+hjr_as:                                 ; jalr rd, rs, imm
+        mv    a3, s2                    ; immediate
         j     h_enc_i01                 ; encode
-
-h_ret:                                  ; ret = jalr zero, ra, 0
-        li    s0, 0                     ; rd = zero
-        li    s1, 1                     ; rs1 = ra
-        li    a3, 0                     ; offset 0
-        j     h_enc_i01                 ; encode
+hjr_bad:                                ; error: another jalr in paged code
+        li    a0, m_jalr                ; only jalr ra, rs, 0
+        j     fail                      ; report
 
 h_tfence:                               ; tfence = twait 0xffff
         li    s0, 0                     ; rd
@@ -1510,116 +1453,100 @@ h_tfence:                               ; tfence = twait 0xffff
         li    a3, 0xffff                ; every tag
         j     h_enc_i01                 ; encode
 
-h_rrk:                                  ; rd, rs: immediate = function (ltag, mv, seqz)
-        ld    a0, OPS(zero)             ; rd
-        call  xreg                      ; number
-        mv    s0, a0                    ; s0 = rd
-        ld    a0, OPS+8(zero)           ; rs
-        call  xreg                      ; number
-        mv    s1, a0                    ; s1 = rs1
-        ld    a3, v_fn(zero)            ; immediate
-        j     h_enc_i01                 ; encode
-
-h_linst:                                ; rs (linst, jr)
-        ld    a0, OPS(zero)             ; rs
-        call  xreg                      ; number
-        mv    s1, a0                    ; s1 = rs1
-        li    s0, 0                     ; no rd
-        li    a3, 0                     ; no immediate
-        j     h_enc_i01                 ; encode
-
-h_r0:                                   ; rd, rs with rs1 = zero (snez, neg)
-        ld    a0, OPS(zero)             ; rd
-        call  xreg                      ; number
-        mv    s0, a0                    ; s0 = rd
-        ld    a0, OPS+8(zero)           ; rs
-        call  xreg                      ; number
-        mv    a3, a0                    ; rs2
-        li    s1, 0                     ; rs1 = zero
-        ld    a4, v_fn(zero)            ; function
-        j     h_enc_r01                 ; encode
-
-h_xmap:                                 ; idx, rs1, cap, rs2
-        ld    a0, OPS(zero)             ; index
-        call  eval                      ; value
-        mv    s4, a0                    ; s4 = index
-        li    a1, 5                     ; range 0..15
-        call  check_imm                 ; pass 2 range check
-        andi  s0, s4, 15                ; rd field = index
-        ld    a0, OPS+8(zero)           ; rs1
-        call  xreg                      ; number
-        mv    s1, a0                    ; s1 = rs1
-        ld    a0, OPS+24(zero)          ; rs2
-        call  xreg                      ; number
-        mv    s2, a0                    ; s2 = rs2
-        ld    a0, OPS+16(zero)          ; capability
-        call  creg                      ; number
-        mv    a4, a0                    ; function field = capability
-        mv    a3, s2                    ; rs2
-        j     h_enc_r01                 ; encode
-
-h_xunmap:                               ; idx
-        ld    a0, OPS(zero)             ; index
-        call  eval                      ; value
-        mv    s4, a0                    ; s4 = index
-        li    a1, 5                     ; range 0..15
-        call  check_imm                 ; pass 2 range check
-        andi  s0, s4, 15                ; rd field = index
-        li    s1, 0                     ; no rs1
-        li    a3, 0                     ; no rs2
-        li    a4, 16                    ; unmap bit
-        j     h_enc_r01                 ; encode
-
-h_xcall:                                ; rd, cap, rs
-        ld    a0, OPS(zero)             ; rd
-        call  xreg                      ; number
-        mv    s0, a0                    ; s0 = rd
-        ld    a0, OPS+16(zero)          ; rs
-        call  xreg                      ; number
-        mv    s1, a0                    ; s1 = rs1
-        ld    a0, OPS+8(zero)           ; capability
-        call  creg                      ; number
-        mv    a4, a0                    ; function field = capability
-        li    a3, 0                     ; no rs2
-        j     h_enc_r01                 ; encode
-
-h_xret:                                 ; rs: return through the far link in rs
-        ld    a0, OPS(zero)             ; rs
-        call  xreg                      ; number
-        mv    s1, a0                    ; s1 = rs1
-        li    s0, 0                     ; no rd
-        li    a3, 0                     ; no rs2
-        ld    a4, v_fn(zero)            ; function: the return bit
-        j     h_enc_r01                 ; encode
-
-h_csend:                                ; cs, ce: cs goes in rs1, ce in rd
-        ld    a0, OPS(zero)             ; cs
-        call  creg                      ; number
-        mv    s1, a0                    ; s1 = cs
-        ld    a0, OPS+8(zero)           ; ce
-        call  creg                      ; number
-        mv    s0, a0                    ; s0 = ce
-        li    a3, 0                     ; no rs2
-        ld    a4, v_fn(zero)            ; function
-        j     h_enc_r01                 ; encode
-
-h_mkep:                                 ; cd, rs: the node number goes in rs2
-        ld    a0, OPS(zero)             ; cd
-        call  creg                      ; number
-        mv    s0, a0                    ; s0 = cd
-        ld    a0, OPS+8(zero)           ; rs
-        call  xreg                      ; number
-        mv    a3, a0                    ; rs2 field
-        li    s1, 0                     ; no rs1
-        ld    a4, v_fn(zero)            ; function
-        j     h_enc_r01                 ; encode
-
 h_li:                                   ; rd, value (fn = 1 for la)
         ld    a0, OPS(zero)             ; rd
         call  xreg                      ; number
         ld    a1, OPS+8(zero)           ; expression
         ld    a2, v_fn(zero)            ; la?
         call  do_li                     ; emit 1, 2 or 6 instructions
+        j     dl_ret                    ; done
+
+; h_gen: the formats gdesc describes. The word is opcode << 26 | function
+; (the immediate of F_SYS, F_RRK) | each operand's field; an operand's spec
+; is a kind (GX x register, GC capability register, GCSR a CSR, GM
+; offset(base), GE + 16 * range an expression, range as in check_imm) and
+; where it goes (QRD, QRS1, QRS2 register fields; QIMM the 16-bit
+; immediate; QFN7, QFN5, QFN into the function: << 7, & 63 << 5, as is).
+h_gen:                                  ; the described formats
+        ld    t0, v_op(zero)            ; opcode
+        slli  s0, t0, 26                ; s0 = the word
+        ld    t0, v_fn(zero)            ; function (or immediate)
+        or    s0, s0, t0                ; ...
+        ld    s1, v_fmt(zero)           ; s1 = the descriptor's offset
+        slli  s1, s1, 2                 ; (4 specs per format)
+        li    s2, 0                     ; s2 = operand index
+hg_op:                                  ; loop: one operand
+        li    t0, 4                     ; all four done?
+        beq   s2, t0, hg_emit           ; ...
+        add   t0, s1, s2                ; its spec
+        lbu   s3, gdesc(t0)             ; s3 = it
+        beqz  s3, hg_emit               ; none: done
+        slli  t0, s2, 3                 ; the operand's text
+        ld    a0, OPS(t0)               ; ...
+        srli  s4, s3, 4                 ; s4 = kind
+        li    t0, GX >> 4               ; x register
+        beq   s4, t0, hg_x              ; ...
+        li    t0, GC >> 4               ; capability register
+        beq   s4, t0, hg_c              ; ...
+        li    t0, GCSR >> 4             ; CSR
+        beq   s4, t0, hg_csr            ; ...
+        li    t0, GM >> 4               ; offset(base)
+        beq   s4, t0, hg_m              ; ...
+        call  eval                      ; an expression
+        addi  a1, s4, -(GE >> 4)        ; its range
+hg_rng:                                 ; check the value's range (pass 2)
+        mv    s4, a0                    ; s4 = value
+        call  check_imm                 ; ...
+        mv    a0, s4                    ; ...
+        j     hg_put                    ; ...
+hg_m:                                   ; offset(base)
+        call  memop                     ; a0 = offset, a1 = base
+        slli  t0, a1, 16                ; the base goes in rs1
+        or    s0, s0, t0                ; ...
+        li    a1, 0                     ; the offset: signed 16 bits
+        j     hg_rng                    ; ...
+hg_x:                                   ; x register
+        call  xreg                      ; number
+        j     hg_put                    ; ...
+hg_c:                                   ; capability register
+        call  creg                      ; number
+        j     hg_put                    ; ...
+hg_csr:                                 ; CSR
+        call  csrnum                    ; number
+hg_put:                                 ; a0 into its field
+        andi  t0, s3, 15                ; the field
+        li    t1, QIMM                  ; the immediate
+        beq   t0, t1, hg_imm            ; ...
+        li    t1, QFN7                  ; function, << 7
+        beq   t0, t1, hg_f7             ; ...
+        li    t1, QFN5                  ; function, & 63 << 5
+        beq   t0, t1, hg_f5             ; ...
+        li    t1, QFN                   ; function, as is
+        beq   t0, t1, hg_or             ; ...
+        andi  a0, a0, 31                ; a register: rd << 21, rs1 << 16, rs2 << 11
+        li    t1, 5                     ; ...
+        mul   t1, t0, t1                ; ...
+        li    t2, 21                    ; ...
+        sub   t1, t2, t1                ; ...
+        sll   a0, a0, t1                ; ...
+        j     hg_or                     ; ...
+hg_imm:                                 ; the immediate
+        li    t1, 0xffff                ; 16 bits
+        and   a0, a0, t1                ; ...
+        j     hg_or                     ; ...
+hg_f7:                                  ; function << 7
+        slli  a0, a0, 7                 ; ...
+        j     hg_or                     ; ...
+hg_f5:                                  ; function & 63 << 5
+        andi  a0, a0, 63                ; ...
+        slli  a0, a0, 5                 ; ...
+hg_or:                                  ; into the word
+        or    s0, s0, a0                ; ...
+        addi  s2, s2, 1                 ; next operand
+        j     hg_op                     ; continue
+hg_emit:                                ; all operands placed
+        mv    a0, s0                    ; emit
+        call  emit_insn                 ; ...
         j     dl_ret                    ; done
 
 h_enc_i01:                              ; emit op | rd = s0 | rs1 = s1 | imm = a3
@@ -1718,6 +1645,8 @@ da_bad:                                 ; error: bad alignment
         j     fail                      ; report
 
 d_org:                                  ; .org address
+        ld    t0, v_lreg(zero)          ; in paged code?
+        bgez  t0, do_paged              ; an error
         ld    a0, v_rest(zero)          ; operand text
         call  eval                      ; value
         mv    s0, a0                    ; s0 = target
@@ -1732,6 +1661,9 @@ do_loop:                                ; loop: one padding byte
         j     do_loop                   ; continue
 do_bad:                                 ; error: backwards
         li    a0, m_org                 ; cannot go back
+        j     fail                      ; report
+do_paged:                               ; error: .org in paged code
+        li    a0, m_orgp                ; (sasm refuses it in .text)
         j     fail                      ; report
 
 d_equ:                                  ; .equ name, value
@@ -1760,6 +1692,65 @@ de_bad:                                 ; error: wrong operand count
         j     fail                      ; report
 
 ; ---- text helpers ----------------------------------------------------------------------
+; is_include(a0 = raw line) -> a0 = 1 if it is an `.include` line (sasm reads the file there)
+is_include:                             ; routine entry
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        call  skipws                    ; first non-blank
+        li    t0, s_include             ; ".include"
+        li    t1, 8                     ; 8 characters
+ii_cmp:                                 ; loop: compare with ".include"
+        lbu   t2, 0(a0)                 ; line character
+        lbu   t3, 0(t0)                 ; expected character
+        bne   t2, t3, ii_no             ; differs: not an include
+        addi  a0, a0, 1                 ; next
+        addi  t0, t0, 1                 ; next
+        addi  t1, t1, -1                ; one fewer
+        bnez  t1, ii_cmp                ; all 8
+        lbu   t2, 0(a0)                 ; the character after ".include"
+        lbu   t2, CCLASS(t2)            ; its class
+        andi  a0, t2, C_SP              ; white space: an include
+        j     ii_ret                    ; (a0 = C_SP or 0)
+ii_no:                                  ; not an include
+        li    a0, 0                     ; ...
+ii_ret:                                 ; done
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 8                 ; pop
+        ret                             ; done
+
+; get_mnem(a0 = text) -> a0 = the text after the mnemonic, a1 = its length, a2 = hash
+; Copies the mnemonic (up to a blank or a tab) lower-cased into MBUF; sasm
+; keeps 63 characters of it.
+get_mnem:                               ; routine entry (leaf)
+        li    t0, MBUF                  ; t0 = lower-cased copy
+        li    a1, 0                     ; a1 = characters kept
+        li    a2, 0                     ; a2 = hash
+gm_loop:                                ; loop: copy one mnemonic character
+        lbu   t4, 0(a0)                 ; next character
+        beqz  t4, gm_end                ; end of line
+        li    t5, ' '                   ; blank ends the mnemonic
+        beq   t4, t5, gm_end            ; ...
+        li    t5, 9                     ; and so does a tab
+        beq   t4, t5, gm_end            ; ...
+        addi  a0, a0, 1                 ; consumed
+        li    t5, 63                    ; sasm keeps 63 characters
+        bgeu  a1, t5, gm_loop           ; drop the rest
+        addi  t5, t4, -'A'              ; upper case?
+        sltiu t5, t5, 26                ; t5 = 1 if A..Z
+        slli  t5, t5, 5                 ; 32 if so
+        add   t4, t4, t5                ; lower-case it
+        add   t5, t0, a1                ; destination
+        sb    t4, 0(t5)                 ; keep it
+        addi  a1, a1, 1                 ; one more
+        slli  t5, a2, 5                 ; hash * 32
+        add   a2, a2, t5                ; hash * 33
+        add   a2, a2, t4                ; + character
+        j     gm_loop                   ; continue
+gm_end:                                 ; mnemonic copied
+        add   t5, t0, a1                ; end of the copy
+        sb    zero, 0(t5)               ; terminate it
+        ret                             ; done
+
 ; skipws(a0) -> a0 = first non-blank character at or after a0
 skipws:                                 ; routine entry (leaf)
         lbu   t0, 0(a0)                 ; character
@@ -2007,6 +1998,10 @@ insert:                                 ; routine entry (leaf)
         sd    a5, R_VAL(t0)             ; value
         sb    a1, R_LEN(t0)             ; name length
         sb    a6, R_SECT(t0)            ; section or class
+        li    t3, -1                    ; no region
+        sh    t3, R_REG(t0)             ; ...
+        sb    zero, R_FL(t0)            ; no flags
+        sb    zero, R_GEN(t0)           ; not defined by any pass 1 yet
         li    t3, 0                     ; copy the name
 in_copy:                                ; loop: copy one name character
         beq   t3, a1, in_link           ; done
@@ -2030,7 +2025,9 @@ in_full:                                ; error: heap exhausted
         j     fail                      ; report
 
 ; sym_define(a0 = name, a1 = length, a2 = hash, a3 = value, a4 = section or -1)
-; Pass 1 only: pass 2 finds the same values again.
+; Pass 1 only: pass 2 finds the same values again. A record that exists but
+; was not defined in this pass 1 (a .text label the pre-scan entered, or a
+; symbol of an earlier pass 1) is defined again.
 sym_define:                             ; routine entry
         li    t0, 2                     ; pass 2?
         beq   tp, t0, sd_ret            ; nothing to do
@@ -2044,7 +2041,17 @@ sym_define:                             ; routine entry
         li    a3, SYMHASH               ; symbol heads
         li    a4, SYMMASK               ; mask
         call  find                      ; already there?
-        bnez  a0, sd_redef              ; yes: redefinition
+        beqz  a0, sd_new                ; no
+        lbu   t0, R_GEN(a0)             ; defined in this pass 1?
+        ld    t1, v_gen(zero)           ; ...
+        beq   t0, t1, sd_redef          ; yes: redefinition
+        ld    t0, 32(sp)                ; (re)define it: value
+        sd    t0, R_VAL(a0)             ; ...
+        ld    t0, 40(sp)                ; section
+        sb    t0, R_SECT(a0)            ; ...
+        sb    t1, R_GEN(a0)             ; in this pass 1
+        j     sd_done                   ; done
+sd_new:                                 ; a new symbol
         ld    a1, 16(sp)                ; length
         li    t0, 255                   ; record length field limit
         bltu  t0, a1, sd_long           ; too long
@@ -2055,6 +2062,9 @@ sym_define:                             ; routine entry
         ld    a5, 32(sp)                ; value
         ld    a6, 40(sp)                ; section
         call  insert                    ; add it
+        ld    t1, v_gen(zero)           ; defined in this pass 1
+        sb    t1, R_GEN(a0)             ; ...
+sd_done:                                ; done
         ld    ra, 0(sp)                 ; restore
         addi  sp, sp, 48                ; pop
 sd_ret:                                 ; done
@@ -2105,148 +2115,99 @@ ws10:                                   ; routine entry (leaf)
 w10_ret:                                ; found
         ret                             ; done
 
-e_or:                                   ; a | b | ...
-        addi  sp, sp, -16               ; frame
+e_or:                                   ; the lowest precedence: a | b | ...
+        li    a0, 0                     ; level 0
+; e_bin(a0 = level) -> a0 = value: operands of the next level (e_unary
+; after level 5) joined by this level's operators, left to right:
+; 0 |, 1 ^, 2 &, 3 << >> (arithmetic, amount & 63), 4 + -, 5 * / % (signed, as C)
+e_bin:                                  ; routine entry
+        addi  sp, sp, -32               ; frame
         sd    ra, 0(sp)                 ; save the return address
-        sd    s0, 8(sp)                 ; and s0
-        call  e_xor                     ; left operand
+        sd    s0, 8(sp)                 ; and s0, s1
+        sd    s1, 16(sp)                ; ...
+        mv    s1, a0                    ; s1 = level
+        call  ez_opnd                   ; left operand
         mv    s0, a0                    ; s0 = value
-eo_loop:                                ; loop: another | operand?
+ez_loop:                                ; loop: another operator of this level?
         call  ws10                      ; blanks
-        lbu   t0, 0(s10)                ; operator?
-        li    t1, '|'                   ; or
-        bne   t0, t1, e_ret             ; no: done
-        addi  s10, s10, 1               ; consume it
-        call  e_xor                     ; right operand
-        or    s0, s0, a0                ; combine
-        j     eo_loop                   ; continue
-
-e_xor:                                  ; a ^ b ^ ...
-        addi  sp, sp, -16               ; frame
-        sd    ra, 0(sp)                 ; save the return address
-        sd    s0, 8(sp)                 ; and s0
-        call  e_and                     ; left operand
-        mv    s0, a0                    ; s0 = value
-ex_loop:                                ; loop: another ^ operand?
-        call  ws10                      ; blanks
-        lbu   t0, 0(s10)                ; operator?
-        li    t1, '^'                   ; xor
-        bne   t0, t1, e_ret             ; no: done
-        addi  s10, s10, 1               ; consume it
-        call  e_and                     ; right operand
-        xor   s0, s0, a0                ; combine
-        j     ex_loop                   ; continue
-
-e_and:                                  ; a & b & ...
-        addi  sp, sp, -16               ; frame
-        sd    ra, 0(sp)                 ; save the return address
-        sd    s0, 8(sp)                 ; and s0
-        call  e_shift                   ; left operand
-        mv    s0, a0                    ; s0 = value
-ea_loop:                                ; loop: another & operand?
-        call  ws10                      ; blanks
-        lbu   t0, 0(s10)                ; operator?
-        li    t1, '&'                   ; and
-        bne   t0, t1, e_ret             ; no: done
-        addi  s10, s10, 1               ; consume it
-        call  e_shift                   ; right operand
-        and   s0, s0, a0                ; combine
-        j     ea_loop                   ; continue
-
-e_ret:                                  ; shared epilogue of the binary levels
+        lbu   t0, 0(s10)                ; the character
+        li    t2, 0                     ; t2 = index in ez_ops
+ez_find:                                ; loop: look it up
+        lbu   t1, ez_ops(t2)            ; an operator
+        beqz  t1, ez_ret                ; none: done
+        bne   t1, t0, ez_fn             ; not this one
+        lbu   t3, ez_lvl(t2)            ; of this level?
+        beq   t3, s1, ez_hit            ; yes
+ez_fn:                                  ; next operator
+        addi  t2, t2, 1                 ; ...
+        j     ez_find                   ; continue
+ez_hit:                                 ; found
+        li    t3, 3                     ; a shift is a doubled character
+        bne   s1, t3, ez_one            ; ...
+        lbu   t3, 1(s10)                ; << or >>?
+        bne   t3, t0, ez_ret            ; no: done
+        addi  s10, s10, 1               ; consume one more
+ez_one:                                 ; consume it
+        addi  s10, s10, 1               ; ...
+        sd    t2, 24(sp)                ; keep the operator
+        mv    a0, s1                    ; right operand
+        call  ez_opnd                   ; ...
+        ld    t2, 24(sp)                ; the operator
+        slli  t2, t2, 2                 ; its code
+        lwu   t1, ez_jt(t2)             ; ...
+        jr    t1                        ; ...
+ez_or:                                  ; |
+        or    s0, s0, a0                ; ...
+        j     ez_loop                   ; continue
+ez_xor:                                 ; ^
+        xor   s0, s0, a0                ; ...
+        j     ez_loop                   ; continue
+ez_and:                                 ; &
+        and   s0, s0, a0                ; ...
+        j     ez_loop                   ; continue
+ez_shl:                                 ; <<
+        andi  a0, a0, 63                ; modulo 64
+        sll   s0, s0, a0                ; ...
+        j     ez_loop                   ; continue
+ez_shr:                                 ; >>
+        andi  a0, a0, 63                ; modulo 64
+        sra   s0, s0, a0                ; arithmetic
+        j     ez_loop                   ; continue
+ez_add:                                 ; +
+        add   s0, s0, a0                ; ...
+        j     ez_loop                   ; continue
+ez_sub:                                 ; -
+        sub   s0, s0, a0                ; ...
+        j     ez_loop                   ; continue
+ez_mul:                                 ; *
+        mul   s0, s0, a0                ; ...
+        j     ez_loop                   ; continue
+ez_div:                                 ; /
+        beqz  a0, ez_zero               ; by zero
+        div   s0, s0, a0                ; quotient
+        j     ez_loop                   ; continue
+ez_rem:                                 ; %
+        beqz  a0, ez_zero               ; by zero
+        rem   s0, s0, a0                ; remainder
+        j     ez_loop                   ; continue
+ez_zero:                                ; division by zero
+        ld    t0, v_undef(zero)         ; an undefined symbol reads as 0:
+        li    s0, 0                     ; the result is 0
+        bnez  t0, ez_loop               ; and that is not an error
+        li    a0, m_div0                ; a real division by zero
+        j     fail                      ; report
+ez_ret:                                 ; no more operators of this level
         mv    a0, s0                    ; result
         ld    ra, 0(sp)                 ; restore
         ld    s0, 8(sp)                 ; ...
-        addi  sp, sp, 16                ; pop
+        ld    s1, 16(sp)                ; ...
+        addi  sp, sp, 32                ; pop
         ret                             ; done
-
-e_shift:                                ; a << b, a >> b (arithmetic), amount & 63
-        addi  sp, sp, -16               ; frame
-        sd    ra, 0(sp)                 ; save the return address
-        sd    s0, 8(sp)                 ; and s0
-        call  e_add                     ; left operand
-        mv    s0, a0                    ; s0 = value
-es_loop:                                ; loop: another shift?
-        call  ws10                      ; blanks
-        lbu   t0, 0(s10)                ; first character
-        lbu   t1, 1(s10)                ; second character
-        bne   t0, t1, e_ret             ; << and >> repeat a character
-        li    t1, '<'                   ; left shift?
-        beq   t0, t1, es_left           ; yes
-        li    t1, '>'                   ; right shift?
-        bne   t0, t1, e_ret             ; no: done
-        addi  s10, s10, 2               ; consume >>
-        call  e_add                     ; amount
-        andi  a0, a0, 63                ; modulo 64
-        sra   s0, s0, a0                ; arithmetic shift
-        j     es_loop                   ; continue
-es_left:                                ; <<
-        addi  s10, s10, 2               ; consume <<
-        call  e_add                     ; amount
-        andi  a0, a0, 63                ; modulo 64
-        sll   s0, s0, a0                ; shift
-        j     es_loop                   ; continue
-
-e_add:                                  ; a + b, a - b
-        addi  sp, sp, -16               ; frame
-        sd    ra, 0(sp)                 ; save the return address
-        sd    s0, 8(sp)                 ; and s0
-        call  e_mul                     ; left operand
-        mv    s0, a0                    ; s0 = value
-ead_loop:                               ; loop: another + or - operand?
-        call  ws10                      ; blanks
-        lbu   t0, 0(s10)                ; operator?
-        li    t1, '+'                   ; plus?
-        beq   t0, t1, ead_plus          ; yes
-        li    t1, '-'                   ; minus?
-        bne   t0, t1, e_ret             ; no: done
-        addi  s10, s10, 1               ; consume it
-        call  e_mul                     ; right operand
-        sub   s0, s0, a0                ; subtract
-        j     ead_loop                  ; continue
-ead_plus:                               ; +
-        addi  s10, s10, 1               ; consume it
-        call  e_mul                     ; right operand
-        add   s0, s0, a0                ; add
-        j     ead_loop                  ; continue
-
-e_mul:                                  ; a * b, a / b, a % b (signed, as C)
-        addi  sp, sp, -16               ; frame
-        sd    ra, 0(sp)                 ; save the return address
-        sd    s0, 8(sp)                 ; and s0
-        call  e_unary                   ; left operand
-        mv    s0, a0                    ; s0 = value
-em_loop:                                ; loop: another * / % operand?
-        call  ws10                      ; blanks
-        lbu   t0, 0(s10)                ; operator?
-        li    t1, '*'                   ; multiply?
-        beq   t0, t1, em_mul            ; yes
-        li    t1, '/'                   ; divide?
-        beq   t0, t1, em_div            ; yes
-        li    t1, '%'                   ; remainder?
-        bne   t0, t1, e_ret             ; no: done
-        addi  s10, s10, 1               ; consume it
-        call  e_unary                   ; right operand
-        beqz  a0, em_zero               ; by zero
-        rem   s0, s0, a0                ; remainder
-        j     em_loop                   ; continue
-em_div:                                 ; /
-        addi  s10, s10, 1               ; consume it
-        call  e_unary                   ; right operand
-        beqz  a0, em_zero               ; by zero
-        div   s0, s0, a0                ; quotient
-        j     em_loop                   ; continue
-em_mul:                                 ; *
-        addi  s10, s10, 1               ; consume it
-        call  e_unary                   ; right operand
-        mul   s0, s0, a0                ; product
-        j     em_loop                   ; continue
-em_zero:                                ; division by zero
-        ld    t0, v_undef(zero)         ; an undefined symbol reads as 0:
-        li    s0, 0                     ; the result is 0
-        bnez  t0, em_loop               ; and that is not an error
-        li    a0, m_div0                ; a real division by zero
-        j     fail                      ; report
+ez_opnd:                                ; an operand of level a0 (keeps ra: a tail call)
+        addi  a0, a0, 1                 ; the next level
+        li    t0, 6                     ; past the last one:
+        bltu  a0, t0, e_bin             ; ...
+        j     e_unary                   ; a unary expression
 
 e_unary:                                ; -a, +a, ~a, or a primary
         addi  sp, sp, -8                ; frame
@@ -2428,6 +2389,9 @@ ep_look:                                ; look the symbol up
         li    a4, SYMMASK               ; mask
         call  find                      ; a0 = record or 0
         beqz  a0, ep_undef              ; not defined (yet)
+        lbu   t0, R_GEN(a0)             ; defined in this pass 1 (or the last one)?
+        ld    t1, v_gen(zero)           ; ...
+        bne   t0, t1, ep_undef          ; not yet
         lbu   t0, R_SECT(a0)            ; its section
         li    t1, 255                   ; none?
         beq   t0, t1, ep_val            ; a constant
@@ -2787,9 +2751,14 @@ pc_range:                               ; error: target too far
 emit_byte:                              ; routine entry (leaf)
         ld    t0, S_LOC(s11)            ; location
         ld    t1, S_LIMIT(s11)          ; address space size
-        bgeu  t0, t1, eb_ovf            ; past the end
         li    t2, 2                     ; pass 2?
-        beq   tp, t2, eb_p2             ; yes: store the byte
+        bltu  t0, t1, eb_in             ; inside the address space
+        beq   tp, t2, eb_ovf            ; past the end: an error in pass 2
+        addi  t0, t0, 1                 ; pass 1 only counts it (a later pass 1
+        sd    t0, S_LOC(s11)            ; may place the code elsewhere)
+        ret                             ; done
+eb_in:                                  ; inside
+        beq   tp, t2, eb_p2             ; pass 2: store the byte
         ld    t1, S_LO(s11)             ; pass 1: lowest address so far
         bgeu  t0, t1, eb_p1             ; not lower
         sd    t0, S_LO(s11)             ; new lowest
@@ -2803,16 +2772,23 @@ eb_ret:                                 ; done
         ret                             ; done
 eb_p2:                                  ; pass 2: store into the window
         ld    t1, S_WBASE(s11)          ; window start address
+eb_win:                                 ; loop: until the window holds the location
         sub   t2, t0, t1                ; position in the window
         li    t3, WINSZ                 ; window size
         bltu  t2, t3, eb_put            ; inside
-        ld    t4, S_WBUF(s11)           ; full: flush the window
+        ld    t4, S_WBUF(s11)           ; past it: flush the window
         ld    t5, S_FADJ(s11)           ; arena offset of address 0
         add   t5, t5, t1                ; arena offset of the window
         tput  tg0, t4, c0, t5, t3       ; write it (later stores into it wait)
+        li    t5, 0                     ; clear it (a gap, such as the rest of
+eb_clr:                                 ; a code unit, is zeros)
+        add   t2, t4, t5                ; 8 bytes of it
+        sd    zero, 0(t2)               ; cleared
+        addi  t5, t5, 8                 ; next
+        bltu  t5, t3, eb_clr            ; the whole window
         add   t1, t1, t3                ; next window
         sd    t1, S_WBASE(s11)          ; ...
-        sub   t2, t0, t1                ; position in it
+        j     eb_win                    ; does it hold the location?
 eb_put:                                 ; store the byte
         ld    t4, S_WBUF(s11)           ; window buffer
         add   t4, t4, t2                ; byte address
@@ -2939,47 +2915,19 @@ li_p2:                                  ; pass 2: replay the size code
         bltu  t4, s1, li_la             ; too big
 li_gen:                                 ; emit by size
         beqz  s3, li_one                ; 1 instruction
-        li    t0, 1                     ; 2 instructions?
-        beq   s3, t0, li_two            ; yes
-        srai  s2, s1, 32                ; s2 = high 32 bits
-        li    a0, OP_LUI                ; lui rd, hi >> 16
-        mv    a1, s0                    ; rd
-        li    a2, 0                     ; rs1
-        srai  a3, s2, 16                ; immediate
-        call  enc_i                     ; emit
-        li    a0, OP_ORI                ; ori rd, rd, hi & 0xffff
-        mv    a1, s0                    ; rd
-        mv    a2, s0                    ; rs1
-        mv    a3, s2                    ; immediate (masked)
-        call  enc_i                     ; emit
-        li    a0, OP_SLLI               ; slli rd, rd, 16
-        mv    a1, s0                    ; rd
-        mv    a2, s0                    ; rs1
-        li    a3, 16                    ; amount
-        call  enc_i                     ; emit
-        li    a0, OP_ORI                ; ori rd, rd, (v >> 16) & 0xffff
-        mv    a1, s0                    ; rd
-        mv    a2, s0                    ; rs1
-        srai  a3, s1, 16                ; immediate (masked)
-        call  enc_i                     ; emit
-        li    a0, OP_SLLI               ; slli rd, rd, 16
-        mv    a1, s0                    ; rd
-        mv    a2, s0                    ; rs1
-        li    a3, 16                    ; amount
-        call  enc_i                     ; emit
-        j     li_last                   ; and the low half
-li_two:                                 ; 2 instructions: lui, ori
-        li    a0, OP_LUI                ; lui rd, (v >> 16) & 0xffff
-        mv    a1, s0                    ; rd
-        li    a2, 0                     ; rs1
-        srai  a3, s1, 16                ; immediate (masked)
-        call  enc_i                     ; emit
-li_last:                                ; final ori of the low half
-        li    a0, OP_ORI                ; ori rd, rd, v & 0xffff
-        mv    a1, s0                    ; rd
-        mv    a2, s0                    ; rs1
-        mv    a3, s1                    ; immediate (masked)
-        call  enc_i                     ; emit
+        mv    a0, s0                    ; rd
+        mv    a1, s1                    ; 2 instructions: lui, ori of v
+        li    t0, 1                     ; ...
+        beq   s3, t0, li_two            ; ...
+        srai  a1, s1, 32                ; 6: lui, ori of the high 32 bits,
+        call  emit_luo                  ; ...
+        srai  a0, s1, 16                ; then slli 16, ori (v >> 16) & 0xffff,
+        call  li_sh                     ; ...
+        mv    a0, s1                    ; then slli 16, ori v & 0xffff
+        call  li_sh                     ; ...
+        j     li_ret                    ; done
+li_two:                                 ; lui rd, (v >> 16) & 0xffff; ori rd, rd, v & 0xffff
+        call  emit_luo                  ; ...
         j     li_ret                    ; done
 li_one:                                 ; 1 instruction: addi
         li    a0, OP_ADDI               ; addi rd, zero, v
@@ -2994,6 +2942,23 @@ li_ret:                                 ; done
         ld    s2, 24(sp)                ; ...
         ld    s3, 32(sp)                ; ...
         addi  sp, sp, 40                ; pop
+        ret                             ; done
+li_sh:                                  ; slli s0, s0, 16; ori s0, s0, a0 & 0xffff
+        addi  sp, sp, -16               ; frame (a0 is kept on it)
+        sd    ra, 0(sp)                 ; save the return address
+        sd    a0, 8(sp)                 ; the immediate
+        li    a0, OP_SLLI               ; slli rd, rd, 16
+        mv    a1, s0                    ; ...
+        mv    a2, s0                    ; ...
+        li    a3, 16                    ; ...
+        call  enc_i                     ; ...
+        li    a0, OP_ORI                ; ori rd, rd, imm
+        mv    a1, s0                    ; ...
+        mv    a2, s0                    ; ...
+        ld    a3, 8(sp)                 ; (masked)
+        call  enc_i                     ; ...
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 16                ; pop
         ret                             ; done
 li_full:                                ; error: table full
         li    a0, m_limax               ; too many li/la
@@ -3090,22 +3055,1399 @@ estr_unterm:                            ; error: no closing quote
         li    a0, m_unterm              ; unterminated
         j     fail                      ; report
 
+; ---- paged code and far data: the pre-scan ------------------------------------------------
+; asm/sasm.c ("paged code and far data", prescan, layout, paged_transfer,
+; paged_branch, emit_flink, emit_farcall, emit_stub, emit_cache) is the
+; specification: what follows does the same, in the same order.
+
+; prescan(): sasm's prescan, in up to four passes over the source
+;   A  .text labels (entered as symbols with FL_TL), .resident, .near, the
+;      program's first instruction, the lines that conflict with the modes;
+;      then the defaults (on for a StrataOS program) and the errors
+;   B  functions (FL_FUNC: call / jal ra targets) and labels whose address
+;      is taken (FL_TAKEN)
+;   C  regions: one from each line with a function's label (and the first
+;      .text line); each .text label's region (R_REG)
+;   D  what joins regions (fall-through, jumps and branches to labels that
+;      are not functions), what pins them (taken labels, .pinned); then the
+;      groups, in the region table
+prescan:                                ; routine entry
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        li    tp, 0                     ; (not an assembly pass)
+        li    a0, pa_line               ; A
+        call  scan_src                  ; ...
+        ld    t0, v_org(zero)           ; the defaults: on at a text origin other than 0
+        snez  t0, t0                    ; ...
+        ld    t1, v_paged(zero)         ; paged code: given?
+        bgez  t1, ps_d1                 ; yes (.resident)
+        sd    t0, v_paged(zero)         ; no: the default
+ps_d1:                                  ; far data
+        ld    t1, v_far(zero)           ; given?
+        bgez  t1, ps_d2                 ; yes (.near)
+        sd    t0, v_far(zero)           ; no: the default
+ps_d2:                                  ; the errors of paged code
+        ld    t0, v_paged(zero)         ; paged code?
+        beqz  t0, ps_e3                 ; no
+        ld    t1, v_own15(zero)         ; c15 is the kernel's
+        li    a0, m_c15                 ; ...
+        bnez  t1, ps_err                ; ...
+        ld    t1, v_owncode(zero)       ; the program pages its own code
+        li    a0, m_owncode             ; ...
+        bnez  t1, ps_err                ; ...
+ps_e3:                                  ; of far data
+        ld    t0, v_far(zero)           ; far data?
+        beqz  t0, ps_e4                 ; no
+        ld    t1, v_owncache(zero)      ; the program has its own cache
+        li    a0, m_owncache            ; ...
+        bnez  t1, ps_err                ; ...
+ps_e4:                                  ; of either: the entry must be `j`
+        ld    t0, v_paged(zero)         ; paged code
+        ld    t1, v_far(zero)           ; or far data?
+        or    t0, t0, t1                ; ...
+        beqz  t0, ps_ret                ; neither: nothing more to find
+        ld    t1, v_first(zero)         ; the first instruction
+        beqz  t1, ps_e5                 ; (none)
+        ld    t2, v_firstj(zero)        ; is it `j`?
+        li    a0, m_entry               ; ...
+        beqz  t2, ps_err                ; no
+ps_e5:                                  ; paged code: functions, regions, groups
+        ld    t0, v_paged(zero)         ; paged code?
+        beqz  t0, ps_ret                ; no
+        li    a0, pb_line               ; B
+        call  scan_src                  ; ...
+        li    a0, pc_line               ; C
+        call  scan_src                  ; ...
+        ld    t0, v_regctr(zero)        ; the regions
+        addi  t0, t0, 1                 ; ...
+        sd    t0, v_nreg(zero)          ; ...
+        slli  a1, t0, 4                 ; a1 = their table's size (RGSZ each)
+        ld    a0, v_heap(zero)          ; a0 = the table, from the heap
+        sd    a0, v_regs(zero)          ; ...
+        add   t1, a0, a1                ; its end
+        ld    t2, v_hend(zero)          ; heap limit
+        bltu  t2, t1, ps_full           ; no room
+        sd    t1, v_heap(zero)          ; claimed
+        call  zero_mem                  ; cleared
+        li    t0, -1                    ; no .text line yet
+        sd    t0, v_lastreg(zero)       ; ...
+        li    t0, 1                     ; ...
+        sd    t0, v_lastterm(zero)      ; ...
+        li    a0, pd_line               ; D
+        call  scan_src                  ; ...
+        ld    t0, v_regs(zero)          ; t0 = region record
+        ld    t1, v_nreg(zero)          ; t1 = regions
+        beqz  t1, ps_ret                ; (none)
+        li    t2, 1                     ; the entry's region is pinned
+        sb    t2, RG_PIN(t0)            ; ...
+        li    t2, 0                     ; t2 = region
+        li    t3, 0                     ; t3 = its group (the group's first region)
+ps_grp:                                 ; loop: one region
+        bgeu  t2, t1, ps_ret            ; all done
+        beqz  t2, ps_g1                 ; the first starts a group
+        lbu   t4, RG_JOIN - RGSZ(t0)    ; joined to the region before?
+        bnez  t4, ps_g2                 ; yes: same group
+ps_g1:                                  ; a new group
+        mv    t3, t2                    ; starts here
+ps_g2:                                  ; the region's group is known
+        sh    t3, RG_GRP(t0)            ; ...
+        lbu   t4, RG_PIN(t0)            ; a pinned region
+        beqz  t4, ps_g3                 ; ...
+        slli  t5, t3, 4                 ; pins its group
+        ld    t6, v_regs(zero)          ; ...
+        add   t5, t5, t6                ; ...
+        li    t4, 1                     ; ...
+        sb    t4, RG_GPIN(t5)           ; ...
+ps_g3:                                  ; next region
+        addi  t0, t0, RGSZ              ; next record
+        addi  t2, t2, 1                 ; its number
+        j     ps_grp                    ; continue
+ps_ret:                                 ; done
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 8                 ; pop
+        ret                             ; done
+ps_err:                                 ; error about line t1: message in a0
+        sd    t1, v_line(zero)          ; that line
+        j     fail                      ; report
+ps_full:                                ; error: no room for the region table
+        li    a0, m_full                ; heap exhausted
+        j     fail                      ; report
+
+; scan_src(a0 = handler): one pre-scan pass. Each line that is not an
+; .include is parsed (ps_parse) and given to the handler, with v_psect the
+; section it starts in and v_ltext = 1 if it is .text code (in .text, not
+; a section directive).
+scan_src:                               ; routine entry
+        addi  sp, sp, -16               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s0, 8(sp)                 ; and s0
+        mv    s0, a0                    ; s0 = handler
+        call  rewind                    ; from the first line
+        sd    zero, v_psect(zero)       ; in .text
+        li    t0, -1                    ; no region yet
+        sd    t0, v_regctr(zero)        ; ...
+sc_loop:                                ; loop: one line
+        call  read_line                 ; next line into LINEBUF
+        beqz  a0, sc_done               ; end of the source
+        li    a0, LINEBUF               ; an .include line?
+        call  is_include                ; ...
+        bnez  a0, sc_loop               ; skipped
+        li    a0, LINEBUF               ; the line
+        call  strip_comment             ; cut ; # // comments
+        li    a0, LINEBUF               ; the line
+        call  trim                      ; drop surrounding white space
+        call  ps_parse                  ; labels and mnemonic
+        ld    t0, v_psect(zero)         ; in .text?
+        seqz  t0, t0                    ; ...
+        ld    t1, v_mfmt(zero)          ; a section directive is not code
+        li    t2, D_SECT                ; ...
+        bne   t1, t2, sc_lt             ; ...
+        li    t0, 0                     ; ...
+sc_lt:                                  ; t0 = .text code?
+        sd    t0, v_ltext(zero)         ; ...
+        jalr  ra, s0, 0                 ; the handler
+        ld    t1, v_mfmt(zero)          ; a section directive?
+        li    t2, D_SECT                ; ...
+        bne   t1, t2, sc_loop           ; no
+        ld    t0, v_mfn(zero)           ; the next line starts in that section
+        sd    t0, v_psect(zero)         ; ...
+        j     sc_loop                   ; continue
+sc_done:                                ; pass done
+        ld    ra, 0(sp)                 ; restore
+        ld    s0, 8(sp)                 ; ...
+        addi  sp, sp, 16                ; pop
+        ret                             ; done
+
+; ps_parse(a0 = a line, comment stripped and trimmed): what sasm's
+; parse_line finds, without changing the line
+;   LABS, v_nlabs  its labels (name, length, hash; the first 8)
+;   v_mk           0 nothing after them, 1 a mnemonic (in MBUF), 2 `name = expr`
+;   v_mrec, v_mfmt, v_mop, v_mfn   the mnemonic's keyword record (0 if it is
+;                  not one), format (255 if none), opcode and function
+;   v_mrest        the text after the mnemonic, or after the `=`
+ps_parse:                               ; routine entry
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s0, 8(sp)                 ; and s0, s1
+        sd    s1, 16(sp)                ; ...
+        mv    s0, a0                    ; s0 = cursor
+        li    s1, 0                     ; s1 = labels kept
+pp_lab:                                 ; loop: one leading label
+        lbu   t0, 0(s0)                 ; next character
+        lbu   t0, CCLASS(t0)            ; its class
+        andi  t0, t0, C_SS              ; can it start a symbol?
+        beqz  t0, pp_end                ; no: no label here
+        mv    a0, s0                    ; scan the name
+        li    a1, -1                    ; of any length
+        call  scan_sym                  ; a0 = end, a1 = length, a2 = hash
+        lbu   t0, 0(a0)                 ; character after it
+        li    t1, ':'                   ; a label?
+        bne   t0, t1, pp_end            ; no
+        li    t1, MAXLABS               ; room for it?
+        bgeu  s1, t1, pp_skip           ; no (sasm keeps 8)
+        li    t1, 24                    ; its entry
+        mul   t1, s1, t1                ; ...
+        sd    s0, LABS(t1)              ; name
+        sd    a1, LABS+8(t1)            ; length
+        sd    a2, LABS+16(t1)           ; hash
+        addi  s1, s1, 1                 ; one more
+pp_skip:                                ; after the colon
+        addi  a0, a0, 1                 ; ...
+        call  skipws                    ; skip blanks
+        mv    s0, a0                    ; continue there
+        j     pp_lab                    ; several labels may share a line
+pp_end:                                 ; no (more) labels
+        sd    s1, v_nlabs(zero)         ; how many
+        sd    s0, v_mrest(zero)         ; nothing after them yet
+        sd    zero, v_mk(zero)          ; ...
+        sd    zero, v_mrec(zero)        ; ...
+        li    t0, 255                   ; no format
+        sd    t0, v_mfmt(zero)          ; ...
+        lbu   t0, 0(s0)                 ; anything left?
+        beqz  t0, pp_ret                ; no
+        lbu   t1, CCLASS(t0)            ; a name?
+        andi  t1, t1, C_SS              ; ...
+        beqz  t1, pp_mn                 ; no: cannot be `name = expr`
+        mv    a0, s0                    ; scan it
+        li    a1, -1                    ; any length
+        call  scan_sym                  ; a0 = end
+        call  skipws                    ; blanks after the name
+        lbu   t0, 0(a0)                 ; next character
+        li    t1, '='                   ; assignment?
+        bne   t0, t1, pp_mn             ; no
+        lbu   t2, 1(a0)                 ; "==" is not one
+        beq   t2, t1, pp_mn             ; ...
+        addi  a0, a0, 1                 ; the expression
+        sd    a0, v_mrest(zero)         ; ...
+        li    t0, 2                     ; `name = expr`
+        sd    t0, v_mk(zero)            ; ...
+        j     pp_ret                    ; done
+pp_mn:                                  ; a mnemonic
+        li    t0, 1                     ; ...
+        sd    t0, v_mk(zero)            ; ...
+        mv    a0, s0                    ; copy it into MBUF
+        call  get_mnem                  ; a0 = rest, a1 = length, a2 = hash
+        sd    a0, v_mrest(zero)         ; the operands
+        li    a0, MBUF                  ; look it up
+        li    a3, KWHASH                ; among the keywords
+        li    a4, KWMASK                ; ...
+        call  find                      ; a0 = record or 0
+        beqz  a0, pp_ret                ; not a keyword
+        lbu   t0, R_SECT(a0)            ; an instruction or directive?
+        li    t1, K_OP                  ; ...
+        bne   t0, t1, pp_ret            ; no (a register or CSR name)
+        sd    a0, v_mrec(zero)          ; the record
+        lbu   t0, R_VAL(a0)             ; format
+        sd    t0, v_mfmt(zero)          ; ...
+        lbu   t0, R_VAL+2(a0)           ; opcode
+        sd    t0, v_mop(zero)           ; ...
+        lbu   t0, R_VAL+3(a0)           ; function
+        sd    t0, v_mfn(zero)           ; ...
+pp_ret:                                 ; done
+        ld    ra, 0(sp)                 ; restore
+        ld    s0, 8(sp)                 ; ...
+        ld    s1, 16(sp)                ; ...
+        addi  sp, sp, 24                ; pop
+        ret                             ; done
+
+; lab_get(a0 = index) -> a0 = the line's label: name, a1 = length, a2 = hash
+lab_get:                                ; routine entry (leaf)
+        li    t0, 24                    ; its entry in LABS
+        mul   t0, a0, t0                ; ...
+        ld    a0, LABS(t0)              ; name
+        ld    a1, LABS+8(t0)            ; length
+        ld    a2, LABS+16(t0)           ; hash
+        ret                             ; done
+
+; lab_rec(a0 = index) -> a0 = the symbol record of the line's label, 0 if none
+lab_rec:                                ; routine entry
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        call  lab_get                   ; the label
+        li    a3, SYMHASH               ; among the symbols
+        li    a4, SYMMASK               ; ...
+        call  find                      ; a0 = record or 0
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 8                 ; pop
+        ret                             ; done
+
+; lookup_tl(a0 = NUL-terminated name) -> a0 = its record if it is a .text label, else 0
+lookup_tl:                              ; routine entry
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        call  strhash                   ; a1 = length, a2 = hash
+        li    a3, SYMHASH               ; among the symbols
+        li    a4, SYMMASK               ; ...
+        call  find                      ; a0 = record or 0
+        beqz  a0, lt_ret                ; none
+        lbu   t0, R_FL(a0)              ; a .text label?
+        andi  t0, t0, FL_TL             ; ...
+        bnez  t0, lt_ret                ; yes
+        li    a0, 0                     ; no
+lt_ret:                                 ; done
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 8                 ; pop
+        ret                             ; done
+
+; tl_group(a0 = .text label record) -> a0 = its group (the group's first
+; region, -1 if it has no region), a1 = the group's pinned flag
+tl_group:                               ; routine entry (leaf)
+        lhu   t0, R_REG(a0)             ; its region
+        li    t1, 0xffff                ; none?
+        beq   t0, t1, tg_none           ; ...
+        ld    t1, v_regs(zero)          ; the region table
+        slli  t0, t0, 4                 ; the region's record
+        add   t0, t0, t1                ; ...
+        lhu   a0, RG_GRP(t0)            ; its group
+        slli  t0, a0, 4                 ; the group's record
+        add   t0, t0, t1                ; ...
+        lbu   a1, RG_GPIN(t0)           ; pinned?
+        ret                             ; done
+tg_none:                                ; a label on a section directive line
+        li    a0, -1                    ; no group
+        li    a1, 1                     ; (treated as resident)
+        ret                             ; done
+
+; reg_rec(a0 = region) -> a0 = its record
+reg_rec:                                ; routine entry (leaf)
+        slli  a0, a0, 4                 ; RGSZ bytes each
+        ld    t0, v_regs(zero)          ; the table
+        add   a0, a0, t0                ; ...
+        ret                             ; done
+
+; reg_step() -> a0 = the region of the current .text line: a new one if
+; there is none yet or a label on the line is a function's
+reg_step:                               ; routine entry
+        addi  sp, sp, -16               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s0, 8(sp)                 ; and s0
+        ld    t0, v_regctr(zero)        ; the first region?
+        bltz  t0, rs_new                ; yes
+        li    s0, 0                     ; s0 = label index
+rs_lab:                                 ; loop: one label of the line
+        ld    t0, v_nlabs(zero)         ; all seen?
+        bgeu  s0, t0, rs_same           ; yes: the same region
+        mv    a0, s0                    ; its record
+        call  lab_rec                   ; ...
+        beqz  a0, rs_next               ; none
+        lbu   t0, R_FL(a0)              ; a function?
+        andi  t0, t0, FL_FUNC           ; ...
+        bnez  t0, rs_new                ; yes: a new region
+rs_next:                                ; next label
+        addi  s0, s0, 1                 ; ...
+        j     rs_lab                    ; continue
+rs_new:                                 ; a new region starts here
+        ld    t0, v_regctr(zero)        ; ...
+        addi  t0, t0, 1                 ; ...
+        sd    t0, v_regctr(zero)        ; ...
+rs_same:                                ; the region is known
+        ld    a0, v_regctr(zero)        ; ...
+        ld    ra, 0(sp)                 ; restore
+        ld    s0, 8(sp)                 ; ...
+        addi  sp, sp, 16                ; pop
+        ret                             ; done
+
+; join(a0, a1 = regions): the regions from the lower up to the higher one
+; join their next: one group
+join:                                   ; routine entry (leaf)
+        bltu  a0, a1, jn_ord            ; in order?
+        mv    t0, a0                    ; no: swap
+        mv    a0, a1                    ; ...
+        mv    a1, t0                    ; ...
+jn_ord:                                 ; a0 < a1
+        ld    t1, v_regs(zero)          ; the table
+jn_loop:                                ; loop: one region
+        bgeu  a0, a1, jn_ret            ; all done
+        slli  t0, a0, 4                 ; its record
+        add   t0, t0, t1                ; ...
+        li    t2, 1                     ; joined to the next
+        sb    t2, RG_JOIN(t0)           ; ...
+        addi  a0, a0, 1                 ; next
+        j     jn_loop                   ; continue
+jn_ret:                                 ; done
+        ret                             ; done
+
+; streq(a0, a1 = strings) -> a0 = 1 if they are equal
+streq:                                  ; routine entry (leaf)
+        lbu   t0, 0(a0)                 ; character
+        lbu   t1, 0(a1)                 ; ...
+        bne   t0, t1, se_no             ; differ
+        beqz  t0, se_yes                ; both ended
+        addi  a0, a0, 1                 ; next
+        addi  a1, a1, 1                 ; ...
+        j     streq                     ; continue
+se_yes:                                 ; equal
+        li    a0, 1                     ; ...
+        ret                             ; done
+se_no:                                  ; not equal
+        li    a0, 0                     ; ...
+        ret                             ; done
+
+; note_line(a0 = address of a line variable): the current line, if it holds none yet
+note_line:                              ; routine entry (leaf)
+        ld    t0, 0(a0)                 ; already one?
+        bnez  t0, nl_ret                ; yes: keep the first
+        ld    t0, v_line(zero)          ; this line
+        sd    t0, 0(a0)                 ; ...
+nl_ret:                                 ; done
+        ret                             ; done
+
+; set_func(a0 = name): if it is a .text label, it is a function's
+set_func:                               ; routine entry
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        call  lookup_tl                 ; the label
+        beqz  a0, sf_ret                ; not one
+        lbu   t0, R_FL(a0)              ; a function
+        ori   t0, t0, FL_FUNC           ; ...
+        sb    t0, R_FL(a0)              ; ...
+sf_ret:                                 ; done
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 8                 ; pop
+        ret                             ; done
+
+; mark_taken(a0 = expression): every .text label it names has its address
+; taken. Quoted strings and characters are skipped; a run of symbol
+; characters is a name if it starts as one (so 0x1f is not).
+mark_taken:                             ; routine entry
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s0, 8(sp)                 ; and s0, s1
+        sd    s1, 16(sp)                ; ...
+        mv    s0, a0                    ; s0 = cursor
+mt_loop:                                ; loop: one character or run
+        lbu   t0, 0(s0)                 ; character
+        beqz  t0, mt_ret                ; end
+        li    t1, '"'                   ; a string?
+        beq   t0, t1, mt_q              ; ...
+        li    t1, '\''                  ; a character?
+        beq   t0, t1, mt_q              ; ...
+        lbu   t1, CCLASS(t0)            ; its class
+        andi  t2, t1, C_SC              ; a symbol character?
+        beqz  t2, mt_next               ; no
+        andi  t2, t1, C_SS              ; does the run start a name?
+        beqz  t2, mt_run                ; no: skip it
+        mv    a0, s0                    ; the name
+        li    a1, -1                    ; all of it
+        call  scan_sym                  ; a0 = end, a1 = length, a2 = hash
+        mv    s1, a0                    ; s1 = end
+        mv    a0, s0                    ; look it up
+        li    a3, SYMHASH               ; among the symbols
+        li    a4, SYMMASK               ; ...
+        call  find                      ; a0 = record or 0
+        mv    s0, s1                    ; past the name
+        beqz  a0, mt_loop               ; not a symbol
+        lbu   t0, R_FL(a0)              ; a .text label?
+        andi  t1, t0, FL_TL             ; ...
+        beqz  t1, mt_loop               ; no
+        ori   t0, t0, FL_TAKEN          ; its address is taken
+        sb    t0, R_FL(a0)              ; ...
+        j     mt_loop                   ; continue
+mt_run:                                 ; loop: skip a run (a number)
+        addi  s0, s0, 1                 ; next
+        lbu   t0, 0(s0)                 ; character
+        lbu   t1, CCLASS(t0)            ; a symbol character?
+        andi  t1, t1, C_SC              ; ...
+        bnez  t1, mt_run                ; yes: still the run
+        j     mt_loop                   ; continue
+mt_q:                                   ; a quote: skip to the closing one
+        mv    t2, t0                    ; t2 = the quote
+        addi  s0, s0, 1                 ; inside
+mt_ql:                                  ; loop: one quoted character
+        lbu   t0, 0(s0)                 ; character
+        beqz  t0, mt_loop               ; unterminated: the end
+        beq   t0, t2, mt_next           ; the closing quote
+        li    t1, '\\'                  ; an escape?
+        bne   t0, t1, mt_qn             ; no
+        lbu   t1, 1(s0)                 ; the escaped character
+        beqz  t1, mt_qn                 ; none
+        addi  s0, s0, 1                 ; skip the backslash
+mt_qn:                                  ; next quoted character
+        addi  s0, s0, 1                 ; ...
+        j     mt_ql                     ; continue
+mt_next:                                ; one character on
+        addi  s0, s0, 1                 ; ...
+        j     mt_loop                   ; continue
+mt_ret:                                 ; done
+        ld    ra, 0(sp)                 ; restore
+        ld    s0, 8(sp)                 ; ...
+        ld    s1, 16(sp)                ; ...
+        addi  sp, sp, 24                ; pop
+        ret                             ; done
+
+; pa_line(): pre-scan A, for one line
+pa_line:                                ; routine entry
+        addi  sp, sp, -32               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s0, 8(sp)                 ; and s0..s2
+        sd    s1, 16(sp)                ; ...
+        sd    s2, 24(sp)                ; ...
+        ld    t0, v_psect(zero)         ; in .text?
+        bnez  t0, pa_mn                 ; no: its labels are not code
+        li    s0, 0                     ; s0 = label index
+pa_lab:                                 ; loop: one label: enter it
+        ld    t0, v_nlabs(zero)         ; all done?
+        bgeu  s0, t0, pa_mn             ; yes
+        mv    a0, s0                    ; the label
+        call  lab_get                   ; a0 = name, a1 = length, a2 = hash
+        li    t0, 255                   ; record length field limit
+        bltu  t0, a1, pa_long           ; too long
+        li    a3, SYMHASH               ; already entered?
+        li    a4, SYMMASK               ; ...
+        call  find                      ; ...
+        bnez  a0, pa_next               ; yes (a redefinition: pass 1 says so)
+        mv    a0, s0                    ; the label again
+        call  lab_get                   ; ...
+        li    a3, SYMHASH               ; into the symbols
+        li    a4, SYMMASK               ; ...
+        li    a5, 0                     ; no value yet
+        li    a6, 255                   ; no section yet
+        call  insert                    ; a0 = record
+        li    t0, FL_TL                 ; a .text label
+        sb    t0, R_FL(a0)              ; ...
+pa_next:                                ; next label
+        addi  s0, s0, 1                 ; ...
+        j     pa_lab                    ; continue
+pa_mn:                                  ; the mnemonic
+        ld    t0, v_mk(zero)            ; a mnemonic?
+        li    t1, 1                     ; ...
+        bne   t0, t1, pa_ops            ; no
+        ld    t0, v_mfmt(zero)          ; t0 = format
+        li    t1, D_RES                 ; .resident
+        bne   t0, t1, pa_m1             ; ...
+        sd    zero, v_paged(zero)       ; no paged code
+pa_m1:                                  ; .near?
+        li    t1, D_NEAR                ; ...
+        bne   t0, t1, pa_m2             ; ...
+        sd    zero, v_far(zero)         ; no far data
+pa_m2:                                  ; the program's first instruction?
+        ld    t1, v_first(zero)         ; already found
+        bnez  t1, pa_ops                ; ...
+        ld    t1, v_psect(zero)         ; in .text
+        bnez  t1, pa_ops                ; ...
+        lbu   t1, MBUF(zero)            ; not a directive
+        li    t2, '.'                   ; ...
+        beq   t1, t2, pa_ops            ; ...
+        ld    t1, v_line(zero)          ; this line
+        sd    t1, v_first(zero)         ; ...
+        li    t1, P_J                   ; is it `j`?
+        bne   t0, t1, pa_ops            ; ...
+        ld    t1, v_mfn(zero)           ; (not call)
+        bnez  t1, pa_ops                ; ...
+        li    t1, 1                     ; yes
+        sd    t1, v_firstj(zero)        ; ...
+pa_ops:                                 ; the operands
+        ld    a0, v_mrest(zero)         ; split them (as sasm does, every line)
+        call  split_ops                 ; a0 = count
+        mv    s2, a0                    ; s2 = count
+        li    s0, 0                     ; s0 = operand index
+pa_c15:                                 ; loop: an operand c15?
+        bgeu  s0, s2, pa_own            ; all seen
+        slli  t0, s0, 3                 ; the operand
+        ld    a0, OPS(t0)               ; ...
+        li    a1, s_c15                 ; c15?
+        call  streq                     ; ...
+        beqz  a0, pa_c15n               ; no
+        li    a0, v_own15               ; yes: note the line
+        call  note_line                 ; ...
+pa_c15n:                                ; next operand
+        addi  s0, s0, 1                 ; ...
+        j     pa_c15                    ; continue
+pa_own:                                 ; code paging and cache instructions
+        ld    s1, v_mfmt(zero)          ; s1 = format
+        li    t0, F_XCALL               ; xcall
+        beq   s1, t0, pa_code           ; ...
+        li    t0, F_XRET                ; xret
+        beq   s1, t0, pa_code           ; ...
+        li    t0, F_XMAP                ; xmap
+        beq   s1, t0, pa_code           ; ...
+        li    t0, F_XUNMAP              ; xunmap
+        beq   s1, t0, pa_code           ; ...
+        li    t0, F_LINST               ; linst
+        beq   s1, t0, pa_cache          ; ...
+        li    t0, F_RRK                 ; ltag (F_RRK, opcode 0x3B)
+        bne   s1, t0, pa_csrw           ; ...
+        ld    t0, v_mop(zero)           ; ...
+        li    t1, 0x3B                  ; ...
+        beq   t0, t1, pa_cache          ; ...
+        j     pa_ret                    ; (mv, seqz, tany)
+pa_csrw:                                ; csrw xslot / ttag / tdata / tgeom, rs
+        li    t0, F_CSRW                ; csrw?
+        bne   s1, t0, pa_ret            ; no
+        li    t0, 2                     ; two operands?
+        bne   s2, t0, pa_ret            ; no
+        ld    a0, OPS(zero)             ; xslot?
+        li    a1, s_xslot               ; ...
+        call  streq                     ; ...
+        bnez  a0, pa_code               ; ...
+        ld    a0, OPS(zero)             ; ttag?
+        li    a1, s_ttag                ; ...
+        call  streq                     ; ...
+        bnez  a0, pa_cache              ; ...
+        ld    a0, OPS(zero)             ; tdata?
+        li    a1, s_tdata               ; ...
+        call  streq                     ; ...
+        bnez  a0, pa_cache              ; ...
+        ld    a0, OPS(zero)             ; tgeom?
+        li    a1, s_tgeom               ; ...
+        call  streq                     ; ...
+        beqz  a0, pa_ret                ; ...
+pa_cache:                               ; the program manages a data cache
+        li    a0, v_owncache            ; note the line
+        call  note_line                 ; ...
+        j     pa_ret                    ; done
+pa_code:                                ; the program pages its own code
+        li    a0, v_owncode             ; note the line
+        call  note_line                 ; ...
+pa_ret:                                 ; done
+        ld    ra, 0(sp)                 ; restore
+        ld    s0, 8(sp)                 ; ...
+        ld    s1, 16(sp)                ; ...
+        ld    s2, 24(sp)                ; ...
+        addi  sp, sp, 32                ; pop
+        ret                             ; done
+pa_long:                                ; error: label name too long
+        li    a0, m_nlong               ; too long
+        j     fail                      ; report
+
+; pb_line(): pre-scan B, for one line
+pb_line:                                ; routine entry
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s0, 8(sp)                 ; and s0, s1
+        sd    s1, 16(sp)                ; ...
+        ld    t0, v_mk(zero)            ; anything?
+        beqz  t0, pb_ret                ; no
+        li    t1, 2                     ; `name = expr`?
+        bne   t0, t1, pb_op             ; no
+        ld    a0, v_mrest(zero)         ; its expression
+        call  mark_taken                ; takes addresses
+        j     pb_ret                    ; done
+pb_op:                                  ; a mnemonic
+        ld    a0, v_mrest(zero)         ; its operands
+        call  split_ops                 ; a0 = count
+        mv    s0, a0                    ; s0 = count
+        ld    s1, v_mfmt(zero)          ; s1 = format
+        li    t0, P_J                   ; j or call?
+        bne   s1, t0, pb_jal            ; no
+        ld    t0, v_mfn(zero)           ; j: a target, not an address
+        beqz  t0, pb_ret                ; ...
+        li    t0, 1                     ; call with one operand
+        bne   s0, t0, pb_all            ; (otherwise its operands are expressions)
+        ld    a0, OPS(zero)             ; calls a function
+        call  set_func                  ; ...
+        j     pb_ret                    ; done
+pb_jal:                                 ; jal rd, target?
+        li    t0, F_JAL                 ; ...
+        bne   s1, t0, pb_br             ; no
+        li    t0, 2                     ; two operands
+        bne   s0, t0, pb_all            ; (otherwise expressions)
+        ld    a0, OPS(zero)             ; rd a register
+        call  parse_xreg                ; ...
+        bltz  a0, pb_all                ; (otherwise expressions)
+        li    t0, 1                     ; jal ra: a call
+        bne   a0, t0, pb_ret            ; (any other: a target)
+        ld    a0, OPS+8(zero)           ; calls a function
+        call  set_func                  ; ...
+        j     pb_ret                    ; done
+pb_br:                                  ; a branch: its target is not an address
+        li    t0, F_B                   ; ...
+        beq   s1, t0, pb_ret            ; ...
+        li    t0, P_BZ                  ; ...
+        beq   s1, t0, pb_ret            ; ...
+        li    t0, P_B2                  ; ...
+        beq   s1, t0, pb_ret            ; ...
+        li    t0, D_EQU                 ; .equ name, value
+        bne   s1, t0, pb_dir            ; no
+        li    t0, 2                     ; two operands
+        bne   s0, t0, pb_ret            ; ...
+        ld    a0, OPS+8(zero)           ; the value takes addresses
+        call  mark_taken                ; ...
+        j     pb_ret                    ; done
+pb_dir:                                 ; other directives name no code
+        lbu   t0, MBUF(zero)            ; a directive?
+        li    t1, '.'                   ; ...
+        bne   t0, t1, pb_all            ; no
+        li    t0, D_DATA                ; except .byte .half .word .dword
+        bne   s1, t0, pb_ret            ; ...
+pb_all:                                 ; every operand takes addresses
+        li    s1, 0                     ; s1 = operand index
+pb_loop:                                ; loop: one operand
+        bgeu  s1, s0, pb_ret            ; all done
+        slli  t0, s1, 3                 ; the operand
+        ld    a0, OPS(t0)               ; ...
+        call  mark_taken                ; ...
+        addi  s1, s1, 1                 ; next
+        j     pb_loop                   ; continue
+pb_ret:                                 ; done
+        ld    ra, 0(sp)                 ; restore
+        ld    s0, 8(sp)                 ; ...
+        ld    s1, 16(sp)                ; ...
+        addi  sp, sp, 24                ; pop
+        ret                             ; done
+
+; pc_line(): pre-scan C, for one line
+pc_line:                                ; routine entry
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s0, 8(sp)                 ; and s0, s1
+        sd    s1, 16(sp)                ; ...
+        ld    t0, v_ltext(zero)         ; .text code?
+        beqz  t0, pcl_ret                ; no
+        call  reg_step                  ; a0 = its region
+        mv    s1, a0                    ; s1 = region
+        li    s0, 0                     ; s0 = label index
+pcl_lab:                                ; loop: one label: in this region
+        ld    t0, v_nlabs(zero)         ; all done?
+        bgeu  s0, t0, pcl_ret            ; yes
+        mv    a0, s0                    ; its record
+        call  lab_rec                   ; ...
+        beqz  a0, pcl_next               ; none
+        sh    s1, R_REG(a0)             ; its region
+pcl_next:                               ; next label
+        addi  s0, s0, 1                 ; ...
+        j     pcl_lab                    ; continue
+pcl_ret:                                ; done
+        ld    ra, 0(sp)                 ; restore
+        ld    s0, 8(sp)                 ; ...
+        ld    s1, 16(sp)                ; ...
+        addi  sp, sp, 24                ; pop
+        ret                             ; done
+
+; pd_line(): pre-scan D, for one line
+pd_line:                                ; routine entry
+        addi  sp, sp, -40               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s0, 8(sp)                 ; and s0..s3
+        sd    s1, 16(sp)                ; ...
+        sd    s2, 24(sp)                ; ...
+        sd    s3, 32(sp)                ; ...
+        ld    t0, v_ltext(zero)         ; .text code?
+        beqz  t0, pd_ret                ; no
+        call  reg_step                  ; a0 = its region
+        mv    s0, a0                    ; s0 = region
+        li    s1, 0                     ; s1 = label index
+pd_lab:                                 ; loop: a taken label pins the region
+        ld    t0, v_nlabs(zero)         ; all done?
+        bgeu  s1, t0, pd_fall           ; yes
+        mv    a0, s1                    ; its record
+        call  lab_rec                   ; ...
+        beqz  a0, pd_ln                 ; none
+        lbu   t0, R_FL(a0)              ; address taken?
+        andi  t0, t0, FL_TAKEN          ; ...
+        beqz  t0, pd_ln                 ; no
+        mv    a0, s0                    ; pinned
+        call  reg_rec                   ; ...
+        li    t0, 1                     ; ...
+        sb    t0, RG_PIN(a0)            ; ...
+pd_ln:                                  ; next label
+        addi  s1, s1, 1                 ; ...
+        j     pd_lab                    ; continue
+pd_fall:                                ; a new region: fallen into?
+        ld    t1, v_lastreg(zero)       ; the last line's region
+        beq   t1, s0, pd_kind           ; the same
+        bltz  t1, pd_new                ; (none)
+        ld    t2, v_lastterm(zero)      ; its last instruction ended it?
+        bnez  t2, pd_new                ; yes
+        mv    a0, t1                    ; no: it falls through
+        mv    a1, s0                    ; into this one
+        call  join                      ; ...
+pd_new:                                 ; this region
+        sd    s0, v_lastreg(zero)       ; ...
+        sd    zero, v_lastterm(zero)    ; ...
+pd_kind:                                ; what the line is
+        ld    t0, v_mk(zero)            ; a mnemonic?
+        li    t1, 1                     ; ...
+        bne   t0, t1, pd_ret            ; no: neither code nor an end
+        ld    s1, v_mfmt(zero)          ; s1 = format
+        li    t0, D_EQU                 ; .equ .set
+        beq   s1, t0, pd_ret            ; ...
+        li    t0, D_NOP                 ; .global .globl
+        beq   s1, t0, pd_ret            ; ...
+        li    t0, D_RES                 ; .resident
+        beq   s1, t0, pd_ret            ; ...
+        li    t0, D_NEAR                ; .near
+        beq   s1, t0, pd_ret            ; ...
+        li    t0, D_PIN                 ; .pinned
+        bne   s1, t0, pd_ins            ; ...
+        mv    a0, s0                    ; pins the region
+        call  reg_rec                   ; ...
+        li    t0, 1                     ; ...
+        sb    t0, RG_PIN(a0)            ; ...
+        j     pd_ret                    ; done
+pd_ins:                                 ; an instruction (or another directive)
+        ld    a0, v_mrest(zero)         ; its operands
+        call  split_ops                 ; a0 = count
+        mv    s2, a0                    ; s2 = count
+        li    s3, 0                     ; s3 = its target, 0 if none
+        sd    zero, v_lastterm(zero)    ; does not end the region (yet)
+        li    t0, F_B                   ; a branch?
+        beq   s1, t0, pd_br             ; ...
+        li    t0, P_BZ                  ; ...
+        beq   s1, t0, pd_br             ; ...
+        li    t0, P_B2                  ; ...
+        bne   s1, t0, pd_j              ; no
+pd_br:                                  ; a branch: its last operand
+        li    t0, 2                     ; (with two operands at least)
+        bltu  s2, t0, pd_tgt            ; ...
+        addi  t0, s2, -1                ; ...
+        slli  t0, t0, 3                 ; ...
+        ld    s3, OPS(t0)               ; is its target
+        j     pd_tgt                    ; ...
+pd_j:                                   ; j target / call
+        li    t0, P_J                   ; ...
+        bne   s1, t0, pd_halt           ; no
+        ld    t0, v_mfn(zero)           ; call: ends the region
+        bnez  t0, pd_term               ; (a call that ends it does not return)
+        li    t0, 1                     ; j with one operand
+        bne   s2, t0, pd_tgt            ; ...
+        ld    s3, OPS(zero)             ; its target
+        j     pd_term                   ; and the end
+pd_halt:                                ; halt ends it
+        li    t0, F_SYS                 ; ...
+        bne   s1, t0, pd_jal            ; ...
+        ld    t0, v_mop(zero)           ; (the system group,
+        li    t1, 0x3A                  ; function 0)
+        bne   t0, t1, pd_tgt            ; ...
+        ld    t0, v_mfn(zero)           ; ...
+        bnez  t0, pd_tgt                ; ...
+        j     pd_term                   ; ...
+pd_jal:                                 ; jal rd, target
+        li    t0, F_JAL                 ; ...
+        bne   s1, t0, pd_ret2           ; ...
+        li    t0, 2                     ; two operands
+        bne   s2, t0, pd_tgt            ; ...
+        ld    a0, OPS(zero)             ; rd a register
+        call  parse_xreg                ; ...
+        bltz  a0, pd_tgt                ; ...
+        li    t0, 1                     ; jal ra: a call, ends it
+        beq   a0, t0, pd_term           ; ...
+        ld    s3, OPS+8(zero)           ; otherwise a target
+        bnez  a0, pd_tgt                ; that only jal zero ends on
+        j     pd_term                   ; ...
+pd_ret2:                                ; ret, jr, xret end it
+        li    t0, P_RET                 ; ...
+        beq   s1, t0, pd_term           ; ...
+        li    t0, P_JR                  ; ...
+        beq   s1, t0, pd_term           ; ...
+        li    t0, F_XRET                ; ...
+        beq   s1, t0, pd_term           ; ...
+        li    t0, P_JALR                ; and jalr zero|ra, rs, imm
+        bne   s1, t0, pd_tgt            ; ...
+        li    t0, 3                     ; ...
+        bne   s2, t0, pd_tgt            ; ...
+        ld    a0, OPS(zero)             ; (or rd not a register)
+        call  parse_xreg                ; ...
+        li    t0, 2                     ; ...
+        bge   a0, t0, pd_tgt            ; ...
+pd_term:                                ; the line ends the region
+        li    t0, 1                     ; ...
+        sd    t0, v_lastterm(zero)      ; ...
+pd_tgt:                                 ; a target in another region joins it
+        beqz  s3, pd_ret                ; no target
+        mv    a0, s3                    ; a .text label?
+        call  lookup_tl                 ; ...
+        beqz  a0, pd_ret                ; no
+        lhu   t0, R_REG(a0)             ; its region
+        li    t1, 0xffff                ; none
+        beq   t0, t1, pd_ret            ; ...
+        beq   t0, s0, pd_ret            ; this one
+        lbu   t1, R_FL(a0)              ; a function: a (conditional) tail call,
+        andi  t1, t1, FL_FUNC           ; which becomes a far one
+        bnez  t1, pd_ret                ; ...
+        mv    a0, s0                    ; otherwise both regions, and those
+        mv    a1, t0                    ; between, are one group
+        call  join                      ; ...
+pd_ret:                                 ; done
+        ld    ra, 0(sp)                 ; restore
+        ld    s0, 8(sp)                 ; ...
+        ld    s1, 16(sp)                ; ...
+        ld    s2, 24(sp)                ; ...
+        ld    s3, 32(sp)                ; ...
+        addi  sp, sp, 40                ; pop
+        ret                             ; done
+
+; ---- paged code and far data: the passes --------------------------------------------------
+; map_line(s0 = the line, comment stripped and trimmed): with paged code, a
+; .text line goes where its group is: the group's place in .text (pinned) or
+; in the units (paged; before the first layout every group is in .text, at
+; 0, as in sasm). dl_ret moves the section back.
+map_line:                               ; routine entry
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        mv    a0, s0                    ; labels and mnemonic
+        call  ps_parse                  ; ...
+        ld    t0, v_mfmt(zero)          ; a section directive is not code
+        li    t1, D_SECT                ; ...
+        beq   t0, t1, ml_ret            ; ...
+        call  reg_step                  ; a0 = the line's region
+        sd    a0, v_lreg(zero)          ; ...
+        ld    t1, v_regs(zero)          ; its record
+        slli  t0, a0, 4                 ; ...
+        add   t0, t0, t1                ; ...
+        lhu   t2, RG_GRP(t0)            ; its group
+        sd    t2, v_lgrp(zero)          ; ...
+        slli  t3, t2, 4                 ; the group's record
+        add   t3, t3, t1                ; ...
+        sd    t3, v_lgrec(zero)         ; ...
+        lbu   t4, RG_GPIN(t3)           ; pinned?
+        seqz  t5, t4                    ; paged code if not
+        sd    t5, v_lpaged(zero)        ; ...
+        li    t6, 0                     ; t6 = the section: .text
+        ld    a1, v_laid(zero)          ; until the first layout
+        beqz  a1, ml_sect               ; ...
+        bnez  t4, ml_sect               ; and for pinned groups
+        li    t6, S_UNITS               ; the units for paged ones
+ml_sect:                                ; switch to it
+        sd    t6, v_cs(zero)            ; ...
+        li    a1, SREC                  ; its record
+        mul   a1, t6, a1                ; ...
+        li    s11, sects                ; ...
+        add   s11, s11, a1              ; ...
+        ld    a2, S_LOC(s11)            ; its own location, kept
+        sd    a2, v_uloc(zero)          ; ...
+        lwu   a2, RG_LOC(t3)            ; and the group's
+        sd    a2, S_LOC(s11)            ; ...
+ml_ret:                                 ; done
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 8                 ; pop
+        ret                             ; done
+
+; layout_groups() -> a0 = 1 if a group or the end of the pinned code moved.
+; sasm's layout: pinned groups in source order from the text origin, the
+; stub after them (v_pend); paged groups packed into units in source order
+; from offset UNIT (next fit); a group larger than a unit stays resident.
+layout_groups:                          ; routine entry (leaf)
+        ld    a5, v_regs(zero)          ; a5 = the table
+        ld    a6, v_nreg(zero)          ; a6 = regions
+        li    a7, 0                     ; a7 = moved?
+        li    t0, 0                     ; t0 = region
+lg_size:                                ; loop: each group's size
+        bgeu  t0, a6, lg_pins           ; all done
+        slli  t1, t0, 4                 ; its record
+        add   t1, t1, a5                ; ...
+        lhu   t2, RG_GRP(t1)            ; a group's first region?
+        bne   t2, t0, lg_sn             ; no
+        lwu   t3, RG_BASE(t1)           ; size = where it ended - where it began
+        lwu   t4, RG_LOC(t1)            ; ...
+        sub   t4, t4, t3                ; ...
+        sw    t4, RG_LOC(t1)            ; (kept in RG_LOC)
+        lbu   t5, RG_GPIN(t1)           ; pinned already?
+        bnez  t5, lg_sn                 ; yes
+        li    t6, UNIT                  ; larger than a unit?
+        bgeu  t6, t4, lg_sn             ; no
+        li    t5, 2                     ; yes: stays resident
+        sb    t5, RG_GPIN(t1)           ; ...
+lg_sn:                                  ; next region
+        addi  t0, t0, 1                 ; ...
+        j     lg_size                   ; continue
+lg_pins:                                ; pinned groups from the text origin
+        ld    a0, v_org(zero)           ; a0 = where the next one goes
+        li    t0, 0                     ; t0 = region
+lg_p:                                   ; loop: one region
+        bgeu  t0, a6, lg_pend           ; all done
+        slli  t1, t0, 4                 ; its record
+        add   t1, t1, a5                ; ...
+        lhu   t2, RG_GRP(t1)            ; a group's first region?
+        bne   t2, t0, lg_pn             ; no
+        lbu   t5, RG_GPIN(t1)           ; pinned?
+        beqz  t5, lg_pn                 ; no
+        lwu   t3, RG_BASE(t1)           ; moved?
+        beq   t3, a0, lg_p1             ; no
+        li    a7, 1                     ; yes
+lg_p1:                                  ; place it
+        sw    a0, RG_BASE(t1)           ; ...
+        lwu   t4, RG_LOC(t1)            ; its size
+        sw    a0, RG_LOC(t1)            ; the next pass starts it there
+        add   a0, a0, t4                ; the next one after it
+lg_pn:                                  ; next region
+        addi  t0, t0, 1                 ; ...
+        j     lg_p                      ; continue
+lg_pend:                                ; the end of the pinned code
+        ld    t3, v_pend(zero)          ; moved?
+        beq   t3, a0, lg_pe1            ; no
+        li    a7, 1                     ; yes
+lg_pe1:                                 ; (the stub goes there)
+        sd    a0, v_pend(zero)          ; ...
+        li    a1, UNIT                  ; a1 = the current unit's offset
+        li    a2, 0                     ; a2 = bytes used in it
+        li    t0, 0                     ; t0 = region
+lg_u:                                   ; loop: one region
+        bgeu  t0, a6, lg_done           ; all done
+        slli  t1, t0, 4                 ; its record
+        add   t1, t1, a5                ; ...
+        lhu   t2, RG_GRP(t1)            ; a group's first region?
+        bne   t2, t0, lg_un             ; no
+        lbu   t5, RG_GPIN(t1)           ; paged?
+        bnez  t5, lg_un                 ; no
+        lwu   t4, RG_LOC(t1)            ; its size
+        add   t5, a2, t4                ; fits the unit?
+        li    t6, UNIT                  ; ...
+        bgeu  t6, t5, lg_fit            ; yes
+        add   a1, a1, t6                ; no: the next unit
+        li    a2, 0                     ; empty
+lg_fit:                                 ; place it
+        add   t5, a1, a2                ; its offset
+        lwu   t3, RG_BASE(t1)           ; moved?
+        beq   t3, t5, lg_u1             ; no
+        li    a7, 1                     ; yes
+lg_u1:                                  ; ...
+        sw    t5, RG_BASE(t1)           ; ...
+        add   a2, a2, t4                ; used
+        sw    t5, RG_LOC(t1)            ; the next pass starts it there
+lg_un:                                  ; next region
+        addi  t0, t0, 1                 ; ...
+        j     lg_u                      ; continue
+lg_done:                                ; all placed
+        li    t0, 1                     ; groups are in their sections now
+        sd    t0, v_laid(zero)          ; ...
+        mv    a0, a7                    ; moved?
+        ret                             ; done
+
+; ptransfer(a0 = rd: 0 or 1, a1 = target, a2 = 1 for a jump) -> a0 = 1 if
+; the call or jump was rewritten (sasm's paged_transfer):
+;   to a paged function                  lui t6, ori t6, xcall rd, c15, t6
+;   from paged code to pinned code       (call: a far link in ra) ori t6, jalr zero, t6
+; A jump to a label that is not a function, or into the same group, and a
+; transfer between pinned groups stay as written.
+ptransfer:                              ; routine entry
+        addi  sp, sp, -40               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s0, 8(sp)                 ; and s0..s3
+        sd    s1, 16(sp)                ; ...
+        sd    s2, 24(sp)                ; ...
+        sd    s3, 32(sp)                ; ...
+        mv    s0, a0                    ; s0 = rd
+        mv    s1, a1                    ; s1 = target
+        mv    s3, a2                    ; s3 = a jump?
+        li    a0, 0                     ; (as written)
+        ld    t0, v_lreg(zero)          ; .text code with paging?
+        bltz  t0, pt_ret                ; no
+        mv    a0, s1                    ; a .text label?
+        call  lookup_tl                 ; ...
+        beqz  a0, pt_ret                ; no
+        mv    s2, a0                    ; s2 = its record
+        call  tl_group                  ; a0 = its group, a1 = pinned there?
+        beqz  s3, pt_any                ; a call: whatever the target
+        lbu   t0, R_FL(s2)              ; a jump to a label that is not a function
+        andi  t0, t0, FL_FUNC           ; ...
+        beqz  t0, pt_no                 ; is a branch
+        ld    t0, v_lgrp(zero)          ; and so is a jump into the same group
+        beq   a0, t0, pt_no             ; ...
+pt_any:                                 ; where the target is
+        mv    s2, a1                    ; s2 = pinned there?
+        ld    t0, v_lpaged(zero)        ; from pinned code to pinned code:
+        bnez  t0, pt_go                 ; as written
+        bnez  s2, pt_no                 ; ...
+pt_go:                                  ; rewrite it
+        mv    a0, s1                    ; the target's address
+        call  eval                      ; ...
+        mv    s1, a0                    ; s1 = it
+        bnez  s2, pt_pin                ; to pinned code
+        mv    a0, s0                    ; to a paged function: a far call
+        mv    a1, s1                    ; ...
+        call  farcall                   ; ...
+        j     pt_yes                    ; done
+pt_pin:                                 ; from paged code to pinned code
+        beqz  s0, pt_j                  ; a call:
+        ld    a0, S_LOC(s11)            ; ra = a far link to the instruction after
+        addi  a0, a0, 4 * 9             ; (7 for the link, ori, jalr)
+        call  flink                     ; ...
+pt_j:                                   ; then the jump
+        mv    a0, s1                    ; ori t6, zero, target; jalr zero, t6, 0
+        call  pin_jump                  ; ...
+pt_yes:                                 ; rewritten
+        li    a0, 1                     ; ...
+        j     pt_ret                    ; ...
+pt_no:                                  ; as written
+        li    a0, 0                     ; ...
+pt_ret:                                 ; done
+        ld    ra, 0(sp)                 ; restore
+        ld    s0, 8(sp)                 ; ...
+        ld    s1, 16(sp)                ; ...
+        ld    s2, 24(sp)                ; ...
+        ld    s3, 32(sp)                ; ...
+        addi  sp, sp, 40                ; pop
+        ret                             ; done
+
+; pbranch(a0 = opcode, a1, a2 = registers, a3 = target) -> a0 = 1 if the
+; branch was rewritten (sasm's paged_branch): one to a function in another
+; group, from or to paged code, becomes the opposite branch over a jump
+; there, four words either way:
+;   b!cond a1, a2, +4; lui t6; ori t6; xcall zero, c15, t6     (to paged code)
+;   b!cond a1, a2, +4; ori t6; jalr zero, t6, 0; nop           (to pinned code)
+pbranch:                                ; routine entry
+        addi  sp, sp, -48               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s0, 8(sp)                 ; and s0..s4
+        sd    s1, 16(sp)                ; ...
+        sd    s2, 24(sp)                ; ...
+        sd    s3, 32(sp)                ; ...
+        sd    s4, 40(sp)                ; ...
+        mv    s0, a0                    ; s0 = opcode
+        mv    s1, a1                    ; s1, s2 = registers
+        mv    s2, a2                    ; ...
+        mv    s3, a3                    ; s3 = target
+        li    a0, 0                     ; (as written)
+        ld    t0, v_lreg(zero)          ; .text code with paging?
+        bltz  t0, pbr_ret               ; no
+        mv    a0, s3                    ; a .text label?
+        call  lookup_tl                 ; ...
+        beqz  a0, pbr_ret               ; no
+        lbu   t0, R_FL(a0)              ; a function's?
+        andi  t0, t0, FL_FUNC           ; ...
+        beqz  t0, pbr_no                ; no: an ordinary branch
+        call  tl_group                  ; a0 = its group, a1 = pinned
+        ld    t0, v_lgrp(zero)          ; in this group?
+        beq   a0, t0, pbr_no            ; yes: an ordinary branch
+        mv    s4, a1                    ; s4 = pinned there?
+        ld    t0, v_lpaged(zero)        ; between pinned groups:
+        bnez  t0, pbr_go                ; an ordinary branch
+        bnez  s4, pbr_no                ; ...
+pbr_go:                                 ; rewrite it
+        xori  a0, s0, 1                 ; the opposite condition (beq/bne,
+        mv    a1, s1                    ; blt/bge, bltu/bgeu are pairs)
+        mv    a2, s2                    ; ...
+        li    a3, 4                     ; over the jump
+        call  enc_i                     ; ...
+        mv    a0, s3                    ; the target's address
+        call  eval                      ; ...
+        mv    a1, a0                    ; ...
+        bnez  s4, pbr_pin               ; to pinned code
+        li    a0, 0                     ; to paged code: a far jump
+        call  farcall                   ; ...
+        j     pbr_yes                   ; done
+pbr_pin:                                ; to pinned code
+        mv    a0, a1                    ; ori t6, zero, target; jalr zero, t6, 0
+        call  pin_jump                  ; ...
+        li    a0, W_NOP                 ; nop: four words either way
+        call  emit_insn                 ; ...
+pbr_yes:                                ; rewritten
+        li    a0, 1                     ; ...
+        j     pbr_ret                   ; ...
+pbr_no:                                 ; as written
+        li    a0, 0                     ; ...
+pbr_ret:                                ; done
+        ld    ra, 0(sp)                 ; restore
+        ld    s0, 8(sp)                 ; ...
+        ld    s1, 16(sp)                ; ...
+        ld    s2, 24(sp)                ; ...
+        ld    s3, 32(sp)                ; ...
+        ld    s4, 40(sp)                ; ...
+        addi  sp, sp, 48                ; pop
+        ret                             ; done
+
+; farcall(a0 = rd: ra for a call, zero for a jump, a1 = image offset):
+;   lui t6, ori t6, xcall rd, c15, t6
+farcall:                                ; routine entry
+        addi  sp, sp, -16               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s0, 8(sp)                 ; and s0
+        mv    s0, a0                    ; s0 = rd
+        li    a0, RT6                   ; t6 = the offset
+        call  emit_luo                  ; ...
+        slli  a0, s0, 21                ; xcall rd, c15, t6
+        li    t0, W_XC6                 ; ...
+        or    a0, a0, t0                ; ...
+        call  emit_insn                 ; ...
+        ld    ra, 0(sp)                 ; restore
+        ld    s0, 8(sp)                 ; ...
+        addi  sp, sp, 16                ; pop
+        ret                             ; done
+
+; pin_jump(a0 = I-LS address): ori t6, zero, address; jalr zero, t6, 0
+pin_jump:                               ; routine entry
+        addi  sp, sp, -8                ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        li    t0, 0xffff                ; ori t6, zero, address
+        and   a0, a0, t0                ; ...
+        li    t0, W_ORI6                ; ...
+        or    a0, a0, t0                ; ...
+        call  emit_insn                 ; ...
+        li    a0, W_JR6                 ; jalr zero, t6, 0
+        call  emit_insn                 ; ...
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 8                 ; pop
+        ret                             ; done
+
+; emit_luo(a0 = rd, a1 = value): lui rd, value >> 16; ori rd, rd, value & 0xffff
+emit_luo:                               ; routine entry
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    a0, 8(sp)                 ; rd
+        sd    a1, 16(sp)                ; value
+        mv    a1, a0                    ; lui rd, value >> 16
+        li    a0, OP_LUI                ; ...
+        li    a2, 0                     ; ...
+        ld    a3, 16(sp)                ; ...
+        srli  a3, a3, 16                ; (masked)
+        call  enc_i                     ; ...
+        li    a0, OP_ORI                ; ori rd, rd, value & 0xffff
+        ld    a1, 8(sp)                 ; ...
+        mv    a2, a1                    ; ...
+        ld    a3, 16(sp)                ; (masked)
+        call  enc_i                     ; ...
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 24                ; pop
+        ret                             ; done
+
+; flink(a0 = image offset of the return point): ra = its far link, what
+; xret resolves to come back there: cbase ra, c15; t6 = offset;
+; add ra, ra, t6; t6 = 1 << 63; or ra, ra, t6
+flink:                                  ; routine entry
+        addi  sp, sp, -16               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    a0, 8(sp)                 ; the offset
+        li    a0, W_CBASE               ; cbase ra, c15 (the image)
+        call  emit_insn                 ; ...
+        li    a0, RT6                   ; t6 = the offset
+        ld    a1, 8(sp)                 ; ...
+        call  emit_luo                  ; ...
+        li    a0, W_ADDRA               ; add ra, ra, t6
+        call  emit_insn                 ; ...
+        li    a0, W_T6ONE               ; addi t6, zero, 1
+        call  emit_insn                 ; ...
+        li    a0, W_T6SH                ; slli t6, t6, 63
+        call  emit_insn                 ; ...
+        li    a0, W_ORRA                ; or ra, ra, t6
+        call  emit_insn                 ; ...
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 16                ; pop
+        ret                             ; done
+
+; emit_stub(): __pinit, at the current location of .text: what the entry's
+; `j L` now goes through. It sets xslot (paged code) and ttag, tdata, tgeom
+; (far data), then goes on to L: a far jump if L is paged, else a jal;
+; three words for the jump either way.
+emit_stub:                              ; routine entry
+        addi  sp, sp, -32               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s0, 8(sp)                 ; and s0, s1
+        sd    s1, 16(sp)                ; ...
+        li    a0, s_pinit               ; __pinit = here
+        call  strhash                   ; a1 = length, a2 = hash
+        ld    a3, S_LOC(s11)            ; ...
+        li    a4, 0                     ; in .text
+        call  sym_define                ; ...
+        ld    t0, v_paged(zero)         ; paged code?
+        beqz  t0, est_far               ; no
+        li    a0, W_XSL1                ; addi t0, zero, ULG
+        call  emit_insn                 ; ...
+        li    a0, W_CSRW0 | CSR_XSLOT   ; csrw xslot, t0
+        call  emit_insn                 ; ...
+est_far:                                ; far data?
+        ld    t0, v_far(zero)           ; ...
+        beqz  t0, est_jump              ; no
+        li    a0, s_fctags              ; ttag = __fc_tags
+        call  eval                      ; ...
+        li    a1, CSR_TTAG              ; ...
+        call  stub_csr                  ; ...
+        li    a0, s_fclines             ; tdata = __fc_lines
+        call  eval                      ; ...
+        li    a1, CSR_TDATA             ; ...
+        call  stub_csr                  ; ...
+        li    a0, GEOM                  ; tgeom: the cache's shape, FA
+        li    a1, CSR_TGEOM             ; ...
+        call  stub_csr                  ; ...
+est_jump:                               ; and on to the entry's target
+        ld    s1, S_LOC(s11)            ; s1 = the end of the stub
+        addi  s1, s1, 12                ; (three words for the jump)
+        li    s0, 0                     ; s0 = the target (0 if there is none)
+        ld    t0, v_entry(zero)         ; is there one?
+        beqz  t0, est_jal               ; no
+        li    a0, ENTBUF                ; its address
+        call  eval                      ; ...
+        mv    s0, a0                    ; ...
+        ld    t0, v_esect(zero)         ; its section
+        sd    t0, 24(sp)                ; ...
+        ld    t0, v_paged(zero)         ; paged code?
+        beqz  t0, est_chk               ; no
+        li    a0, ENTBUF                ; a .text label
+        call  lookup_tl                 ; ...
+        beqz  a0, est_chk               ; no
+        call  tl_group                  ; a1 = pinned?
+        bnez  a1, est_chk               ; yes
+        li    a0, 0                     ; paged: a far jump
+        mv    a1, s0                    ; ...
+        call  farcall                   ; ...
+        j     est_pad                   ; done
+est_chk:                                ; a jal: the target must be in .text
+        li    t0, 2                     ; (checked in pass 2)
+        bne   tp, t0, est_jal           ; ...
+        ld    t0, 24(sp)                ; ...
+        bnez  t0, est_bad               ; not .text (a constant, or data)
+est_jal:                                ; jal zero, target
+        ld    t0, S_LOC(s11)            ; word offset
+        sub   t0, s0, t0                ; ...
+        srai  t0, t0, 2                 ; ...
+        li    t1, 0x1fffff              ; 21 bits of it
+        and   a0, t0, t1                ; ...
+        li    t1, OP_JAL << 26          ; jal zero
+        or    a0, a0, t1                ; ...
+        call  emit_insn                 ; ...
+est_pad:                                ; loop: nops up to three words
+        ld    t0, S_LOC(s11)            ; ...
+        bgeu  t0, s1, est_ret           ; there
+        li    a0, W_NOP                 ; nop
+        call  emit_insn                 ; ...
+        j     est_pad                   ; continue
+est_ret:                                ; done
+        ld    ra, 0(sp)                 ; restore
+        ld    s0, 8(sp)                 ; ...
+        ld    s1, 16(sp)                ; ...
+        addi  sp, sp, 32                ; pop
+        ret                             ; done
+est_bad:                                ; error: the entry jumps to no code
+        li    a0, m_ent2                ; not code
+        j     fail_noline               ; report
+
+; stub_csr(a0 = value, a1 = CSR): lui t0, ori t0, csrw CSR, t0
+stub_csr:                               ; routine entry
+        addi  sp, sp, -16               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    a1, 8(sp)                 ; the CSR
+        mv    a1, a0                    ; t0 = the value
+        li    a0, RT0                   ; ...
+        call  emit_luo                  ; ...
+        ld    a0, 8(sp)                 ; csrw CSR, t0
+        li    t0, W_CSRW0               ; ...
+        or    a0, a0, t0                ; ...
+        call  emit_insn                 ; ...
+        ld    ra, 0(sp)                 ; restore
+        addi  sp, sp, 16                ; pop
+        ret                             ; done
+
+; emit_cache(): the far data cache at the current location of .data,
+; 64-byte aligned: __fc_lines (CLINES bytes), then __fc_tags (CTAGS bytes)
+emit_cache:                             ; routine entry
+        addi  sp, sp, -16               ; frame
+        sd    ra, 0(sp)                 ; save the return address
+        sd    s0, 8(sp)                 ; and s0
+ec_al:                                  ; loop: align to 64
+        ld    t0, S_LOC(s11)            ; ...
+        andi  t0, t0, 63                ; ...
+        beqz  t0, ec_lines              ; aligned
+        li    a0, 0                     ; a zero byte
+        call  emit_byte                 ; ...
+        j     ec_al                     ; continue
+ec_lines:                               ; the lines
+        li    a0, s_fclines             ; __fc_lines = here
+        call  strhash                   ; ...
+        ld    a3, S_LOC(s11)            ; ...
+        li    a4, 1                     ; in .data
+        call  sym_define                ; ...
+        li    s0, CLINES                ; s0 = bytes left
+ec_z1:                                  ; loop: one zero byte
+        beqz  s0, ec_tags               ; all done
+        li    a0, 0                     ; ...
+        call  emit_byte                 ; ...
+        addi  s0, s0, -1                ; ...
+        j     ec_z1                     ; continue
+ec_tags:                                ; the tags
+        li    a0, s_fctags              ; __fc_tags = here
+        call  strhash                   ; ...
+        ld    a3, S_LOC(s11)            ; ...
+        li    a4, 1                     ; in .data
+        call  sym_define                ; ...
+        li    s0, CTAGS                 ; s0 = bytes left
+ec_z2:                                  ; loop: one zero byte
+        beqz  s0, ec_ret                ; all done
+        li    a0, 0                     ; ...
+        call  emit_byte                 ; ...
+        addi  s0, s0, -1                ; ...
+        j     ec_z2                     ; continue
+ec_ret:                                 ; done
+        ld    ra, 0(sp)                 ; restore
+        ld    s0, 8(sp)                 ; ...
+        addi  sp, sp, 16                ; pop
+        ret                             ; done
+
 ; ---- image layout and output ------------------------------------------------------------------
 ; layout(): after pass 1, place each non-empty section in the image and
-; prepare its output window.
+; prepare its output window. The units come first, their base forced to 24
+; (the file offset of their first byte): an offset in them is one in the file.
 layout:                                 ; routine entry (leaf)
         li    t0, 8                     ; t0 = file offset: after "STX2" and the count
         li    t1, 0                     ; t1 = sections in the image
-        li    t2, sects                 ; t2 = section record
-        li    t3, WINBUF                ; t3 = its window
-        li    t4, 4                     ; t4 = records left
+        li    t4, 0                     ; t4 = position in sorder
 lo_loop:                                ; loop: one section record
+        lbu   t2, sorder(t4)            ; the section
+        li    t3, SREC                  ; its record
+        mul   t2, t2, t3                ; ...
+        li    t3, sects                 ; ...
+        add   t2, t2, t3                ; t2 = the record
+        ld    t3, S_WBUF(t2)            ; t3 = its window
         ld    t5, S_SIZE(t2)            ; size
         beqz  t5, lo_next               ; empty: not in the image
         addi  t1, t1, 1                 ; one more section
         ld    t6, S_LO(t2)              ; lowest address
         srli  t6, t6, 3                 ; rounded down
         slli  t6, t6, 3                 ; to 8: the base
+        ld    a0, S_KIND(t2)            ; the units?
+        li    a1, SK_UNITS              ; ...
+        bne   a0, a1, lo_base           ; no
+        li    t6, 24                    ; yes: from file offset 24 (zeros up to the first unit)
+lo_base:                                ; the base is known
         sd    t6, S_BASE(t2)            ; remember
         sd    t0, S_HDR(t2)             ; its header goes here
         ld    a0, v_outbase(zero)       ; image offset in the arena
@@ -3114,7 +4456,6 @@ lo_loop:                                ; loop: one section record
         sub   a0, a0, t6                ; arena offset of address 0
         sd    a0, S_FADJ(t2)            ; ...
         sd    t6, S_WBASE(t2)           ; first window starts at the base
-        sd    t3, S_WBUF(t2)            ; window buffer
         li    a1, 0                     ; clear the window (covers padding below lo)
 lo_clr:                                 ; loop: clear 8 window bytes
         add   a2, t3, a1                ; address
@@ -3129,10 +4470,9 @@ lo_clr:                                 ; loop: clear 8 window bytes
         addi  t0, t0, 16                ; header
         add   t0, t0, t5                ; and bytes
 lo_next:                                ; next section
-        addi  t2, t2, SREC              ; next record
-        addi  t3, t3, WINSZ             ; next window
-        addi  t4, t4, -1                ; one fewer
-        bnez  t4, lo_loop               ; all four
+        addi  t4, t4, 1                 ; next in sorder
+        li    t2, NSECT                 ; all five?
+        bltu  t4, t2, lo_loop           ; not yet
         sd    t0, v_total(zero)         ; image length
         sd    t1, v_count(zero)         ; section count
         ld    t2, v_outmax(zero)        ; limit
@@ -3146,7 +4486,7 @@ lo_big:                                 ; error: image too large
 ; finish(): after pass 2, flush the last windows and write the headers
 finish:                                 ; routine entry (leaf)
         li    t2, sects                 ; t2 = section record
-        li    t4, 4                     ; t4 = records left
+        li    t4, NSECT                 ; t4 = records left
         li    t6, HDRBUF                ; t6 = header staging buffer
 fi_loop:                                ; loop: one section record
         ld    t5, S_SIZE(t2)            ; size
@@ -3184,7 +4524,7 @@ fi_flush:                               ; write the last window and the header
 fi_next:                                ; next section
         addi  t2, t2, SREC              ; next record
         addi  t4, t4, -1                ; one fewer
-        bnez  t4, fi_loop               ; all four
+        bnez  t4, fi_loop               ; all five
         li    a0, 0x32585453            ; "STX2" as a little-endian word
         sw    a0, 0(t6)                 ; magic (waits for the last header)
         ld    a0, v_count(zero)         ; section count
@@ -3252,6 +4592,8 @@ pd_loop:                                ; loop: one digit
 ; fail(a0 = message): print "line N: message" and stop
 ; fail_s(a0 = message, a1 = NUL-terminated detail)
 ; fail_n(a0 = message, a1 = detail, a2 = its length)
+fail_noline:                            ; error exit about the program, not a line
+        sd    zero, v_line(zero)        ; (prints "as: message")
 fail:                                   ; error exit, no detail
         li    a1, 0                     ; no detail
         li    a2, 0                     ; ...

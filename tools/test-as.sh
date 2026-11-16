@@ -7,17 +7,24 @@
 # 1. Bare metal: `as` (built by sasm at origin 0) runs on the emulator, reads
 #    the source from the console input and prints the image. Compared with
 #    `sasm file.s`.
-# 2. StrataOS front end: `as` built with `sasm -T 0x8000` runs under
+# 2. StrataOS front end: `as` built with `sasm -T 0x8000 -r -n` runs under
 #    tools/as-harness.s, which sets it up the way the kernel's `run` does
 #    (a 1 MiB arena in c0, input at 0x80000, a0 = length, a1 = 1, halt
 #    trapping to the harness's supervisor handler) and prints the image the program left at
-#    0xC0000. Compared with `sasm -T 0x8000 file.s`.
+#    0xC0000. The inputs of 1 are bare-metal programs: they get `.resident`
+#    and `.near` (no paged code, no far data) in front, and are compared
+#    with `sasm -T 0x8000` of the same.
 # 3. Self-hosting: `as` assembling as.s reproduces the sasm-built `as`
 #    byte for byte, in both modes (the bare-metal one is in the list below).
 # 4. A feature test covering every instruction, pseudo-instruction,
 #    directive and expression form, in both modes.
-# 5. Error cases: inputs sasm rejects must make `as` stop with an error.
-# 6. A real StrataOS boot on the emulator: `run as < hello.s > hello` writes
+# 5. Paged code and far data, sasm's default for a StrataOS program: real
+#    programs from os/progs/ (with os/lib/sys.s) and small inputs that use
+#    every rewrite, with and without .resident and .near, compared with
+#    `sasm -T 0x8000` of the same.
+# 6. Error cases: inputs sasm rejects must make `as` stop with an error,
+#    bare metal and (paged code, far data) under the StrataOS front end.
+# 7. A real StrataOS boot on the emulator: `run as < hello.s > hello` writes
 #    the same bytes as `sasm -T 0x8000`, and `run -n 2 hello` runs them.
 #
 # Inputs are every examples/*.s, os/kernel.s, firmware/bootrom.s and
@@ -71,7 +78,7 @@ EOF
 
 # the assembler, both builds, and the harness image
 $SASM -o "$B/as.stx" os/progs/as.s || exit 1
-$SASM -T 0x8000 -o "$B/as-os.stx" os/progs/as.s || exit 1
+$SASM -T 0x8000 -r -n -o "$B/as-os.stx" os/progs/as.s || exit 1
 $SASM -o "$tmp/harness.stx" tools/as-harness.s || exit 1
 merge "$tmp/harness.stx" "$B/as-os.stx" "$B/as-harnessed.stx"
 
@@ -296,9 +303,18 @@ run_os() { # SRC OUT ERR
   $EMU -i "$1" "$B/as-harnessed.stx" >"$2" 2>"$3"
 }
 
+# rn SRC OUT: SRC with .resident and .near in front (a bare-metal program
+# assembled at the StrataOS origin, as sasm -r -n would)
+rn() {
+  printf '        .resident\n        .near\n' >"$2"
+  cat "$1" >>"$2"
+}
+
 check() { # NAME SRC
-  name=$1 src=$2
+  name=$1
   for mode in bare os; do
+    src=$2
+    [ $mode = os ] && { rn "$2" "$tmp/rn.s"; src=$tmp/rn.s; }
     if [ $mode = bare ]; then
       $SASM -o "$tmp/ref.stx" "$src" 2>"$tmp/sasm.err" || { echo "$name: sasm failed"; cat "$tmp/sasm.err"; fail=1; continue; }
       run_bare "$src" "$tmp/out.stx" "$tmp/emu.err"
@@ -343,12 +359,235 @@ check features "$tmp/features.s"
 # self-hosting: the image `as` makes of as.s is the image sasm made of it
 expand os/progs/as.s >"$tmp/as-src.s"
 run_bare "$tmp/as-src.s" "$tmp/as1.stx" /dev/null
-run_os "$tmp/as-src.s" "$tmp/as2.stx" /dev/null
+rn "$tmp/as-src.s" "$tmp/as-src-rn.s"
+run_os "$tmp/as-src-rn.s" "$tmp/as2.stx" /dev/null
 if cmp -s "$tmp/as1.stx" "$B/as.stx" && cmp -s "$tmp/as2.stx" "$B/as-os.stx"; then
   echo "self-host    ok    as assembles itself into the sasm-built as (both origins)"
 else
   echo "self-host    FAIL"; fail=1
 fi
+
+# paged code and far data, sasm's default at the StrataOS origin: under the
+# StrataOS front end. check_os NAME SRC: the image `as` makes is sasm's, or
+# both reject the input.
+check_os() { # NAME SRC
+  name=$1 src=$2
+  if [ "$(wc -c <"$src")" -gt 262144 ]; then
+    printf '%-12s %-5s skip  input larger than 256 KiB\n' "$name" paged
+    return
+  fi
+  run_os "$src" "$tmp/out.stx" "$tmp/emu.err"
+  if ! $SASM -T 0x8000 -o "$tmp/ref.stx" "$src" 2>"$tmp/sasm.err"; then
+    if grep -q 'halt a0=0 ' "$tmp/emu.err" && grep -Eq '^(line [0-9]*|as): ' "$tmp/out.stx"; then
+      printf '%-12s %-5s ok    rejected by both: %s\n' "$name" paged "$(head -1 "$tmp/out.stx")"
+    else
+      printf '%-12s %-5s FAIL  (sasm rejects it, as does not)\n' "$name" paged
+      sed 's/^/    /' "$tmp/sasm.err"; fail=1
+    fi
+    return
+  fi
+  steps=$(sed -n 's/.*instret=\([0-9]*\).*/\1/p' "$tmp/emu.err" | head -1)
+  if cmp -s "$tmp/ref.stx" "$tmp/out.stx"; then
+    printf '%-12s %-5s ok    %8s bytes  %10s instructions\n' "$name" paged "$(wc -c <"$tmp/ref.stx" | tr -d ' ')" "$steps"
+  else
+    printf '%-12s %-5s FAIL\n' "$name" paged
+    head -c 300 "$tmp/out.stx" | strings | head -3 | sed 's/^/    /'
+    sed 's/^/    /' "$tmp/emu.err"
+    fail=1
+  fi
+}
+
+# check_pre NAME PREFIX SRC: check_os of SRC with the lines PREFIX (\n
+# between them) in front
+check_pre() {
+  printf '%b\n' "$2" >"$tmp/pre.s"
+  cat "$3" >>"$tmp/pre.s"
+  check_os "$1" "$tmp/pre.s"
+}
+
+# real StrataOS programs, those whose input fits `as` (256 KiB); wmandel
+# names c15 and units pages its own code: both reject them
+for p in cat wc grep seq ls hexdump ps cp ping nc guest db fsck httpd attr tag tags snap \
+         date df free devs cores sched spin rm mv touch upper uptime host ifconfig netstat \
+         tcpecho wmandel units; do
+  expand "os/progs/$p.s" >"$tmp/$p.s"
+  check_os "$p" "$tmp/$p.s"
+done
+
+# every rewrite: calls, jumps and branches between paged and pinned code,
+# jalr in paged code, ret and jr, groups joined by fall-through and branches,
+# groups pinned by taken addresses, .pinned and size, units packed
+cat >"$tmp/paged.s" <<'EOF'
+; paged code: every rewrite of sasm's paged mode
+        j     main                      ; the entry: through the start-up stub
+        .data                           ; data, with far data's cache after it
+counter: .dword 0                       ; a variable
+table:  .dword handler, 0               ; address taken: handler's group is pinned
+        .far                            ; far data
+fbuf:   .space 64                       ; ...
+        .cluster                        ; cluster data
+cbuf:   .byte 1, 2, 3                   ; ...
+        .text                           ; back to code: still region 0
+start2: nop                             ; region 0 goes on (no function label)
+        halt                            ; ...
+main:   li    sp, 0x10000               ; a function (called below): paged
+        call  f1                        ; paged -> paged: far call
+        call  pinf                      ; paged -> pinned: far link, ori, jalr
+        jal   ra, f2                    ; jal ra is a call
+        la    a0, handler               ; address taken
+        jalr  ra, a0, 0                 ; in paged code: a far link, jalr zero
+        beqz  a0, f1                    ; to a paged function: inverted, far jump
+        bnez  a0, pinf                  ; to a pinned one: inverted, ori, jalr, nop
+        bgt   a0, a1, f2                ; (swapped)
+        ble   a0, a1, pinf              ; ...
+        bltu  a0, a1, f1                ; ...
+        bgeu  a0, a1, f1                ; ...
+        blt   a0, a1, f1                ; ...
+        bge   a0, a1, pinf              ; ...
+        bgtz  a0, f2                    ; ...
+        blez  a0, f2                    ; ...
+        bltz  a0, f3                    ; ...
+        bgez  a0, f3                    ; ...
+        bgtu  a0, a1, pinf              ; ...
+        bleu  a0, a1, pinf              ; ...
+        beq   a0, a1, main              ; to its own group: as written
+        bne   a0, a1, mloop             ; a label in the same region
+mloop:  li    a1, .                     ; . in paged code (an image offset)
+        li    a2, . + 0x10000           ; ...
+        li    a3, later                 ; a forward reference
+        j     f1                        ; tail call paged -> paged
+f1:     addi  a0, a0, 1                 ; a paged function
+        bnez  a0, f1b                   ; within the region
+f1b:    addi  a0, a0, -1                ; ...
+        jr    ra                        ; xret ra
+f2:     call  f3                        ; another
+        jal   zero, pinf                ; tail jump paged -> pinned
+f3:     ret                             ; xret ra
+pinf:   .pinned                         ; a pinned function
+        call  f1                        ; pinned -> paged: far call
+        call  handler                   ; pinned -> pinned: as written
+        bnez  a0, f3                    ; pinned -> paged branch: rewritten
+        bnez  a0, handler               ; pinned -> pinned branch: as written
+        jal   zero, f2                  ; pinned -> paged tail jump
+handler: jalr ra, a0, 0                 ; pinned: jalr as written
+        jalr  t0, a0, 8                 ; ...
+        jalr  zero, ra, 0               ; xret ra
+        jalr  zero, t1, 0               ; xret t1
+        ret                             ; xret ra
+g1:     addi  a0, a0, 1                 ; falls through into g2: one group
+g2:     addi  a0, a0, 2                 ; ...
+        bnez  a0, g3in                  ; to a label in g3's region: joins g3
+        ret                             ; ...
+g3:     nop                             ; ...
+g3in:   jal   t0, g4in                  ; jal t0: joins too, and does not end
+g4:     ret                             ; ...
+g4in:   ret                             ; ...
+tail2:  call  g1                        ; tail2 is address-taken: pinned
+        call  g2                        ; ...
+        call  g3                        ; ...
+        call  g4                        ; ...
+        call  tail2                     ; ...
+        call  tail3                     ; ...
+        call  big                       ; ...
+        call  u1                        ; ...
+        call  u2                        ; ...
+        call  u3                        ; ...
+        call  u4                        ; ...
+        call  main                      ; ...
+        ret                             ; ...
+tail3:  j     u1                        ; .equ-taken: pinned, tail to paged
+big:    li    a0, 1                     ; a group larger than a unit: resident
+        .space 2100                     ; ...
+        .align 4                        ; ...
+        ret                             ; ...
+u1:     .space 900                      ; groups packed into units
+        ret                             ; ...
+u2:     .space 900                      ; ...
+        ret                             ; ...
+u3:     .space 1500                     ; (the next unit)
+        call  u1                        ; ...
+        ret                             ; ...
+u4:     .align 8                        ; ...
+        .space 300                      ; ...
+        ret                             ; ...
+later = 0x1234                          ; a constant defined at the end
+CONST = tail2                           ; = takes an address too
+        .equ  CONST2, tail3 + 4         ; and .equ
+EOF
+# the entry to a pinned label; .text that ends off a word (the stub after it)
+cat >"$tmp/entry.s" <<'EOF'
+        j     start                     ; the entry: to a pinned label
+start:  call  f                         ; region 0
+        halt                            ; ...
+f:      ret                             ; paged
+        .byte 1                         ; .text not a multiple of 4
+EOF
+# no code at all
+cat >"$tmp/nocode.s" <<'EOF'
+        .data                           ; no code at all
+        .byte 1                         ; ...
+EOF
+check_os paged "$tmp/paged.s"
+check_pre paged-r '        .resident' "$tmp/paged.s"
+check_pre paged-n '        .near' "$tmp/paged.s"
+check_pre paged-rn '        .resident\n        .near' "$tmp/paged.s"
+check_os entry "$tmp/entry.s"
+check_pre entry-r '        .resident' "$tmp/entry.s"
+check_pre entry-n '        .near' "$tmp/entry.s"
+check_os nocode "$tmp/nocode.s"
+check_pre nocode-r '        .resident' "$tmp/nocode.s"
+# (far data refuses the feature test: it has ltag and linst)
+check_pre features-far '        .resident\n        j start' "$tmp/features.s"
+# what the modes allow: c15 and paging its own code with .resident, a data
+# cache of its own with .near, any jalr in pinned code
+check_pre own-r '        .resident\n        j s\ns:      cmov c1, c15\n        xret ra\n        xmap 1, a0, c1, a1' /dev/null
+check_pre own-n '        .near\n        j s\ns:      csrw ttag, a0\n        ltag a0, a1\n        linst a0\n        halt' /dev/null
+check_pre pinned '        j s\ns:      call f\n        halt\nf:      .pinned\n        jalr t0, a0, 4\n        ret' /dev/null
+# a function's label on a section directive's line: no region, resident
+check_pre noregion '        j s\ns:      call f\n        call g\n        halt\nf:      .data\n        .text\n        j f\ng:      bnez a0, f\n        ret' /dev/null
+
+# what paged code and far data refuse: sasm -T 0x8000 must reject each, and
+# `as` under the StrataOS front end must stop with an error (no output)
+nerr=0
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  printf '%b\n' "$line" >"$tmp/bad.s"
+  if $SASM -T 0x8000 -o "$tmp/bad.stx" "$tmp/bad.s" 2>/dev/null; then
+    echo "paged error case accepted by sasm (test is wrong): $line"; fail=1; continue
+  fi
+  run_os "$tmp/bad.s" "$tmp/bad.out" "$tmp/bad.err"
+  if grep -q 'halt a0=0 ' "$tmp/bad.err" && grep -Eq '^(line [0-9]*|as): ' "$tmp/bad.out"; then
+    nerr=$((nerr + 1))
+  else
+    echo "paged error case FAIL: $line"; cat "$tmp/bad.out" "$tmp/bad.err" | sed 's/^/    /'; fail=1
+  fi
+done <<'EOF'
+nop\nhalt
+.resident\nnop
+.near\nnop
+j s\ns: cmov c1, c15\nhalt
+.near\nj s\ns: tget tg0, a0, c15, a1, a2\nhalt
+j s\ns: xret ra
+j s\ns: csrw xslot, a0\nhalt
+j s\ns: xmap 1, a0, c1, a1\nhalt
+j s\ns: xunmap 1\nhalt
+j s\ns: xcall ra, c1, a0\nhalt
+j s\ns: csrw tgeom, a0\nhalt
+j s\ns: csrw ttag, a0\nhalt
+.resident\nj s\ns: csrw tdata, a0\nhalt
+j s\ns: ltag a0, a1\nhalt
+j s\ns: linst a0\nhalt
+j s\ns: call f\nhalt\nf: jalr t0, a0, 0\nret
+j s\ns: call f\nhalt\nf: jalr ra, ra, 0\nret
+j s\ns: call f\nhalt\nf: jalr ra, t6, 0\nret
+j s\ns: call f\nhalt\nf: jalr ra, a0, 4\nret
+j s\ns: .org 0x8100\nhalt
+j 0x8100
+j d\n.data\nd: .byte 1
+j s\ns: halt\n.data\n.space 0x9000
+j s\ns: .space 29000\nhalt
+EOF
+echo "paged errors ok    $nerr rejected inputs rejected by as too"
 
 # error cases: sasm must reject each, and `as` must stop with exit code 1
 nerr=0
@@ -427,32 +666,47 @@ li a0, 'a
 EOF
 echo "errors       ok    $nerr rejected inputs rejected by as too"
 
-# a real StrataOS boot: `run as < hello.s > hello`, then run the result. The
+# a real StrataOS boot: `run as < hello.s > hello`, then run the result; and
+# `run as < pcat.s > /bin/pcat`, cat.s with paged code and far data (the
+# default), then `pcat hello.s`, its code units paged by the kernel. The
 # disk holds what StrataOS 0.1 needs to come up (its servers and the shell)
-# plus the `as` built here and hello.s.
-OSB="$B/prog/proc $B/prog/dev $B/prog/fs $B/prog/blk $B/sys/db $B/prog/tty $B/prog/pipe $B/prog/sh $B/prog/cat"
-make -s BUILD="$B" "$B/mkdisk" "$B/bootrom.stx" "$B/kernel.stx" $OSB || exit 1
+# plus the `as` built here, hello.s and pcat.s.
+OSS="$B/prog/proc $B/prog/dev $B/prog/fs $B/prog/blk $B/sys/db $B/prog/tty $B/prog/pipe"
+OSB="$B/prog/sh $B/prog/cat"
+make -s BUILD="$B" "$B/mkdisk" "$B/bootrom.stx" "$B/kernel.stx" $OSS $OSB || exit 1
 mkdir -p "$tmp/disk"
 cp "$B/as-os.stx" "$tmp/disk/as"
-expand examples/hello.s >"$tmp/disk/hello.s"
+expand examples/hello.s >"$tmp/hello.s"
+rn "$tmp/hello.s" "$tmp/disk/hello.s"     # (a bare-metal program: no paged code, no far data)
+expand os/progs/cat.s >"$tmp/disk/pcat.s"
 $SASM -T 0x8000 -o "$tmp/hello.ref" "$tmp/disk/hello.s" || exit 1
-"$B/mkdisk" -o "$tmp/disk.img" -k "$B/kernel.stx" $OSB "$tmp/disk/as" "$tmp/disk/hello.s" >/dev/null 2>&1 || exit 1
-printf 'run as < hello.s > hello\ncat hello\nrun -n 2 hello\nhalt\n' >"$tmp/session.txt"
+$SASM -T 0x8000 -o "$tmp/pcat.ref" "$tmp/disk/pcat.s" || exit 1
+"$B/mkdisk" -o "$tmp/disk.img" -k "$B/kernel.stx" -t sys $OSS -t bin $OSB "$tmp/disk/as" \
+  -t "" "$tmp/disk/hello.s" "$tmp/disk/pcat.s" >"$tmp/mkdisk.out" 2>&1 ||
+  { echo "StrataOS     FAIL  (mkdisk)"; sed 's/^/    /' "$tmp/mkdisk.out"; exit 1; }
+printf 'run as < hello.s > hello\ncat hello\nrun -n 2 hello\nrun as < pcat.s > /bin/pcat\ncat /bin/pcat\npcat hello.s\nhalt\n' >"$tmp/session.txt"
 $B/strata-emu -c 8 -T virtual -g none -m 4000000000 -d "$tmp/disk.img" -i "$tmp/session.txt" "$B/bootrom.stx" >"$tmp/boot.out" 2>&1
-# the emulator keeps disk writes in memory, so read the new file back with `cat`
-python3 - "$tmp/boot.out" "$tmp/hello.os" <<'EOF2'
+# the emulator keeps disk writes in memory, so read the new files back with `cat`
+python3 - "$tmp/boot.out" "$tmp/hello.os" "$tmp/pcat.os" <<'EOF2'
 import sys
 d = open(sys.argv[1], 'rb').read()
-try:
-    a = d.index(b'$ cat hello\n') + len(b'$ cat hello\n')
-    open(sys.argv[2], 'wb').write(d[a:d.index(b"strata$ run -n 2 hello")])
-except ValueError:
-    pass
+for out, start, end in ((sys.argv[2], b'$ cat hello\n', b"strata$ run -n 2 hello"),
+                        (sys.argv[3], b'$ cat /bin/pcat\n', b"strata$ pcat hello.s")):
+    try:
+        a = d.index(start) + len(start)
+        open(out, 'wb').write(d[a:d.index(end, a)])
+    except ValueError:
+        pass
 EOF2
 if cmp -s "$tmp/hello.ref" "$tmp/hello.os" && grep -q 'Hello from Strata core 1 of 2' "$tmp/boot.out"; then
   echo "StrataOS     ok    booted, ran \`run as < hello.s > hello\` and \`run -n 2 hello\`"
 else
   echo "StrataOS     FAIL"; sed 's/^/    /' "$tmp/boot.out" | tail -20; fail=1
+fi
+if cmp -s "$tmp/pcat.ref" "$tmp/pcat.os" && grep -q '^; hello.s: the smallest Strata program' "$tmp/boot.out"; then
+  echo "StrataOS     ok    \`run as < pcat.s > /bin/pcat\` (paged code, far data) and \`pcat hello.s\`"
+else
+  echo "StrataOS     FAIL  (paged cat)"; sed 's/^/    /' "$tmp/boot.out" | tail -20; fail=1
 fi
 
 if [ $fail = 0 ]; then echo "all as tests passed"; else echo "SOME as TESTS FAILED"; fi
