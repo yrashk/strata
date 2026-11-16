@@ -12,8 +12,10 @@ around that rather than hiding it:
 - `statistics/0` shows what moved between the two.
 
 The design, and the reasons for it, are in [DESIGN.md](DESIGN.md). The website's
-Stralog page (`doc/manual/gen/genstralog.py`) has every predicate, the examples
-with Try buttons, and a playground running it in StrataOS in the browser.
+Stralog page (`doc/manual/gen/genstralog.py`) has the syntax, a reference entry
+for every predicate (templates, errors, differences from ISO and SWI-Prolog,
+examples: `doc/manual/web/stralog-ref.txt`), the example programs with Try
+buttons, and a playground running it in StrataOS in the browser.
 
 ## Running it
 
@@ -97,7 +99,7 @@ Not there:
   - The mark bitmap and a prefix count every 64 cells go in the free heap above the top. Every cell moves through the same window and far cache as the rest of the engine.
   - The next collection comes when the heap has grown by half of what is free (at least 64 KiB).
   - `statistics/0` counts collections and the bytes they gave back. In `examples/sorting.pl`, `nrev_bench(200)` allocates 2.3 MB on a 3 MB heap and is collected once.
-- **Recursion depth:** unification, copying, comparing and writing recurse on the machine stack (8 KiB) except on a compound's last argument. Lists can be any length, but a term nested more than about 200 deep elsewhere raises `resource_error(term_depth)`.
+- **Recursion depth:** unification, copying, comparing and writing recurse on the machine stack (8 KiB) except on a compound's last argument. Lists can be any length, but a term nested more than about 200 deep elsewhere raises `resource_error(term_depth)`. There is no occurs check, and a cyclic term (`X = f(X)`) raises `resource_error(term_depth)` when it is unified with another, compared or written: unification and comparison count their steps along last arguments, and stop at the number of cells the heap could hold.
 - **Sizes:**
   - an arity of at most 255;
   - names of at most 1000 bytes;
@@ -120,7 +122,7 @@ Not there:
 | `mkatoms.py` `mkboot.py` `mkimg.py` | the build: predefined atoms; `boot.pl` as text; the split into the program and its code units, with the check that no jump leaves its unit |
 | `gc.s` | the heap's garbage collector |
 | `examples/` | Prolog programs on the disk, under `/stralog` (below) |
-| `tests/` | the scripted sessions (`run.sh`, in `make test`): `session`, `builtins`, `files`, `demos`, `iso` |
+| `tests/` | the scripted sessions (`run.sh`, in `make test`): `session`, `builtins`, `files`, `demos`, `iso`; and `ref.sh`, which runs the examples of the website's predicate reference (`doc/manual/web/stralog-ref.txt`) |
 | `tests/iso/` | the ISO conformance vectors, and `iso_run.pl`, which runs them |
 
 ## Examples

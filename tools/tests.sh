@@ -99,7 +99,8 @@ t stralog-bi   fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/r
 t stralog-files fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/run.sh files $OS"
 t stralog-demos fast build-main "emu os lang/stralog/tests lang/stralog/examples" "lang/stralog/tests/run.sh demos $OS"
 t stralog-iso  fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/run.sh iso $OS"
-t web-stralog   fast build-main "lang/stralog doc/manual/gen/genstralog.py" 'python3 doc/manual/gen/genstralog.py --check'
+t stralog-ref  fast build-main "emu os lang/stralog/tests lang/stralog/examples doc/manual/web/stralog-ref.txt doc/manual/gen/genstralog.py" "lang/stralog/tests/ref.sh $OS"
+t web-stralog   fast build-main "lang/stralog doc/manual/gen/genstralog.py doc/manual/web/stralog-ref.txt" 'python3 doc/manual/gen/genstralog.py --check'
 
 # ---- the framebuffer, the JIT, the debuggers --------------------------------------
 t fb           mid  build-main "emu rtl" 'tools/test-fb.sh $B/examples/gfx.stx'
