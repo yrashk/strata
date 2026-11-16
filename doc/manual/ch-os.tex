@@ -57,8 +57,9 @@ shows the count.
   the process it is for, serves \insn{svc}, emulates the inbox instructions, and pages programs' code
   units.
 \item[Servers] Everything else is a user-mode \term{server} process, scheduled like any other and
-  pinned to one core, at most one server per core (Table~\ref{tab:os-servers}). A request addressed to a
-  core goes to that core's server.
+  pinned to one core, up to four servers per core (Table~\ref{tab:os-servers}). A request addressed to a
+  core goes to the server its header word 48 names ($\texttt{0x53} \ll 56 \mid$ index), or to the
+  core's first.
 \item[Programs] Ordinary processes: the shell, the utilities, the examples, the assembler.
 \end{description}
 
@@ -68,33 +69,11 @@ and \texttt{ps} report it after boot.
 \begin{figure}[htbp]
 \centering
 \input{gen-os-fig-cm}
-\caption{StrataOS on 12 cores after boot: the system core, the boot servers on cores 1--5 (\texttt{proc} and \texttt{tty} alone on theirs), cores without a server for threads, and the kernel shared table in T2}\label{fig:os-cores}
+\caption{StrataOS on 12 cores after boot: the system core, the boot servers on cores 1--5 (\texttt{proc}, \texttt{fs} and \texttt{tty} alone on theirs, \texttt{blk} and \texttt{db} the second servers of \texttt{dev}'s and \texttt{pipe}'s cores), cores without a server for threads, and the kernel shared table in T2}\label{fig:os-cores}
 \end{figure}
 
 
-\begin{table}[htbp]
-\centering\small
-\caption{The servers}\label{tab:os-servers}
-\begin{tabularx}{\linewidth}{@{}>{\ttfamily}l X@{}}
-\toprule
-\textrm{\bfseries Server} & \textbf{Owns and does}\\\midrule
-proc & the process server (pid 1): spawning, the process tree, exit statuses, WAIT and KILL,
-  interrupts, the name registry. It is the endpoint every process is born with, and it holds the
-  kernel's endpoint\\
-dev & the device manager: holds the device root, describes the platform, hands out device
-  capabilities (the disk to \texttt{fs}, the console to \texttt{tty}, the framebuffer to \texttt{ws}),
-  halts the machine\\
-fs & the file server: owns the block device; files, their tags, program images\\
-tty & the console server: owns console output, input, break and release; line discipline, the
-  foreground process, Ctrl-C\\
-pipe & pipes\\
-ws & the window server, started on demand: owns the framebuffer and, while it runs, the keyboard
-  (Section~\ref{sec:os-ws})\\
-net & the network server, started on demand: owns the network interface; IPv4, ICMP echo, UDP, TCP
-  and DNS (Section~\ref{sec:os-net})\\
-\bottomrule
-\end{tabularx}
-\end{table}
+\input{gen-os-servers}
 
 The kernel shares no memory with processes and almost none between its own cores. The system core and
 the dispatchers coordinate through the \term{kernel shared table}, 32~KiB of the cluster store (T2) that
@@ -561,9 +540,10 @@ what it is and where it came from. The rules are applied in this order.
 \item A capability whose base a local process named in WAIT\_REPLY: it goes to that process.
 \item A capability sent by a core inside the window of a local multi-threaded process: a gift between
   its threads, queued for the emulated \insn{ctake}.
-\item A 4~KiB memory capability: a request for this core's server. It is queued, with any attachment
-  waiting from the same sender, and the sender's process id is stamped into its header. On a core
-  without a server, or when eight requests are already queued, it is given back at once with result $-1$.
+\item A 4~KiB memory capability: a request for one of this core's servers, the one its header word 48
+  names. It is queued, with any attachment waiting from the same sender, and the process id of the
+  buffer's owner is stamped into its header (so a request a server forwards is still the program's).
+  When no such server is on the core, or the queue is full, it is given back at once with result $-1$.
 \item Anything else: an attachment. It waits for the next message from the same sending core.
 \end{enumerate}
 
@@ -1228,9 +1208,12 @@ quads and \texttt{localhost} need no query. \texttt{net\_resolve} in the library
   capability for doorbells and the clock capability; makes the arena pool revocable; and reads the store's boot manifest from the
   disk with the firmware's block routines, the only time the kernel touches the disk.
 \item The workers become dispatchers and wait in \insn{tany}.
-\item The system core loads \texttt{proc}, \texttt{dev} and \texttt{fs} from the disk itself, since
-  \texttt{fs} must exist before anything can be loaded through it, and creates them on cores 1, 2 and 3.
-  \texttt{dev} receives the device root; \texttt{fs} asks \texttt{dev} for the disk.
+\item The system core loads \texttt{dev}, \texttt{blk}, \texttt{db}, \texttt{fs} and \texttt{proc}
+  from the disk itself, since \texttt{fs} and the store under it must exist before anything can be
+  loaded through them, and creates them: \texttt{proc}, \texttt{dev} and \texttt{fs} on cores 1, 2
+  and 3, \texttt{blk} beside \texttt{dev}, \texttt{db} on core 5. \texttt{dev} receives the device
+  root; \texttt{blk} asks \texttt{dev} for the disk; one that asks another before it runs asks again
+  a tick later.
 \item \texttt{proc} spawns \texttt{tty} and \texttt{pipe} as servers on the next free cores, then the
   login shell \texttt{sh -l}, and starts a new one whenever it exits.
 \end{enumerate}

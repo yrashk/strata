@@ -4,8 +4,10 @@
 key = "net"
 title = "net"
 role = "IPv4, ICMP, UDP, TCP and DNS"
+does = "the network server, started on demand: owns the network interface; IPv4, ICMP echo, UDP, TCP and DNS"
 reached = "LOOKUP \"net\""
 core = "the lowest empty core, alone on it"
+start = "demand"
 holds = "the network interface's ports 0x4200- (c4, from GETNET); the clock (c7)"
 sources = ["os/servers/net.s"]
 dispatch = { file = "os/servers/net.s", first = ";\\s*dispatch", last = "^bad:" }

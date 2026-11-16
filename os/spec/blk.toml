@@ -4,8 +4,12 @@
 key = "blk"
 title = "blk"
 role = "the block device"
+does = "the block device: runs of blocks into and out of a lent buffer, no cache"
 reached = "db holds an endpoint to its core (index 1, header word 48); fs too, for READBLK"
-core = "core 2, beside dev (its server of index 1)"
+start = "kernel"
+pid = 4
+place = { core = 2, index = 1, alone = "no" }
+core_note = "beside dev, the server that runs least, and away from db, which calls it at every page it reads or writes (on db's core the two would be switched at every call)"
 holds = "a window on the block device's ports (c1) and an endpoint to its node (c2), from dev (GETDISK); in a guest StrataOS the RAM disk (c1)"
 sources = ["os/servers/blk.s"]
 dispatch = { file = "os/servers/blk.s", first = ";\\s*dispatch", last = "^bad:" }

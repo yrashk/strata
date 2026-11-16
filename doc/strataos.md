@@ -433,8 +433,8 @@ greater length.
   slots, exit events, job records for threads being created, deadlines of
   timed waits. Commands from the system core to a worker are a job record
   plus a doorbell.
-- **Servers are processes** (user mode, scheduled like any other, each the
-  server of one core; at most one server per core):
+- **Servers are processes** (user mode, scheduled like any other, each a
+  server of one core; up to four servers per core, below):
   - `proc` (pid 1) — the process server: spawning (loading images through
     `fs`, then asking the kernel to create the process), the process tree,
     exit statuses and WAIT, KILL, signals, `ps`, scheduling figures, and
@@ -448,10 +448,17 @@ greater length.
     images; a client of `db`.
   - `db` — the store (pid 5): the page cache, the trees, commits,
     snapshots, the boot manifest, the store for programs. Reaches the
-    disk through `blk` only. The second server of `pipe`'s core, so that
-    programs reach it through their endpoint for `pipe` (DBGET, DBSCAN).
+    disk through `blk` only. The second server of `pipe`'s core: a program
+    holds endpoints for four cores only (c1..c4: `proc`'s, `fs`'s, `tty`'s,
+    `pipe`'s); `proc` and `tty` must be alone, and on `fs`'s core `db` would
+    be switched with `fs` at every call (from 8 cores `fs` is alone, so
+    that `db` can trust what comes from there). So `pipe`'s core is where
+    programs reach `db` (DBGET, DBSCAN) with no new capability; pipelines
+    and the store share it.
   - `blk` — the block device (pid 4): runs of blocks into and out of a
-    lent buffer, no cache. The second server of `dev`'s core.
+    lent buffer, no cache. The second server of `dev`'s core: `dev` runs
+    least, and `blk` is kept off `db`'s core, since `db` calls it at every
+    page it reads or writes.
     (`doc/fs-split.md`: the interfaces, and what the split costs.)
   - `tty` — the console server. Owns the console device (output, input,
     break). Line discipline (cooked/raw), the foreground process, Ctrl-C.

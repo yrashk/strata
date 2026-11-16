@@ -104,12 +104,14 @@
   <figure class="diagram">
     <div class="frame">
 <svg viewBox="0 0 760 350" role="img" aria-labelledby="cm-t">
-  <title id="cm-t">The cores of a 12-core machine after boot: core 0 the system core; cores 1 to 5 hold the servers proc, dev, fs, tty and pipe; cores 6 to 11 hold no server and take threads; all share the kernel table in T2.</title>
+  <!-- servers:cmtitle -->
+<title id="cm-t">The cores of a 12-core machine after boot: core 0 the system core; cores 1 to 5 hold the servers proc, dev with blk, fs, tty and pipe with db; cores 6 to 11 hold no server and take threads; all share the kernel table in T2.</title>
+<!-- /servers:cmtitle -->
   <defs>
     <marker id="cm-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arra"/></marker>
   </defs>
   <text class="h" x="10" y="24">SYSTEM CORE</text>
-  <text class="h" x="180" y="24">SERVER CORES · ONE SERVER EACH</text>
+  <text class="h" x="180" y="24">SERVER CORES · UP TO FOUR SERVERS EACH</text>
   <text class="h" x="180" y="166">WORKER CORES WITHOUT A SERVER</text>
   <rect class="box sys" x="10" y="34" width="150" height="232"/>
   <text class="ma" x="22" y="56">core 0</text>
@@ -122,23 +124,25 @@
   <text class="s" x="22" y="194">preemption, timeouts</text>
   <text class="s" x="22" y="216">pages its own code</text>
   <text class="s" x="22" y="238">runs no programs</text>
+  <!-- servers:cores -->
   <g>
     <rect class="box srv" x="180" y="34" width="108" height="104"/>
     <text class="mc" x="190" y="52">core 1</text><text class="t" x="190" y="74">proc</text><text class="s" x="190" y="92">pid 1 · alone</text>
     <rect class="filld" x="180" y="116" width="108" height="22"/><text class="m" x="190" y="131">dispatcher</text>
     <rect class="box srv" x="294" y="34" width="108" height="104"/>
-    <text class="mc" x="304" y="52">core 2</text><text class="t" x="304" y="74">dev</text><text class="s" x="304" y="92">pid 2 · + sh</text>
+    <text class="mc" x="304" y="52">core 2</text><text class="t" x="304" y="74">dev · blk</text><text class="s" x="304" y="92">pids 2, 4</text>
     <rect class="filld" x="294" y="116" width="108" height="22"/><text class="m" x="304" y="131">dispatcher</text>
     <rect class="box srv" x="408" y="34" width="108" height="104"/>
-    <text class="mc" x="418" y="52">core 3</text><text class="t" x="418" y="74">fs</text><text class="s" x="418" y="92">pid 3 · shared</text>
+    <text class="mc" x="418" y="52">core 3</text><text class="t" x="418" y="74">fs</text><text class="s" x="418" y="92">pid 3 · alone</text>
     <rect class="filld" x="408" y="116" width="108" height="22"/><text class="m" x="418" y="131">dispatcher</text>
     <rect class="box srv" x="522" y="34" width="108" height="104"/>
-    <text class="mc" x="532" y="52">core 4</text><text class="t" x="532" y="74">tty</text><text class="s" x="532" y="92">pid 4 · alone</text>
+    <text class="mc" x="532" y="52">core 4</text><text class="t" x="532" y="74">tty</text><text class="s" x="532" y="92">pid 6 · alone</text>
     <rect class="filld" x="522" y="116" width="108" height="22"/><text class="m" x="532" y="131">dispatcher</text>
     <rect class="box srv" x="636" y="34" width="108" height="104"/>
-    <text class="mc" x="646" y="52">core 5</text><text class="t" x="646" y="74">pipe</text><text class="s" x="646" y="92">pid 5 · shared</text>
+    <text class="mc" x="646" y="52">core 5</text><text class="t" x="646" y="74">pipe · db</text><text class="s" x="646" y="92">pids 7, 5</text>
     <rect class="filld" x="636" y="116" width="108" height="22"/><text class="m" x="646" y="131">dispatcher</text>
   </g>
+<!-- /servers:cores -->
   <g>
     <rect class="box dim" x="180" y="176" width="88" height="90"/>
     <text class="mc" x="190" y="194">core 6</text><text class="t" x="190" y="214">ws, net</text><text class="s" x="190" y="232">on demand</text>
@@ -161,10 +165,12 @@
 </svg>
     </div>
     <figcaption>StrataOS on 12 cores (<code>make boot</code>), as <code>cores</code> and <code>ps</code>
-      report it after boot. The boot servers sit on cores 1–5; <code>proc</code> and
-      <code>tty</code> are alone on theirs. A one-thread program goes to the least loaded core,
-      preferring cores that hold a server (the shell landed on core 2), so that the server-free
-      cores stay free for multi-threaded processes. <code>ws</code> and <code>net</code> become the
+      report it after boot. The boot servers sit on cores 1–5; <code>proc</code>,
+      <code>fs</code> and <code>tty</code> are alone on theirs (<code>fs</code> from 8 cores on).
+      <code>blk</code> and <code>db</code> are the second servers of <code>dev</code>'s and
+      <code>pipe</code>'s cores. A one-thread program goes to the least loaded core, preferring
+      cores that hold a server and avoiding the busy <code>db</code>'s (the shell landed on core
+      2), so that the server-free cores stay free for multi-threaded processes and guests. <code>ws</code> and <code>net</code> become the
       server of the lowest empty core when they start. StrataOS needs at least 6 cores.</figcaption>
   </figure>
   <h3>Who runs where</h3>
@@ -177,12 +183,15 @@
       that arrives in the core's inbox and hand it to the right process, emulate the inbox
       instructions user code may not execute (<code>ctake</code>, <code>cpoll</code>,
       <code>tany</code>), and page code units in on a miss.</li>
-    <li><b>Server cores</b>: a core can have one server, which receives every request that
-      arrives there. <code>proc</code>, <code>dev</code> and <code>fs</code> are created by the
-      kernel on cores 1, 2 and 3; <code>proc</code> starts <code>tty</code> and <code>pipe</code>
-      on the next free ones. Servers are ordinary time-shared processes; other programs share
-      their cores, except where a server keeps a device read waiting (<code>tty</code>,
-      <code>net</code>) and must be alone.</li>
+    <li><b>Server cores</b>: a core can have up to four servers; a request names one by its
+      index in header word 48 (<code>0x53 &lt;&lt; 56 | index</code>; without it, the core's
+      first). The kernel creates <code>proc</code>, <code>dev</code> and <code>fs</code> on
+      cores 1, 2 and 3, <code>blk</code> beside <code>dev</code> and <code>db</code> on core 5;
+      <code>proc</code> starts <code>tty</code> and <code>pipe</code> on the next free ones, so
+      <code>pipe</code> joins <code>db</code>. Servers are ordinary time-shared processes; other
+      programs share their cores, except where a server keeps a device read waiting
+      (<code>tty</code>, <code>net</code>), and <code>fs</code> from 8 cores on, so that
+      <code>db</code> can trust what <code>fs</code> forwards to it.</li>
     <li><b>Threads</b>: a StrataOS program is one thread. A program run with <code>-n N</code>,
       or a bare-metal example, gets N threads (at most 6) on N contiguous cores without a server,
       seen through the <code>corebase</code>/<code>corecount</code> window exactly as on the
@@ -294,7 +303,7 @@
   <figure class="diagram">
     <div class="frame">
 <svg viewBox="0 0 760 580" role="img" aria-labelledby="bt-t">
-  <title id="bt-t">The boot sequence in lanes: core 0 loads the images and gives shares to every core; every core copies the kernel into its Local Stores; core 0 becomes the system core and runs start-up while the workers become dispatchers; core 0 creates proc, dev and fs on cores 1 to 3; proc starts tty and pipe on cores 4 and 5 and then the login shell.</title>
+  <title id="bt-t">The boot sequence in lanes: core 0 loads the images and gives shares to every core; every core copies the kernel into its Local Stores; core 0 becomes the system core and runs start-up while the workers become dispatchers; core 0 creates proc, dev with blk, and fs on cores 1 to 3, and db on core 5; blk asks dev for the disk; proc starts tty and pipe on cores 4 and 5 and then the login shell.</title>
   <defs>
     <marker id="bt-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arrc"/></marker>
     <marker id="bt-b" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arra"/></marker>
@@ -331,17 +340,19 @@
   <text x="262" y="212">workers become dispatchers and wait in tany</text>
   <text class="s" x="262" y="228">a gift in the inbox, or a doorbell, wakes them</text>
   <rect class="box sys" x="10" y="336" width="220" height="58"/>
-  <text x="20" y="356">loads proc, dev, fs from the</text>
-  <text x="20" y="374">disk itself and CREATEs them</text>
+  <text x="20" y="356">loads proc, dev, blk, db, fs</text>
+  <text x="20" y="374">from the disk, CREATEs them</text>
   <text class="s" x="20" y="388">fs must exist to load anything else</text>
   <path class="lnc" d="M230,352 H292" marker-end="url(#bt-a)"/>
   <path class="lnc" d="M230,366 C320,366 330,366 382,366" marker-end="url(#bt-a)"/>
   <path class="lnc" d="M230,380 C380,380 420,380 472,380" marker-end="url(#bt-a)"/>
+  <path class="lnc" d="M230,390 C420,390 520,390 562,402" marker-end="url(#bt-a)"/>
   <rect class="box srv" x="262" y="404" width="76" height="30"/><text class="t" x="274" y="424">proc</text>
-  <rect class="box srv" x="352" y="404" width="76" height="30"/><text class="t" x="366" y="424">dev</text>
+  <rect class="box srv" x="344" y="404" width="92" height="30"/><text class="t" x="352" y="424">dev · blk</text>
   <rect class="box srv" x="442" y="404" width="76" height="30"/><text class="t" x="460" y="424">fs</text>
-  <path class="lna" d="M470,434 C456,452 414,452 402,438" marker-end="url(#bt-b)"/>
-  <text class="s" x="412" y="466">GETDISK</text>
+  <rect class="box srv" x="534" y="404" width="92" height="30"/><text class="t" x="566" y="424">db</text>
+  <text class="s" x="344" y="452">blk asks dev for</text>
+  <text class="s" x="344" y="466">the disk: GETDISK</text>
   <path class="lnc" d="M300,494 H530" marker-end="url(#bt-a)"/>
   <text class="s" x="312" y="488">SPAWN as servers</text>
   <rect class="box srv" x="534" y="479" width="92" height="30"/><text class="t" x="544" y="499">tty, pipe</text>
@@ -353,8 +364,8 @@
     <figcaption>The boot ROM reads the platform table, opens the disk and loads the kernel's code,
       data and far image (its code units) into system memory; every core then copies the kernel
       into its own Local Stores. The disk is a store: the system core reads only its boot
-      manifest, which lists the boot objects <code>proc</code>, <code>dev</code> and
-      <code>fs</code>, each kept in one run of pages. From then on every program is loaded by
+      manifest, which lists the boot objects <code>proc</code>, <code>dev</code>,
+      <code>fs</code>, <code>blk</code> and <code>db</code>, each kept in one run of pages. From then on every program is loaded by
       <code>fs</code> straight into a new arena (LOADIMG).</figcaption>
   </figure>
   <ol class="steps">
@@ -367,10 +378,14 @@
     <li><b>The system core</b> makes the framebuffer window and the arena pool revocable regions,
       builds the KST, gives each worker a copy with a core-control capability and the clock,
       and reads the boot manifest.</li>
-    <li><b>The servers.</b> The kernel creates <code>proc</code>, <code>dev</code> and
-      <code>fs</code> on cores 1, 2 and 3; <code>dev</code> gets the device root, <code>fs</code>
-      asks it for the disk; <code>proc</code> starts <code>tty</code> and <code>pipe</code> on
-      the next free cores, then the login shell, which runs <code>/etc/rc</code>.</li>
+    <li><b>The servers.</b> The kernel creates <code>dev</code>, <code>blk</code>,
+      <code>db</code>, <code>fs</code> and <code>proc</code>: <code>proc</code>, <code>dev</code>
+      and <code>fs</code> on cores 1, 2 and 3, <code>blk</code> beside <code>dev</code>,
+      <code>db</code> on core 5. <code>dev</code> gets the device root, <code>blk</code> asks it
+      for the disk, <code>db</code> keeps the store on it and <code>fs</code> the file system on
+      <code>db</code>; one that asks another before it runs asks again a tick later.
+      <code>proc</code> starts <code>tty</code> and <code>pipe</code> on the next free cores, then
+      the login shell, which runs <code>/etc/rc</code>.</li>
   </ol>
   <p class="refs">In the manual: <a class="pdf" data-pdf="sec:os-boot" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.18.15">Section 18.15, Boot</a> ·
     <a class="pdf" data-pdf="sec:boot" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.17.2">Section 17.2, Boot protocol</a> ·
@@ -390,7 +405,9 @@
         core, doorbells, parking, and what a round trip costs.</p>
       <span class="more">Messages →</span></a>
     <a class="card" href="servers.html"><h3>Servers</h3>
-      <p>proc, dev, fs, tty, pipe, net and ws: where each runs, what it holds, and every message it
+      <p><!-- servers:list -->
+proc, dev, fs, db, blk, tty, pipe, net and ws
+<!-- /servers:list -->: where each runs, what it holds, and every message it
         answers, generated from the servers' sources.</p>
       <span class="more">The catalogue →</span></a>
     <a class="card" href="fs.html"><h3>The file system</h3>

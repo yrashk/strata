@@ -4,8 +4,11 @@
 key = "pipe"
 title = "pipe"
 role = "pipes"
+does = "pipes"
 reached = "c4 of every process"
-core = "core 5, shared"
+start = "proc"
+pid = 7
+place = { core = 5, index = 0, alone = "no" }
 holds = "nothing but its own memory: the rings are in its Local Store"
 sources = ["os/servers/pipe.s"]
 dispatch = { file = "os/servers/pipe.s", first = ";\\s*dispatch", last = "^\\s*li\\s+a0,\\s*-1\\s*;\\s*unknown" }

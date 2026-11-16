@@ -4,8 +4,11 @@
 key = "dev"
 title = "dev"
 role = "the device manager"
+does = "the device manager: holds the device root, describes the platform, hands out device capabilities (the disk to `blk`, the console to `tty`, the framebuffer to `ws`), halts the machine"
 reached = "LOOKUP \"dev\""
-core = "core 2, shared"
+start = "kernel"
+pid = 2
+place = { core = 2, index = 0, alone = "no" }
 holds = "the device root (c7); the kernel's endpoint (c3), for HALT and FBLEND"
 sources = ["os/servers/dev.s"]
 dispatch = { file = "os/servers/dev.s", first = ";\\s*dispatch", last = "^\\s*li\\s+a0,\\s*-1\\s*;\\s*unknown" }

@@ -4,8 +4,10 @@
 key = "ws"
 title = "ws"
 role = "the window server"
+does = "the window server, started on demand: owns the framebuffer and, while it runs, the keyboard"
 reached = "LOOKUP \"ws\""
 core = "the lowest empty core; others may share it"
+start = "demand"
 holds = "the framebuffer window (c0) and the controller's ports (c4), from GRANT_FB; a second buffer lent to tty for keys"
 sources = ["os/ws/ws.s"]
 dispatch = { file = "os/ws/ws.s", first = "^rq_serve:", last = ";\\s*----\\s*TITLE" }

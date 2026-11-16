@@ -22,7 +22,10 @@ SPEC = os.path.join(ROOT, "os", "spec")
 ORDER = ["svc", "kernel", "proc", "dev", "fs", "db", "blk", "tty", "pipe", "net", "ws", "system"]
 SYSTEM_OPS = (36, 37, 38)               # proc -> every server: described in system.toml
 TYPES = {"u8": 1, "u16": 2, "u32": 4, "u64": 8, "s64": 8, "bytes": None, "text": None, "pad": None}
-SERVER_KEYS = {"key", "title", "role", "reached", "core", "holds", "sources", "dispatch", "calls", "note"}
+SERVER_KEYS = {"key", "title", "role", "does", "reached", "core", "core_note", "start", "pid", "place", "holds",
+               "sources", "dispatch", "calls", "note"}
+STARTS = ("kernel", "proc", "demand")   # who starts a server: the kernel at boot, proc at boot, on demand
+ALONE = ("yes", "no", "from 8 cores")
 OP_KEYS = {"num", "name", "summary", "from", "note", "request", "reply", "errors"}
 REQ_KEYS = {"handle", "length", "mode", "modes", "attachment", "data", "regs", "note"}
 REP_KEYS = {"result", "handle", "length", "mode", "modes", "data", "attachments", "regs", "note"}
@@ -141,6 +144,22 @@ def check_form(spec, name):
             problems.append("%s: [server] lacks %s" % (name, k))
     if srv.get("key") != name[:-5]:
         problems.append("%s: [server] key must be %r" % (name, name[:-5]))
+    st = srv.get("start")
+    if st is not None and st not in STARTS:
+        problems.append("%s: [server] start must be one of %s" % (name, ", ".join(STARTS)))
+    if st in ("kernel", "proc"):
+        for k in ("pid", "place", "does"):
+            if k not in srv:
+                problems.append("%s: [server] start = %r needs %s" % (name, st, k))
+        if "core" in srv:
+            problems.append("%s: [server] core is made from place for a server made at boot" % name)
+        pl = srv.get("place", {})
+        if set(pl) != {"core", "index", "alone"} or pl.get("alone") not in ALONE:
+            problems.append("%s: [server] place = { core = N, index = I, alone = %s }" % (name, " / ".join(ALONE)))
+    elif st == "demand":
+        for k in ("core", "does"):
+            if k not in srv:
+                problems.append("%s: [server] start = \"demand\" needs %s" % (name, k))
     seen = set()
     for op in spec.get("op", []):
         where = "%s: op %s %s" % (name, op.get("num"), op.get("name"))
@@ -166,6 +185,139 @@ def check_form(spec, name):
             if not re.fullmatch(r"-[1-9]\d*", code):
                 problems.append("%s: error %r is not a negative number" % (where, code))
     return problems
+
+
+def boot_servers():
+    """The servers made at boot, as the code makes them: {name: {start, pid, core, index,
+    alone}}. The kernel's from os/kunits/boot.s (u_servers: per server la a0, n_NAME; li a2,
+    pid; li a3, core; li a4, flags, with F_SOLO alone and N << SIDX_SH the index; a second
+    li a4 with F_SOLO after a comparison with 8 cores: alone from 8 cores), then proc's from
+    os/servers/proc.s (main: la a0, c_NAME; li a2, KF_SERVER [| KF_SOLO]; call boot_spawn):
+    each takes the next free pid from nextpid on and the lowest core without a server of
+    index 0, as the kernel places a server."""
+    out = {}
+    lines = read("os/kunits/boot.s")
+    i = next(n for n, l in enumerate(lines) if l.startswith("u_servers:"))
+    end = next(n for n in range(i + 1, len(lines)) if re.match(r"^\s*\.org\s+u_servers\b", lines[n]))
+    cur = None
+    for l in lines[i:end]:
+        m = re.match(r"^\s*la\s+a0\s*,\s*n_(\w+)", l)
+        if m:
+            cur = out.setdefault(m.group(1), {"start": "kernel", "index": 0, "alone": "no", "eight": False})
+            continue
+        if cur is None:
+            continue
+        m = re.match(r"^\s*li\s+(a2|a3|a4|t1)\s*,\s*([^;]+?)\s*(;.*)?$", l)
+        if not m:
+            continue
+        reg, v = m.group(1), m.group(2)
+        if reg == "a2":
+            cur["pid"] = int(v, 0)
+        elif reg == "a3":
+            cur["core"] = int(v, 0)
+        elif reg == "t1" and v == "8":
+            cur["eight"] = True
+        elif reg == "a4":
+            solo = "F_SOLO" in v
+            if "flags" in cur:          # a second li a4: the flags from 8 cores on
+                if solo and cur["eight"]:
+                    cur["alone"] = "from 8 cores"
+            else:
+                cur["flags"] = v
+                cur["alone"] = "yes" if solo else "no"
+                x = re.search(r"(\d+)\s*<<\s*SIDX_SH", v)
+                cur["index"] = int(x.group(1)) if x else 0
+    lines = read("os/servers/proc.s")
+    nextpid = next(int(m.group(1)) for l in lines for m in [re.match(r"^nextpid:\s*\.dword\s+(\d+)", l)] if m)
+    used_pids = {v["pid"] for v in out.values()}
+    used_cores = {v["core"] for v in out.values() if v["index"] == 0}
+    i = next(n for n, l in enumerate(lines) if l.startswith("main:"))
+    name = None
+    for n in range(i, len(lines)):
+        l = lines[n]
+        if re.match(r"^\w+:", l) and n > i:
+            break
+        m = re.match(r"^\s*la\s+a0\s*,\s*c_(\w+)", l)
+        if m:
+            name, flags = m.group(1), None
+        m = re.match(r"^\s*li\s+a2\s*,\s*(KF_[^;]+?)\s*(;.*)?$", l)
+        if m and name:
+            flags = m.group(1)
+        if re.match(r"^\s*call\s+boot_spawn\b", l) and name and flags and "KF_SERVER" in flags:
+            while nextpid in used_pids:
+                nextpid += 1
+            core = 1
+            while core in used_cores:
+                core += 1
+            out[name] = {"start": "proc", "pid": nextpid, "core": core, "index": 0,
+                         "alone": "yes" if "KF_SOLO" in flags else "no"}
+            used_pids.add(nextpid)
+            used_cores.add(core)
+            name = None
+    for v in out.values():
+        for k in ("flags", "eight"):
+            v.pop(k, None)
+    return out
+
+
+def server_files():
+    """The sources of server programs: those that RECEIVE requests (srv_recv)."""
+    out = []
+    for d in ("os/servers", "os/ws"):
+        for f in sorted(os.listdir(os.path.join(ROOT, d))):
+            if f.endswith(".s") and any(re.match(r"^\s*call\s+srv_recv\b", l) for l in read(d + "/" + f)):
+                out.append(d + "/" + f)
+    return out
+
+
+def check_servers(specs):
+    """Problems where the specs' servers and the code disagree: every server program has a
+    spec; the ones made at boot are where the specs say, with those pids."""
+    problems = []
+    by = {sp["server"]["key"]: sp["server"] for sp in specs}
+    covered = {f for s in by.values() for f in s.get("sources", [])}
+    for f in server_files():
+        if f not in covered:
+            problems.append("%s receives requests, but no spec of os/spec/ names it in [server] sources" % f)
+    code = boot_servers()
+    for name, c in sorted(code.items()):
+        s = by.get(name)
+        if s is None:
+            problems.append("%s is made at boot (%s), but os/spec/ has no %s.toml" % (
+                name, "os/kunits/boot.s" if c["start"] == "kernel" else "os/servers/proc.s", name))
+            continue
+        want = {"start": c["start"], "pid": c["pid"],
+                "place": {"core": c["core"], "index": c["index"], "alone": c["alone"]}}
+        for k, v in want.items():
+            if s.get(k) != v:
+                problems.append("%s.toml: [server] %s is %r, but the code makes it %r" % (name, k, s.get(k), v))
+    for key, s in sorted(by.items()):
+        m = re.search(r"\bpid (\d+)\b", s.get("note", ""))
+        if m and s.get("pid") is not None and int(m.group(1)) != s["pid"]:
+            problems.append("%s.toml: [server] note says pid %s, but its pid is %d" % (key, m.group(1), s["pid"]))
+        if s.get("start") in ("kernel", "proc") and key not in code:
+            problems.append("%s.toml: [server] start = %r, but the code does not make it at boot" % (key, s["start"]))
+    return problems
+
+
+def core_text(spec, specs):
+    """Where a server runs, in words: from [server] place for the ones made at boot, else core."""
+    s = spec["server"]
+    pl = s.get("place")
+    if not pl:
+        return s.get("core", "")
+    t = "core %d" % pl["core"]
+    others = sorted((o["server"]["place"]["index"], o["server"]["key"]) for o in specs
+                    if o["server"].get("place", {}).get("core") == pl["core"] and o is not spec)
+    if pl["index"]:
+        t += ", its server of index %d, beside %s" % (pl["index"], " and ".join(k for _, k in others))
+    elif others:
+        t += ", with %s" % " and ".join("%s as its server of index %d" % (k, i) for i, k in others)
+    t += {"yes": ", alone on it", "no": "",
+          "from 8 cores": ", alone on it from 8 cores; programs share it on fewer"}[pl["alone"]]
+    if s.get("core_note"):
+        t += ": " + s["core_note"]
+    return t
 
 
 def check_code(spec, name):
@@ -213,7 +365,14 @@ def load_all():
             p = check_code(spec, name)
         spec["op"] = sorted(spec.get("op", []), key=lambda o: o.get("num", 0))
         out.append((spec, p))
+    if out and not any(p for _, p in out):
+        out[-1] = (out[-1][0], check_servers([sp for sp, _ in out]))
     return out
+
+
+def servers(specs):
+    """The specs of servers (those with [server] start), in the order of ORDER."""
+    return [sp for sp in specs if sp["server"].get("start")]
 
 
 def extent(part, reply):

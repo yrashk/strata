@@ -4,8 +4,12 @@
 key = "tty"
 title = "tty"
 role = "the console"
+does = "the console server: owns console output, input, break and release; line discipline, the foreground process, Ctrl-C"
 reached = "c3 of every process"
-core = "core 4, alone on it: it keeps device reads waiting"
+start = "proc"
+pid = 6
+place = { core = 4, index = 0, alone = "yes" }
+core_note = "it keeps device reads waiting"
 holds = "windows on the console's ports 0x0000-0x00FF (c2) and the pointer's 0x4100-0x410F (c3), from dev"
 sources = ["os/servers/tty.s"]
 dispatch = { file = "os/servers/tty.s", first = "^request:", last = "^\\s*li\\s+a0,\\s*-1\\s*;\\s*unknown" }

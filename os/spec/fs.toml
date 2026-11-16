@@ -3,9 +3,12 @@
 [server]
 key = "fs"
 title = "fs"
-role = "files, tags and the store"
+role = "files, tags, names and program images"
+does = "the file server: files, their tags and names, the index, program images; a client of `db`, to which it forwards programs' calls of the store for programs"
 reached = "c2 of every process"
-core = "core 3, shared"
+start = "kernel"
+pid = 3
+place = { core = 3, index = 0, alone = "from 8 cores" }
 holds = "endpoints to db's core (c1) and blk's (c2): the store is db's, the disk blk's (doc/fs-split.md)"
 sources = ["os/servers/fs.s", "os/servers/fsops.s", "os/servers/fsattr.s", "os/servers/fsunits.s"]
 dispatch = { file = "os/servers/fs.s", first = ";\\s*dispatch", last = "^bad:" }
@@ -106,7 +109,7 @@ data = [{ type = "bytes", name = "the path" }]
 result = "0"
 
 [op.errors]
-"-1" = "a bad path, no name in it, or a boot object (proc, dev, fs)"
+"-1" = "a bad path, no name in it, or a boot object (proc, dev, fs, blk, db: what the boot manifest lists)"
 "-4" = "no such file or tag"
 
 [[op]]
@@ -520,7 +523,8 @@ name = "DBGET"
 summary = "A value from a program's tree"
 note = """The store for programs: trees of keys and values (bytes, compared unsigned) in namespaces of \
 their own. Namespaces made by DBBATCH are public; `fs` is private and refused. db answers these: fs \
-hands the request's data to it and its answer back."""
+forwards the request itself to db, which answers the program (from 8 cores; on fewer fs relays the data \
+and the answer); programs may send DBGET and DBSCAN to db directly (os/spec/db.toml)."""
 
 [op.request]
 length = "the data's bytes (8..4032)"

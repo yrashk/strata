@@ -168,9 +168,11 @@
       (the window server's keyboard buffer works this way).</li>
     <li>From a core inside the window of a local multi-threaded process: a gift between its
       threads, queued for the emulated <code>ctake</code>.</li>
-    <li>Any other 4&nbsp;KiB memory capability: a request for the core's server, queued with the
-      attachment waiting from the same core. With no server here, or a full queue, it goes back at
-      once with −1.</li>
+    <li>Any other 4&nbsp;KiB memory capability: a request for one of the core's servers (up to
+      four; header word 48 = <code>0x53 &lt;&lt; 56 | index</code> names one, anything else the
+      first), queued with the attachment waiting from the same core; its sender's pid is stamped
+      from the buffer's memory. With no such server here, or a full queue, it goes back at once
+      with −1.</li>
     <li>Anything else: an attachment, which travels with the next message from its core.</li>
   </ol>
   <p>Who sent a capability and what memory it is decide everything. A process cannot forge another
@@ -195,6 +197,15 @@
       drops it and returns to the loop.</li>
     <li><b>When a server ends</b> (the window server is started and stopped by the user), the
       requests queued or parked at it go back to their senders with −1.</li>
+    <li><b>Forwarding.</b> A server may pass a request on instead of answering it: REPLY with
+      another server's core as the token gives the buffer there, where it is a request like any
+      other, its sender stamped from the buffer: the program, not the server that forwarded it.
+      The forwarding server does not wait. Who answers, and to which core, is the two servers'
+      agreement: <code>fs</code> forwards a program's DBGET, DBSCAN and DBBATCH to
+      <code>db</code> with the program's core in header word 56, and <code>db</code> takes that
+      word only from a request that comes from <code>fs</code>'s core (where nothing else runs,
+      from 8 cores on) and is not <code>fs</code>'s own, and answers the program itself: three
+      messages and no copy, where relaying is four and two copies.</li>
   </ul>
 </section>
 

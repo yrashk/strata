@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>StrataOS — the servers</title>
-<meta name="description" content="Every StrataOS server: proc, dev, fs, tty, pipe, net and the window server ws. Where each runs, the capabilities it holds, and every message it answers, generated from the servers' sources.">
+<!-- servers:meta -->
+<meta name="description" content="Every StrataOS server: proc, dev, fs, db, blk, tty, pipe, net and ws. Where each runs, the capabilities it holds, and every message it answers, generated from the servers' sources.">
+<!-- /servers:meta -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -50,6 +52,7 @@
     <li><a href="ws.html">The window server</a></li>
   </ul>
   <ul class="os-pages">
+<!-- servers:nav -->
     <li><a href="#proc"><code>proc</code></a></li>
     <li><a href="#dev"><code>dev</code></a></li>
     <li><a href="#fs"><code>fs</code></a></li>
@@ -59,6 +62,7 @@
     <li><a href="#pipe"><code>pipe</code></a></li>
     <li><a href="#net"><code>net</code></a></li>
     <li><a href="#ws"><code>ws</code></a></li>
+<!-- /servers:nav -->
     <li><a href="#system">from proc</a></li>
   </ul>
 </header>
@@ -83,7 +87,9 @@
 
 <section id="proc" class="server">
   <h2><span class="num">01</span><code>proc</code> — processes and names</h2>
-  <p>pid 1, the first process the kernel creates. It is the only holder of the kernel's endpoint
+  <p><!-- servers:who-proc -->
+pid 1, made by the kernel at boot, alone on core 1.
+<!-- /servers:who-proc --> The first process the kernel creates. It is the only holder of the kernel's endpoint
     apart from <code>dev</code>, so it is the only process that asks for processes to be created
     and destroyed. It keeps the process tree, exit statuses, interrupt flags and the name registry,
     and starts <code>tty</code>, <code>pipe</code> and the login shell. Spawning is MEMORY (an
@@ -162,7 +168,7 @@
 </table></div></article>
 <article class="op" id="proc-7">
 <h4><span class="n">7</span><a class="opname" href="../code/#os/servers/proc.s:1573"><code>KILL</code></a><span class="sum">Stop a process</span></h4>
-<p>proc asks the kernel to DESTROY it: its arena is revoked, and the kernel&#x27;s EXITED gives it status bit 62. Any process may kill any other but proc, dev and fs (pids 1..3).</p>
+<p>proc asks the kernel to DESTROY it: its arena is revoked, and the kernel&#x27;s EXITED gives it status bit 62. Any process may kill any other but proc, dev, fs, blk and db (pids 1..5).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the pid</td></tr>
@@ -224,7 +230,7 @@
 </table></div></article>
 <article class="op" id="proc-17">
 <h4><span class="n">17</span><a class="opname" href="../code/#os/servers/proc.s:1601"><code>SIGNAL</code></a><span class="sum">Interrupt a process (Ctrl-C)</span></h4>
-<p>A process that catches interrupts (CATCH 1) is interrupted: its WAIT at proc is answered −2 (or the interrupt is kept for its next WAIT), proc sends CANCEL for it to tty, pipe and net (their waiting requests answer −2), and the kernel notifies it (bit 0: a sleep ends). Any other process is killed as by KILL, except a server that proc started at boot (tty, pipe) and pids 1..3.</p>
+<p>A process that catches interrupts (CATCH 1) is interrupted: its WAIT at proc is answered −2 (or the interrupt is kept for its next WAIT), proc sends CANCEL for it to tty, pipe and net (their waiting requests answer −2), and the kernel notifies it (bit 0: a sleep ends). Any other process is killed as by KILL, except a server that proc started at boot (tty, pipe) and pids 1..5.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the pid</td></tr>
@@ -233,7 +239,7 @@
 <tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>0: interrupted, killed, or it had already ended</td></tr>
 </tbody>
 <tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
-<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>no such process, or it may not be killed (pids 1..3, tty, pipe) and does not catch interrupts, or the kernel no longer knows it</td></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>no such process, or it may not be killed (pids 1..5, tty, pipe) and does not catch interrupts, or the kernel no longer knows it</td></tr>
 <tr><td class="k"><abbr title="busy">−7</abbr></td><td class="at"></td><td class="ty"></td><td>the kernel has no room to park the request</td></tr>
 </tbody>
 </table></div></article>
@@ -436,16 +442,18 @@
 
 <section id="dev" class="server">
   <h2><span class="num">02</span><code>dev</code> — the device manager</h2>
-  <p>pid 2. It holds the device root, describes the platform, and cuts device capabilities out of
+  <p><!-- servers:who-dev -->
+pid 2, made by the kernel at boot, on core 2.
+<!-- /servers:who-dev --> It holds the device root, describes the platform, and cuts device capabilities out of
     the root for the servers that own a device: the console's ports for <code>tty</code>, the
-    disk's ports and node for <code>fs</code>, the network interface for <code>net</code>, the
+    disk's ports and node for <code>blk</code>, the network interface for <code>net</code>, the
     framebuffer for <code>ws</code>. The framebuffer memory is the kernel's: <code>dev</code> asks
     for it with FBLEND, which revokes every older capability to it, and passes it on. It also
     gives every program the wall clock (TIME): the timer's EPOCH and ZONE, which a program adds to
     its own reading of NOW.</p>
 <!-- ops:dev -->
 <div class="facts2">
-<div><b>core</b>core 2, shared</div>
+<div><b>core</b>core 2, with blk as its server of index 1</div>
 <div><b>holds</b>the device root (c7); the kernel&#x27;s endpoint (c3), for HALT and FBLEND</div>
 <div><b>reached by</b>LOOKUP &quot;dev&quot;</div>
 <div><b>source</b><a class="srcpath" href="../code/#os/servers/dev.s">os/servers/dev.s</a></div>
@@ -624,14 +632,16 @@
 
 <section id="fs" class="server">
   <h2><span class="num">03</span><code>fs</code> — files, tags and the store</h2>
-  <p>pid 3. The file system: it keeps its files in the <a href="fs.html">store</a> of
+  <p><!-- servers:who-fs -->
+pid 3, made by the kernel at boot, on core 3, alone there from 8 cores.
+<!-- /servers:who-fs --> The file system: it keeps its files in the <a href="fs.html">store</a> of
     copy-on-write trees that <a href="#db"><code>db</code></a> keeps, as a client of it. A file has one name and carries
     tags, and a directory is the set of its files' tags. Programs are files: <code>proc</code>
     has <code>fs</code> load them into new arenas. Every call answers −5 when the disk cannot be
     read as a store or a page fails its checksum.</p>
 <!-- ops:fs -->
 <div class="facts2">
-<div><b>core</b>core 3, shared</div>
+<div><b>core</b>core 3, alone on it from 8 cores; programs share it on fewer</div>
 <div><b>holds</b>endpoints to db&#x27;s core (c1) and blk&#x27;s (c2): the store is db&#x27;s, the disk blk&#x27;s (doc/fs-split.md)</div>
 <div><b>reached by</b>c2 of every process</div>
 <div><b>source</b><a class="srcpath" href="../code/#os/servers/fs.s">os/servers/fs.s</a>, <a class="srcpath" href="../code/#os/servers/fsops.s">os/servers/fsops.s</a>, <a class="srcpath" href="../code/#os/servers/fsattr.s">os/servers/fsattr.s</a>, <a class="srcpath" href="../code/#os/servers/fsunits.s">os/servers/fsunits.s</a></div>
@@ -741,7 +751,7 @@
 <tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
 </tbody>
 <tbody class="errors"><tr class="sec"><th colspan="4">errors</th></tr>
-<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>a bad path, no name in it, or a boot object (proc, dev, fs)</td></tr>
+<tr><td class="k"><abbr title="failed">−1</abbr></td><td class="at"></td><td class="ty"></td><td>a bad path, no name in it, or a boot object (proc, dev, fs, blk, db: what the boot manifest lists)</td></tr>
 <tr><td class="k"><abbr title="no such file or program">−4</abbr></td><td class="at"></td><td class="ty"></td><td>no such file or tag</td></tr>
 </tbody>
 </table></div></article>
@@ -1092,7 +1102,7 @@
 </table></div></article>
 <article class="op" id="fs-64">
 <h4><span class="n">64</span><a class="opname" href="../code/#os/servers/fsops.s:823"><code>DBGET</code></a><span class="sum">A value from a program&#x27;s tree</span></h4>
-<p>The store for programs: trees of keys and values (bytes, compared unsigned) in namespaces of their own. Namespaces made by DBBATCH are public; <code>fs</code> is private and refused. db answers these: fs hands the request&#x27;s data to it and its answer back.</p>
+<p>The store for programs: trees of keys and values (bytes, compared unsigned) in namespaces of their own. Namespaces made by DBBATCH are public; <code>fs</code> is private and refused. db answers these: fs forwards the request itself to db, which answers the program (from 8 cores; on fewer fs relays the data and the answer); programs may send DBGET and DBSCAN to db directly (os/spec/db.toml).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">length</td><td class="at"></td><td class="ty"></td><td>the data&#x27;s bytes (8..4032)</td></tr>
@@ -1186,14 +1196,17 @@
 
 <section id="db" class="server">
   <h2><span class="num">04</span><code>db</code> — the store</h2>
-  <p>pid 5, the second server of <code>dev</code>'s core. It keeps the disk's store: the page
+  <p><!-- servers:who-db -->
+pid 5, made by the kernel at boot, the second server of <code>pipe</code>'s core (5).
+<!-- /servers:who-db --> It keeps the disk's store: the page
     cache, the B+trees in namespaces, commits, snapshots and the boot manifest, and reaches the
     disk only through <a href="#blk"><code>blk</code></a>. A tree is named by a handle; a value of
     any length is read and written by parts, at an offset. <code>fs</code> is its client, and
-    hands programs' calls of the store for programs on to it.</p>
+    forwards programs' calls of the store for programs to it; programs also send it DBGET and
+    DBSCAN themselves (<a href="messages.html#parking">forwarding</a>).</p>
 <!-- ops:db -->
 <div class="facts2">
-<div><b>core</b>core 5, beside pipe (its server of index 1)</div>
+<div><b>core</b>core 5, its server of index 1, beside pipe: a program holds endpoints for four cores only (c1..c4: proc&#x27;s, fs&#x27;s, tty&#x27;s, pipe&#x27;s); proc and tty must be alone, and on fs&#x27;s core db would be switched with fs at every call (and from 8 cores fs is alone, so that db can trust what comes from there), so pipe&#x27;s is the one where programs reach db with no new capability (DBGET, DBSCAN). Pipelines and the store share core 5</div>
 <div><b>holds</b>an endpoint to blk&#x27;s core (c1); a 512 KiB I/O buffer with the page cache: 124 frames of 4 KiB (c5)</div>
 <div><b>reached by</b>fs holds an endpoint to its core (index 1, header word 48); programs send DBGET and DBSCAN through their endpoint for pipe&#x27;s core, and DBBATCH to fs, which forwards it</div>
 <div><b>source</b><a class="srcpath" href="../code/#os/servers/db.s">os/servers/db.s</a>, <a class="srcpath" href="../code/#os/servers/dbsnap.s">os/servers/dbsnap.s</a>, <a class="srcpath" href="../code/#os/servers/dbprog.s">os/servers/dbprog.s</a>, <a class="srcpath" href="../code/#os/servers/store.s">os/servers/store.s</a>, <a class="srcpath" href="../code/#os/servers/storew.s">os/servers/storew.s</a>, <a class="srcpath" href="../code/#os/servers/sblob.s">os/servers/sblob.s</a></div>
@@ -1663,12 +1676,14 @@
 
 <section id="blk" class="server">
   <h2><span class="num">05</span><code>blk</code> — the block device</h2>
-  <p>pid 4, the second server of <code>pipe</code>'s core. The only program that talks to the block
+  <p><!-- servers:who-blk -->
+pid 4, made by the kernel at boot, the second server of <code>dev</code>'s core (2).
+<!-- /servers:who-blk --> The only program that talks to the block
     device: runs of blocks into and out of a buffer lent with the request, which the device fills
     or empties itself. It keeps no cache.</p>
 <!-- ops:blk -->
 <div class="facts2">
-<div><b>core</b>core 2, beside dev (its server of index 1)</div>
+<div><b>core</b>core 2, its server of index 1, beside dev: beside dev, the server that runs least, and away from db, which calls it at every page it reads or writes (on db&#x27;s core the two would be switched at every call)</div>
 <div><b>holds</b>a window on the block device&#x27;s ports (c1) and an endpoint to its node (c2), from dev (GETDISK); in a guest StrataOS the RAM disk (c1)</div>
 <div><b>reached by</b>db holds an endpoint to its core (index 1, header word 48); fs too, for READBLK</div>
 <div><b>source</b><a class="srcpath" href="../code/#os/servers/blk.s">os/servers/blk.s</a></div>
@@ -1786,7 +1801,9 @@
 
 <section id="tty" class="server">
   <h2><span class="num">06</span><code>tty</code> — the console</h2>
-  <p>pid 6, started by <code>proc</code>. It owns the console (output, input, the break port) and
+  <p><!-- servers:who-tty -->
+pid 6, made by <code>proc</code> at boot, alone on core 4.
+<!-- /servers:who-tty --> It owns the console (output, input, the break port) and
     the pointer, whose events it hands to the window server. It never blocks on a device: the break
     read is always in flight and one byte of input is read only while a reader waits, and its
     RECEIVE names both tags. Cooked mode echoes and edits a line; raw mode gives whatever bytes are
@@ -1903,10 +1920,12 @@
 
 <section id="pipe" class="server">
   <h2><span class="num">07</span><code>pipe</code> — pipes</h2>
-  <p>pid 7, started by <code>proc</code>.</p>
+  <p><!-- servers:who-pipe -->
+pid 7, made by <code>proc</code> at boot, on core 5.
+<!-- /servers:who-pipe --></p>
 <!-- ops:pipe -->
 <div class="facts2">
-<div><b>core</b>core 5, shared</div>
+<div><b>core</b>core 5, with db as its server of index 1</div>
 <div><b>holds</b>nothing but its own memory: the rings are in its Local Store</div>
 <div><b>reached by</b>c4 of every process</div>
 <div><b>source</b><a class="srcpath" href="../code/#os/servers/pipe.s">os/servers/pipe.s</a></div>

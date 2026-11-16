@@ -4,8 +4,12 @@
 key = "db"
 title = "db"
 role = "the store: trees, values, commits, snapshots"
+does = "the store: the page cache, the copy-on-write trees, commits, snapshots, the boot manifest, the store for programs; reaches the disk through `blk`"
 reached = "fs holds an endpoint to its core (index 1, header word 48); programs send DBGET and DBSCAN through their endpoint for pipe's core, and DBBATCH to fs, which forwards it"
-core = "core 5, beside pipe (its server of index 1)"
+start = "kernel"
+pid = 5
+place = { core = 5, index = 1, alone = "no" }
+core_note = "a program holds endpoints for four cores only (c1..c4: proc's, fs's, tty's, pipe's); proc and tty must be alone, and on fs's core db would be switched with fs at every call (and from 8 cores fs is alone, so that db can trust what comes from there), so pipe's is the one where programs reach db with no new capability (DBGET, DBSCAN). Pipelines and the store share core 5"
 holds = "an endpoint to blk's core (c1); a 512 KiB I/O buffer with the page cache: 124 frames of 4 KiB (c5)"
 sources = ["os/servers/db.s", "os/servers/dbsnap.s", "os/servers/dbprog.s", "os/servers/store.s", "os/servers/storew.s", "os/servers/sblob.s"]
 dispatch = { file = "os/servers/db.s", first = ";\\s*dispatch", last = "^bad:" }

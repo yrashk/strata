@@ -47,7 +47,16 @@ Placement (any core count from 6): `proc` 1, `dev` 2 and `blk` 2 (index
 `blk` on three cores, beside the servers that run least. `db` is on
 `pipe`'s core because every program holds an endpoint for it (c4): a
 program reaches `db` with header word 48 = `0x53 << 56 | 1` and no new
-capability. `blk` asks `dev` for the disk (GETDISK) from `dev`'s own core,
+capability. A program holds endpoints for four cores only (c1..c4:
+`proc`'s, `fs`'s, `tty`'s, `pipe`'s), and the other three will not do:
+`proc` and `tty` must be alone on theirs; on `fs`'s, `db` and `fs` would be
+switched at every call between them, and from 8 cores `fs` is alone there
+so that `db` can trust what comes from its core (forwarding, below). The
+cost: pipelines and the store share core 5, and `pipe`'s traffic and
+`db`'s wait for each other there. `blk` is not with `db` for the same
+reason as `db` is not with `fs`: `db` calls it at every page it reads or
+writes (tried: on core 5, `cat` and the 100 files were 1.5% and 2.6%
+slower). `blk` asks `dev` for the disk (GETDISK) from `dev`'s own core,
 so it asks twice, one capability per answer: a core's inbox holds two
 gifts from each sender, its own included, and an answer of three (two
 attachments and the buffer) to one's own core waits on a dispatcher that

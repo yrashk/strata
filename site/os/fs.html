@@ -109,8 +109,11 @@
       <code>tools/stdb/fsl.h</code>). A commit writes every changed page to a free page, flushes,
       writes the older meta page anew, and flushes again: nothing is repaired at mount. Space freed
       anywhere is reused; nothing is counted in advance, so files, tags and names up to 255 bytes
-      are bounded only by the disk. <code>fs</code> works on trees larger than its Local Stores
-      through a cache of 124 pages in far memory.</figcaption>
+      are bounded only by the disk. Three servers share the work: <code>fs</code> keeps the file
+      system as a client of <code>db</code>, which keeps the store (it works on trees larger than
+      its Local Stores through a cache of 124 pages in far memory) and reaches the disk through
+      <code>blk</code>. A change that grows the store stops while 128 pages are free, 64 of
+      them for removing files and snapshots, so a full disk can always be emptied.</figcaption>
   </figure>
 </section>
 
@@ -142,7 +145,7 @@
   <p>Opening for writing sends the bytes to a blob of their own; the close puts it in place of the
     file's contents and commits, so the disk holds the old contents or the new. UNLINK, TAG, UNTAG
     and RENAME are a commit each: when the reply arrives, the change is on the disk. A boot object
-    (<code>proc</code>, <code>dev</code>, <code>fs</code>) can be rewritten from inside the OS:
+    (<code>proc</code>, <code>dev</code>, <code>fs</code>, <code>blk</code>, <code>db</code>) can be rewritten from inside the OS:
     at its close it is brought into one run of pages and the manifest is written anew in the same
     commit, so the next boot loads the old server or the new one.</p>
   <h3>Snapshots, attributes, trees for programs</h3>
@@ -156,14 +159,18 @@
       <code>&lt;</code> or <code>&gt;</code> is a condition: <code>ls /src/lang=asm</code>,
       <code>ls '/src/size&gt;100000'</code>; <code>PREFIX*</code> matches names.</li>
     <li><b>Trees for programs</b> (DBGET, DBSCAN, DBBATCH; <code>db</code>): keys and values in a
-      namespace of a program's own. A batch is one commit: all of its items are on the disk, or
-      none.</li>
+      namespace of a program's own, answered by <code>db</code>: a program sends DBGET and DBSCAN
+      to it directly, or any of the three to <code>fs</code>, which forwards them. A batch is one
+      commit: all of its items are on the disk, or none.</li>
   </ul>
   <p class="refs">Every message <code>fs</code> answers: <a href="servers.html#fs">the catalogue</a> ·
     source: <a class="srcpath" href="../code/#os/servers/fs.s">os/servers/fs.s</a>,
     <a class="srcpath" href="../code/#os/servers/store.s">store.s</a>,
     <a class="srcpath" href="../code/#os/servers/storew.s">storew.s</a>,
-    <a class="srcpath" href="../code/#os/servers/sblob.s">sblob.s</a> ·
+    <a class="srcpath" href="../code/#os/servers/sblob.s">sblob.s</a>,
+    <a class="srcpath" href="../code/#os/servers/db.s">db.s</a>,
+    <a class="srcpath" href="../code/#os/servers/dbcall.s">dbcall.s</a>,
+    <a class="srcpath" href="../code/#os/servers/blk.s">blk.s</a> ·
     the design: <a class="srcpath" href="https://github.com/yrashk/strata/blob/main/doc/strata-fs-proposal.md">doc/strata-fs-proposal.md</a> ·
     <a class="pdf" data-pdf="sec:os-servers" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.18.8">Section 18.8, The servers</a></p>
   <figure class="shot">
