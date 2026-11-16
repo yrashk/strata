@@ -351,14 +351,26 @@ was built from.
 - `host/stratalk.py run IMAGE` is a reference interpreter of the image
   (everything far, nothing collected): `tests/run.sh -h` runs the test
   vectors on it, `STRATALK_WATCH=N` prints the frames after N seconds.
-- Tests: `stratalk` (the vectors under StrataOS), `stratalk-host`,
-  `stratalk-check`. The vectors' expected outputs were worked out by hand
-  and with Python, not by Stratalk.
+- Tests: `stratalk` (the vectors under StrataOS), `stratalk-jit` (the same
+  with the JIT on), `stratalk-host`, `stratalk-examples` (the examples'
+  outputs, under StrataOS and on the host), `stratalk-check`. The vectors'
+  expected outputs were worked out by hand and with Python, not by Stratalk.
+- The JIT is `kernel/Jit.st` (Stratalk) and `vm-jit.s`: hot methods (200
+  activations) to native code in 1 KiB units in c0, paged by the kernel
+  (xslot 10, the cache from 0xE400: 7 slots; the VM's resident code ends
+  at 0xE118, so code added to the VM takes slots away). A method's code
+  over 1 KiB stays interpreted; each compiled method has a unit of its own
+  (704 at most).
+- The site: `doc/manual/gen/genstratalk.py` makes stratalk/ (the prose is
+  `doc/manual/web/stratalk.html`; the playground `site/stratalk/stratalk.js`
+  boots StrataOS and types `stratalk -j`); the play page has a preset.
 - Capability registers: the heap is c6 (an extra arena). A Window keeps
   ws's endpoint in c4 while open (pipe's; given back on close); a LOOKUP
   moves the heap to c7 for the call and then gets the clock back.
-- Not done: floats, a JIT, `become:`, class variables (class-side slots
-  only), class-side slots for classes made at run time.
+- Not done: floats, `become:`, class variables (class-side slots only),
+  class-side slots for classes made at run time, inline caches in native
+  code (a send from it takes the interpreter's path: `24 fibx` is 1.4x
+  faster with the JIT, not more), a manual chapter.
 
 ## Open work
 
