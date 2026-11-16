@@ -88,9 +88,9 @@ def page(here, title, desc, side, main, head="", tail=""):
 <link rel="icon" href="../favicon.ico" sizes="32x32">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../apple-touch-icon.png">
-<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="../style.css?v=__BUILD__">
 <link rel="stylesheet" href="../hl.css?v=__BUILD__">
-<link rel="stylesheet" href="../docs.css">
+<link rel="stylesheet" href="../docs.css?v=__BUILD__">
 %(head)s
 </head>
 <body class="doc-page doc-%(here)s">
@@ -104,6 +104,7 @@ def page(here, title, desc, side, main, head="", tail=""):
     <a class="pill ghost" href="%(repo)s">GitHub</a>
   </div>
 </nav>
+<script src="../nav.js?v=__BUILD__" defer></script>
 
 <div class="doc">
   <aside class="doc-side" id="side">
@@ -114,9 +115,9 @@ def page(here, title, desc, side, main, head="", tail=""):
   </main>
 </div>
 
-<script src="../code/syntax.js"></script>
+<script src="../code/syntax.js?v=__BUILD__"></script>
 <script src="../hl.js?v=__BUILD__"></script>
-<script src="../docs.js"></script>
+<script src="../docs.js?v=__BUILD__"></script>
 %(tail)s
 </body>
 </html>
