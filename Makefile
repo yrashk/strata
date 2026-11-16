@@ -168,7 +168,7 @@ test-list:
 .PHONY: build-main build-test-disks build-stdb-test build-forth build-small build-nostream build-ls1p build-ls32 build-ls16-4 build-ls4-32 build-f44 \
         build-wasm build-wasm-test build-wasm-rtl-test
 build-main: all examples os $(BUILD)/stdb
-build-test-disks: $(BUILD)/http-test/disk.img $(BUILD)/isol-test/disk.img $(BUILD)/files-test/disk.img $(BUILD)/forth-test/disk.img
+build-test-disks: $(BUILD)/http-test/disk.img $(BUILD)/isol-test/disk.img $(BUILD)/files-test/disk.img $(BUILD)/forth-test/disk.img $(BUILD)/far-test/disk.img
 build-stdb-test: $(BUILD)/stdb-test $(BUILD)/stdb-many
 build-forth: $(BUILD)/forth.stx
 
@@ -757,6 +757,12 @@ $(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 $(BUILD)/isol-test/%: tools/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/isol-test
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
+# far loads and stores (tgeom.FA): tools/fardata.s, the dispatcher's dmiss service
+$(BUILD)/far-test/%: tools/%.s os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/far-test
+	$(BUILD)/sasm -T 0x8000 -o $@ $<
+$(BUILD)/far-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/far-test/fardata
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/far-test/fardata
 $(BUILD)/isol-test/dlsgapcut: $(BUILD)/isol-test/dlsgap
 	head -c $$(( $$(wc -c <$<) - 8 )) $< >$@
 $(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot $(BUILD)/isol-test/dlsgapcut
