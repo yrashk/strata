@@ -9,23 +9,23 @@ processes: #
 ==== cores
 strata$ cores
 core #: system
-core #: running #, # runnable, # processes, server, solo; # switches, # KiB moved, # slots free
-core #: idle, # runnable, # processes, server; # switches, # KiB moved, # slots free
-core #: idle, # runnable, # processes, server, solo; # switches, # KiB moved, # slots free
-core #: idle, # runnable, # processes, server, solo; # switches, # KiB moved, # slots free
-core #: idle, # runnable, # processes, server; # switches, # KiB moved, # slots free
-core #: idle, # runnable, # processes; # switches, # KiB moved, # slots free
-core #: idle, # runnable, # processes; # switches, # KiB moved, # slots free
+core #: ~, # runnable, # processes, server, solo; # switches, # KiB moved, # slots free
+core #: ~, # runnable, # processes, server; # switches, # KiB moved, # slots free
+core #: ~, # runnable, # processes, server, solo; # switches, # KiB moved, # slots free
+core #: ~, # runnable, # processes, server, solo; # switches, # KiB moved, # slots free
+core #: ~, # runnable, # processes, server; # switches, # KiB moved, # slots free
+core #: ~, # runnable, # processes; # switches, # KiB moved, # slots free
+core #: ~, # runnable, # processes; # switches, # KiB moved, # slots free
 ==== ps
 strata$ ps
  PID PPID STATE CORE CPUS SWITCHES KIB NAME
- # # blocked # # # # dev (server)
- # # blocked # # # # blk (server)
- # # blocked # # # # db (server)
- # # blocked # # # # fs (server)
- # # running # # # # proc (server)
- # # ready # # # # tty (server)
- # # blocked # # # # pipe (server)
+ # # ~ # # # # dev (server)
+ # # ~ # # # # blk (server)
+ # # ~ # # # # db (server)
+ # # ~ # # # # fs (server)
+ # # ~ # # # # proc (server)
+ # # ~ # # # # tty (server)
+ # # ~ # # # # pipe (server)
  # # blocked # # # # sh
  # # blocked # # # # forth
 ==== sched
