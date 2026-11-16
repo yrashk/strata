@@ -319,7 +319,7 @@ store calls are messages, `dbcall.s`, with a read-ahead and puts sent
 later in batches). Programs see the same ops. The kernel keeps up to four
 servers per core (`w_srv`, header word 48 names one); `blk` and `db` are
 the second servers of `dev`'s and `pipe`'s cores, so 6 cores still do;
-`fs` is alone on core 3. `fs` forwards programs' DBGET/DBSCAN/DBBATCH to
+`fs` is alone on core 3 from 8 cores on, and then forwards programs' DBGET/DBSCAN/DBBATCH to
 `db`, which answers the program (REPLY to another core is forwarding; `db`
 trusts the core in word 56 only from `fs`'s core), and `kv_get`/`kv_scan`
 go to `db` directly through c4. `fs` also caches small values and sends

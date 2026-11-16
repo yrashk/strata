@@ -466,8 +466,8 @@ greater length.
   `proc` from the disk (with the firmware's block routines: `fs`, and the
   store under it, must exist before anything can be loaded through it) and
   creates them: `proc` on core 1, `dev` and `blk` on core 2, `fs` alone
-  on core 3, `db` on core 5 (`blk` and `db` as their core's second server,
-  index 1). One that sends to another before that one runs asks again until it
+  on core 3 (from 8 cores on; a busy server on fewer), `db` on core 5
+  (`blk` and `db` as their core's second server, index 1). One that sends to another before that one runs asks again until it
   does (a request to a server that is not there yet comes back -1).
   `proc` then starts `tty` and `pipe` as servers on the next cores without
   a server (4 and 5), then `sh -l` (restarted, with the console back in
@@ -485,8 +485,9 @@ greater length.
   keep a server of index 0 away from its core, nor count as a process when
   a program is placed (servers mostly wait). A busy server (CREATE flag
   bit 14: db) does count, heavily: a program goes to its core only when
-  no other core has room. `fs` is alone on its core (no program is ever
-  placed there), which is what lets `db` trust a request coming from it.
+  no other core has room. From 8 cores on, `fs` is alone on its core (no
+  program is ever placed there), which is what lets `db` trust a request
+  coming from it; on fewer it is a busy server and shares its core.
 - **Forwarding.** A server may pass a request it holds on to another
   server instead of answering it: REPLY with the other server's core as
   the token gives the buffer there, where it is a request like any other
@@ -497,7 +498,8 @@ greater length.
   with the program's core in header word 56, and `db` takes that word
   only from a request that comes from `fs`'s core (where nothing else
   runs) and is not `fs`'s own, then answers the program itself: three
-  messages and no copy where a relay is four and two copies. A forwarded
+  messages and no copy where a relay is four and two copies. On fewer than
+  8 cores `fs` shares its core and relays them instead. A forwarded
   request that finds the other server's queue full comes back to the
   forwarding core and is sent on again until there is room.
 - **Every process time-shares worker cores**, preemptively; there are no

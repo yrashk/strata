@@ -62,8 +62,10 @@ again a tick later.
 `db` is made a busy server (CREATE flag bit 14, core flag 32): a busy
 server's core counts three more when a program is placed, so a program
 shares a core with the server it waits on only when every other core is
-as full. `fs` is solo (no program is ever placed on core 3): forwarding
-needs it (below). A core with no server counts two more, so that on 8 cores
+as full. From 8 cores on `fs` is solo (no program is ever placed on core 3):
+forwarding needs it (below). On 6 or 7 cores that would leave programs two
+cores (`test-procs`' 6-core peak fell from 45 processes), so there `fs` is
+a busy server, shares its core and relays. A core with no server counts two more, so that on 8 cores
 the two empty ones stay free for a guest (`guest -d gdemo 2 8`): programs
 go beside `dev` and `blk` on core 2 first, which costs `cat` about 2%
 against putting them on an empty core. Before, the login shell sat on core 2 beside `db` and
@@ -259,14 +261,16 @@ forwards a program's DBGET, DBSCAN and DBBATCH (`fsops.s`, `op_dbget`):
 header word 48 names `db`, word 56 is the program's core (from `fs`'s
 RECEIVE token). `db` (`db.s`, `loop`) takes word 56 only from a request
 that arrives from `fs`'s core and is not `fs`'s own; `fs` is alone on its
-core, so nothing but `fs` sends from there. `db` then answers the
+core, so nothing but `fs` sends from there. On fewer than 8 cores the
+kernel does not make `fs` solo, tells it not to forward (its start-up word,
+bit 16) and gives `db` no core to trust (0xff): `fs` relays. `db` then answers the
 program's core, and clears word 48 in every answer to a program (a
 program's next message goes out with the header it got back). A relayed
 call was 4 messages and two copies of the data through `fs`'s Local
 Store, with `fs` waiting; forwarded it is 3 messages, no copy, and `fs`
 takes its next request at once.
 
-DBBATCH is taken only forwarded. A batch commits, and `db` cannot see
+DBBATCH is taken only forwarded (or relayed by `fs`). A batch commits, and `db` cannot see
 where `fs` is inside one of its own requests; forwarded, the batch is
 queued after `fs`'s last call for the request before and ahead of the
 first for the next one. `fs` commits a writer's bytes and sends its queued

@@ -617,7 +617,7 @@ never passes through a server's Local Store. \texttt{blk} and \texttt{db} are th
 \texttt{dev}'s and \texttt{pipe}'s cores: a request names a core's server by header word 48
 ($\texttt{0x53} \ll 56 \mid$ index; anything else is index 0). \texttt{db} is
 created as a busy server (CREATE flag bit 14), so programs are placed on other cores when there is room;
-\texttt{fs} is alone on its core.
+from 8 cores on, \texttt{fs} is alone on its core (on fewer it is a busy server too).
 
 \paragraph{Forwarding.} A server may pass a request it holds on to another server instead of
 answering it: REPLY with the other server's core as the token gives the buffer there, where it is a
@@ -626,7 +626,8 @@ header word 48 naming the server. The forwarding server does not wait. Who answe
 core, is the two servers' agreement: \texttt{fs} forwards a program's DBGET, DBSCAN and DBBATCH to
 \texttt{db} with the program's core in header word 56; \texttt{db} takes that word only from a
 request that comes from \texttt{fs}'s core (where nothing else runs) and is not \texttt{fs}'s own,
-and answers the program itself: three messages and no copy where a relay is four and two copies. A
+and answers the program itself: three messages and no copy where a relay is four and two copies (on
+fewer than 8 cores \texttt{fs} shares its core and relays them). A
 DBBATCH is taken only forwarded, so it falls between two of \texttt{fs}'s requests; DBGET and DBSCAN
 may also go to \texttt{db} directly, through a program's endpoint for \texttt{pipe}'s core.
 

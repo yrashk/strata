@@ -1037,7 +1037,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-45">
-<h4><span class="n">45</span><a class="opname" href="../code/#os/servers/fsops.s:864"><code>SNAP</code></a><span class="sum">Take, delete, list or restore snapshots</span></h4>
+<h4><span class="n">45</span><a class="opname" href="../code/#os/servers/fsops.s:889"><code>SNAP</code></a><span class="sum">Take, delete, list or restore snapshots</span></h4>
 <p>A snapshot is the whole disk as of a commit, under a name; taking one copies nothing. A path whose first component is <code>@NAME</code> reads it (OPEN for reading, STAT, LOADIMG, QUERY, TAGS2); OPEN for writing given such a path answers −1, any other call −4; every call answers −4 when there is no snapshot of that name. Restoring makes the file system what the snapshot shows, in one commit; the snapshots stay. A mode above 3 deletes, as mode 1.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1091,7 +1091,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-64">
-<h4><span class="n">64</span><a class="opname" href="../code/#os/servers/fsops.s:818"><code>DBGET</code></a><span class="sum">A value from a program&#x27;s tree</span></h4>
+<h4><span class="n">64</span><a class="opname" href="../code/#os/servers/fsops.s:821"><code>DBGET</code></a><span class="sum">A value from a program&#x27;s tree</span></h4>
 <p>The store for programs: trees of keys and values (bytes, compared unsigned) in namespaces of their own. Namespaces made by DBBATCH are public; <code>fs</code> is private and refused. db answers these: fs hands the request&#x27;s data to it and its answer back.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1114,7 +1114,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-65">
-<h4><span class="n">65</span><a class="opname" href="../code/#os/servers/fsops.s:819"><code>DBSCAN</code></a><span class="sum">Records of a program&#x27;s tree, in key order</span></h4>
+<h4><span class="n">65</span><a class="opname" href="../code/#os/servers/fsops.s:822"><code>DBSCAN</code></a><span class="sum">Records of a program&#x27;s tree, in key order</span></h4>
 <p>The first record is the nearest on the mode&#x27;s side of the key; those after it follow in key order, as many as fit. Ask again with the last key and mode 1.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1149,7 +1149,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-66">
-<h4><span class="n">66</span><a class="opname" href="../code/#os/servers/fsops.s:815"><code>DBBATCH</code></a><span class="sum">Puts and deletes in a program&#x27;s tree, in one commit</span></h4>
+<h4><span class="n">66</span><a class="opname" href="../code/#os/servers/fsops.s:818"><code>DBBATCH</code></a><span class="sum">Puts and deletes in a program&#x27;s tree, in one commit</span></h4>
 <p>Every item is checked before any is done: all of them reach the disk, or none. The namespace and the tree are made by the first write (a namespace or tree made by a refused batch stays, empty).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1198,7 +1198,7 @@
 <div><b>reached by</b>fs holds an endpoint to its core (index 1, header word 48); programs send DBGET and DBSCAN through their endpoint for pipe&#x27;s core, and DBBATCH to fs, which forwards it</div>
 <div><b>source</b><a class="srcpath" href="../code/#os/servers/db.s">os/servers/db.s</a>, <a class="srcpath" href="../code/#os/servers/dbsnap.s">os/servers/dbsnap.s</a>, <a class="srcpath" href="../code/#os/servers/dbprog.s">os/servers/dbprog.s</a>, <a class="srcpath" href="../code/#os/servers/store.s">os/servers/store.s</a>, <a class="srcpath" href="../code/#os/servers/storew.s">os/servers/storew.s</a>, <a class="srcpath" href="../code/#os/servers/sblob.s">os/servers/sblob.s</a></div>
 </div>
-<p class="srvnote">pid 5, made by the kernel at boot. The disk is a store (doc/strata-fs-proposal.md): copy-on-write B+trees in namespaces, a change on the disk whole or not at all; db keeps it (the page cache, three page buffers in its D-LS) and reaches the disk through blk only (a run of blocks per BREAD; a commit&#x27;s writes and its flushes in WRITEVs). fs is the file system on top (doc/fs-split.md). A tree is named by a handle: its entry in db&#x27;s table of open trees (TREE), or one of a snapshot&#x27;s (SNAPT). The calls by handle, COMMIT, ABORT, SNAP and BOOT are taken from fs only (its pid); the store for programs (64..66) from anyone that reaches db, and fs hands programs&#x27; calls on. Every reply&#x27;s word 56 is the commit under way | the count of aborts &lt;&lt; 48. A call that fills the disk answers −1 and one whose page fails its checksum (or that the device refuses) −5; either gives up the commit under way, and the count of aborts says so. A request from fs may carry a batch of writes after its data (header word 48 bits 16..31: its bytes; items {u8 kind, u8 flag, u16 key length, u16 value length, u16 the extents&#x27; tree, u64 tree, key, value}, each padded to 8 bytes): db applies it first, in order. Kinds: 1 PUT, 2 DEL, 3 VDEL (a value and its extents), 4 VWRITE (the item&#x27;s value is {u64 offset, the bytes}; flag 1: a stream even when short), 5 a value moved (the key&#x27;s value goes and the value under the key that is the item&#x27;s value moves to it, as VDEL, VSIZE, PUT, DEL would). fs sends its puts, deletes, writes of at most 512 bytes and renames of a file&#x27;s contents this way, so a file made by <code>echo &gt; f</code> costs one GET and the COMMIT. A request names db by header word 48 = 0x53 &lt;&lt; 56 | 1. FORWARDING: fs forwards a program&#x27;s DBGET, DBSCAN and DBBATCH to db as they are (REPLY to db&#x27;s core: the buffer arrives there as a request, its sender stamped as the program), with the core to answer in header word 56; db takes that word only from a request that comes from fs&#x27;s core (fs is alone there) and is not fs&#x27;s own, and answers the program directly. Every answer to a program has header word 48 cleared.</p>
+<p class="srvnote">pid 5, made by the kernel at boot. The disk is a store (doc/strata-fs-proposal.md): copy-on-write B+trees in namespaces, a change on the disk whole or not at all; db keeps it (the page cache, three page buffers in its D-LS) and reaches the disk through blk only (a run of blocks per BREAD; a commit&#x27;s writes and its flushes in WRITEVs). fs is the file system on top (doc/fs-split.md). A tree is named by a handle: its entry in db&#x27;s table of open trees (TREE), or one of a snapshot&#x27;s (SNAPT). The calls by handle, COMMIT, ABORT, SNAP and BOOT are taken from fs only (its pid); the store for programs (64..66) from anyone that reaches db, and fs hands programs&#x27; calls on. Every reply&#x27;s word 56 is the commit under way | the count of aborts &lt;&lt; 48. A call that fills the disk answers −1 and one whose page fails its checksum (or that the device refuses) −5; either gives up the commit under way, and the count of aborts says so. A request from fs may carry a batch of writes after its data (header word 48 bits 16..31: its bytes; items {u8 kind, u8 flag, u16 key length, u16 value length, u16 the extents&#x27; tree, u64 tree, key, value}, each padded to 8 bytes): db applies it first, in order. Kinds: 1 PUT, 2 DEL, 3 VDEL (a value and its extents), 4 VWRITE (the item&#x27;s value is {u64 offset, the bytes}; flag 1: a stream even when short), 5 a value moved (the key&#x27;s value goes and the value under the key that is the item&#x27;s value moves to it, as VDEL, VSIZE, PUT, DEL would). fs sends its puts, deletes, writes of at most 512 bytes and renames of a file&#x27;s contents this way, so a file made by <code>echo &gt; f</code> costs one GET and the COMMIT. A request names db by header word 48 = 0x53 &lt;&lt; 56 | 1. FORWARDING: fs forwards a program&#x27;s DBGET, DBSCAN and DBBATCH to db as they are (REPLY to db&#x27;s core: the buffer arrives there as a request, its sender stamped as the program), with the core to answer in header word 56; db takes that word only from a request that comes from fs&#x27;s core (fs is alone there) and is not fs&#x27;s own, and answers the program directly (from 8 cores on; on fewer, fs shares its core and relays them, and db trusts no forwarded request). Every answer to a program has header word 48 cleared.</p>
 <div class="opindex">
 <a href="#db-64"><span class="n">64</span><code>DBGET</code><span>A value from a program&#x27;s tree</span></a>
 <a href="#db-65"><span class="n">65</span><code>DBSCAN</code><span>Records of a program&#x27;s tree, in key order</span></a>
@@ -1283,7 +1283,7 @@
 </table></div></article>
 <article class="op" id="db-66">
 <h4><span class="n">66</span><a class="opname" href="../code/#os/servers/dbprog.s:202"><code>DBBATCH</code></a><span class="sum">Puts and deletes in a program&#x27;s tree, in one commit</span></h4>
-<p>Taken only as fs forwards it (a program sends it to fs): it then lands between two of fs&#x27;s requests, never inside one. What fs had not committed is committed first; the batch is one commit of its own. Every item is checked before any is done: all of them reach the disk, or none; a batch the disk has no room for is given up alone (fs loses nothing and is not told of an abort). The namespace and the tree are made by the first write (a namespace or tree made by a refused batch stays, empty).</p>
+<p>Taken only as fs forwards or relays it (a program sends it to fs): it then lands between two of fs&#x27;s requests, never inside one. What fs had not committed is committed first; the batch is one commit of its own. Every item is checked before any is done: all of them reach the disk, or none; a batch the disk has no room for is given up alone (fs loses nothing and is not told of an abort). The namespace and the tree are made by the first write (a namespace or tree made by a refused batch stays, empty).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the items</td></tr>
