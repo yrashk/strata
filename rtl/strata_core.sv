@@ -676,6 +676,24 @@ module strata_core
   assign fa_pa  = dw_on ? 64'({fa_pu[5:0], fa_da[DLS_LG-7:0]}) : fa_da;
   assign fa_ok  = (fa_da[2:0] & 3'(msz - 1)) == 0 && fa_da <= 64'(DLS_SIZE) - msz && fa_wok;
 
+  // the far line hint: the line of the last far access that went through
+  // the table, its way, its set's entry (physical words fh_lo..fh_hi) and
+  // whether that way is known dirty. A far load of the same line, or a far
+  // store when the way is dirty, goes from EX straight to S_FA: the walk
+  // would find the same way. What could change what it finds forgets it: a
+  // core write to the entry, any transfer or tget beat, the reset
+  // sequencer, a CSR write, eret, a trap. A lookup that saw a transfer or a
+  // beat while it walked (fh_dirt) does not leave a hint
+  logic        fh_v, fh_dirty, fh_hit, fh_ext, fh_kill, fh_dirt, fa_fast, fa_self;
+  logic [63:0] fh_line, fh_sw, fh_way;
+  logic [12:0] fh_lo, fh_hi;
+  assign fh_hit  = fh_v && lt_line == fh_line && (d.kind == K_LOAD || fh_dirty);
+  assign fh_ext  = rl_v || tu_iss_valid || (tu_dls_en && tu_dls_we != 0);
+  assign fh_kill = fh_ext || (da_en && da_we != 0 && da_addr >= fh_lo && da_addr <= fh_hi) ||
+                   (state == S_EX && (d.kind == K_CSRW || d.kind == K_SYS));
+  // (a far store whose bytes are in its own set's entry: no hint)
+  assign fa_self = fa_pa[15:3] >= lt_pbase[15:3] && fa_pa[15:3] <= lt_pbase[15:3] + 13'(lt_ways);
+
   always_comb begin
     hz_addr = '0;
     hz_len  = '0;
@@ -1056,6 +1074,7 @@ module strata_core
   // anything without a user handler go to the supervisor.
   task automatic trap(input logic [7:0] cause, input logic [63:0] tval);
     logic dbl;
+    fh_v <= 0;
     if (user && !(cause == C_HALT || cause == C_STOP || cause == C_PRIV || cause == C_SVC || u_tvec == 0 || pc == u_tvec)) begin
       u_epc   <= pc;
       u_cause <= 64'(cause);
@@ -1088,7 +1107,32 @@ module strata_core
     lt_set <= lt_set_c;
     lt_off <= lt_src & ((64'd1 << lt_lsh) - 1);
     lt_ph  <= 0;
+    fa_fast <= 0;
+    fh_dirt <= 0;
     state  <= S_LG;
+  endtask
+
+  // a far load or store of the hint's line: its way, without the walk
+  task automatic fa_hint();
+    lt_sw     <= fh_sw;
+    lt_victim <= fh_way;
+    lt_off    <= lt_src & ((64'd1 << lt_lsh) - 1);
+    lt_ctr    <= 64'(fh_dirty) << (6'd32 + 6'(fh_way));
+    fa_fast   <= 1;
+    state     <= S_FA;
+  endtask
+
+  // a far access that walked the table to way lt_victim leaves the hint
+  task automatic fh_set(input logic dirty);
+    if (!fa_fast && !fh_dirt && !fh_ext) begin
+      fh_v     <= 1;
+      fh_line  <= lt_key >> 1;
+      fh_sw    <= lt_sw;
+      fh_way   <= lt_victim;
+      fh_dirty <= dirty;
+      fh_lo    <= lt_pbase[15:3];
+      fh_hi    <= lt_pbase[15:3] + 13'(lt_ways);
+    end
   endtask
 
   task automatic stall();
@@ -1147,6 +1191,7 @@ module strata_core
     lt_k          <= '0;
     lt_ph         <= 0;
     fa_on         <= 0;
+    fh_v          <= 0;
     rs_i          <= '0;
     fb_nxt_v      <= 0;
     fb_nx2_v      <= 0;
@@ -1181,6 +1226,8 @@ module strata_core
     end else begin
       csr_cycle <= csr_cycle + 1;
       if (stop_req) ipend <= 1;                          // core control asked us to stop
+      if (fh_kill) fh_v <= 0;                            // (a hint set below this cycle stands)
+      if (fh_ext) fh_dirt <= 1;
       if (reset_req) rpend <= 1;                         // ... or to restart
       // the reset sequencer's Local Store write of next cycle (the boot ROM word read now)
       rl_v    <= state == S_RST && rs_ld && rs_i < RSW'(LSN2);
@@ -1269,7 +1316,8 @@ module strata_core
 
             K_LOAD: begin
               fa_on <= fa_go;
-              if (fa_go) tag_lookup();                   // tgeom.FA: through the tag table
+              if (fa_go && fh_hit) fa_hint();            // tgeom.FA: the hint's line
+              else if (fa_go) tag_lookup();              // tgeom.FA: through the tag table
               else if (!mok) trap(C_LSFAULT, maddr);
               else if (hz_rd_stall) pending(maddr);
               else if (ls_blk) stall();                  // (LS_1P: a beat or the waiting write has the memory)
@@ -1277,7 +1325,8 @@ module strata_core
             end
             K_STORE: begin
               fa_on <= fa_go;
-              if (fa_go) tag_lookup();
+              if (fa_go && fh_hit) fa_hint();
+              else if (fa_go) tag_lookup();
               else if (!mok) trap(C_LSFAULT, maddr);
               else if (hz_wr_stall) pending(maddr);
               else if (!wr_ok) stall();                  // (LS_1P: the write register is not free)
@@ -1704,7 +1753,10 @@ module strata_core
         S_LW: begin
           if (!wr_ok) ;                                  // (LS_1P: not this cycle)
           else if (lt_ph) lt_ph <= 0;                    // the victim's tag is written this cycle
-          else retire(pc4);                           // and the counter this one
+          else begin                                     // and the counter this one
+            if (lt_far && !fa_self) fh_set(1);
+            retire(pc4);
+          end
         end
         // a far load or store that hit way lt_victim (a store: lt_ctr is the
         // set's counter word). A stop or reset request may still be taken
@@ -1716,11 +1768,17 @@ module strata_core
           else if (d.kind == K_LOAD) begin
             if (hz_rd_stall) pending(maddr);
             else if (ls_blk) stall();
-            else state <= S_LD;                          // (the read was issued: da_en)
+            else begin
+              fh_set(0);
+              state <= S_LD;                             // (the read was issued: da_en)
+            end
           end else begin
             if (hz_wr_stall) pending(maddr);
             else if (!wr_ok) stall();
-            else if (lt_ctr[6'd32 + 6'(lt_victim)]) retire(pc4);   // the way was dirty already
+            else if (lt_ctr[6'd32 + 6'(lt_victim)]) begin   // the way was dirty already
+              if (!fa_self) fh_set(1);
+              retire(pc4);
+            end
             else begin                                   // mark it dirty: S_LW writes the counter
               lt_ph <= 0;
               state <= S_LW;

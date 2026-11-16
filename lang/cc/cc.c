@@ -5788,9 +5788,7 @@ void m_write(void)
     fd = open(out_name, 1);
     if (fd < 0) err("cannot write ", out_name);
     ((int *)iob)[0] = 0x32585453;       /* "STX2" */
-    i = 2 + paged - split;              /* sections: code, data, far (paged, or far data) */
-    if (!paged && far_pc > 0x10000) i++;
-    ((int *)iob)[1] = i;
+    ((int *)iob)[1] = 2 + paged - split + (!paged && far_pc > 0x10000);  /* sections: code, data, far (paged, or far data) */
     write(fd, iob, 8);
     if (!paged) {
         put_sect(fd, 1, 0x8000, code_pc - 0x8000, A_CODE);

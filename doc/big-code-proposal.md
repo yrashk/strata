@@ -8,9 +8,12 @@ describe the tree at commit b9e3438 (2026-11-16).
 
 - **The ISA change of section 8.4**, in the emulator, the RTL (a new state,
   S_FA, after the tag-lookup sequencer; formal properties updated), the
-  manual ("Far loads and stores") and two conformance tests (`farls`,
-  `farlsx`). One rule was added: a far access whose line address is not a
-  multiple of its size is an lsfault (a `tdata` that is not 8-byte aligned).
+  manual ("Far loads and stores") and three conformance tests (`farls`,
+  `farlsx`, `farhint`). One rule was added: a far access whose line address
+  is not a multiple of its size is an lsfault (a `tdata` that is not 8-byte
+  aligned). The RTL remembers the last line a far access looked up, so a
+  far load of the same line takes 3 cycles in sequence (a near load 2, a
+  walk that hits the first way 7) and a far store to a dirty way 2 (8).
 - **StrataOS serves `dmiss`** in the resident dispatcher (`xdmiss`), as
   section 8.4 describes; `tools/test-far.sh`.
 - **Code units come from the program's image, not from a segment.** The

@@ -39,7 +39,8 @@ integer registers and the capability save table (one register and one slot per c
 F0, present the fetch address to the I-LS (stalling while an in-flight \insn{tgetx} covers it); F1,
 latch the instruction; EX, execute, remaining there while stalled; CT, the second cycle of the
 save-table instructions; LD, receive load data; LG, LT and LW, the set-entry computation and the
-tag-table walk of \insn{ltag}/\insn{linst}; DV, multiplication (four partial products of a
+tag-table walk of \insn{ltag}, \insn{linst} and far loads and stores; FA, a far load or store's
+access to its line; DV, multiplication (four partial products of a
 $32\times32$ multiplier, one per cycle) and iterative division (one quotient bit per cycle); AM, a far
 atomic in flight. Each Local Store is a true dual-port RAM: port A belongs to the core and port B to
 its TU.
@@ -103,8 +104,14 @@ capability). EX reads the slot of \insn{csave}, \insn{crestore}, \insn{csavex} o
 value trapping first), and the instruction finishes in CT with the entry, one cycle later.
 \insn{ltag} and \insn{linst} compute their set's entry address
 $\mathit{ttag} + \mathit{set}\times(\mathit{ways}+1)\times 8$ in 64 bits (it is the \cause{lsfault}
-value) by shift-and-add in the first cycle of LG and check it in the second. The decoder is purely
-combinational and flags undefined encodings.
+value) by shift-and-add in the first cycle of LG and check it in the second. A far load or store
+(section~\ref{sec:farls}) walks the set's tag words the same way and reaches its line in FA; a far
+store also reads the set's counter word and, when its way was clean, writes the dirty bit in LW.
+The core remembers the line of the last far access that walked the table, its way, and whether the
+way is dirty. A far load of that line, or a far store to it once its way is dirty, goes from EX
+straight to FA. Whatever could change what a walk finds makes the core forget the line: a write by
+the core to the set's entry, any transfer issued or \insn{tget} beat written, a CSR write,
+\insn{eret}, a trap and a reset. The decoder is purely combinational and flags undefined encodings.
 
 Table~\ref{tab:cycles} gives the cycles an instruction takes when nothing stalls it: fetched through
 F0 and F1 (after a transfer of control or a transfer instruction), and in sequence.
@@ -123,6 +130,10 @@ loads & 4 & 2\\
 division and remainder & about 68 & about 66\\
 \insn{ltag} ($k$ tag words read) & $5 + 2k$ & $3 + 2k$\\
 \insn{linst} & 9 & 7\\
+far load, the line remembered & 5 & 3\\
+far store, the line remembered, its way dirty & 4 & 2\\
+far load ($k$ tag words read) & $7 + 2k$ & $5 + 2k$\\
+far store ($k$ tag words read; a clean way: one more) & $8 + 2k$ & $6 + 2k$\\
 \bottomrule
 \end{tabular}
 \end{table}
