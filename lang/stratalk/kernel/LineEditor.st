@@ -3,10 +3,15 @@
  before; Tab completes a name (a global after a capital letter, a selector
  otherwise), or lists the names that would fit."
 
-Object subclass: #LineEditor slots: 'line history index prompt pending'.
+Object subclass: #LineEditor slots: 'line history index prompt pending console'.
 
 LineEditor class >> new [ ^self basicNew setUp ]
-LineEditor >> setUp [ history := OrderedCollection new. pending := ReadStream on: '' ]
+LineEditor >> setUp [
+    history := OrderedCollection new. pending := ReadStream on: ''.
+    console := Smalltalk stdinIsConsole ]
+LineEditor >> raw: aBoolean [
+    "The console is raw while a line is typed; a pipe (term's) brings keys as they are."
+    console ifTrue: [Smalltalk consoleMode: (aBoolean ifTrue: [1] ifFalse: [0])] ]
 LineEditor >> out: aString [ Transcript show: aString; flush ]
 LineEditor >> nextKey [
     "The next key, or nil at the end of input."
@@ -20,20 +25,20 @@ LineEditor >> readLine: aPrompt [
     "A line, or nil at the end of input (Ctrl-D on an empty line)."
     | c v |
     prompt := aPrompt. line := ''. index := history size + 1.
-    Smalltalk consoleMode: 1.
+    self raw: true.
     self out: prompt.
     [c := self nextKey.
-     c == nil ifTrue: [Smalltalk consoleMode: 0. ^nil].
+     c == nil ifTrue: [self raw: false. ^nil].
      v := c value.
      v = 13 or: [v = 10]] whileFalse: [
-        (v = 4 and: [line isEmpty]) ifTrue: [self out: (String with: Character cr). Smalltalk consoleMode: 0. ^nil].
+        (v = 4 and: [line isEmpty]) ifTrue: [self out: (String with: Character cr). self raw: false. ^nil].
         (v = 8 or: [v = 127]) ifTrue: [self rubout].
         v = 9 ifTrue: [self complete].
         v = 21 ifTrue: [self replaceLine: ''].
         v = 27 ifTrue: [self escape].
         v >= 32 ifTrue: [line := line, (String with: c). self out: (String with: c)]].
     self out: (String with: Character cr).
-    Smalltalk consoleMode: 0.
+    self raw: false.
     (line notEmpty and: [history isEmpty or: [history last ~= line]]) ifTrue: [history add: line].
     ^line ]
 LineEditor >> rubout [

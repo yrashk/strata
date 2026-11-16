@@ -25,7 +25,10 @@ SystemDictionary >> printOn: aStream [ aStream nextPutAll: 'Smalltalk' ]
 SystemDictionary >> stdout: aString [ <primitive: 100> ]
 SystemDictionary >> stderr: aString [ <primitive: 110> ]
 SystemDictionary >> readLine [ "A line of standard input without its end, nil at the end" <primitive: 101> ]
-SystemDictionary >> quit: anInteger [ Transcript flush. self consoleMode: 0. self primQuit: anInteger ]
+SystemDictionary >> quit: anInteger [
+    Transcript flush.
+    self stdinIsConsole ifTrue: [self consoleMode: 0].
+    self primQuit: anInteger ]
 SystemDictionary >> primQuit: anInteger [ <primitive: 102> ]
 SystemDictionary >> quit [ self quit: 0 ]
 SystemDictionary >> arguments [ <primitive: 103> ]
@@ -68,7 +71,7 @@ Stratalk class >> banner [
     Transcript showln: Smalltalk version, ': type an expression; "Smalltalk quit" or an end of input to leave' ]
 Stratalk class >> repl [
     | line editor |
-    editor := (interactive == true and: [Smalltalk stdinIsConsole]) ifTrue: [LineEditor new] ifFalse: [nil].
+    editor := interactive == true ifTrue: [LineEditor new] ifFalse: [nil].
     [editor == nil
         ifTrue: [
             interactive == true ifTrue: [Transcript show: 'st> '; flush].

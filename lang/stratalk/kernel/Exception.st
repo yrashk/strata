@@ -106,5 +106,6 @@ MessageNotUnderstood >> isResumable [ ^true ]
 MessageNotUnderstood >> messageText [
     ^messageText ifNil: [receiver printString, ' does not understand #', message selector] ]
 ZeroDivide >> isResumable [ ^true ]
+NonBooleanReceiver >> isResumable [ ^true ]
 CompileError >> line [ ^line ]
 CompileError >> line: n [ line := n ]
