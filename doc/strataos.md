@@ -491,7 +491,8 @@ greater length.
   requests go back with -1 when it ends. A server of index 1..3 does not
   keep a server of index 0 away from its core, nor count as a process when
   a program is placed (servers mostly wait). A busy server (CREATE flag
-  bit 14: db) does count, heavily: a program goes to its core only when
+  bit 14: db, and `ws`, whose `term`s would otherwise be switched with it
+  at every frame) does count, heavily: a program goes to its core only when
   no other core has room. From 8 cores on, `fs` is alone on its core (no
   program is ever placed there), which is what lets `db` trust a request
   coming from it; on fewer it is a busy server and shares its core.
@@ -910,7 +911,7 @@ Common error results: -1 failed / invalid, -2 interrupted, -3 would block,
 
 | op | name | in | out |
 |---|---|---|---|
-| 5 | SPAWN | data: u64 thread count (0 or 1 = one thread, N = N threads on N cores), three handle descriptors (server register << 32 \| server id; the caller's handles that become the child's 0/1/2; -1 none), then "prog args...\0"; length = the text's length; mode bit 0 = no server endpoints (a sandboxed child), bit 1 = pin to core (mode >> 8) & 255, mode >> 16 = the arena's size in MiB (0: 1 MiB; the shell's `-m N`) | pid; -4 no such program, -5 no free core, -6 no memory. A program whose name is exactly `ws` is created as the server of the lowest empty core (-5 if there is none) |
+| 5 | SPAWN | data: u64 thread count (0 or 1 = one thread, N = N threads on N cores), three handle descriptors (server register << 32 \| server id; the caller's handles that become the child's 0/1/2; -1 none), then "prog args...\0"; length = the text's length; mode bit 0 = no server endpoints (a sandboxed child), bit 1 = pin to core (mode >> 8) & 255, mode >> 16 = the arena's size in MiB (0: 1 MiB; the shell's `-m N`) | pid; -4 no such program, -5 no free core, -6 no memory. A program whose name is exactly `ws` is created as the server of the lowest empty core, a busy one (-5 if there is none) |
 | 6 | WAIT | handle = pid (0 = any child), mode bit 0 = do not block | exit status (bits 0..31 code, bit 62 killed, bit 63 faulted with the cause in 0..7), data[0] = pid; -3 still running, -2 interrupted, -1 no child |
 | 7 | KILL | handle = pid | 0 |
 | 9 | PS | | count; data: 32-byte records u8 pid, state (1 running, 2 ready, 3 blocked, 4 zombie), core, parent, flags (2 = server), threads; 2 reserved; u32 switches, u32 KiB moved by switches; 16 bytes name |

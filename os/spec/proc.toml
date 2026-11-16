@@ -32,7 +32,7 @@ start-up block into it (pid, parent, the three descriptors, the command), has fs
 (LOADIMG), tells fs the child starts in the caller's tag path (CWD mode 2), sends DUPS to fs, tty \
 and pipe for the handles passed, and asks the kernel to CREATE the process. The caller is the \
 child's parent. A command whose first word is exactly `ws` is made the server of the lowest empty \
-core; exactly `net`, the server of the lowest empty core and alone on it (proc keeps the endpoint \
+core, a busy one (CREATE flag bit 14: its clients, `term`, are placed on other cores); exactly `net`, the server of the lowest empty core and alone on it (proc keeps the endpoint \
 CREATE gives it, parked in the kernel, to send it CANCEL and CLEANUP; with no room to park it, \
 that net is stopped again and SPAWN answers −7). Both stay ordinary \
 children (WAIT, KILL and Ctrl-C work) and may REGISTER. A bare-metal image (no "SYS2" marker) runs \
