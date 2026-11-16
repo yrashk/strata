@@ -40,9 +40,9 @@ F_FIXEND = 0x78000                      ; ...
 F_XH     = 0x78000                      ; macro expansions in progress (a stack)
 F_XHEND  = 0x7F000                      ; (the start-up block is at 0x7F000)
 F_CODE   = 0x80000                      ; the image: code (I-LS from 0x8000, or code units)
-F_DATA   = 0xA0000                      ; the image: D-LS from 0
-F_RES    = 0xB0000                      ; the image: the resident library, when the code is paged
-F_END    = 0xC0000                      ; ...
+F_DATA   = 0xB0000                      ; the image: D-LS from 0
+F_RES    = 0xC0000                      ; the image: the resident library, when the code is paged
+F_END    = 0xD0000                      ; (the end of a program's memory in its arena)
 
 R        = 0x10000                      ; gp: the base for calls into resident code
 STACKTOP = 0x10000                      ; the stack grows down from here
@@ -141,7 +141,7 @@ TF_VARIADIC = 2                         ; function: ... after the parameters
 TF_OLD   = 4                            ; function: declared with ()
 TF_VM    = 8                            ; array: its size is not a constant: in the frame word TY_AUX
 TF_VMD   = 16                           ; array in a parameter list: its size waits for the function's entry (cc-vla.s)
-NTYPES   = 448                          ; records in the table
+NTYPES   = 480                          ; records in the table
 
 ; ---- symbol record (D-LS, 16 bytes; a symbol is the address of its record) ----------
 SY_ID    = 0                            ; u32: its identifier record

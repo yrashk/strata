@@ -482,8 +482,9 @@ strata$ cc -o calc calc.c           # -o names the output; -h KIB sizes the heap
 - **One pass.** The compiler emits code while it parses, keeping what it has
   not yet had to compute on a stack of value descriptors, so constants fold,
   variables become operands and narrow results are extended only where it
-  matters. With `-p` a program's code is paged in 4 KiB units, as the
-  compiler's own 106 KiB are.
+  matters. Each function body is read ahead once, and the variables it uses
+  most, never by address, live in the registers `s1`..`s11`. With `-p` a program's code is paged in 4 KiB units, as the
+  compiler's own 107 KiB are.
 - **A library in two parts.** What every program needs (`printf`, files,
   the heap, strings, the software floating point) is assembly, 9 KiB copied
   into each image. `qsort`, `bsearch` and `<math.h>` are C source inside
