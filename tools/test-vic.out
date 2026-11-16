@@ -68,7 +68,7 @@ out:    {91}return {32}0{};
  {90}*/
 {34}#include {35}<strata.h>
 
-{90}/* ---- the arena (offsets); 0x10000..0x4FFFF hold this program's own code units
+{90}/* ---- the arena (offsets); 0x10000..0x3FFFF hold this program's own code units
 {34}#define {}A_PT     {32}0x00000        {90}/* the parameter types of function types, 4 byte
 {34}#define {}A_CS     {32}0x01000        {90}/* the cases of the switch statements open, 16 b
 {34}#define {}A_IDH    {32}0x02000        {90}/* identifier hash heads, 4 bytes each */

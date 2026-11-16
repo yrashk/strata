@@ -32,6 +32,9 @@ def tests(args, fast):
         all_ = [t for t in all_ if os.path.basename(t[1]) in want]
     if args:
         all_ = [t for t in all_ if any(t[0].startswith(a) or os.path.basename(t[1]) == a or t[1] == a for a in args)]
+    # a test outside the ladder (lang/cc/tests/own: the compiler's own tests), its directory as its rung
+    all_ += [(os.path.basename(os.path.dirname(a)), a) for a in args
+             if a.endswith(".c") and os.path.isfile(a) and not a.startswith(T + "/ladder/")]
     return all_
 
 def boot(batch, tag):
