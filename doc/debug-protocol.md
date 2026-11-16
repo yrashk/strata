@@ -29,7 +29,7 @@ Companion flags of `strata-emu`:
 | Flag | Meaning |
 |---|---|
 | `--map FILE` | load a symbol map (`sasm -g`). `IMAGE.map`, next to `IMAGE.stx`, is loaded by itself. |
-| `--os DIR` | StrataOS awareness: `DIR/kernel.map` for the kernel and its code units, `DIR/prog/NAME.map` for the program a core runs in user mode (loaded when first needed); the kernel's tables and `proc`'s process table read through them; `DIR/msgops.txt` for the names of the messages (below). `make` writes these into `build/`, so `--os build`. |
+| `--os DIR` | StrataOS awareness: `DIR/kernel.map` for the kernel and its code units, `DIR/prog/NAME.map` for the program a core runs in user mode (loaded when first needed; for a server, `DIR/sys/NAME.map` first when it is there: a server may have the name of a program, and `sys/NAME:label` names its code in a breakpoint); the kernel's tables and `proc`'s process table read through them; `DIR/msgops.txt` for the names of the messages (below). `make` writes these into `build/`, so `--os build`. |
 | `--www DIR` | the files a TCP debug port serves to a browser |
 | `--history N` | time travel's memory budget in MiB (512; 128 in the browser) |
 
@@ -168,7 +168,7 @@ or after the line; a basename is enough) or, under StrataOS, `prog:label`.
 | Request | Answer |
 |---|---|
 | `cores` | the position and `cores`: one summary per core (below) |
-| `regs {core}` | `pc` (with `sym`, `file`, `line`), `x` (32 values), `csr` (instret, mode, ccr, cause, epc, tval, tvec, the user-mode ones, scratch, sscratch, ttag, tdata, tgeom, takefrom, corebase, corecount, xslot, ipend), `halted`, `stall` |
+| `regs {core}` | `pc` (with `sym`, `file`, `line`), `x` (32 values), `csr` (instret, mode, ccr, cause, epc, tval, tvec, the user-mode ones, scratch, sscratch, ttag, tdata, tgeom, takefrom, corebase, corecount, xslot, wdata, wstack, wcode, ipend), `halted`, `stall` |
 | `caps {core}` | `caps`: 16 capabilities |
 | `ctab {core}` | `size`, `entries`: `slot`, `cap` for every valid entry of the save table |
 | `inbox {core}` | `from`: `node`, `caps` per sender with something queued |

@@ -42,7 +42,8 @@ CELL = 16
 
 # ---- what a cell is (its kind: the program's K_* constants) ------------------------
 KINDS = ['GROUND', 'DIRT', 'RUBBLE', 'WOODS', 'WATER', 'ROAD', 'BRIDGE', 'LINE', 'LROAD',
-         'LWATER', 'ZONE', 'PLANT']
+         'LWATER', 'ZONE', 'PLANT', 'RAIL', 'RBRIDGE', 'RROAD', 'LRAIL', 'POLICE', 'FIREST',
+         'PARK', 'BURN']
 ZONES = ['res', 'com', 'ind']
 ZONE_PICS = ['empty', 'site'] + ['%d_%s' % (n, v) for n in range(1, 5) for v in 'ab']
 
@@ -51,7 +52,10 @@ SPRITES = ['button', 'button_down',
            'tool_coal', 'tool_query',
            'speed_pause', 'speed_slow', 'speed_normal', 'speed_fast',
            'icon_funds', 'icon_date', 'icon_pop', 'nopower', 'noroad', 'logo', 'app',
-           'tool_zoom_in', 'tool_zoom_out']
+           'tool_zoom_in', 'tool_zoom_out',
+           'tool_rail', 'tool_police', 'tool_fire', 'tool_park', 'tool_solar', 'tool_budget',
+           'tool_map', 'jam', 'adv_clerk', 'adv_engineer', 'adv_shopkeeper', 'adv_resident',
+           'paper_head']
 
 # ---- the demos (`plat demo N`): (tics to wait, key), one tic a frame ---------------
 # Keys: U D L R the arrows, _ Space, ^ Enter, {N what follows up to } N times,
@@ -88,7 +92,97 @@ DEMOS = {
     6: "5 p,3 _,{4,1 R,},3 r,3 ^,{12,1 R,},3 ^,"
        "{13,1 L,},1 U,3 l,3 ^,{8,1 R,},3 ^,{2,1 R,},1 U,3 1,3 _,"
        "5 =,3 =,{12,30 .,},5 0,5 s,"
-       "5 b,3 ^,{6,1 L,},3 ^,5 ],5 ],10 o,10 .",
+       "5 b,3 ^,{6,1 L,},3 ^,5 ],5 ],10 o,5 1,10 .",
+    # the fuller city: a coal plant, a road, a line, homes, a police
+    # station, shops, a fire station, industry, a park, rail across the
+    # road, a solar plant; two years; the budget (less for the police and
+    # the fire service); the pollution map over the town
+    7: "5 p,3 _,{4,1 L,},{4,1 D,},3 r,3 ^,{40,1 R,},3 ^,"
+       "{33,1 L,},{3,1 U,},3 l,3 ^,{3,1 R,},{5,1 D,},3 ^,"
+       "{2,1 R,},{4,1 U,},3 1,3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+       "3 4,{3,1 R,},3 _,3 2,{3,1 R,},3 _,3 5,{3,1 R,},3 _,"
+       "{15,1 L,},{4,1 D,},3 3,3 _,{3,1 R,},3 _,3 6,{2,1 R,},3 _,1 R,3 _,"
+       "3 1,{3,1 R,},3 _,"
+       "{9,1 R,},{10,1 U,},3 t,3 ^,{16,1 D,},3 ^,"
+       "{6,1 R,},{14,1 U,},3 e,3 _,"
+       "5 =,3 =,{24,30 .,},"
+       "5 g,3 D,3 L,3 D,3 L,3 ^,5 m,3 m,3 m,5 0,10 .",
+    # demo 5's town, and the Plat Ledger at the end
+    8: "5 p,3 _,{4,1 L,},{4,1 D,},3 r,3 ^,{40,1 R,},3 ^,"
+       "{33,1 L,},{3,1 U,},3 l,3 ^,{3,1 R,},{5,1 D,},3 ^,"
+       "{2,1 R,},{4,1 U,},3 1,3 _,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+       "3 2,{3,1 R,},3 _,{3,1 R,},3 _,"
+       "3 3,{15,1 L,},{4,1 D,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+       "3 1,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+       "{10,1 U,},3 _,"
+       "5 =,3 =,{28,30 .,},5 0,5 j",
+    # demo 5's town, and its history at the end
+    9: "5 p,3 _,{4,1 L,},{4,1 D,},3 r,3 ^,{40,1 R,},3 ^,"
+       "{33,1 L,},{3,1 U,},3 l,3 ^,{3,1 R,},{5,1 D,},3 ^,"
+       "{2,1 R,},{4,1 U,},3 1,3 _,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+       "3 2,{3,1 R,},3 _,{3,1 R,},3 _,"
+       "3 3,{15,1 L,},{4,1 D,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+       "3 1,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+       "{10,1 U,},3 _,"
+       "5 =,3 =,{28,30 .,},5 0,5 h",
+    # the land made again (a pond dug, woods planted, a cell filled in);
+    # demo 5's town; a year; then the events called down: a storm, an
+    # earthquake, the coal plant's failure; two months; a flood
+    10: "{8,1 U,},5 w,3 ^,{5,2 R,},3 D,{5,2 L,},3 ^,5 f,3 D,3 ^,{6,2 R,},3 ^,"
+        "5 a,3 U,{3,1 L,},3 _,{3,1 L,},3 U,{8,1 D,},"
+        "5 p,3 _,{4,1 L,},{4,1 D,},3 r,3 ^,{40,1 R,},3 ^,"
+        "{33,1 L,},{3,1 U,},3 l,3 ^,{3,1 R,},{5,1 D,},3 ^,"
+        "{2,1 R,},{4,1 U,},3 1,3 _,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 2,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 3,{15,1 L,},{4,1 D,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 1,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "{10,1 U,},3 _,"
+        "5 =,3 =,{14,30 .,},5 0,"
+        "5 v,5 3,10 .,5 v,5 4,10 .,5 v,5 5,10 .,"
+        "5 =,3 =,3 =,{2,25 .,},5 0,5 v,5 2,10 .",
+    # the town's past years: demo 6's town; a year; saved and kept (a
+    # snapshot); bulldozed; another year; kept again; the years' panel,
+    # and the first year's town back from its snapshot (the map must be
+    # the one first saved)
+    11: "5 p,3 _,{4,1 R,},3 r,3 ^,{12,1 R,},3 ^,"
+        "{13,1 L,},1 U,3 l,3 ^,{8,1 R,},3 ^,{2,1 R,},1 U,3 1,3 _,"
+        "5 =,3 =,{12,30 .,},5 0,5 s,"
+        "5 b,3 ^,{6,1 L,},3 ^,"
+        "5 =,3 =,3 =,{12,30 .,},5 0,5 s,5 y,5 1",
+    # the scenarios' towns (scen.s), played at once when one starts; not
+    # demos of their own, but they play as demos too. Ferrybank: demo 5's
+    # town built nearer the river, and a year
+    12: "{14,1 L,},"
+        "5 p,3 _,{4,1 L,},{4,1 D,},3 r,3 ^,{40,1 R,},3 ^,"
+        "{33,1 L,},{3,1 U,},3 l,3 ^,{3,1 R,},{5,1 D,},3 ^,"
+        "{2,1 R,},{4,1 U,},3 1,3 _,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 2,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 3,{15,1 L,},{4,1 D,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 1,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "{10,1 U,},3 _,"
+        "5 =,3 =,{12,30 .,},5 0",
+    # Cinderford: demo 5's town and a year (its treasury is then set low)
+    13: "5 p,3 _,{4,1 L,},{4,1 D,},3 r,3 ^,{40,1 R,},3 ^,"
+        "{33,1 L,},{3,1 U,},3 l,3 ^,{3,1 R,},{5,1 D,},3 ^,"
+        "{2,1 R,},{4,1 U,},3 1,3 _,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 2,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 3,{15,1 L,},{4,1 D,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 1,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "{10,1 U,},3 _,"
+        "5 =,3 =,{12,30 .,},5 0",
+    # Hollow Reach: demo 5's town with no power line to its plant, and the
+    # tax rate at 12 %
+    14: "5 p,3 _,{4,1 L,},{4,1 D,},3 r,3 ^,{40,1 R,},3 ^,"
+        "{33,1 L,},{3,1 U,},{3,1 R,},{5,1 D,},"
+        "{2,1 R,},{4,1 U,},3 1,3 _,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 2,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 3,{15,1 L,},{4,1 D,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "3 1,{3,1 R,},3 _,{3,1 R,},3 _,{3,1 R,},3 _,"
+        "{10,1 U,},3 _,"
+        "5 ],5 ],5 ],5 ],5 ]",
+    # a scenario from the panel: Cinderford; four months, and its old
+    # plant fails
+    15: "5 c,10 2,5 =,3 =,3 =,{5,30 .,},5 0,10 .",
 }
 KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '_': 32, '^': 13, '}': 0xfc}
 
@@ -206,6 +300,17 @@ def build(art, outdir):
             add('T_%s_%s' % (k.upper(), p.upper()), 'ZONE', cut('zone_%s_%s' % (k, p), 3),
                 'a 3 x 3 zone: 9 cells, row by row')
     add('T_COAL', 'PLANT', cut('coal_0', 4) + cut('coal_1', 4), 'the coal plant: 2 frames of 16 cells')
+    add('T_RAIL', 'RAIL', strip('rail', 16), 'rail: + mask (N 1, E 2, S 4, W 8)')
+    add('T_RBRIDGE', 'RBRIDGE', over('rail_bridge'), 'rail bridges: E-W, then N-S, each over the 47 water cells')
+    add('T_RROAD', 'RROAD', strip('rail_road', 2, True), 'a crossing: rail N-S over an E-W road; E-W over N-S')
+    add('T_LRAIL', 'LRAIL', strip('line_rail', 2, True), 'a line N-S over an E-W track; E-W over N-S')
+    add('T_TLIGHT', 'ROAD', strip('traffic_light', 16), 'roads with light traffic: + mask')
+    add('T_THEAVY', 'ROAD', strip('traffic_heavy', 16), 'roads with heavy traffic: + mask')
+    add('T_POLICE', 'POLICE', cut('police', 3), 'a police station: 9 cells')
+    add('T_FIREST', 'FIREST', cut('fire', 3), 'a fire station: 9 cells')
+    add('T_PARK', 'PARK', [single('park_0'), single('park_1')], 'small parks: 2 designs')
+    add('T_SOLAR', 'PLANT', cut('solar_0', 4) + cut('solar_1', 4), 'the solar plant: 2 frames of 16 cells')
+    add('T_BURN', 'BURN', [single('fire_%d' % i) for i in range(4)], 'a cell on fire: 4 frames')
     ncell = len(cells)
     assert ncell <= 1024
 
@@ -265,7 +370,7 @@ def build(art, outdir):
     # ---- the demos
     demodir = bytearray()
     demos = bytearray()
-    ndemo = 9
+    ndemo = 15
     for n in range(1, ndemo + 1):
         demodir += struct.pack('<H', 2 * ndemo + len(demos))
         for step in DEMOS.get(n, "1 .").split(','):
@@ -280,13 +385,24 @@ def build(art, outdir):
                 demos += bytes((int(t), KEYS.get(k, ord(k[0]) if k else ord('.'))))
         demos += b'\0\0'
 
+    avg = bytearray()                   # each cell's mean colour, as the palette's nearest
+    for name, rows in cells:
+        m = [sum(px[c] for r in rows for px in r) / 256 for c in range(3)]
+        avg.append(min(range(ncol), key=lambda i: sum((rgb[i][c] - m[c]) ** 2 for c in range(3))))
     palb = b''.join(bytes((b, g, r, 0)) for r, g, b in rgb)
+    # dusk: the same colours late on a December day: darker and bluer, and
+    # the windows' glass lit from inside
+    lit = {(0x4c, 0x96, 0x9e): (0xf0, 0xb0, 0x40), (0x9b, 0xd0, 0xc5): (0xff, 0xd8, 0x70)}
+    dusk = [lit.get((r, g, b), (r * 2 // 5, g * 9 // 20, min(255, b * 3 // 5 + 24))) for r, g, b in rgb]
+    duskb = b''.join(bytes((b, g, r, 0)) for r, g, b in dusk)
     parts = [('R_PAL', palb, 'the palette (XRGB8888)'),
+             ('R_DUSK', duskb, 'the palette at dusk (December): darker, the windows lit'),
              ('R_KIND', pad8(bytes(kinds)), 'the kind of each cell picture (K_*)'),
              ('R_BLOB', blob, 'water: a cell\'s 8-neighbour mask -> its picture after T_WATER'),
              ('R_SPR', pad8(bytes(sprdir)), 'sprites: u32 far offset, u16 w, h (rows of (w + 7) & ~7 bytes)'),
              ('R_SND', pad8(bytes(snddir)), 'sounds: u32 far offset, u32 samples'),
-             ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: nine u16 offsets from here, then '
+             ('R_AVG', pad8(bytes(avg)), 'each cell picture\'s colour, the nearest to its mean (the minimap)'),
+             ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: fifteen u16 offsets from here, then '
               'u8 tics, u8 key (1..4: up, down, left, right; 0xfb: a loop begins, its count and 0 follow; '
               '0xfc: it ends) each; 0 ends one')]
     res = bytearray()

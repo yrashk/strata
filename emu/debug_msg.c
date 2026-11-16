@@ -25,8 +25,9 @@
  * just before (within 64 instructions: the dispatcher sends attachments
  * first), are the message's attachments. The sender is the process the
  * sending core runs (core 0: the kernel); the receiver of a request is core 0
- * (the kernel) or the server of the core it goes to (the worker's w_server
- * slot), and the process that answers.
+ * (the kernel) or the server of the core it goes to that the request names
+ * (the worker's w_srv: a slot per server index; header word 48 holds the
+ * index), and the process that answers.
  *
  * Names come from DIR/msgops.txt (--os DIR), which tools/osspec.py writes
  * from the files of os/spec/, the ones the website's and the manual's tables of
@@ -229,13 +230,13 @@ static struct {
   int kst_t2;                                  /* the KST is in T2 (KST_SPACE = 2) */
   int64_t pbase, pgran, gpid, gshift;          /* the pool and its granules' owners */
   int64_t carea, casize, cacur, caslot;        /* the per-core areas */
-  int64_t wserver;                             /* w_server in a worker's D-LS */
+  int64_t wserver;                             /* w_srv in a worker's D-LS */
   int64_t gmask;                               /* core 0's K0_GMASK (cores lent to guests) */
 } mk;
 static void mk_init(void) {
   Map *k = map_scope(SC_KERNEL);
   if (!k) return;
-  const MSym *ws = map_sym_named(k, "w_server");
+  const MSym *ws = map_sym_named(k, "w_srv");
   mk.kst_t2 = map_abs(k, "KST_SPACE", 3) == 2;
   mk.pbase = map_abs(k, "G_PBASE", -1), mk.pgran = map_abs(k, "G_PGRAN", -1);
   mk.gpid = map_abs(k, "G_GPID", -1), mk.gshift = map_abs(k, "GSHIFT", -1);
@@ -265,11 +266,12 @@ static int msg_owner(uint64_t base) {
   return (int)mk_kst((uint64_t)mk.gpid + g * 8);
 }
 
-/* The pid of the server of core n (its dispatcher's w_server slot), -1 none. */
-static int msg_server_of(int n) {
-  if (n <= 0 || n >= ncores || mk.wserver < 0 || mk.caslot < 0) return -1;
-  int64_t slot = (int64_t)rd64(cores[n].dls + mk.wserver);
-  if (slot < 0 || slot >= 16) return -1;
+/* The pid of server `idx` of core n (its dispatcher's w_srv byte idx: the
+ * slot, 255 none), -1 none. */
+static int msg_server_of(int n, int idx) {
+  if (n <= 0 || n >= ncores || mk.wserver < 0 || mk.caslot < 0 || idx < 0 || idx > 3) return -1;
+  int64_t slot = cores[n].dls[mk.wserver + idx];
+  if (slot >= 16) return -1;
   return (int)(mk_kst((uint64_t)(mk.carea + n * mk.casize + mk.caslot + slot * 8)) & 0xff);
 }
 
@@ -379,10 +381,13 @@ static void dbg_inbox(const Core *dst, const Cap *k, int from) {
   m->ver = ++msg_ver;
   m->base = k->base;
   m->dcore = (int8_t)dst->id;
-  m->rpid = (int16_t)(dst->id == 0 ? 0 : msg_server_of(dst->id));
+  uint64_t sel = t3_word(k->base + 48); /* the server it names (w_selsrv) */
+  m->rpid = (int16_t)(dst->id == 0 ? 0 : msg_server_of(dst->id, sel >> 56 == 0x53 ? (int)(sel & 3) : 0));
   msg_who(m->rpid, m->rname, sizeof m->rname);
   m->q.pid = (int16_t)pid;
-  m->qkind = pid == 0 ? MK_KERNEL : pid > 0 && pid == msg_server_of(from) ? MK_SERVER : MK_PROC;
+  bool srv = false;
+  for (int x = 0; x < 4; x++) srv = srv || (pid > 0 && pid == msg_server_of(from, x));
+  m->qkind = pid == 0 ? MK_KERNEL : srv ? MK_SERVER : MK_PROC;
   msg_who(pid, m->q.name, sizeof m->q.name);
   m->q.op = t3_word(k->base);
   msg_srv(m);

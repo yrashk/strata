@@ -49,7 +49,7 @@ const PRESETS = {
     screenKeys: true,
     sound: true,
     type: "ws plat\n",
-    about: "Plat: a city-building game, written in Strata assembly as a client of the StrataOS window server (the page types ws plat at the shell's first prompt). Click the screen and press a key to dismiss the key help. Every game has new land. Lay roads (over water they are bridges) and power lines, zone land for homes, shops and offices, and industry, and build a coal power plant; once a month zones with power and a road grow while they are in demand, and taxes come in. Hover over a button for what it does. The mouse: the left button uses the tool (drag for a line of cells), the right button drags the map, the wheel scrolls it. The keys: the arrows move a cursor, Space uses the tool, Enter puts the pen down or lifts it; B R L I bulldozer, road, power line, ask; 1 2 3 the zones; P a coal plant; Z and X zoom in and out; [ and ] the tax rate; 0 pause, - and = the speed; S saves the town, O loads it, N new land; Q quits.",
+    about: "Plat: a city-building game, written in Strata assembly as a client of the StrataOS window server (the page types ws plat at the shell's first prompt). Click the screen and press a key to dismiss the key help. Every game has new land. Lay roads and rail (over water they are bridges) and power lines, zone land for homes, shops and offices, and industry, and build police and fire stations, parks, and coal or solar power plants; once a month zones with power and a road grow while they are in demand and the place suits them, and taxes come in. M shows maps over the town (power, land value, pollution, crime, traffic, cover); G opens the budget, J the town's paper, H its history; the minimap at the left jumps the view. Hover over a button for what it does. The mouse: the left button uses the tool (drag for a line of cells), the right button drags the map, the wheel scrolls it. The keys: the arrows move a cursor, Space uses the tool, Enter puts the pen down or lifts it; B R L T I bulldozer, road, power line, rail, ask; 1 2 3 the zones; 4 5 6 police, fire station, park; P and E coal and solar plants; Z and X zoom in and out; [ and ] the tax rate; 0 pause, - and = the speed; W F A dig water, plant woods, make plain land; V the events panel (call down a fire, a flood, a storm, an earthquake, a plant's failure, or turn events by chance off); S saves the town (and keeps the year as a snapshot), Y the town's past years, C the scenarios, O the gallery of towns kept, N new land; the cursor shows green where a tool can go, red where not; Q quits.",
   },
   nav: {
     files: ["bootrom.stx", "disk.img"],
@@ -65,6 +65,20 @@ const PRESETS = {
     sound: true,
     type: "cc /src/hi.c && hi\n",
     about: "StrataOS with its C compiler: the page types cc /src/hi.c && hi at the shell's first prompt, which compiles the program on the machine and runs it. Then try cat /src/hi.c, cc -o calc /src/calc.c, cc /src/math.c, cc /src/asm.c, or write a program with vi. cc is written in C and compiles itself; cc0, the compiler in assembly that it was bootstrapped from, is on the disk too, with the source in /src/cc.c.",
+  },
+  stratalk: {
+    files: ["bootrom.stx", "disk.img"],
+    args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
+    fitScreen: true,
+    type: "stratalk -j\n",
+    about: "Stratalk, a Smalltalk for Strata, under StrataOS (the page types stratalk -j at the shell's first prompt: the REPL, with the JIT on). Type an expression and Enter: 3 + 4, 100 factorial, (1 to: 10) collect: [:i | i * i], Proc ps, Smalltalk vm. Tab completes names and selectors; the arrows recall lines. (File named: '/stratalk/examples/queens.st') fileIn runs an example; Smalltalk quit leaves. In the window server (ws), stratalk -w opens a workspace and stratalk -b a class browser.",
+  },
+  stralog: {
+    files: ["bootrom.stx", "disk.img"],
+    args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
+    fitScreen: true,
+    type: "-m 8 stralog\n",
+    about: "Stralog, a Prolog written in Strata assembly (the page types -m 8 stralog at the shell's first prompt: an 8 MiB arena). Every term lives in far memory; the data Local Store holds windows onto the tops of the heap, the trail and the choicepoint stack, and a small far cache: statistics. shows what moved. Try [queens]. then queens2(8, Qs), show(Qs). The examples are in /stralog (zebra, animals, calc, roman, primes, graph, kb, meta, sorting, sendmore, hanoi, family); after an answer, ; asks for the next one. The Prolog page has them all with Try buttons.",
   },
   wdoom: {
     files: ["bootrom.stx", "disk-wdoom.img"],

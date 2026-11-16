@@ -9,7 +9,8 @@
 \                             as often as wanted
 \
 \ The Forth port of os/progs/vi.s (doc/strataos.md 2.12 describes them both):
-\ the same modes, motions, operators with counts, undo and redo, ., search,
+\ the same modes (visual mode too: v V Ctrl-V, the mouse in a window), motions,
+\ operators with counts, undo and redo, ., search,
 \ : commands, status line, screen-size question (ESC [ 6 n, 80 x 24 without
 \ an answer, Ctrl-L), and highlighting of Strata assembly and Strata Forth in
 \ the site's colours and of C (.c, .h), with the same rules; a comment's

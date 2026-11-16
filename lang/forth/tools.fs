@@ -28,13 +28,13 @@ variable #words                                 \ for WORDS
   dup cperms dup 8 rshift 7 and .space .perms
   ."  base " dup cbase h. ." len " clen h. cr ;
 : .caps ( -- ) 16 0 do i cvalid if i .cap then loop ; \ every capability register in use
-: .fcache ( -- )                                 \ far cache statistics
+: .fcache ( -- )                                 \ far cache statistics (KVAR 5: three counters)
   5 kvar dup @ . ." hits, " cell+ dup @ . ." misses, " cell+ @ . ." write-backs" cr ;
 : code-end ( -- a )                              \ where code ends, this file aside if it is
   34 kvar @ if 35 kvar cell+ @ else chere then ; \ loaded for one command only (StrataOS)
 : .jit ( -- )                                    \ code space and installs
-  ." kernel " 22 kvar h. ." .. code " code-end h. ." .. limit $10000: "
+  ." kernel " 22 kvar h. ." .. code " code-end h. ." .. limit $10000: " \ (KVAR 22: where the kernel's code is)
   $10000 code-end - . ." bytes free" cr
-  4 kvar dup @ . ." installs, " cell+ @ . ." bytes installed (tput + tgetx), "
-  6 kvar @ . ." xexec trampolines" cr ;
+  4 kvar dup @ . ." installs, " cell+ @ . ." bytes installed (tput + tgetx), " \ (KVAR 4: two counters,
+  6 kvar @ . ." xexec trampolines" cr ;           \ 6: the trampolines)
 create tools.fs                                 \ REQUIRE looks for this name: the file is loaded

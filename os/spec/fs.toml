@@ -3,15 +3,18 @@
 [server]
 key = "fs"
 title = "fs"
-role = "files, tags and the store"
+role = "files, tags, names and program images"
+does = "the file server: files, their tags and names, the index, program images; a client of `db`, to which it forwards programs' calls of the store for programs"
 reached = "c2 of every process"
-core = "core 3, shared"
-holds = "a window on the block device's ports (c1) and an endpoint to its node (c2); a 512 KiB I/O buffer with its page cache (c5)"
+start = "kernel"
+pid = 3
+place = { core = 3, index = 0, alone = "from 8 cores" }
+holds = "endpoints to db's core (c1) and blk's (c2): the store is db's, the disk blk's (doc/fs-split.md)"
 sources = ["os/servers/fs.s", "os/servers/fsops.s", "os/servers/fsattr.s", "os/servers/fsunits.s"]
 dispatch = { file = "os/servers/fs.s", first = ";\\s*dispatch", last = "^bad:" }
 calls = "message"
 note = """The disk is a store: copy-on-write B+trees in namespaces, and a change is on the disk whole or \
-not at all. A file has one name and carries tags; the set of its tags is its directory, and a name is \
+not at all. The store is another server's, db, which reaches the disk through blk; fs is its client. A file has one name and carries tags; the set of its tags is its directory, and a name is \
 unique within a directory. A path is components separated by `/` (empty ones are skipped): the last is \
 the file's name, the ones before it the tags of its directory, in any order. A path that does not start \
 with `/` is read under the requester's current tag path (CWD); `.` and `..` are resolved. A path is at \
@@ -52,7 +55,7 @@ data = [{ type = "bytes", name = "the bytes to write" }]
 result = "the bytes taken: the length, or 4032 when it was more; 0 for none"
 
 [op.errors]
-"-1" = "not an id open for writing, a write the disk had no room for (the file takes no more), or the disk is full"
+"-1" = "not an id open for writing, a write the disk had no room for (the file takes no more), or the disk is full. A write of at most 512 bytes goes to db with fs's next call to it, so a disk it fills is reported by a later call on the file, CLOSE at the latest"
 
 [[op]]
 num = 3
@@ -106,7 +109,7 @@ data = [{ type = "bytes", name = "the path" }]
 result = "0"
 
 [op.errors]
-"-1" = "a bad path, no name in it, or a boot object (proc, dev, fs)"
+"-1" = "a bad path, no name in it, or a boot object (proc, dev, fs, blk, db: what the boot manifest lists)"
 "-4" = "no such file or tag"
 
 [[op]]
@@ -270,7 +273,7 @@ data = [
 num = 33
 name = "READBLK"
 summary = "A raw block of the disk"
-note = "Answered even when the disk is not a store (`db`, `wdb` and `fsck` read the store so)."
+note = "Answered even when the disk is not a store (`db`, `wdb` and `fsck` read the store so). blk answers it: fs hands it on and the block back."
 
 [op.request]
 handle = "the block's number"
@@ -519,7 +522,9 @@ num = 64
 name = "DBGET"
 summary = "A value from a program's tree"
 note = """The store for programs: trees of keys and values (bytes, compared unsigned) in namespaces of \
-their own. Namespaces made by DBBATCH are public; `fs` is private and refused."""
+their own. Namespaces made by DBBATCH are public; `fs` is private and refused. db answers these: fs \
+forwards the request itself to db, which answers the program (from 8 cores; on fewer fs relays the data \
+and the answer); programs may send DBGET and DBSCAN to db directly (os/spec/db.toml)."""
 
 [op.request]
 length = "the data's bytes (8..4032)"

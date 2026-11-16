@@ -11,7 +11,7 @@
 <link rel="icon" href="favicon.ico" sizes="32x32">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=__BUILD__">
 <link rel="stylesheet" href="hl.css?v=__BUILD__">
 </head>
 <body>
@@ -25,8 +25,15 @@
     <a href="arch/">Architecture</a>
     <a href="isa/">Instructions</a>
     <a href="os/">OS</a>
-    <a href="forth/">Forth</a>
-    <a href="c/">C</a>
+    <div class="menu">
+      <span class="menu-btn" tabindex="0" aria-haspopup="true">Languages</span>
+      <div class="drop">
+        <a href="forth/">Forth</a>
+        <a href="stratalk/">Stratalk</a>
+        <a href="stralog/">Stralog</a>
+        <a href="c/">C</a>
+      </div>
+    </div>
     <a href="hardware/">Hardware</a>
     <a href="play/">Play</a>
     <a href="debug/">Debug</a>
@@ -35,6 +42,7 @@
     <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
   </div>
 </nav>
+<script src="nav.js?v=__BUILD__" defer></script>
 
 <header class="hero">
   <div class="bands" aria-hidden="true">
@@ -206,11 +214,12 @@
       <a href="play/?run=kira"><b>Play it in your browser&nbsp;&rarr;</b></a></figcaption>
   </figure>
   <figure class="shot wide">
-    <a href="play/?run=plat"><img src="img/plat.png" alt="A city-building game in bright pixel art: a small town by a river, with a coal plant, a power line, a road, homes, shops and offices, industry, and an empty zone with a mark saying it has no road" loading="lazy"></a>
+    <a href="play/?run=plat"><img src="img/plat.png" alt="A city-building game in bright pixel art: a small town by a river, with the town's yearly paper, the Plat Ledger, open over it: a headline about traffic jams, the residents, jobs, treasury and the mayor's approval" loading="lazy"></a>
     <figcaption><code>plat</code>: Plat, a city-building game in Strata assembly: new land for
       every game, roads, power lines and plants, zones for homes, shops and industry that grow
-      while they have power, a road and demand; taxes, upkeep, five zoom levels, and the town
-      kept in a file with its population as an attribute.
+      while they have power, a road and demand; rail, police, fire, parks, solar power; maps of
+      pollution, crime, traffic and land value; a budget, advisers and a yearly paper; five
+      zoom levels, and the town kept in a file with its population as an attribute.
       <a href="play/?run=plat"><b>Play it in your browser&nbsp;&rarr;</b></a></figcaption>
   </figure>
   <figure class="shot wide">
@@ -296,8 +305,46 @@ c2 /bin/cc: same</pre>
   </div>
 </section>
 
+<section id="stratalk" class="section">
+  <h2><span class="num">06</span>Stratalk, a Smalltalk</h2>
+  <div class="split">
+    <div>
+      <p>A Smalltalk whose object memory follows the machine. New objects are made <b>near</b>, in a
+        nursery in the core's data store; the survivors are written out to far memory in <b>one
+        transfer</b>. Far objects are read through a software cache on <code>ltag</code> /
+        <code>linst</code>, and every far store is a transfer you can count. Frames page out to a far
+        stack when recursion runs deep, and a JIT written in Stratalk compiles hot methods into code
+        units that StrataOS pages into the instruction store.</p>
+      <ul class="ticks">
+        <li>Pharo's syntax, closures with non-local return, ANSI exceptions, large integers</li>
+        <li>A compiler written in Stratalk, checked byte for byte against the bootstrap one</li>
+        <li>A REPL with completion; files; a workspace, class browser and inspector in the window server</li>
+        <li>Every StrataOS server's messages as classes, generated from their specifications</li>
+      </ul>
+      <p><a href="stratalk/">The classes, the examples and a playground →</a></p>
+    </div>
+    <div class="terminal">
+<pre><code data-session>strata$ stratalk
+st> 100 factorial printString size
+158
+st> [10 / 0] on: ZeroDivide do: [:e | e messageText]
+'division by zero'
+st> (1 to: 10) inject: 0 into: [:a :b | a + b]
+55
+st> Smalltalk vm at: 'scavenges'
+49</code></pre>
+    </div>
+  </div>
+  <figure class="shot">
+    <img src="img/stratalk-browser.png" alt="The Stratalk class browser in a window of the StrataOS window server" loading="lazy">
+    <figcaption><code>stratalk -b</code>: the class browser, a client of the window server written in
+      Stratalk; the source comes from the kernel's files on the disk.
+      <a href="play/?run=stratalk"><b>Try Stratalk in your browser&nbsp;&rarr;</b></a></figcaption>
+  </figure>
+</section>
+
 <section id="play" class="section">
-  <h2><span class="num">06</span>Try it in your browser</h2>
+  <h2><span class="num">07</span>Try it in your browser</h2>
   <div class="card accent">
     <p>The reference emulator, compiled to WebAssembly. Boot StrataOS on 12 cores and type at its
       shell, watch eight cores draw a Mandelbrot set into the framebuffer, or define words in Forth
@@ -307,7 +354,7 @@ c2 /bin/cc: same</pre>
 </section>
 
 <section id="build" class="section">
-  <h2><span class="num">07</span>Run it</h2>
+  <h2><span class="num">08</span>Run it</h2>
   <p class="intro">Needs a C compiler and Verilator&nbsp;5; SDL2 is optional (for the window). Or read it first:
     the <a href="code/">source browser</a> has every assembly, Forth and C program, syntax-coloured.</p>
   <div class="cmds">
@@ -332,7 +379,7 @@ c2 /bin/cc: same</pre>
     <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
 </footer>
 
-<script src="code/syntax.js"></script>
+<script src="code/syntax.js?v=__BUILD__"></script>
 <script src="hl.js?v=__BUILD__"></script>
 </body>
 </html>

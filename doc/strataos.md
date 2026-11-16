@@ -433,8 +433,8 @@ greater length.
   slots, exit events, job records for threads being created, deadlines of
   timed waits. Commands from the system core to a worker are a job record
   plus a doorbell.
-- **Servers are processes** (user mode, scheduled like any other, each the
-  server of one core; at most one server per core):
+- **Servers are processes** (user mode, scheduled like any other, each a
+  server of one core; up to four servers per core, below):
   - `proc` (pid 1) — the process server: spawning (loading images through
     `fs`, then asking the kernel to create the process), the process tree,
     exit statuses and WAIT, KILL, signals, `ps`, scheduling figures, and
@@ -442,10 +442,24 @@ greater length.
     It is the only holder of the kernel's endpoint apart from `dev`.
   - `dev` — the device manager: holds the device root capability,
     describes the platform, hands out device capabilities (the console's
-    ports to `tty`, the disk's ports and node to `fs`, the framebuffer and
+    ports to `tty`, the disk's ports and node to `blk`, the framebuffer and
     its controller to `ws`), halts the machine.
-  - `fs` — the file server. Owns the block device. Files, directory,
-    program images.
+  - `fs` — the file server. Files, names, tags, the index, program
+    images; a client of `db`.
+  - `db` — the store (pid 5): the page cache, the trees, commits,
+    snapshots, the boot manifest, the store for programs. Reaches the
+    disk through `blk` only. The second server of `pipe`'s core: a program
+    holds endpoints for four cores only (c1..c4: `proc`'s, `fs`'s, `tty`'s,
+    `pipe`'s); `proc` and `tty` must be alone, and on `fs`'s core `db` would
+    be switched with `fs` at every call (from 8 cores `fs` is alone, so
+    that `db` can trust what comes from there). So `pipe`'s core is where
+    programs reach `db` (DBGET, DBSCAN) with no new capability; pipelines
+    and the store share it.
+  - `blk` — the block device (pid 4): runs of blocks into and out of a
+    lent buffer, no cache. The second server of `dev`'s core: `dev` runs
+    least, and `blk` is kept off `db`'s core, since `db` calls it at every
+    page it reads or writes.
+    (`doc/fs-split.md`: the interfaces, and what the split costs.)
   - `tty` — the console server. Owns the console device (output, input,
     break). Line discipline (cooked/raw), the foreground process, Ctrl-C.
     Because it keeps device reads in flight, it is alone on its core.
@@ -455,14 +469,47 @@ greater length.
   - `net` — the network server (2.10), started on demand (`net ADDRESS`,
     or by the first program that uses the network). Owns the network
     interface; alone on its core, like `tty`.
-- **Boot order.** The kernel itself loads `proc`, `dev` and `fs` from the
-  disk (with the firmware's block routines: `fs` must exist before anything
-  can be loaded through it) and creates them on cores 1, 2 and 3. `proc`
-  then starts `tty` and `pipe` as servers on the next free cores, then
-  `sh -l` (restarted, with the console back in cooked mode, whenever it
-  exits). So the system needs **at least 6 cores**: the system core and
-  five server cores; the shell and other programs share server cores when
-  there are no others. `make boot` uses 12.
+- **Boot order.** The kernel itself loads `dev`, `blk`, `db`, `fs` and
+  `proc` from the disk (with the firmware's block routines: `fs`, and the
+  store under it, must exist before anything can be loaded through it) and
+  creates them: `proc` on core 1, `dev` and `blk` on core 2, `fs` alone
+  on core 3 (from 8 cores on; a busy server on fewer), `db` on core 5
+  (`blk` and `db` as their core's second server, index 1). One that sends to another before that one runs asks again until it
+  does (a request to a server that is not there yet comes back -1).
+  `proc` then starts `tty` and `pipe` as servers on the next cores without
+  a server (4 and 5), then `sh -l` (restarted, with the console back in
+  cooked mode, whenever it exits). So the system needs **at least 6
+  cores**: the system core and five server cores; the shell and other
+  programs share server cores when there are no others. `make boot` uses
+  12.
+- **Several servers on a core.** A core keeps up to four servers, by
+  index (CREATE's flags, bits 12..13). A request names its server in
+  header word 48: `0x53 << 56 | index` (byte 7 is 'S'; anything else means
+  index 0, the server the core is known by, so a client of one server per
+  core never sets it). Each server has its own count of queued requests
+  and its own request held in c6 (PARK), and only its own queued and parked
+  requests go back with -1 when it ends. A server of index 1..3 does not
+  keep a server of index 0 away from its core, nor count as a process when
+  a program is placed (servers mostly wait). A busy server (CREATE flag
+  bit 14: db, and `ws`, whose `term`s would otherwise be switched with it
+  at every frame) does count, heavily: a program goes to its core only when
+  no other core has room. From 8 cores on, `fs` is alone on its core (no
+  program is ever placed there), which is what lets `db` trust a request
+  coming from it; on fewer it is a busy server and shares its core.
+- **Forwarding.** A server may pass a request it holds on to another
+  server instead of answering it: REPLY with the other server's core as
+  the token gives the buffer there, where it is a request like any other
+  (its sender stamped from the buffer: the program, not the server that
+  forwarded it; header word 48 names the server). The forwarding server
+  does not wait. Who answers, and to which core, is the two servers'
+  agreement: `fs` forwards a program's DBGET, DBSCAN and DBBATCH to `db`
+  with the program's core in header word 56, and `db` takes that word
+  only from a request that comes from `fs`'s core (where nothing else
+  runs) and is not `fs`'s own, then answers the program itself: three
+  messages and no copy where a relay is four and two copies. On fewer than
+  8 cores `fs` shares its core and relays them instead. A forwarded
+  request that finds the other server's queue full comes back to the
+  forwarding core and is sent on again until there is room.
 - **Every process time-shares worker cores**, preemptively; there are no
   exclusive cores. A StrataOS program (second code word `"SYS2"`) is one
   thread with no core window. A **multi-threaded process** (`-n N`, and
@@ -536,14 +583,39 @@ and **the parts of its Local Stores it uses**. On a switch the dispatcher:
    **c8..c15 are a thread's own only while it is not
    switched out** (the dispatcher borrows c8 and c9 during a trap and
    gives them back); they do not survive a switch;
-4. copies the used D-LS out to the thread's **save area** in its arena:
-   the data extent (a StrataOS program's data section; for a bare-metal
-   program, which may use any address, all of 0..0x9FFF) and the live stack
-   (sp..0x10000) — not the whole 64 KiB;
-5. restores the next thread: D-LS back in, **code reloaded from the
-   process's image** in its arena (code is never saved: it is read-only),
-   the code units its cache held put back into their slots and mapped
-   again, capabilities, registers, `eret`.
+4. leaves the thread's D-LS where it is: a thread **stays resident**
+   (below) while it is switched out, and its D-LS is copied out to its
+   **save area** in its arena only when it is evicted: the data extent
+   (a StrataOS program's data section; for a bare-metal program, which
+   may use any address, all of 0..0x9FFF) without a scratch range, and
+   the live stack (sp..0x10000);
+5. loads the next thread: its D-LS back in only if it was not resident,
+   **code reloaded from the process's image** in its arena (code is never
+   saved: it is read-only), the code units its cache held put back into
+   their slots and mapped again, its Local Store windows, capabilities,
+   registers, `eret`.
+
+**Resident threads.** The program part of a worker's D-LS (1 KiB units
+0..39 and 56..63, 48 KiB) is shared out in slices: a thread gets a data
+slice as large as its data extent (whole KiB; all 40 for a bare-metal
+program) and an 8 KiB stack slice, anywhere in that part, and keeps them
+while it is switched out. The Local Store windows map its addresses onto
+them: `wdata` takes [0, extent) to its data slice and `wstack`
+[0xE000, 0x10000) to its stack slice, so the program sees the same
+addresses as ever, and cannot reach another thread's slices or the
+kernel's part. A switch to a resident thread moves no D-LS byte. A thread
+that has no slices gets free units; when there are not enough, the
+threads that ran least recently on the core are **evicted** (saved, as
+step 4 says; a dead thread's units are just taken back) until there are.
+Two small programs (`cat` and `wc`, two `spin`s) fit side by side and
+switch for nothing but their code; two that do not (`pipe` and `db`,
+whose extents are 35 and 40 KiB) evict each other on every switch. The
+bookkeeping is the worker extension (`os/kunits/wext.s`): code in the
+kernel's far image that `wboot` copies to I-LS 0x7700 (core 0's own code
+there is never run on a worker; the worker's resident part has no room
+left), through a share of the far image core 0 gives each worker. The
+code is not relocated: `wcode` stays I-LS [0x8000, 0x10000), and every
+switch reloads the incoming thread's code, as before.
 
 Nothing waits for the transfers of steps 4 and 5. A far atomic, `cgive`
 and `csend` wait until none of the core's memory transfers is in flight
@@ -555,11 +627,12 @@ effect, on the Local Store side as well as the far side, in issue order
 (invariant I2 of the manual's execution model), so the restore that
 follows cannot overtake it, and a store that would overwrite bytes the
 save still reads waits (I1). The next thread's code goes first (it is
-the I-LS, which the save does not read), then the save (tg14 data, tg15
-stack), then the restore (tg12 data, tg13 stack; a first load's data
-and a code mirror on tg14); with tags of their own no issue waits for a
-busy tag, only, past the fourth, for room in the Transfer Unit's
-four-entry queue, i.e. for the code and then the save to have moved.
+the I-LS, which no save reads), then the evicted threads' saves (tg14
+data, tg15 stack), then, for a thread that was not resident, the restore
+(tg12 data, tg13 stack; a first load's data and a code mirror on tg14);
+with tags of their own no issue waits for a busy tag, only, past the
+fourth, for room in the Transfer Unit's four-entry queue, i.e. for the
+code and then the saves to have moved.
 The thread then runs while its
 D-LS and code stream in: by the as-if-synchronous rule it cannot tell,
 since a load, store or fetch that touches bytes still arriving waits for
@@ -596,24 +669,21 @@ Two calls let a program reduce or correct what a switch does:
   program's code). It costs the cache's bytes per switch-in, which the
   switch counts in its KiB moved; `units` and `forth units.fs` show it.
 
-**What the next process may see.** What a switch leaves out (the D-LS
-above the data extent, below the live stack, a scratch range) still
-holds the previous thread's bytes. The dispatcher remembers whose bytes
-its D-LS holds (`w_dpid`): when it loads a thread of another process, and
-on a thread's first load, it restores the whole program D-LS,
-[0, 0xA000) and [0xE000, 0x10000) (48 KiB in two `tget`s), from the save
-area instead of only the extent and the stack. Outside those, the save
-area holds zeros (the arena is scrubbed when MEMORY hands it out, CREATE
-takes only such arenas, the program cannot reach its save area, and a
-switch writes there only the extent and the live stack) or older bytes of
-the same thread: never another process's. A first load takes the zeros
-and then the image's data section on top (transfers act in issue order),
-replacing a 40 KiB store loop (about 46,000 RTL cycles). A thread that
-returns to a core where nothing else ran meanwhile gets back only its
-extent and stack, as before. `tools/test-isolate.sh` checks it: two
-copies of `tools/dlsgap.s` pinned to one core, one filling its gaps with
-a pattern, the other looking for it in its own at its first load and
-after each of 8 switches back.
+**What the next process may see.** Only its own slices: the windows keep
+every other unit out of its reach. Units it is given anew may hold an
+evicted or dead thread's bytes, so a thread that was not resident gets
+both slices filled whole from its save area (its data window and 8 KiB
+of stack, two `tget`s), not just the extent and the live stack. Outside
+those, the save area holds zeros (the arena is scrubbed when MEMORY hands
+it out, CREATE takes only such arenas, the program cannot reach its save
+area, and an eviction writes there only the extent and the live stack)
+or older bytes of the same thread: never another process's. A first load
+takes the zeros and then the image's data section on top (transfers act
+in issue order). `tools/test-isolate.sh` checks it: two copies of
+`tools/dlsgap.s` pinned to one core, one filling what a switch does not
+keep (its data window above the extent, its stack below sp, its scratch
+range) with a pattern, the other looking for it in its own at its first
+load and after each of 8 switches back.
 
 Not covered, and why:
 - **The I-LS** above a program's resident code and its code units still
@@ -623,15 +693,37 @@ Not covered, and why:
   overlay map, which every switch-in clears. A program could only jump
   into it and execute it; overwriting it would cost up to 32 KiB of
   far-bus traffic per switch.
-- **The Local Stores have no user/supervisor protection.** User-mode
-  loads, stores and `tgetx` reach every address, including the
-  dispatcher's data at 0xA000..0xDFFF (the records, and so the saved
-  registers, of the other threads on the core) and its code. Isolation
-  between the processes of one core is therefore against disclosure to
-  programs that read memory they did not write, not against a hostile
-  program; that needs a hardware bound on user-mode Local Store
-  addresses, which the ISA does not have. Far memory is protected by
-  capabilities either way.
+
+**The kernel's part of the Local Stores is out of reach.** The Local
+Store windows (the CSRs `wdata`, `wstack`, `wcode`; the manual's "Local
+Store windows") give a thread its own slices and its code, I-LS
+0x8000..0xFFFF, and nothing else. A user-mode load, store, transfer,
+`ltag`/`linst`, `xmap` or fetch outside them traps (`lsfault`, `ifault`),
+so a program can neither read nor write the dispatcher's data at
+0xA000..0xDFFF (the records, and so the saved registers, of the other
+threads on the core) or another thread's slices, nor copy code over the
+kernel's or jump into it; the fault ends it like any other.
+`tools/test-isolate.sh` checks it with `tools/lsprot.s`, which tries each
+way in, and one more: past its own data window. Far memory is protected
+by capabilities either way. A program that reaches past its data extent
+or below 0xE000 with its stack now faults instead of writing over
+whatever was there.
+
+**What a switch moves.** Measured between two `uptime`s, 8 cores,
+`-T virtual` (`doc/ls-windows.md` has the sessions), KiB per switch:
+
+| Workload | Copying every switch | Resident threads |
+|---|---:|---:|
+| two `spin`s pinned to one core | 69.8 | 13.6 |
+| `cat /src/cc.c` | 66.5 | 14.6 |
+| `cp /src/cc.c /x` | 69.9 | 14.3 |
+| `cat \| wc`, both on one core | 80.7 | 40.4 |
+| `cat \| upper \| wc`, all on one core | 75.9 | 39.2 |
+| `cc -o hi /src/hi.c` | 78.2 | 61.9 |
+
+What is left is the code, reloaded on every switch, and the evictions
+where two threads do not fit side by side (`pipe` and `db` on one core,
+`cc`). `doc/ls-switch.md` has the analysis that led here.
 
 **The arena** (1 MiB unless the spawner asked for more, whole 256 KiB
 granules, zeroed when handed out), for a process with N threads, with
@@ -697,7 +789,8 @@ stack of its own in its data).
 A message is a **lent buffer capability**. A program owns a 4 KiB message
 buffer (the last 4 KiB of its arena, `c5`): request header 0 op, 8 handle,
 16 length, 24 mode, 32 result, **40 the sender's pid** (stamped by the
-receiving core's dispatcher, so servers can trust it), 48..63 reserved,
+receiving core's dispatcher, so servers can trust it), 48 which of the core's servers it is for
+(2.1: `0x53 << 56 | index`; anything else is the first), 56..63 reserved,
 data from 64 (≤ 4032 bytes). A reply is the same buffer coming back with
 the result filled in.
 
@@ -763,11 +856,12 @@ the result filled in.
   4. a capability sent by a core inside the window of a local
      multi-threaded process: a gift between its threads, queued (with its
      sender) for the emulated `ctake`;
-  5. a 4 KiB memory capability otherwise: a request for the core's server.
-     It is queued (8 at most) with any attachment waiting from the same
-     sender, and the sender's pid is stamped into its header. On a core
-     without a server, or with a full queue, it is given back at once with
-     result -1;
+  5. a 4 KiB memory capability otherwise: a request for the server of
+     the core its header word 48 names (2.1, "Several servers on a core").
+     It is queued (16 at most, for all the core's servers) with any
+     attachment waiting from the same sender, and the sender's pid is
+     stamped into its header. On a core without that server, or with a
+     full queue, it is given back at once with result -1;
   6. anything else: an attachment. It travels with the next message from
      the same sending core.
 
@@ -875,7 +969,7 @@ Common error results: -1 failed / invalid, -2 interrupted, -3 would block,
 
 | op | name | in | out |
 |---|---|---|---|
-| 5 | SPAWN | data: u64 thread count (0 or 1 = one thread, N = N threads on N cores), three handle descriptors (server register << 32 \| server id; the caller's handles that become the child's 0/1/2; -1 none), then "prog args...\0"; length = the text's length; mode bit 0 = no server endpoints (a sandboxed child), bit 1 = pin to core (mode >> 8) & 255, mode >> 16 = the arena's size in MiB (0: 1 MiB; the shell's `-m N`) | pid; -4 no such program, -5 no free core, -6 no memory. A program whose name is exactly `ws` is created as the server of the lowest empty core (-5 if there is none) |
+| 5 | SPAWN | data: u64 thread count (0 or 1 = one thread, N = N threads on N cores), three handle descriptors (server register << 32 \| server id; the caller's handles that become the child's 0/1/2; -1 none), then "prog args...\0"; length = the text's length; mode bit 0 = no server endpoints (a sandboxed child), bit 1 = pin to core (mode >> 8) & 255, mode >> 16 = the arena's size in MiB (0: 1 MiB; the shell's `-m N`) | pid; -4 no such program, -5 no free core, -6 no memory. A program whose name is exactly `ws` is created as the server of the lowest empty core, a busy one (-5 if there is none) |
 | 6 | WAIT | handle = pid (0 = any child), mode bit 0 = do not block | exit status (bits 0..31 code, bit 62 killed, bit 63 faulted with the cause in 0..7), data[0] = pid; -3 still running, -2 interrupted, -1 no child |
 | 7 | KILL | handle = pid | 0 |
 | 9 | PS | | count; data: 32-byte records u8 pid, state (1 running, 2 ready, 3 blocked, 4 zombie), core, parent, flags (2 = server), threads; 2 reserved; u32 switches, u32 KiB moved by switches; 16 bytes name |
@@ -909,7 +1003,7 @@ CLEANUP to the servers and completes the parent's WAIT.
 | 23 | DEVS | count; data: the platform table's 32-byte entries |
 | 24 | HALT | asks the kernel to stop every core (does not return) |
 | 26 | GRANT_FB | 0, the framebuffer memory (the whole 16 MiB window) in the caller's c6 and a device capability for the controller's ports 0x4000..0x400F in c7. -5 unless the caller is the process registered as "ws" (`dev` asks `proc`: WHOIS); -7 while a live process holds it; -1 if the machine has none. There is no operation to give it back: the kernel revokes it when the holder ends, however it ends, and the next `ws` gets a fresh one |
-| 30 | GETDISK | (for `fs`) a window on the block device's ports (c6) and a send-only endpoint to the device's node (c7) |
+| 30 | GETDISK | (for `blk`) a window on the block device's ports (c6) and a send-only endpoint to the device's node (c7) |
 | 31 | GETCON | (for `tty`) a window on the console's ports 0x0000..0x00FF (c6) |
 | 21 | GETPTR | (for `tty`) a window on the pointer's ports 0x4100..0x410F (c6); -1 if the machine has none |
 | 22 | GETSND | (for any program) a window on the sound device's ports 0x4300..0x4317 (c6); -1 if the machine has none |
@@ -997,7 +1091,10 @@ records, are gone: no program used them any more. Every call answers -5 when
 the disk cannot be read as a store or a page of it fails its checksum.
 
 **The disk is a store.** `fs` keeps nothing on the disk but trees of the
-store it is built on (`os/servers/store.s`, `storew.s`, `sblob.s`;
+store it is built on, which is another server's, `db` (`os/servers/db.s`,
+with `store.s`, `storew.s`, `sblob.s`; `db` reaches the disk through `blk`;
+`fs`'s calls of the store are messages to `db`, `os/servers/dbcall.s`, and
+`doc/fs-split.md` has the interfaces and what the split costs;
 `doc/strata-fs-proposal.md` has the design, `tools/stdb/store.c` and
 `fsl.h` the format): ordered key-value B+trees, copy-on-write, in
 namespaces. Its own namespace, `fs`, holds the files' records by object
@@ -1014,10 +1111,23 @@ is the close of a written file; a long write commits every MiB. A commit
 holds the bytes of one writer at most: when another program writes, or
 anything else changes, they are committed first. So when the disk fills
 up, the file that did not fit is given up (it stays as it was, its space
-comes back when it is closed) and nothing else is lost. The
-server works on trees larger than its Local Stores through a cache of 124
-pages in far memory and three page buffers in its D-LS. A boot object
-(`proc`, `dev`, `fs`: what the boot manifest lists) can be written from
+comes back when it is closed) and nothing else is lost. A full disk is
+never stuck: a change that grows the store stops 128 free pages short,
+64 for the allocator's own trees and 64 more that only a change which
+frees space may use (UNLINK, a snapshot deleted, a program's batch of
+deletes: `fs` marks its calls with header word 48 bit 32), since a delete
+copies pages before it frees any. `df` counts those pages as free. The
+store's server, `db`, works on trees larger than its Local Stores through a
+cache of 124 pages in far memory and three page buffers in its D-LS; `fs`
+reads ahead (a walk over a tree is answered from one SCAN of up to 4 KiB of
+records), keeps a cache of the small values it has asked db for (its own
+writes go through it, so it is never stale; a failed call empties it), and
+sends its puts, deletes, writes of at most 512 bytes and renames of a
+file's contents with its next call, as items after that call's data
+(`os/spec/db.toml`): a file made by `echo > f` costs fs one GET and the
+COMMIT. A write that travels this way and fills the disk is reported by
+the next call on the file, CLOSE at the latest. A boot object
+(`proc`, `dev`, `fs`, `blk`, `db`: what the boot manifest lists) can be written from
 inside the OS (`cp new-fs /sys/fs`): at its close its contents are brought
 into one run of pages and the manifest is written anew, in the same
 commit, so the next boot loads the old server or the new one. It cannot be
@@ -1065,7 +1175,11 @@ answered from the index (only the files with that value are read), while
 programs.** A program can keep data of its own in the store, beside the
 file system: in a namespace of its own, in named trees of keys and values
 (bytes, in key order; a key up to 480 bytes, a value up to about 1,000,
-with 4 KiB pages). Three fs calls do it; each request's data starts with
+with 4 KiB pages). Three calls of `db` do it, sent to `fs`, which
+forwards them to `db` (`db` answers the program), or, for DBGET and
+DBSCAN, to `db` itself through the endpoint for `pipe`'s core with header
+word 48 = `0x53 << 56 | 1` (DBBATCH only through `fs`: it then falls
+between two of `fs`'s requests); each request's data starts with
 {u8 namespace name length, u8 tree name length, u16 key length, u32 0} and
 the two names: 64 DBGET (then the key) → the value; 65 DBSCAN (then a key;
 mode 0 from it on, 1 after it) → as many records {u16 key length, u16
@@ -1180,7 +1294,8 @@ which its start-up code loads into the arena and the dispatcher pages from
 there, and `/bin/cc.lib` (the library, its headers, the instruction table
 of `asm("...")`). `cc` is `lang/cc/cc.c` compiled by itself. The bootstrap
 compiler in assembly, `cc0` (with `/bin/cc0.lib`), and the compiler's
-source, `/src/cc.c`, are on the disk too, beside the C examples (`hi.c`,
+source, `/src/cc.c`, are on the disk too (and `cc0`'s, `cc.s`, the `cc-*.s`
+beside it and its runtime, in `/src/cc`), beside the C examples (`hi.c`,
 `calc.c`, `asm.c`, `sort.c`, `math.c`, `vla.c`, `cmp.c`): `cc0 -p -h 0 -o cc1 /src/cc.c` compiles the
 compiler on the machine.
 
@@ -1263,7 +1378,10 @@ takes a timeout and a tag mask. `ws` and `sh` never busy-wait the CPU.
 Programs write plain bytes to stdout. The console passes them to the host
 terminal; `term` windows interpret this subset and ignore other
 escape sequences: `\n`, `\r`, `\b`, `\t`; ESC [ K; ESC [ n C / D; ESC [ 2 J;
-ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47;
+ESC [ H; ESC [ r ; c H; ESC [ ... m with 0, 1, 30–37, 90–97, 40–47, 7
+and 27 (reverse video on and off: a cell's foreground, its dim colour, or
+white for black and grey, becomes its background and its background,
+black if none, its foreground);
 ESC [ ? 25 l / h (the cursor off / on while a program draws); ESC [ 6 n
 (where is the cursor: `term` answers ESC [ row ; column R on the program's
 standard input, as a terminal would type it; `vi` learns the window's size
@@ -1541,12 +1659,18 @@ window whose process ends is removed.
   frame. `os/progs/kira.s`, `os/progs/kira/`, `os/progs/PLAN-kira.md`.
 - **`plat`**: Plat, a city-building game: a map of 128 x 128 cells seen
   from above, new land for every game (a river, lakes and woods from a
-  seed), roads (bridges over the water), power lines, zones for homes,
-  shops and offices, and industry, coal power plants and the bulldozer,
+  seed), roads and rail (bridges over the water), power lines, zones for
+  homes, shops and offices, and industry, police and fire stations, parks,
+  coal and solar power plants and the bulldozer,
   paid for from a treasury; once a month power spreads from the plants
   breadth first, zones grow or decline by power, a road in reach and
   demand, the census counts residents and jobs, taxes and upkeep move the
-  treasury. The town is kept in `/ws/plat.sav`, with its population, year
+  treasury; maps of pollution, crime, traffic, land value and the
+  stations' cover (64 x 64 bytes each, in the arena) steer growth and can
+  be shown over the town. The simulation, the tools, the budget and the
+  file are code units of 2 KiB paged in by the kernel; the band sits
+  above them, and the arena is split there (`csplit`) to lend it for
+  DAMAGE. The town is kept in `/ws/plat-1.sav (one of four places)`, with its population, year
   and funds as attributes; buttons have tooltips (the window asks `ws`
   for the pointer's moves with no button held: CREATE mode bit 1). It
   draws XRGB8888 at the window's own size, with cells of 4 to 64 pixels,
@@ -1584,7 +1708,8 @@ in `os/ws/`).
   its two meta pages, the kernel's images follow, then its trees and the
   files. The kernel does not walk trees: the newer good meta block names
   one page, the **boot manifest**, which lists the boot objects (`mkdisk
-  -B`, by default `proc,dev,fs`) as {name[16], first page, bytes}, each
+  -B`, by default `proc,dev,fs,blk,db`, files tagged `sys`: `/bin/db` is a
+  program of the server's name) as {name[16], first page, bytes}, each
   kept in one run of pages; `u_disk` checks both checksums and loads the
   servers from it. `mkdisk` fails when a boot object is not among its
   files. `mkdisk -t tag,tag...` tags the files named after it (a tag name
@@ -1808,7 +1933,8 @@ console (an ANSI terminal: `make boot`, the browser's terminal) and in a
 Forth and C in colour. FILE is a path (`/src/hello.s`, or a name under the current
 tag path); one that does not exist is created by `:w`. The screen is the
 text, a line a row (a long line scrolls the view sideways), and a status
-line: `-- INSERT --`, the file name, `[+]` when modified, line,column;
+line: `-- INSERT --` (or `-- VISUAL --`, `-- VISUAL LINE --`, `-- VISUAL
+BLOCK --`), the file name, `[+]` when modified, line,column;
 messages and the `:` and `/` lines take its place.
 
 - Moving: `h j k l` and the arrows, `w b e`, `0 ^ $`, `gg G`, `NG`, `%`,
@@ -1824,12 +1950,39 @@ messages and the `:` and `/` lines take its place.
   makes `d c y` linewise when it is a line motion (`j k G gg`); a character
   motion that leaves the line stops at its end or start (`dw` on the last
   word, `cw` changes to the end of the word).
+- Visual mode: `v` (characters), `V` (lines), Ctrl-V (a block) select from
+  the cursor to where the motions take it (every motion and count, Ctrl-F
+  and the rest, `/ ? n N`); `o` goes to the other end, `v V` Ctrl-V change
+  the kind (the same one again, Esc or Ctrl-C end it). The selection is in
+  reverse video over the text's colours (a selected newline: a cell after
+  the line). Its operators: `d x` (`X D`: the lines; `D` on a block: to
+  the ends of its lines), `c s` (`S R C` likewise), `y Y`, `> <` (a tab
+  before each line, or one tab or up to 8 spaces away; vi has no
+  shiftwidth: a level is a tab, vi's default, and a count shifts that many
+  levels), `~ u U` (case), `J`, `r` and a character (every selected byte),
+  `p P` (the register in the selection's place; the register stays), `:`
+  (the command line with `'<,'>` typed), and on a block `I` and `A` (the
+  text typed before or after the block on each of its lines; `A` after `$`:
+  at the ends of the lines, short lines padded with spaces) and `c`.
+  Characters yanked over lines are put back with the line split (`p P`);
+  a block is put as a block, at the cursor's column on its line and those
+  below. Each operation is one change for undo, and `.` does it again on
+  as many lines and bytes (columns) from the cursor. `gv` selects the last
+  selection again, whose ends are the marks `'<` and `'>` (`'<` and `` `< ``
+  are motions too). In a `term` window vi asks for mouse reports (ESC [ ?
+  1000 h): a click puts the cursor there, a release elsewhere selects from
+  the click to it (`term` reports presses and releases, not the moves
+  between, so the selection shows when the button comes up), the wheel
+  scrolls three lines.
 - Searching: `/text` and `?text` (plain text), `n`, `N`; the search goes
   round the end of the file and says so.
 - `:w`, `:w NAME` (the buffer keeps its name unless it had none), `:q`,
   `:q!`, `:wq`, `:x` and `ZZ` (written only if modified), `:e NAME`, `:e!`,
   `:N` (line N), `:set nu` / `:set nonu` (line numbers), `:syntax on` /
-  `:syntax off`. Ctrl-L asks the terminal its size and draws everything
+  `:syntax off`, `:d` and `:y` (lines). A range before a command: `N`,
+  `N,M`, `%`, `.`, `$`, `'<`, `'>` (`:'<,'>d`); alone it goes to its last
+  line; `:'<,'>w NAME` writes those lines to NAME (to the buffer's own
+  file only with `!`). Ctrl-L asks the terminal its size and draws everything
   again; Ctrl-G shows the file and its size.
 - **Highlighting.** `.s` is Strata assembly, `.fs` Strata Forth, `.c` and
   `.h` C; another name is plain unless the file carries the tag `src`
@@ -1909,14 +2062,15 @@ messages and the `:` and `/` lines take its place.
   split when the file is read); 96 KiB in the register; a change bigger
   than the 224 KiB history cannot be undone (the history before it goes).
   Every line is written with a newline after it.
-  No counts on inserts, no `f t`, no marks or named registers, no regular
-  expressions.
+  No counts on inserts, no `f t`, no marks but `'<` and `'>`, no named
+  registers, no regular expressions (and so no `:s`), no text objects.
 - **In Forth.** `forth vi.fs FILE` (or `include vi.fs` at the Forth prompt,
   then `vi FILE`) is the same editor written in Strata Forth
   (`lang/forth/vi.fs`, with `vi-text.fs` and `vi-edit.fs`; the README there
   has the details): the same keys, modes, highlighting (C too) and
   screen; given the same keys it writes the same files, and it draws the
-  same C frames (`tools/test-vic.sh -f`). Its code (about 68 KiB) is several
+  same C frames (`tools/test-vic.sh -f`) and visual mode's
+  (`tools/test-viv.sh -f`). Its code (about 68 KiB) is several
   times a program's I-LS: like everything Forth compiles, it is in code
   units the dispatcher pages into Forth's code cache (the units above, and
   the README's "Code paging"). Its text is in Forth's far heap:
@@ -2018,7 +2172,7 @@ demo/test guest images (`os/guests/`).
 
 #### The grant
 
-`guest [-d] <image> [cores] [MiB]` asks `proc`, which gets an arena from the
+`guest [-d] [-p] <image> [cores] [MiB]` asks `proc`, which gets an arena from the
 kernel (`MEMORY`), loads the guest image (a bare STX: a disk file tagged
 `guest`, named `<image>` or else `<image>.g`, so `guest forth` finds
 `forth.g` beside the StrataOS program `forth`) into the top of it, and calls
@@ -2225,6 +2379,82 @@ framebuffer, no device space), nor can files or the network.
 `tools/test-guest.sh` runs a session (arithmetic, a word on the worker,
 multicore.fs, Ctrl-], `guest attach`, `bye`, `guest stop`, the cores reused).
 
+#### StrataOS as a guest
+
+StrataOS itself runs as a guest: `guest -p strataos 6 24` boots the image
+`strataos.g` (the kernel and a RAM disk, `tools/mkguestos.py`; the disk's
+contents are `os/guests/strataos/` and a few programs, see the Makefile) on 6
+cores with a 24 MiB arena and gives it the console. Its kernel, servers and
+shell are the ones the host runs; what they need from devices a guest does not
+have is stood in for as follows (`os/kunits/gmode.s` has the kernel's side):
+
+- **What it is.** The image is `kernel.stx` itself, so the host's loader puts
+  the kernel's code and data into each core's Local Stores and jumps to
+  `kentry`, which tells a guest by its `c3`: core control over the guest's
+  cores (based at `8 * corebase`) instead of the device root (based at 0). Core
+  0 then makes a share of the code units (the image's far section, which the
+  loader copied to the start of its memory) and puts the clock where the device
+  root and the console would be; there is no platform table to read (the
+  number of cores is the guest's window, the save table's and overlay map's
+  sizes come from the host's, through the loader's `a1`), no T2 (the KST goes
+  into memory), no framebuffer, pointer, network or sound.
+- **Revocation.** StrataOS gives each process an arena it revokes when the
+  process ends, which needs a revocation domain (`cdom`); but a guest's memory
+  is revocable already (the host revokes it at `guest stop`), and `cdom` takes
+  no revocable capability. So the host revokes for it. With `-p`, `GSTART`
+  makes the arena three revocation units: the guest's own memory (the first 4
+  MiB, `GN_LOW`: the code units, the KST, core 0's buffers, the RAM disk), the
+  **pool** (from there to the image), and the image region. The guest's core 0
+  revokes a range of the pool by lending the host's core 0 a buffer (`u_ghrev`,
+  op `GH_REVOKE`: the range's offset and length, whole 256 KiB granules); the
+  host revokes it (a revocation touches only the units in the range, all
+  inside the pool) and gives back the fresh capability for it, then the buffer.
+  Two gifts to a guest's core must not make the host's core 0 wait: it takes
+  such a request only on the buffer the guest used first, which the guest can
+  lend again only once it has taken both gifts back. Nothing outside the pool
+  is touched; `guest stop` revokes the whole arena as for any guest.
+- **Time.** The timer has one `DEADLINE` and its `WAIT`, the host's. The
+  guest's core 0 has only the clock, so instead of waiting on the timer it
+  looks at its inbox and the clock in turn (`u_gwait`): its core is always
+  busy. Ticks, preemption and timed waits work as on the host.
+- **The disk.** A RAM disk: a section of the image (an ordinary `mkdisk` disk)
+  that the loader copied into the guest's memory. The kernel reads its boot
+  objects from it; `dev` asks the kernel for it (`GDISK`) when `fs` asks for the
+  disk, and `fs`, seeing memory instead of a device window, copies blocks
+  instead of submitting commands. It is the guest's alone and is gone when the
+  guest stops.
+- **The console.** `dev` gives `tty` the endpoint to the host's `tty` (`GCON`)
+  instead of the console's ports, and `tty` passes its programs' `READ`s,
+  `WRITE`s and `CONMODE`s on, one at a time; the host's `tty` answers the
+  guest's reads only while the console is attached to it, and the console's
+  one mode is the guest's meanwhile (the host's shell sets its own again
+  before it reads a line). The kernel's own lines (the banner, a fault) go the
+  same way, and `halt` in the guest closes the console when its cores have
+  stopped, so the console comes back to the host's shell (`guest stop` then
+  takes the cores back). The host's dispatcher answers on a core outside the
+  guest's window, which `cpoll` does not show: a guest's dispatcher takes such a
+  gift when `tany` says the inbox holds one and `cpoll` shows none.
+- **Core numbers.** Endpoints name physical nodes, but the guest's kernel numbers
+  its cores 0..N-1 (its window). The dispatcher keeps the window
+  (`w_cbase`, `w_ccount`): it restores it on every trap where the host's
+  kernel sets 0, adds `corebase` to a window's base and to the node of every
+  endpoint it mints for a core of the guest, and takes it off the node of an
+  endpoint it reads (`svc SEND`). A guest's worker tells its core 0 when it runs
+  the guest's code (until then the host's dispatcher on that core would drop
+  what the guest's core 0 gives it).
+
+Limits: it needs 6 cores for itself besides the host's 6, so a 12-core machine
+(as `make boot`; not the RTL's 8); its core 0 is always
+busy; the disk is a RAM disk of 3 MiB, lost when it stops, with the servers and
+a few programs (no `vi`, compilers or sources); there is no Ctrl-C (the host's
+Ctrl-C detaches the console), no framebuffer, network or sound in it; it runs
+no guests of its own (`GSTART` is refused); without `-p` the image does not
+even load (the host keeps 256 KiB for an image, 2 MiB with `-p`). A guest
+StrataOS is as confined as any guest: everything it holds is in its arena, and
+`guest stop` ends it. `tools/test-guest-os.sh` runs a session (the boot, a
+listing, a pipeline, a file written and read back, `ps`, Ctrl-], `guest stop`,
+the cores reused; then a second guest StrataOS halted from inside).
+
 #### Visibility
 
 A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
@@ -2307,6 +2537,14 @@ A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
   any non-blank byte) fails it. `tools/test-vic.sh -f` runs the same
   sessions with the Forth editor (`forth vi.fs`) and compares its frames
   with the same file.
+- `tools/test-viv.sh`: visual mode. Copies of one file are edited with each
+  kind of selection and each operator (undo, redo and `.` after them, `:`
+  on `'<,'>` with `:d :y :w`, block `I A c`, `gv`, `o`, `'<`, a selection
+  made with mouse reports typed on the console, the wheel); the frame at
+  the end of each stretch of visual mode (reverse video and colours, the
+  status line) and the files written are compared with
+  `tools/test-viv.out`. `-f` runs the same keys with `forth vi.fs` against
+  the same file.
 - `tools/test-nav.sh`: the file navigator. A scripted console session
   (`-j -T virtual`) copies a file into the other panel, answers F8's
   question n and then y, tags a file with the other panel's tag (F2) and

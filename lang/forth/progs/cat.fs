@@ -5,11 +5,13 @@
 \ NAME" and exit code 1, after the others are copied.
 [defined] sys.fs 0= [if] include /sys.fs [then]
 
-create ln 4000 allot                            \ a line of standard input
+4000 constant /line
+create ln /line allot                           \ a line of standard input
+: copy ( id -- ) begin dup inb read dup 0> while inb swap type repeat drop close ;
 : cat-file ( a u -- )
-  2dup 0 open dup 0< if drop s" cat: no such file: " +e +e e! 1 status ! exit then
-  nip nip >r begin r@ inb read dup 0> while inb swap type repeat drop r> close ;
+  2dup 0 open  dup 0< if drop s" cat: no such file: " complain exit then  nip nip copy ;
+: cat-stdin ( -- ) begin ln /line in-line dup 0< 0= while ln swap type cr repeat drop ;
 : cat-main ( a u -- )
-  dup 0= if 2drop begin ln 4000 in-line dup 0< 0= while ln swap type cr repeat drop exit then
+  dup 0= if 2drop cat-stdin exit then
   begin arg dup while cat-file repeat 2drop 2drop ;
 ' cat-main main: cat

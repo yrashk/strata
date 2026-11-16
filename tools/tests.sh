@@ -49,6 +49,8 @@ t nav-ws       mid  build-main "emu os" "tools/test-nav.sh -w $OS"
 t vic          fast build-main "emu os" "tools/test-vic.sh $OS"
 t vifs         mid  build-main "emu os" "tools/test-vifs.sh $OS"
 t vicfs        mid  build-main "emu os" "tools/test-vic.sh -f $OS"
+t viv          fast build-main "emu os" "tools/test-viv.sh $OS"
+t vivfs        mid  build-main "emu os" "tools/test-viv.sh -f $OS"
 t fs-progs     mid  build-main "emu os" "tools/test-fs-progs.sh $OS"
 t store        mid  build-main "emu os stdb" "tools/test-store.sh $OS"
 t files        fast "build-main build-test-disks" "emu stdb" 'tools/test-files.sh $B/bootrom.stx $B/files-test/disk.img'
@@ -62,6 +64,7 @@ t preempt      fast build-main "emu os" "tools/test-preempt.sh $OS"
 t forth-os     fast "build-main build-test-disks" "emu os \$B/forth-test/disk.img lang/forth/tests" 'lang/forth/tests/run-os.sh'
 t isolate      mid  "build-main build-test-disks" "emu" 'tools/test-isolate.sh $B/bootrom.stx $B/isol-test/disk.img'
 t guest        mid  build-main "emu os" "tools/test-guest.sh $OS"
+t guest-os     mid  build-main "emu os" "tools/test-guest-os.sh $OS"
 t procs        full build-main "emu os" "tools/test-procs.sh $OS"
 t boot-jit     mid  build-main "emu os" "tools/test-boot-jit.sh $OS os/demo.txt"
 t wdb          mid  build-main "emu os" "tools/test-wdb.sh $OS"
@@ -74,7 +77,29 @@ t web-os       fast build-main "os/kernel.s os/kunits os/servers os/ws os/lib si
 #      programs; the bootstrap (cc0 compiles cc.c, which reproduces itself)
 t cc-ladder    mid  build-main "emu os lang/cc/tests/ladder.py lang/cc/tests/ladder" 'CC_OUT=$B/test-cc-ladder lang/cc/tests/run.sh -f lang/cc/tests/ladder/FAST.txt'
 t cc           mid  build-main "emu os" "tools/test-cc.sh $OS"
+t cc-own       mid  build-main "emu os lang/cc/tests/ladder.py lang/cc/tests/own" 'CC_OUT=$B/test-cc-own lang/cc/tests/run.sh lang/cc/tests/own/*.c'
 t cc-boot      mid  build-main "emu os" "tools/test-cc-boot.sh $OS"
+
+# ---- Stratalk (lang/stratalk): the test vectors under StrataOS; the compiler in
+#      the image against the host's, every method; the server classes as os/spec
+#      gives them; the vectors on the host's reference interpreter
+t stratalk       mid  build-main "emu os lang/stratalk" 'lang/stratalk/tests/run.sh'
+t stratalk-jit   mid  build-main "emu os lang/stratalk" 'lang/stratalk/tests/run.sh -j'
+t stratalk-window mid build-main "emu os lang/stratalk" 'lang/stratalk/tests/window.sh'
+t stratalk-examples mid build-main "emu os lang/stratalk" 'lang/stratalk/tests/examples.sh && lang/stratalk/tests/examples.sh -h'
+t stratalk-check mid  build-main "lang/stratalk os/spec" 'python3 lang/stratalk/host/stratalk.py check $B/stratalk/stratalk.image lang/stratalk/kernel/LOAD && python3 lang/stratalk/host/osgen.py --check lang/stratalk/kernel/OSServers.st'
+t stratalk-host  mid  build-main "lang/stratalk" 'lang/stratalk/tests/run.sh -h'
+# the site's Stratalk page: every class and method described; the comments'
+#      examples (EXPR >>> RESULT) as the REPL prints them under StrataOS
+t web-stratalk  fast build-main "lang/stratalk doc/manual/gen/genstratalk.py" 'python3 doc/manual/gen/genstratalk.py --check'
+t stratalk-doc  mid  build-main "emu os lang/stratalk doc/manual/gen/genstratalk.py" 'lang/stratalk/tests/doc.sh'
+# ---- Stralog, the Prolog (lang/stralog): scripted sessions under StrataOS
+t stralog      fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/run.sh session $OS"
+t stralog-bi   fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/run.sh builtins $OS"
+t stralog-files fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/run.sh files $OS"
+t stralog-demos fast build-main "emu os lang/stralog/tests lang/stralog/examples" "lang/stralog/tests/run.sh demos $OS"
+t stralog-iso  fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/run.sh iso $OS"
+t web-stralog   fast build-main "lang/stralog doc/manual/gen/genstralog.py" 'python3 doc/manual/gen/genstralog.py --check'
 
 # ---- the framebuffer, the JIT, the debuggers --------------------------------------
 t fb           mid  build-main "emu rtl" 'tools/test-fb.sh $B/examples/gfx.stx'

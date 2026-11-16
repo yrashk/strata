@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Strata source</title>
-<meta name="description" content="Every Strata assembly, Forth and C program in the repository, syntax-coloured: the examples, the StrataOS kernel, servers and programs, the self-hosted assembler, the firmware, Strata Forth and the conformance tests.">
+<meta name="description" content="Every Strata assembly, Forth, C, Stratalk and Prolog program in the repository, syntax-coloured: the examples, the StrataOS kernel, servers and programs, the self-hosted assembler, the firmware, Strata Forth, Stratalk, Stralog and the conformance tests.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="icon" href="../favicon.ico" sizes="32x32">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../apple-touch-icon.png">
-<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="../style.css?v=__BUILD__">
 <link rel="stylesheet" href="../hl.css?v=__BUILD__">
-<link rel="stylesheet" href="code.css">
+<link rel="stylesheet" href="code.css?v=__BUILD__">
 </head>
 <body class="src-page">
 
@@ -24,8 +24,15 @@
     <a href="../arch/">Architecture</a>
     <a href="../isa/">Instructions</a>
     <a href="../os/">OS</a>
-    <a href="../forth/">Forth</a>
-    <a href="../c/">C</a>
+    <div class="menu">
+      <span class="menu-btn" tabindex="0" aria-haspopup="true">Languages</span>
+      <div class="drop">
+        <a href="../forth/">Forth</a>
+        <a href="../stratalk/">Stratalk</a>
+        <a href="../stralog/">Stralog</a>
+        <a href="../c/">C</a>
+      </div>
+    </div>
     <a href="../hardware/">Hardware</a>
     <a href="../play/">Play</a>
     <a href="../debug/">Debug</a>
@@ -34,6 +41,7 @@
     <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
   </div>
 </nav>
+<script src="../nav.js?v=__BUILD__" defer></script>
 
 <div class="src">
   <aside id="side" class="src-side" aria-label="Files">
@@ -49,7 +57,7 @@
     <header class="src-head">
       <button id="files-btn" class="src-files-btn" aria-controls="side" aria-expanded="false">▸ Files</button>
       <p class="kicker" id="crumb">Source</p>
-      <h2 id="title">Every program, in Strata assembly, Forth and C</h2>
+      <h2 id="title">Every program, in Strata assembly, Forth, C, Stratalk and Prolog</h2>
       <p class="src-meta" id="meta"></p>
       <p class="src-desc" id="desc">Loading the file list…</p>
       <div class="src-actions" id="actions"></div>
@@ -59,6 +67,6 @@
 </div>
 
 <script src="../hl.js?v=__BUILD__"></script>
-<script src="code.js"></script>
+<script src="code.js?v=__BUILD__"></script>
 </body>
 </html>

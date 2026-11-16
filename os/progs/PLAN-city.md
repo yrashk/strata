@@ -347,9 +347,9 @@ Original art avoids both.
   held (CREATE mode bit 1, new in `ws`); over a button or a part of the
   bar a tooltip says what it is and its key, drawn by the server's font
   beside it, and the cells under it are drawn again when it goes.
-- The town is kept in `/ws/plat.sav` (a header and the map), loaded at
+- The town is kept in `/ws/plat-N.sav` (a header and the map), loaded at
   the start and saved on quit or with S; the file gets the attributes
-  population, year and funds (`attr /ws/plat.sav`).
+  population, year and funds (`attr /ws/plat-1.sav`).
 - Sizes: the program is 59 KiB on the disk: 24.5 KiB of code (of 32; tier
   2 needs code units, as planned) and 34.4 KiB of D-LS data (of 40).
   `plat.dat` is 179 KiB: 582 cell pictures 146 KiB, sprites 17 KiB, six
@@ -381,8 +381,57 @@ Original art avoids both.
       help, the palette's entry in `ws`, sizes here
 - [ ] Frame rates measured on a quiet machine (JIT, interpreter, wasm)
 - [x] The art of tier 2 (`SPEC-2.md`) drawn by Codex (Astra); shown
-- [ ] The art of tier 2 approved
-- [ ] Tier 2, in stages: code units; traffic and rail; pollution, land
-      value, crime; police, fire, parks; overlays and the mini-map; the
-      budget window; advisers and the town paper; graphs; several cities
-- [ ] Tier 3 as chosen
+- [x] The art of tier 2 in use (kept unless asked otherwise)
+- [x] Tier 2, first part: code units (the simulation, the tools, the
+      file, the budget: 2 KiB each, paged in by the kernel; the band moved
+      above them, the arena split for DAMAGE); rail and its crossings;
+      police and fire stations, parks, the solar plant; maps of pollution,
+      crime, traffic, land value and cover feeding growth; roads showing
+      their traffic; the maps over the town; the minimap; the budget
+- [x] Tier 2, second part: advisers with their portraits in the bar; the
+      Plat Ledger at every year's end (a headline from the town's worst
+      trouble, the mayor's approval); the town's history (H)
+- [ ] Several saved cities (with the gallery of tier 3)
+- [x] Tier 3: the cell under the pointer outlined (the pointer's moves
+      with no button held, from `ws`); fires that start by chance, spread,
+      burn out to rubble, kept down by fire cover, put out by the bulldozer
+- [x] The D-LS freed: the work buffers in the library's standard input
+      and output buffers (plat reads none, and writes unbuffered)
+- [x] The placement's preview: the tool's footprint at the cursor or the
+      pointer, green if it can be used there (and paid for), red if not
+- [x] Several towns: four places (/ws/plat-1.sav .. -4.sav) and a
+      gallery (O): how many are kept (a query, /ws/year>0) and each
+      one's attributes (GETATTR)
+- [x] Other events (`plat/events.s`, two code units): a flood (the water
+      nearest a zone rises over the land beside it, three times; flood
+      water is water with an age in the flags, as a fire's, and after
+      three months it is cleared land), a storm (from an edge, through
+      the town, drifting: lines, trees, buildings and parks to rubble),
+      an earthquake (round a zone: what is built falls, a quarter of it
+      burns), a coal plant's failure (the whole plant burns). Each month
+      3 in 1,000 brings one by chance; V opens a panel that calls one
+      down (or a fire) and turns the chance off or on; demo 10
+- [x] The terrain editor: three tools without buttons, W water dug, F
+      woods planted, A plain land, on open land, woods and water (20 a
+      cell, dragged or with the pen); the water's edges, bridges and
+      lines over it are drawn again round the cell
+- [x] History through snapshots (`plat/years.s`): at each year's end
+      (and at S) the town is saved and the disk kept as the snapshot
+      platN-YYYY (one of the same year is replaced; a town keeps its last
+      eight, the older are deleted); Y lists the town's years (SNAP, mode
+      2) and 1..8 reads that year's town from /@platN-YYYY/ws/plat-N.sav;
+      demo 11
+- [x] Dusk: in December the map is drawn with a second palette from the
+      data file (darker, bluer; the windows' glass lit warm)
+- [x] Scenarios (`plat/scen.s`): C lists three, 1..3 starts one (the
+      town played is saved and kept first). Its town is made on the
+      demos' land by a list of keys like a demo's (DEMOS 12..14), played
+      at once from resident code (its months page in more code units than
+      there are slots); then its trouble (Ferrybank: floods, 40 in 1,000
+      a month; Cinderford: 900 in the treasury, the plant fails in month
+      4; Hollow Reach: no line to the plant, tax 12 %) and its goal
+      (residents or the treasury, by a year). Each month the goal is
+      looked at: met, or the years up; each January the bar says how far.
+      The save's header (PLATSAV2) keeps the scenario; PLATSAV1 files
+      still load. Demo 15
+- [ ] Not done: frame rates on a quiet machine are still to be measured

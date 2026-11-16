@@ -22,13 +22,27 @@ site's pages carry the generated text).
 
 ## The format (TOML)
 
+A server's `start`, `pid` and `place` are checked against the code that makes
+it (`os/kunits/boot.s` u_servers for the kernel's, `os/servers/proc.s` main for
+proc's), and every source that RECEIVEs requests must be named by a spec's
+`sources`. Everything said of all the servers at once is made from these
+fields: the core line of each server's facts, the lists of servers on the
+pages (`<!-- servers:list -->` and the others), the server cores of the cores
+diagram, the manual's table of the servers; the boot diagram and the list in
+`doc/strataos.md` must name every server (`tools/web-os.py --check`).
+
 ```toml
 [server]
 key = "fs"                          # the file's name; the anchor on the site
 title = "fs"                        # how it is named
-role = "files, tags and the store"  # a few words
+role = "files, tags, names and program images"   # a few words
+does = "the file server: files, ..."  # a sentence: the manual's table of the servers
 reached = "c2 of every process"     # how a program gets an endpoint to it
-core = "core 3, shared"             # where it runs
+start = "kernel"                    # a server: "kernel" or "proc" (made at boot), "demand"
+pid = 3                             # made at boot: its pid, and where it runs
+place = { core = 3, index = 0, alone = "from 8 cores" }   # alone: "yes", "no", "from 8 cores"
+core_note = "..."                   # optional, after the place in words
+# core = "the lowest empty core"    # where a server started on demand runs (in words)
 holds = "a window on the block device's ports (c1), ..."   # capabilities it holds
 sources = ["os/servers/fs.s", "os/servers/fsops.s"]        # where the ops are
 dispatch = { file = "os/servers/fs.s", first = ";\\s*dispatch", last = "^bad:" }

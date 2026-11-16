@@ -127,6 +127,13 @@ typedef struct {
   int id;
   bool halted, blocked, traced;
   uint64_t pc, x[32];
+  /* The Local Store windows (wdata, wstack, wcode CSRs) as user mode sees
+   * them now, per 1/64 of each store: what to add to an address to relocate
+   * it, or WIN_BAD (outside every window). All zero in supervisor mode and
+   * with no window enabled; win_sync() keeps them current. */
+  int64_t drel[64], irel[64];
+  uint64_t wcsr[3];
+  int wstate; /* what drel/irel hold: 0 zeros, 1 the user windows, 2 stale */
   Cap caps[NCAPS], ctab[CTABMAX];
   bool xm_v[NXMAP];
   uint8_t xm_sp[NXMAP];
@@ -295,7 +302,136 @@ static uint64_t le(const uint8_t *p, int n) {
   return v;
 }
 
+#ifdef STRATA_MSGSTATS
+/* make bench-store: the messages each core sent (4 KiB buffers put into an
+ * inbox, requests and replies) and the commands to the block device, printed
+ * at exit when STRATA_MSGSTATS is set (tools/bench-store.sh) */
+static unsigned long long st_msgs[64], st_blk;
+static void st_dump(void) {
+  unsigned long long t = 0;
+  fprintf(stderr, "msgstats:");
+  for (int i = 0; i < 16; i++) { t += st_msgs[i]; fprintf(stderr, " %llu", st_msgs[i]); }
+  fprintf(stderr, " total %llu blk %llu\n", t, st_blk);
+}
+#endif
+#ifdef STRATA_LSSTATS
+/* make ls-stats: what StrataOS's context switches move, and what they would
+ * move if the hardware told the dispatcher which 1 KiB segments of the D-LS
+ * were written (doc/ls-switch.md). Printed at exit when STRATA_LSSTATS is set.
+ * The switch's transfers are recognised by shape (supervisor mode, D-LS
+ * addresses of the StrataOS layout): the save puts [0, extent) and the live
+ * stack; a restore from another process gets [0, 0xA000) and [0xE000,
+ * 0x10000); a thread's first load then gets the image's data section; a
+ * thread coming back to its own bytes gets its extent and stack; tgetx in
+ * supervisor mode is code. The model keeps, per thread (keyed by its save
+ * area's address), F = the segments its save area may hold non-zero, and per
+ * core L = the segments the D-LS may hold non-zero bytes of its occupant in:
+ * a save moves the written segments of the extent and the stack, a restore
+ * from another process moves F(in) | L. */
+#define LSS_SEGS 64
+#define LSS_KMASK 0x00ffff0000000000ull /* 0xA000..0xDFFF: the dispatcher's data */
+typedef struct { uint64_t key, f; } LssThr;
+static LssThr lss_thr[4096];
+static struct {
+  uint64_t dirty, l, inkey, codelen, prevcode, touch, need;
+  bool fresh; /* no user instruction since a restore from another process */
+  unsigned long long sw, same, save, rest, code, msave, mrest, msave4, mrest4, fit, fitk, other, mlazy, traps;
+} lss[MAXCORES];
+static uint64_t lss_seg(uint64_t a) { return a / (dls_size / LSS_SEGS); }
+static uint64_t lss_mask(uint64_t ls, uint64_t len) {
+  if (!len) return 0;
+  uint64_t a = lss_seg(ls), b = lss_seg(ls + len - 1), m = 0;
+  for (uint64_t i = a; i <= b && i < LSS_SEGS; i++) m |= 1ull << i;
+  return m & ~LSS_KMASK;
+}
+static uint64_t *lss_f(uint64_t key) {
+  size_t h = (key * 0x9e3779b97f4a7c15ull) >> 52;
+  while (lss_thr[h].key && lss_thr[h].key != key) h = (h + 1) & 4095;
+  lss_thr[h].key = key;
+  return &lss_thr[h].f;
+}
+static uint64_t lss_x4(uint64_t m) { /* the same, in 4 KiB pages */
+  uint64_t r = 0;
+  for (int i = 0; i < LSS_SEGS; i += 4)
+    if (m >> i & 15) r |= 15ull << i;
+  return r & ~LSS_KMASK;
+}
+static void lss_store(Core *c, uint64_t ls, uint64_t len) {
+  if (c->id) lss[c->id].dirty |= lss_mask(ls, len), lss[c->id].touch |= lss_mask(ls, len);
+}
+static void lss_load(Core *c, uint64_t ls, uint64_t len) {
+  if (c->id && c->user) lss[c->id].touch |= lss_mask(ls, len);
+}
+static void lss_lazy(typeof(&lss[0]) k) { /* a lazy restore: only the segments of F | L the thread touched */
+  uint64_t t = k->touch & k->need;
+  k->mlazy += (unsigned long long)__builtin_popcountll(t) * (dls_size / LSS_SEGS);
+  k->traps += (unsigned long long)__builtin_popcountll(t);
+  k->need = 0;
+}
+static FILE *lss_log; /* STRATA_LSLOG=FILE: the switch's transfers, one per line (tools/ls-windows.py) */
+static void lss_xfer(Core *c, unsigned sub, uint64_t ls, uint64_t far, uint64_t len) {
+  if (!c->id || !len) return;
+  typeof(&lss[0]) k = &lss[c->id];
+  if (lss_log && !c->user && !(ls >= 0xA000 && ls < 0xE000 && sub != XF_GETX))
+    fprintf(lss_log, "%c %d %llx %llx %llx %llx\n", "GPX"[sub], c->id, (unsigned long long)far, (unsigned long long)ls,
+            (unsigned long long)len, (unsigned long long)k->dirty);
+  uint64_t seg = dls_size / LSS_SEGS, m = lss_mask(ls, len);
+  if (c->user) { k->touch |= m; if (sub == XF_GET) k->dirty |= m; return; }
+  if (sub == XF_GETX) { k->code += len; k->codelen = len; return; }
+  if (ls >= 0xA000 && ls < 0xE000) return; /* the dispatcher's own data */
+  if (sub == XF_PUT) { /* the save: data at 0, then the stack */
+    if (ls == 0) k->inkey = far, lss_lazy(k);
+    uint64_t *f = lss_f(k->inkey), w = k->dirty & m;
+    k->save += len;
+    k->msave += (unsigned long long)__builtin_popcountll(w) * seg;
+    k->msave4 += (unsigned long long)__builtin_popcountll(lss_x4(w)) * seg;
+    *f |= w;
+    k->l = *f | k->dirty;
+    return;
+  }
+  if (ls == 0 && len == 0xA000) { /* a restore from another process */
+    uint64_t *f = lss_f(far), need = (*f | k->l) & ~LSS_KMASK;
+    k->sw++, k->rest += len;
+    k->mrest += (unsigned long long)__builtin_popcountll(need) * seg;
+    k->mrest4 += (unsigned long long)__builtin_popcountll(lss_x4(need)) * seg;
+    unsigned fin = (unsigned)__builtin_popcountll(*f), fout = (unsigned)__builtin_popcountll(k->l);
+    if ((fin + fout) * seg <= 0xC000 && k->codelen + k->prevcode <= 0x8000) k->fit++; /* both would fit side by side */
+    if ((fin + fout) * seg <= 0xC000) k->fitk++;
+    lss_lazy(k);
+    k->need = need, k->touch = 0;
+    k->inkey = far, k->l = *f, k->dirty = 0, k->fresh = true;
+    return;
+  }
+  if (ls == 0xE000 && len == 0x2000 && k->fresh) { k->rest += len; return; }
+  if (k->fresh) { k->rest += len; k->dirty |= m; return; } /* a first load: the image's data */
+  /* a thread back on its own bytes: the D-LS holds them already */
+  if (ls == 0 || ls >= 0xE000) { if (ls == 0) k->sw++, k->same++; k->rest += len; k->dirty = 0; return; }
+  k->other += len;
+}
+static void lss_user(Core *c) {
+  if (lss[c->id].fresh) { lss[c->id].fresh = false; lss[c->id].prevcode = lss[c->id].codelen; }
+}
+static void lss_dump(void) {
+  unsigned long long t[16] = {0};
+  fprintf(stderr, "lsstats: core switches same | today: save restore code KiB | 1K segments: save restore | 4K pages: save restore | fit fit-data | lazy traps\n");
+  for (int i = 1; i < MAXCORES; i++) {
+    typeof(&lss[0]) k = &lss[i];
+    if (!k->sw) continue;
+    fprintf(stderr, "lsstats: %d %llu %llu | %llu %llu %llu | %llu %llu | %llu %llu | %llu %llu | %llu %llu\n", i, k->sw,
+            k->same, k->save >> 10, k->rest >> 10, k->code >> 10, k->msave >> 10, k->mrest >> 10, k->msave4 >> 10,
+            k->mrest4 >> 10, k->fit, k->fitk, k->mlazy >> 10, k->traps);
+    unsigned long long v[] = {k->sw, k->same, k->save, k->rest, k->code, k->msave, k->mrest, k->msave4, k->mrest4, k->fit,
+                              k->fitk, k->mlazy, k->traps};
+    for (int j = 0; j < 13; j++) t[j] += v[j];
+  }
+  fprintf(stderr, "lsstats: all %llu %llu | %llu %llu %llu | %llu %llu | %llu %llu | %llu %llu | %llu %llu\n", t[0], t[1],
+          t[2] >> 10, t[3] >> 10, t[4] >> 10, t[5] >> 10, t[6] >> 10, t[7] >> 10, t[8] >> 10, t[9], t[10], t[11] >> 10, t[12]);
+}
+#endif
 static bool inbox_push(Core *dst, Cap cap, int from) {
+#ifdef STRATA_MSGSTATS
+  if (cap.space == SP_T3 && cap.len == 4096 && from >= 0 && from < 64) st_msgs[from]++;
+#endif
   if (dst->iq_cnt[from] == SQ) return false;
   dst->inbox[from][dst->iq_cnt[from]++] = cap;
   if (dbg_on) dbg_inbox(dst, &cap, from); /* (StrataOS's messages: emu/debug_msg.c) */
@@ -637,6 +773,7 @@ static void fatal(Core *c, int cause, uint64_t tval, bool dbl) {
 /* A trap in user mode goes to the program's own handler (utvec) when it
  * installed one and the cause is its business; halts, interrupts, privilege
  * violations and anything without a user handler go to the supervisor. */
+static void win_sync(Core *c); /* the Local Store windows, below */
 static void trap(Core *c, int cause, uint64_t tval) {
   if (dbg_on) dbg_trap(c, cause, tval);
   if (c->user) {
@@ -654,6 +791,7 @@ static void trap(Core *c, int cause, uint64_t tval) {
     c->s_tval = tval;
     c->spp_user = true;
     c->user = false;
+    win_sync(c);
     if (c->s_tvec == 0) { fatal(c, cause, tval, false); return; }
     c->pc = c->s_tvec;
     return;
@@ -700,6 +838,72 @@ static uint64_t alu(unsigned op, uint64_t a, uint64_t b) {
   return 0;
 }
 
+/* ------------------------------------------------------------ Local Store windows */
+
+/* A window CSR (wdata, wstack, wcode): bit 63 enables it; bits 6:0 are the
+ * first virtual unit, 14:8 the number of units, 22:16 the first physical
+ * unit, a unit being 1/64 of the store. In user mode, while a store has a
+ * window enabled, an address must lie in one (the D-LS: wdata first, then
+ * wstack), and it is relocated by that window. Supervisor mode is never
+ * relocated. */
+#define WIN_EN (1ull << 63)
+#define WIN_BITS (WIN_EN | 0x7f7f7full)
+#define WIN_BAD ((int64_t)1 << 62) /* added to an address, puts it beyond every store */
+static bool win_cover(uint64_t w, uint64_t v) { return (w & WIN_EN) && v >= (w & 127) && v < (w & 127) + (w >> 8 & 127); }
+
+/* The window (0 wdata, 1 wstack, 2 wcode) that covers unit v of a store, -1
+ * for none, or -2 when that store has no window enabled. */
+static int win_of(const Core *c, bool code, uint64_t v) {
+  if (code) return !(c->wcsr[2] & WIN_EN) ? -2 : win_cover(c->wcsr[2], v) ? 2 : -1;
+  if (!((c->wcsr[0] | c->wcsr[1]) & WIN_EN)) return -2;
+  return win_cover(c->wcsr[0], v) ? 0 : win_cover(c->wcsr[1], v) ? 1 : -1;
+}
+
+/* What window w adds to an address of unit v it covers, or WIN_BAD when the
+ * physical unit is beyond the store. */
+static int64_t win_rel(const Core *c, int w, uint64_t v, uint64_t unit) {
+  uint64_t lo = c->wcsr[w] & 127, pb = c->wcsr[w] >> 16 & 127;
+  if (pb + (v - lo) >= 64) return WIN_BAD;
+  return ((int64_t)pb - (int64_t)lo) * (int64_t)unit;
+}
+
+/* Brings drel/irel up to date with the mode and the window CSRs. */
+static void win_sync(Core *c) {
+  int want = c->user && ((c->wcsr[0] | c->wcsr[1] | c->wcsr[2]) & WIN_EN);
+  if (c->wstate == want) return;
+  for (uint64_t v = 0; v < 64; v++) {
+    int w = want ? win_of(c, false, v) : -2;
+    c->drel[v] = w == -2 ? 0 : w < 0 ? WIN_BAD : win_rel(c, w, v, dls_size / 64);
+    w = want ? win_of(c, true, v) : -2;
+    c->irel[v] = w == -2 ? 0 : w < 0 ? WIN_BAD : win_rel(c, w, v, ils_size / 64);
+  }
+  c->wstate = want;
+}
+
+/* A user-mode range of a Local Store, [*ls, *ls + len) with len > 0 and
+ * the range inside the store: it must begin and end in the same window,
+ * which relocates it. False if it does not. Nothing to do in supervisor
+ * mode or when the store has no window. */
+static bool win_range(Core *c, bool code, uint64_t *ls, uint64_t len) {
+  if (!c->user || !len) return true;
+  uint64_t unit = (code ? ils_size : dls_size) / 64, v0 = *ls / unit, v1 = (*ls + len - 1) / unit;
+  int w0 = win_of(c, code, v0), w1 = win_of(c, code, v1);
+  if (w0 == -2) return true;
+  if (w0 < 0 || w0 != w1 || win_rel(c, w0, v1, unit) == WIN_BAD) return false;
+  *ls += (uint64_t)win_rel(c, w0, v0, unit);
+  return true;
+}
+
+/* The instruction at c's pc, fetched as step() does (a user pc relocated by
+ * the code window): false if the fetch faults. */
+static bool fetch_ir(const Core *c, uint32_t *ir) {
+  if (c->pc & 3 || c->pc >= ils_size) return false;
+  uint64_t ipa = c->pc + (uint64_t)c->irel[c->pc / (ils_size / 64)];
+  if (ipa >= ils_size) return false;
+  memcpy(ir, c->ils + ipa, 4);
+  return true;
+}
+
 /* ------------------------------------------------------------ one instruction */
 
 /* The tags of c's in-flight (pending) device reads. */
@@ -715,9 +919,14 @@ static void dec_invalidate(Core *c, uint64_t ls, uint64_t len); /* the fast loop
 /* Executes one instruction. Returns false if the core is blocked (nothing happened). */
 static bool step(Core *c) {
   if (c->user && c->ipend) { c->ipend = false; trap(c, C_STOP, 0); return true; }
+#ifdef STRATA_LSSTATS
+  if (c->user) lss_user(c);
+#endif
   if (c->pc & 3 || c->pc >= ils_size) { trap(c, C_IFAULT, c->pc); return true; }
+  uint64_t ipa = c->pc + (uint64_t)c->irel[c->pc / (ils_size / 64)]; /* (a window relocates the fetch) */
+  if (ipa >= ils_size) { trap(c, C_IFAULT, c->pc); return true; }
   uint32_t ir;
-  memcpy(&ir, c->ils + c->pc, 4);
+  memcpy(&ir, c->ils + ipa, 4);
   if (trace && !c->traced) fprintf(trace, "%d %08llx %08x\n", c->id, (unsigned long long)c->pc, ir);
   c->traced = true;
 
@@ -752,17 +961,25 @@ static bool step(Core *c) {
     uint64_t base = store ? c->x[rs1] : a;
     uint64_t addr = base + simm;
     if (addr > dls_size - sz || (addr & (sz - 1))) { trap(c, C_LSFAULT, addr); return true; }
+    uint64_t pa = addr + (uint64_t)c->drel[addr / (dls_size / 64)]; /* (relocated by its window) */
+    if (pa >= dls_size) { trap(c, C_LSFAULT, addr); return true; }
     for (int i = 0; i < NPEND; i++)
-      if (c->pend[i].on && addr < c->pend[i].ls + c->pend[i].len && c->pend[i].ls < addr + sz) {
+      if (c->pend[i].on && pa < c->pend[i].ls + c->pend[i].len && c->pend[i].ls < pa + sz) {
         if (c->ccr & 1) { trap(c, C_PEND, addr); return true; } /* CCR.PTRAP: trap instead of waiting */
         return false; /* the bytes are still in flight */
       }
     if (store) {
       uint64_t v = c->x[rd];
-      memcpy(c->dls + addr, &v, sz);
+      memcpy(c->dls + pa, &v, sz);
+#ifdef STRATA_LSSTATS
+      lss_store(c, pa, sz);
+#endif
     } else {
       uint64_t v = 0;
-      memcpy(&v, c->dls + addr, sz);
+      memcpy(&v, c->dls + pa, sz);
+#ifdef STRATA_LSSTATS
+      lss_load(c, pa, sz);
+#endif
       bool sgn = op == OP_LW || op == OP_LH || op == OP_LB;
       if (sgn && lg < 3) v = (uint64_t)sext(v, 8 << lg);
       setx(c, rd, v);
@@ -811,18 +1028,23 @@ static bool step(Core *c) {
     else if (k->space == SP_DEV ? off >= k->len /* a device offset names a port */
                                 : (off > k->len || len > k->len - off)) f = C_BOUNDS;
     else if (ls > limit || len > limit - ls) f = C_LSFAULT;
-    if (f) { trap(c, f, f == C_LSFAULT ? ls : off); return true; }
+    uint64_t vls = ls; /* (the issuer's own address: what the overlay map holds) */
+    if (!f && !win_range(c, sub == XF_GETX, &ls, len)) f = C_LSFAULT;
+    if (f) { trap(c, f, f == C_LSFAULT ? vls : off); return true; }
     /* a transfer whose D-LS bytes overlap an in-flight device read waits for
      * it (it is ordered after the read), as loads and stores do */
     if (sub != XF_GETX && len)
       for (int i = 0; i < NPEND; i++)
         if (c->pend[i].on && ls < c->pend[i].ls + c->pend[i].len && c->pend[i].ls < ls + len) {
-          if (c->ccr & 1) { trap(c, C_PEND, ls); return true; } /* CCR.PTRAP: trap instead of waiting */
+          if (c->ccr & 1) { trap(c, C_PEND, vls); return true; } /* CCR.PTRAP: trap instead of waiting */
           return false;
         }
     unsigned tg = (ir >> 19) & 15;
     if (tag_busy(c) >> tg & 1) return false; /* the tag is still in flight: the issue waits */
     uint64_t far = k->base + off;
+#ifdef STRATA_LSSTATS
+    if (k->space != SP_CORE) lss_xfer(c, sub, ls, far, len);
+#endif
     if (k->space != SP_CORE)
       bus_count(c->id, c->user, c->pc, c->x[1], sub == XF_GET ? BS_GET : sub == XF_PUT ? BS_PUT : BS_GETX, k->space, far, len, k->len);
     if (sub == XF_GETX) { /* code being replaced: forget overlay mappings that point into it */
@@ -830,7 +1052,7 @@ static bool step(Core *c) {
       dec_invalidate(c, ls, len);
       uint64_t sl = c->xslot ? 1ull << c->xslot : 4;
       for (int i = 0; i < NXMAP; i++)
-        if (c->xm_v[i] && c->xm_ils[i] < ls + len && ls < c->xm_ils[i] + sl) c->xm_v[i] = false;
+        if (c->xm_v[i] && c->xm_ils[i] < vls + len && vls < c->xm_ils[i] + sl) c->xm_v[i] = false;
     }
     if (k->space == SP_CORE) { /* core control: bit 0 = stop request, bit 1 = reset request */
       for (uint64_t i = 0; i < len; i += 8) {
@@ -1084,9 +1306,9 @@ static bool step(Core *c) {
     case CSR_UTVAL: v = c->u_tval; break;
     case CSR_UTVEC: v = c->u_tvec; break;
     case CSR_XSLOT: v = c->xslot; break;
-    case CSR_SSCRATCH: case CSR_IPEND:
+    case CSR_SSCRATCH: case CSR_IPEND: case CSR_WDATA: case CSR_WSTACK: case CSR_WCODE:
       if (c->user) { trap(c, C_PRIV, ir); return true; }
-      v = imm16 == CSR_SSCRATCH ? c->sscratch : c->ipend;
+      v = imm16 == CSR_SSCRATCH ? c->sscratch : imm16 == CSR_IPEND ? c->ipend : c->wcsr[imm16 - CSR_WDATA];
       break;
     }
     setx(c, rd, v);
@@ -1094,7 +1316,7 @@ static bool step(Core *c) {
   }
   case OP_CSRW:
     if (c->user && (imm16 == CSR_STATUS || imm16 == CSR_COREBASE || imm16 == CSR_CORECOUNT ||
-                    (imm16 >= CSR_UCAUSE && imm16 <= CSR_IPEND))) {
+                    (imm16 >= CSR_UCAUSE && imm16 <= CSR_IPEND) || (imm16 >= CSR_WDATA && imm16 <= CSR_WCODE))) {
       trap(c, C_PRIV, ir); /* supervisor state */
       return true;
     }
@@ -1118,6 +1340,11 @@ static bool step(Core *c) {
     case CSR_SSCRATCH: c->sscratch = a; break;
     case CSR_IPEND: c->ipend = a & 1; break;
     case CSR_XSLOT: c->xslot = a & 63; break;
+    case CSR_WDATA: case CSR_WSTACK: case CSR_WCODE:
+      c->wcsr[imm16 - CSR_WDATA] = a & WIN_BITS;
+      c->wstate = 2; /* (supervisor mode: the user's view is made at the next eret) */
+      win_sync(c);
+      break;
     }
     break;
 
@@ -1136,6 +1363,7 @@ static bool step(Core *c) {
       if (c->user) { npc = c->u_epc; break; }
       npc = c->s_epc;
       c->user = c->spp_user;
+      win_sync(c);
       break;
     }
     trap(c, C_ILLEGAL, ir);
@@ -1146,9 +1374,11 @@ static bool step(Core *c) {
     uint64_t line = a >> lsh, set = line & ((1ull << lsets) - 1), span = ((uint64_t)ways + 1) * 8;
     uint64_t eb = c->ttag + set * span, key = line << 1 | 1;
     if (!ways || (eb & 7) || eb > dls_size - span) { trap(c, C_LSFAULT, eb); return true; }
+    uint64_t veb = eb; /* (the table, relocated by its window) */
+    if (!win_range(c, false, &eb, span)) { trap(c, C_LSFAULT, veb); return true; }
     for (int i = 0; i < NPEND; i++) /* the set's entry overlaps an in-flight device read: wait (or pend) */
       if (c->pend[i].on && eb < c->pend[i].ls + c->pend[i].len && c->pend[i].ls < eb + span) {
-        if (c->ccr & 1) { trap(c, C_PEND, eb); return true; }
+        if (c->ccr & 1) { trap(c, C_PEND, veb); return true; }
         return false;
       }
     uint64_t ctr = rd64(c->dls + eb + 8ull * ways), victim = ctr < ways ? ctr : 0;
@@ -1161,6 +1391,9 @@ static bool step(Core *c) {
         }
       setx(c, rd, res);
     } else {
+#ifdef STRATA_LSSTATS
+      lss_store(c, eb, 8ull * ways + 8);
+#endif
       wr64(c->dls + eb + 8 * victim, key);
       wr64(c->dls + eb + 8ull * ways, victim + 1 == ways ? 0 : victim + 1);
     }
@@ -1177,7 +1410,8 @@ static bool step(Core *c) {
     if (b >= k->len) { trap(c, C_BOUNDS, b); return true; }
     /* with xslot = n the far address must start a 2^n-byte slot */
     if (c->xslot && ((k->base + b) & ((1ull << c->xslot) - 1))) { trap(c, C_XALIGN, b); return true; }
-    if ((a & 3) || a >= ils_size) { trap(c, C_LSFAULT, a); return true; }
+    uint64_t pa = a; /* (in user mode, inside its code window: the map keeps the address it was given) */
+    if ((a & 3) || a >= ils_size || !win_range(c, true, &pa, 4)) { trap(c, C_LSFAULT, a); return true; }
     c->xm_v[idx] = true;
     c->xm_sp[idx] = k->space;
     c->xm_far[idx] = k->base + b;
@@ -1271,6 +1505,9 @@ static bool step(Core *c) {
       if (!live(e) || e.space != SP_EP || !(e.perms & P_W)) { trap(c, C_CAPINV, cd); return true; }
       if (!live(g)) { trap(c, C_CAPINV, src); return true; }
       uint64_t n = e.base;
+#ifdef STRATA_MSGSTATS
+      if (n == (uint64_t)ncores) st_blk++;
+#endif
       if (n > (uint64_t)ncores || (n < (uint64_t)ncores && cores[n].halted)) { trap(c, C_CAPOP, n); return true; }
       if (n == (uint64_t)ncores) {
         if (bi_cnt == IQ) return false;
@@ -1437,11 +1674,24 @@ static uint64_t run_fast(Core *c, uint64_t max, bool stop_back) {
     if (!tab) { perror("strata-emu"); exit(2); }
     tab[ils_size / 4].h = D_SLOW; /* running off the end: step() raises the fetch fault */
   }
+  /* A code window: run only inside it, and only if it does not relocate
+   * (the decode cache is by I-LS address); step() does the rest. */
+  uint64_t flo = 0, fhi = ils_size;
+  if (c->wstate == 1 && (c->wcsr[2] & WIN_EN)) {
+    uint64_t w = c->wcsr[2], iu = ils_size / 64;
+    if ((w >> 16 & 127) != (w & 127)) return 0;
+    flo = (w & 127) * iu, fhi = ((w & 127) + (w >> 8 & 127)) * iu;
+    if (fhi > ils_size) fhi = ils_size;
+    if (c->pc < flo || c->pc >= fhi) return 0;
+  }
   uint64_t *const x = c->x;
   uint8_t *const dls = c->dls;
+  const int64_t *const drel = c->drel;
+  const unsigned dsh = (unsigned)__builtin_ctzll(dls_size) - 6; /* address -> unit of the windows */
   Dec *d = tab + c->pc / 4;
+  Dec *const dend = tab + fhi / 4;
   uint64_t left = max, target, addr;
-  const uint64_t hz_base = c->hz_base, hz_span = c->hz_span, dmax = dls_size, imax = ils_size;
+  const uint64_t hz_base = c->hz_base, hz_span = c->hz_span, dmax = dls_size;
 #define RD x[d->rd]
 #define RS1 x[d->rs1]
 #define RS2 x[d->rs2]
@@ -1450,7 +1700,9 @@ static uint64_t run_fast(Core *c, uint64_t max, bool stop_back) {
 /* the D-LS address of a load or store of 2^lg bytes, or leave for step() to fault or wait */
 #define ADDR(lg)                                                                       \
   addr = RS1 + IMM;                                                                    \
-  if (addr > dmax - (1u << (lg)) || (addr & ((1u << (lg)) - 1)) || addr - hz_base < hz_span) goto out
+  if (addr > dmax - (1u << (lg)) || (addr & ((1u << (lg)) - 1))) goto out;             \
+  addr += (uint64_t)drel[addr >> dsh]; /* relocated by its window, or beyond dmax */   \
+  if (addr >= dmax || addr - hz_base < hz_span) goto out
 #define LOAD(type, lg) { type v; ADDR(lg); memcpy(&v, dls + addr, sizeof v); RD = (uint64_t)(int64_t)v; } break
 #define LOADU(type, lg) { type v; ADDR(lg); memcpy(&v, dls + addr, sizeof v); RD = v; } break
 #define STORE(type, lg) { type v = (type)RD; ADDR(lg); memcpy(dls + addr, &v, sizeof v); } break
@@ -1513,11 +1765,11 @@ static uint64_t run_fast(Core *c, uint64_t max, bool stop_back) {
     case D_JR: target = (RS1 + IMM) & ~3ull; goto taken;
     }
     d++;
-    if (--left == 0) break;
+    if (--left == 0 || d == dend) break; /* (at the end of the code window: step() faults) */
     continue;
   taken:
     left--;
-    if (target >= imax) { /* retired; the next fetch faults in step() */
+    if (target - flo >= fhi - flo) { /* retired; the next fetch faults in step() */
       c->pc = target;
       c->instret += max - left;
       return max - left;
@@ -1571,9 +1823,8 @@ static bool jit_lazy;
  * run thousands of steps ahead before the others start (and, say, find a
  * core that halts in its first steps still running). */
 static bool jit_meets_others(const Core *c) {
-  if (c->pc & 3 || c->pc >= ils_size) return false;
   uint32_t ir;
-  memcpy(&ir, c->ils + c->pc, 4);
+  if (!fetch_ir(c, &ir)) return false;
   unsigned op = ir >> 26, fn = ir & 15;
   if (op == OP_XFER) {
     uint8_t sp = c->caps[(ir >> 10) & 15].space;
@@ -1847,6 +2098,13 @@ static void press_break(void) {
 
 
 int main(int argc, char **argv) {
+#ifdef STRATA_MSGSTATS
+  if (getenv("STRATA_MSGSTATS")) atexit(st_dump);
+#endif
+#ifdef STRATA_LSSTATS
+  if (getenv("STRATA_LSSTATS")) atexit(lss_dump);
+  if (getenv("STRATA_LSLOG") && !(lss_log = fopen(getenv("STRATA_LSLOG"), "w"))) { perror("STRATA_LSLOG"); exit(2); }
+#endif
   const char *path = NULL, *in_path = NULL, *ppm = NULL;
   const char *disk_path = NULL;
   bool gfx = true, hold = false, snd_opt = false;
@@ -1974,10 +2232,15 @@ int main(int argc, char **argv) {
 #ifdef NO_FAST /* a build for checking the fast paths against plain step() */
   fast_off = true;
 #endif
+#ifdef STRATA_LSSTATS /* (every store through step(), where it is seen) */
+  fast_off = true;
+  jit_opt = 0;
+#endif
   use_jit = !trace && (jit_opt >= 0 ? jit_opt == 1 : !virtual_time);
   if (use_jit) {
-    JitLayout lay = {offsetof(Core, x), offsetof(Core, pc), offsetof(Core, instret), offsetof(Core, dls),
-                     offsetof(Core, ils), offsetof(Core, hz_base), dls_size, ils_size};
+    JitLayout lay = {offsetof(Core, x),     offsetof(Core, pc),      offsetof(Core, instret), offsetof(Core, dls),
+                     offsetof(Core, ils),   offsetof(Core, hz_base), offsetof(Core, drel),    offsetof(Core, irel),
+                     dls_size,              ils_size};
     use_jit = jit_init(&lay, cores, sizeof(Core), ncores);
     jit_lazy = use_jit && !strcmp(jit_backend(), "wasm");
     if (!use_jit && jit_opt == 1) fprintf(stderr, "strata-emu: no JIT on this host; interpreting\n");

@@ -1,0 +1,34 @@
+stralog
+X = f(Y), Y = 3.
+X = point(1, 2), X = point(A, B).
+f(X, b) = f(a, Y).
+f(X) = g(X).
+append(X, Y, [1, 2]).
+;
+;
+;
+member(X, [a, b, c]).
+;
+
+[family].
+grandparent(tom, W).
+;
+;
+ancestor(A, jim).
+;
+;
+;
+first_child(bob, C).
+findall(D, ancestor(tom, D), Ds).
+\+ parent(jim, _).
+( parent(liz, _) -> R = parent ; R = none ).
+member(X, [1, 2, 3]), X > 1, !.
+writeq([a, 'B', "c", 'it''s', f(-1, - 1, 1 - -1, (a :- b, c)), {x}, -(-(a))]), nl.
+foo(1).
+catch(atom_length(X, 3), error(E, _), true).
+X = "a\x41\b\\c\n".
+X = abcxd.
+Y = 1Y = 2.
+[A
+halt.
+halt

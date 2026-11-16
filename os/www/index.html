@@ -19,9 +19,9 @@ writable memory has exactly one owner at a time.</p>
 devices and TCP/IP are <em>servers</em>: user processes that get requests
 as lent 4&nbsp;KiB message buffers. Nothing is copied between address
 spaces, because there are none.</li>
-<li>Programs share the worker cores, switched every 2&nbsp;ms. A switch
-copies out the part of the Local Store a program uses: the cost other
-machines hide. <a href="/~ps">See what the machine is doing</a>.</li>
+<li>Programs share the worker cores, switched every 2&nbsp;ms. A program
+keeps its part of the Local Store while it is switched out, until another
+needs the room: then it is copied out, the cost other machines hide. <a href="/~ps">See what the machine is doing</a>.</li>
 <li>This request went through the network server <code>net</code> (IPv4,
 TCP, UDP: <a href="/bin/net/">its programs</a>) and the file server
 <code>fs</code>, which reads the disk from user mode.</li>

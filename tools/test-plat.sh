@@ -25,7 +25,30 @@
 #              grows, and the census says how much
 #      demo 6  the town in a file: built, a year, saved (the demo says the
 #              map's checksum), bulldozed and taxed differently, the saved
-#              town loaded again: the map must be the one that was saved
+#              town opened again from the gallery: the map must be the one
+#              that was saved
+#      demo 7  the fuller city: rail across a road, police and fire
+#              stations, a park, a solar plant beside the zones; two
+#              years; the budget (less for the police and the fire
+#              service); the pollution map over the town
+#      demo 8  demo 5's town, and the Plat Ledger on its year
+#      demo 9  demo 5's town, and its history (residents, treasury)
+#      demo 10 the land made again first (a pond dug, woods planted, a cell
+#              of it filled in); demo 5's town; a year; then the events
+#              panel: a storm, an earthquake and the coal plant's failure
+#              (rubble, fires, the plant burning); two months; a flood at
+#              the water nearest the town
+#      demo 11 the town's past years: demo 6's town, a year, saved and kept
+#              as a snapshot; bulldozed; another year, kept again; the
+#              years' panel, and the first year's town back from its
+#              snapshot (/@plat1-1900/ws/plat-1.sav): the map must be the
+#              one first saved, not the second. It ends in December: dusk,
+#              the windows lit (demos 3 and 6 end in December too)
+#      demo 15 a scenario from its panel (C): Cinderford, its town made at
+#              once from demo 13's keys, its treasury set low; four months,
+#              and its old coal plant fails (demos 12 to 14 are the
+#              scenarios' towns: not run here as demos)
+#    (An adviser's portrait and words are in the bar in most of them.)
 #    (A demo's land comes from a fixed seed, so it is always the same land.)
 # 2. `ws plat` on a machine with the sound device (-A: what it plays goes
 #    to a WAV file) and a pointer (-P): a road dragged with the left button,
@@ -46,7 +69,7 @@ BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
 # demo:frame checksum:map checksum:funds:seconds it is given
-PLAT_CRC="1:1fd096f4:fe18a8eb:19072:6 2:6f00df9f:84ce65ce:20000:6 3:df408234:52a65110:0:40 4:2f2e609d:66999b66:19770:6 5:6cbd4bea:940a6126:19581:12 6:822d576c:68551d85:16677:10"
+PLAT_CRC="1:b82894d8:fe18a8eb:19072:6 2:b1aac2a8:84ce65ce:20000:6 3:16e5185d:52a65110:0:40 4:2a163da0:66999b66:19770:6 5:5c915d00:626c5e68:19016:12 6:cda9d0dd:68551d85:16659:10 7:db807031:f90434e1:9373:14 8:c71c66c2:626c5e68:19016:12 9:5c447860:626c5e68:19016:12 10:9a63a970:7e88cac3:15694:16 11:9bc62554:68551d85:16659:14 15:44756b51:8af309d1:1372:14"
 T=$BUILD/test-plat
 mkdir -p $T
 W='\033[27;3;87~'                       # Alt+Shift+W
@@ -73,6 +96,11 @@ for d in $PLAT_CRC; do
   if [ $n = 6 ]; then                   # the saved town came back as it was saved
     grep -q "^plat: saved: map $map\$" $T/out$n.txt || fail "demo 6 did not load the town it saved" out$n
   fi
+  if [ $n = 11 ]; then                  # the first year kept came back, not the last
+    [ "$(grep -c '^plat: saved: map' $T/out$n.txt)" = 2 ] || fail "demo 11 did not save twice" out$n
+    grep '^plat: saved: map' $T/out$n.txt | head -1 | grep -q "map $map\$" ||
+      fail "demo 11 did not bring back the first year's town" out$n
+  fi
   [ -s $T/frame$n.ppm ] || fail "no frame was presented" out$n
   python3 - $T/frame$n.ppm $crc $n <<'PY' || fail "the last frame of demo $n is not the expected picture" out$n
 import sys, zlib
@@ -91,7 +119,7 @@ done
 # ---- 2. the pointer, sound, q, and the window server after it
 cp "$DISK" $T/disk.img
 START="ws plat\n$W$W$W$W $W"
-printf "$START$W$W$W$W$W${W}q$W$W${W}echo plat-q-ok > pmark\n$W${AQ}cat pmark\nattr /ws/plat.sav\n" > $T/keys
+printf "$START$W$W$W$W$W${W}q$W$W${W}echo plat-q-ok > pmark\n$W${AQ}cat pmark\nattr /ws/plat-1.sav\n" > $T/keys
 N=$(printf "$START" | wc -c | tr -d ' ')
 N1=$((N + 10)) N2=$((N + 20)) N3=$((N + 30)) N4=$((N + 40))   # (one Alt+Shift+W later, two, ...)
 cat > $T/ptr <<EOF

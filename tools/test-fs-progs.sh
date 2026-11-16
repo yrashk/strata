@@ -171,7 +171,11 @@ for i, (kind, name, cmd) in enumerate(cases):
     if kind in "xX" and s != f:
         fails.append("%s: %s:\n--- %s\n%s--- the port\n%s" % (name, cmd, cmd, s, f))
     if kind == "o":
-        # numbers masked, and the padding with them: a count with one digit more or less moves a column
+        # numbers masked, and the padding with them: a count with one digit more or less moves a column;
+        # and what a server or a core is doing at that instant (a server polling on a timer, tty,
+        # is "ready" for the moment between its wakeup and its core's switch to it)
+        f = re.sub(r"\b(running|ready|blocked)\b(?=.*\(server\)$)", "~", f, flags=re.M)
+        f = re.sub(r"^(core \d+: )(idle|running \d+)", r"\1~", f, flags=re.M)
         own.append("==== " + cmd + "\n" + re.sub(r" +", " ", re.sub(r"\d+", "#", f)))
 own = "".join(own)
 if upd:

@@ -343,6 +343,11 @@ so an insert moves 2-byte slots, not cells.
   insert could need more pages than the extent has: the meta page holds
   it as the *spare extent*. A new disk has no free tree at all, only a
   spare extent.
+- **A full disk can be emptied.** A delete is a change too: it copies
+  the pages on its path before it frees anything. So a transaction that
+  grows the store stops while 128 pages are free: 64 kept for the
+  allocator's own trees, 64 more that only a transaction freeing space
+  (a file's removal, a snapshot's deletion, a batch of deletes) may use.
 
 ### 3.5 Growth and sizes
 

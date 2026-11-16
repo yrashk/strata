@@ -282,7 +282,7 @@ $(BUILD)/kernel.stx: os/kernel.s $(wildcard os/kunits/*.s) firmware/fw.s $(BUILD
 	$(BUILD)/sasm -g $(BUILD)/kernel.map -o $@ os/kernel.s
 
 # StrataOS 0.1 disk contents:
-#   servers (os/servers/*.s): proc dev fs tty pipe
+#   servers (os/servers/*.s): proc dev fs blk db tty pipe
 #   programs written against os/lib/sys.s (os/progs/*.s, except as and units)
 #   the examples, assembled to run as bare-metal programs (code at
 #   I-LS 0x8000); clock and gfx are left out: they need the device root
@@ -292,9 +292,11 @@ $(BUILD)/kernel.stx: os/kernel.s $(wildcard os/kunits/*.s) firmware/fw.s $(BUILD
 OS_EXCLUDE := clock gfx
 OS_EXAMPLES := $(filter-out $(OS_EXCLUDE),$(patsubst examples/%.s,%,$(EXAMPLES)))
 PROGS   := $(patsubst %,$(BUILD)/prog/%,$(OS_EXAMPLES))
-SERVERS := proc dev fs tty pipe net
+SERVERS := proc dev fs blk db tty pipe net
 UTILS   := sh ls cat rm df ps free uptime date devs hexdump cores sched seq grep wc upper spin tag tags cp mv touch guest
-SPROGS  := $(patsubst %,$(BUILD)/prog/%,$(SERVERS))
+# (the server db is built to sys/: build/prog/db is the program db, which shows
+# the store's trees; on the disk they are /sys/db and /bin/db)
+SPROGS  := $(patsubst $(BUILD)/prog/db,$(BUILD)/sys/db,$(patsubst %,$(BUILD)/prog/%,$(SERVERS)))
 UPROGS  := $(patsubst %,$(BUILD)/prog/%,$(UTILS))
 # the network programs (os/servers/net.s is the server): no sources on the disk
 NETUTILS := ping nc tcpecho ifconfig netstat host httpd
@@ -308,8 +310,11 @@ $(BUILD)/prog/%: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
-$(BUILD)/prog/fs: os/servers/fsunits.s os/servers/fsops.s os/servers/store.s os/servers/storew.s os/servers/sblob.s os/servers/fsattr.s
-$(SPROGS): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sasm
+$(BUILD)/prog/fs: os/servers/fsunits.s os/servers/fsops.s os/servers/fsattr.s os/servers/dbcall.s os/servers/stutil.s
+$(BUILD)/sys/db: os/servers/db.s os/servers/store.s os/servers/storew.s os/servers/sblob.s os/servers/dbsnap.s os/servers/dbprog.s os/servers/stutil.s os/lib/srv.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/sys
+	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
+$(filter $(BUILD)/prog/%,$(SPROGS)): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
@@ -339,6 +344,18 @@ $(BUILD)/guest/forth.g: $(FORTH_GUEST_SRC) $(BUILD)/forth-guest/corefs.s $(BUILD
 	@mkdir -p $(BUILD)/guest
 	$(BUILD)/sasm -I lang/forth/guest -I lang/forth/bare -I $(BUILD)/forth-guest -g $(BUILD)/guest/forth.map -o $@ lang/forth/forth.s
 FORTH_GUEST := $(BUILD)/guest/forth.g
+# StrataOS itself as a guest (`guest -p strataos 6 24`): the kernel and a RAM
+# disk with the servers and a few programs, one image (tools/mkguestos.py)
+GOS_PROGS := proc dev fs blk db tty pipe sh ls cat rm cp mv touch ps cores free uptime seq grep wc hello tag tags df
+GOS_FILES := os/guests/strataos/rc os/guests/strataos/motd $(patsubst %,$(BUILD)/prog/%,$(filter-out db,$(GOS_PROGS))) $(BUILD)/sys/db
+$(BUILD)/guest-os/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(GOS_FILES)
+	@mkdir -p $(BUILD)/guest-os
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx -b 6144 -t etc os/guests/strataos/rc -t doc os/guests/strataos/motd \
+	  -t sys $(patsubst %,$(BUILD)/prog/%,proc dev fs blk) $(BUILD)/sys/db $(patsubst %,$(BUILD)/prog/%,tty pipe) -t bin $(patsubst %,$(BUILD)/prog/%,$(filter-out proc dev fs blk db tty pipe,$(GOS_PROGS)))
+$(BUILD)/guest/strataos.g: tools/mkguestos.py $(BUILD)/kernel.stx $(BUILD)/guest-os/disk.img
+	@mkdir -p $(BUILD)/guest
+	python3 tools/mkguestos.py $(BUILD)/kernel.stx $(BUILD)/guest-os/disk.img $@
+GOS_GUEST := $(BUILD)/guest/strataos.g
 
 # untag is tag under another name (it looks at the name it was started by)
 $(BUILD)/prog/untag: $(BUILD)/prog/tag
@@ -461,6 +478,18 @@ $(BUILD)/cc/cc.lib: $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS) $(BUILD
 $(BUILD)/strata-cc: lang/cc/cc.c lang/cc/host/host.c lang/cc/host/strata.h
 	@mkdir -p $(BUILD)
 	$(CC) -O2 -w -Ilang/cc/host -o $@ lang/cc/cc.c lang/cc/host/host.c
+# ---- Stratalk (lang/stratalk): the VM, a StrataOS program, and its image ----------
+STRATALK_VM := lang/stratalk/vm.s $(wildcard lang/stratalk/vm-*.s)
+STRATALK_ST := $(addprefix lang/stratalk/kernel/,$(shell sed -e 's/\#.*//' lang/stratalk/kernel/LOAD))
+STRATALK_EX := $(sort $(wildcard lang/stratalk/examples/*.st))
+STRATALK_DISK := $(BUILD)/prog/stratalk $(BUILD)/stratalk/stratalk.image $(STRATALK_ST) $(STRATALK_EX)
+$(BUILD)/prog/stratalk: $(STRATALK_VM) os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -I lang/stratalk -g $(BUILD)/prog/stratalk.map -o $@ lang/stratalk/vm.s
+$(BUILD)/stratalk/stratalk.image: $(STRATALK_ST) lang/stratalk/kernel/LOAD $(wildcard lang/stratalk/host/*.py)
+	@mkdir -p $(BUILD)/stratalk
+	python3 lang/stratalk/host/stratalk.py build -o $@ lang/stratalk/kernel/LOAD
+
 $(BUILD)/prog/cc: $(BUILD)/strata-cc $(BUILD)/cc/cc.lib lang/cc/cc.c
 	@mkdir -p $(BUILD)/prog
 	CC_LIB=$(BUILD)/cc/cc.lib $(BUILD)/strata-cc -p -h 0 -o $@ lang/cc/cc.c
@@ -478,6 +507,23 @@ $(BUILD)/prog/cc0: $(BUILD)/cc/cc0.lib
 	@touch $@
 $(BUILD)/cc/cc0.lib: $(BUILD)/cc/cc-full.stx $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS) $(BUILD)/cc/asm.tab
 	python3 lang/cc/lib/mklib.py --cc $(BUILD)/cc/cc-full.stx $(BUILD)/prog/cc0 $@ $(CC_LIBIN)
+
+# Stralog: assembled whole, then split into the program and its code units
+# (lang/stralog/mkimg.py, which also checks that no jump leaves its unit)
+STRALOG_SRC := $(wildcard lang/stralog/*.s) os/lib/sys.s
+$(BUILD)/stralog/atoms.s: lang/stralog/mkatoms.py
+	@mkdir -p $(BUILD)/stralog
+	python3 lang/stralog/mkatoms.py $@
+$(BUILD)/stralog/bootpl.s: lang/stralog/boot.pl lang/stralog/mkboot.py
+	@mkdir -p $(BUILD)/stralog
+	python3 lang/stralog/mkboot.py lang/stralog/boot.pl > $@
+$(BUILD)/stralog/stralog.stx: $(STRALOG_SRC) $(BUILD)/stralog/atoms.s $(BUILD)/stralog/bootpl.s $(BUILD)/sasm
+	$(BUILD)/sasm -T 0x8000 -I lang/stralog -I $(BUILD)/stralog -g $(BUILD)/stralog/stralog.map -o $@ lang/stralog/stralog.s
+$(BUILD)/prog/stralog: $(BUILD)/stralog/stralog.stx lang/stralog/mkimg.py
+	@mkdir -p $(BUILD)/prog
+	python3 lang/stralog/mkimg.py $< $(BUILD)/stralog/stralog.map $@ $(BUILD)/prog/stralog.u
+$(BUILD)/prog/stralog.u: $(BUILD)/prog/stralog
+	@touch $@
 
 # Every source on the disk carries a copy of the library after the program.
 $(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s
@@ -521,7 +567,9 @@ FORTH_DISK += $(BUILD)/forth-os/progs.pk
 # machine (cc0 -p -h 0 -o cc1 /src/cc.c); and some C programs to try
 CC_DISK := $(BUILD)/prog/cc $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib $(BUILD)/prog/cc0 $(BUILD)/cc/cc0.lib
 CC_SRCS := lang/cc/cc.c $(sort $(wildcard lang/cc/examples/*.c))
-DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(DBPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as $(CC_DISK) $(CC_SRCS) \
+# the bootstrap compiler's assembly and its runtime (lib/*.s), under /src/cc
+CC_ASRCS := lang/cc/cc.s $(sort $(wildcard lang/cc/cc-*.s)) $(sort $(wildcard lang/cc/lib/*.s))
+DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(DBPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as $(CC_DISK) $(CC_SRCS) $(CC_ASRCS) \
               $(BUILD)/prog/units $(BUILD)/prog/vi $(BUILD)/prog/nav $(SRCS) $(USRCS) $(BUILD)/src/vi.s $(FORTH_DISK)
 
 # The same files with their tags (mkdisk -t TAGS applies to the files after it).
@@ -552,10 +600,18 @@ DISK_ARGS  += -t bin $(BUILD)/prog/wdoom -t ws $(WDOOM_DAT)
 WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)
 DISK_ARGS  += -t www $(WWW_FILES)
-DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS)
+DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS) -t src,cc $(CC_ASRCS)
+# Stratalk: the VM, its image, and the kernel's sources (lang/stratalk)
+DISK_FILES += $(STRATALK_DISK)
+DISK_ARGS  += -t bin $(BUILD)/prog/stratalk -t stratalk $(BUILD)/stratalk/stratalk.image $(STRATALK_ST) -t stratalk,examples $(STRATALK_EX)
+# Stralog, the Prolog (lang/stralog): the program, its code units, the examples
+STRALOG_PL := $(sort $(wildcard lang/stralog/examples/*.pl))
+STRALOG_ISO := $(sort $(wildcard lang/stralog/tests/iso/*.pl))
+DISK_FILES += $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u $(STRALOG_PL) $(STRALOG_ISO)
+DISK_ARGS  += -t bin $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u -t stralog $(STRALOG_PL) -t stralog,iso $(STRALOG_ISO)
 
-$(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST)
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST)
+$(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
 
 os: $(BUILD)/bootrom.stx $(BUILD)/disk.img $(BUILD)/msgops.txt
 
@@ -694,12 +750,14 @@ $(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
 
 # the disk of tools/test-isolate.sh: the standard one plus dlsgap (tools/dlsgap.s),
-# which checks that no process sees what another left in its core's D-LS
-$(BUILD)/isol-test/dlsgap: tools/dlsgap.s os/lib/sys.s $(BUILD)/sasm
+# which checks that no process sees what another left in its core's D-LS, and
+# lsprot (tools/lsprot.s), which checks that user mode cannot reach the kernel's
+# part of the Local Stores
+$(BUILD)/isol-test/%: tools/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/isol-test
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
-$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap
+$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot
 
 # the disk of tools/test-files.sh: the standard one plus 300 small files tagged
 # many (f000 .. f299, each holding its own name): more files than one window
@@ -709,6 +767,29 @@ $(BUILD)/files-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	@mkdir -p $(BUILD)/files-test/many
 	@for f in $(MANY); do basename $$f > $$f; done
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) 2>&1 | cut -c1-200
+
+# make bench-store: what the file system and the store cost (tools/bench-store.sh,
+# doc/fs-split.md): an emulator that counts messages, and a disk with the
+# files of test-files, dbbench and a script that writes 100 small files
+.PHONY: bench-store
+$(BUILD)/strata-emu-stats: emu/emu.c $(JIT_SRC) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
+	$(CC) $(CFLAGS) -DSTRATA_MSGSTATS $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
+# an emulator that counts what context switches move, and what they would
+# move with dirty-segment tracking (doc/ls-switch.md, tools/ls-stats.sh)
+$(BUILD)/strata-emu-ls: emu/emu.c $(JIT_SRC) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
+	$(CC) $(CFLAGS) -DSTRATA_LSSTATS $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
+.PHONY: ls-stats
+ls-stats: $(BUILD)/strata-emu-ls $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	tools/ls-stats.sh $(BUILD)/strata-emu-ls $(BUILD) $(BUILD)/disk.img
+$(BUILD)/bench/dbbench: tools/bench/dbbench.s os/lib/sys.s os/lib/kv.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/bench
+	$(BUILD)/sasm -T 0x8000 -o $@ $<
+$(BUILD)/bench/disk.img: $(BUILD)/files-test/disk.img $(BUILD)/bench/dbbench
+	@i=0; while [ $$i -lt 100 ]; do echo "echo $$i > /sm/f$$i"; i=$$((i + 1)); done > $(BUILD)/bench/small
+	@$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) -t bin $(BUILD)/bench/dbbench \
+	  -t bench $(BUILD)/bench/small 2>&1 | cut -c1-200
+bench-store: $(BUILD)/strata-emu-stats $(BUILD)/bootrom.stx $(BUILD)/bench/disk.img
+	tools/bench-store.sh $(BUILD)/strata-emu-stats $(BUILD) $(BUILD)/bench/disk.img
 
 # the disk of `make test-forth`: the standard one plus the test files
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs) \
@@ -878,6 +959,9 @@ wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS) $(BUILD)/msgops.txt
 	cp $(WEB_IMAGES) $(WEB)/images/
 	cp lang/forth/demos/*.fs $(WEB)/demos/
 	ls lang/forth/demos | sed -n 's/\.fs$$//p' > $(WEB)/demos/index.txt
+	@mkdir -p $(WEB)/stralog
+	cp lang/stralog/examples/*.pl $(WEB)/stralog/
+	ls lang/stralog/examples | sed -n 's/\.pl$$//p' > $(WEB)/stralog/index.txt
 	cp $(DEBUG_ASSETS) $(WEB)/debug/
 	cp $(patsubst %,examples/%.s,$(DEBUG_EXAMPLES)) $(WEB)/debug/src/examples/
 	cp examples/lib/*.s $(WEB)/debug/src/examples/lib/

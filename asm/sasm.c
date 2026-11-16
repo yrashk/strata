@@ -417,7 +417,7 @@ static const char *csr_names[] = {
   "cycle", "instret", "cause", "epc", "tval", "tvec", "ccr", "coreid",
   "ttag", "tdata", "tgeom", "ncores", "scratch", "stalls", "takefrom", "corebase",
   "corecount", "reserved17", "status", "ucause", "uepc", "utval", "utvec", "sscratch",
-  "ipend", "xslot",
+  "ipend", "xslot", "wdata", "wstack", "wcode",
 };
 
 static int csrnum(const char *s) {

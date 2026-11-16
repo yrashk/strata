@@ -11,7 +11,7 @@ if FLAGS: FLAGS += " "
 HOST = os.environ.get("CC_HOST", "")               # e.g. build/strata-cc: compile on this machine, only run in the OS
 CC = os.environ.get("CC_NAME", "cc")                # the compiler in the OS: cc, or cc0, the bootstrap compiler
 PROMPT = "strata:/test$ "                           # the session works in /test
-BASE = ["-t", "sys"] + [B + "/prog/" + p for p in ("proc", "dev", "fs", "tty", "pipe")] + \
+BASE = ["-t", "sys"] + [B + "/prog/" + p for p in ("proc", "dev", "fs", "blk", "tty", "pipe")] + [B + "/sys/db"] + \
        ["-t", "bin", B + "/prog/sh", B + "/prog/rm", B + "/prog/cc", B + "/prog/cc.u", B + "/cc/cc.lib"] + \
        ([B + "/prog/" + CC, B + "/cc/" + CC + ".lib"] if CC != "cc" else [])
 EXPECT = "/ladder/EXPECT.tsv" if CC == "cc" else "/ladder/EXPECT-%s.tsv" % CC
@@ -32,6 +32,9 @@ def tests(args, fast):
         all_ = [t for t in all_ if os.path.basename(t[1]) in want]
     if args:
         all_ = [t for t in all_ if any(t[0].startswith(a) or os.path.basename(t[1]) == a or t[1] == a for a in args)]
+    # a test outside the ladder (lang/cc/tests/own: the compiler's own tests), its directory as its rung
+    all_ += [(os.path.basename(os.path.dirname(a)), a) for a in args
+             if a.endswith(".c") and os.path.isfile(a) and not a.startswith(T + "/ladder/")]
     return all_
 
 def boot(batch, tag):

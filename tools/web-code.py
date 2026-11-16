@@ -44,6 +44,10 @@ GROUPS = [
                     "lang/cc/cc.s", "lang/cc/cc-*.s", "lang/cc/lib/*.s",
                     "lang/cc/lib/include/*.h", "lang/cc/lib/src/*.c"]),
     ("C programs", ["lang/cc/examples/*.c"]),
+    ("Stratalk", ["lang/stratalk/vm.s", "lang/stratalk/vm-*.s", "lang/stratalk/kernel/*.st",
+                  "lang/stratalk/examples/*.st", "lang/stratalk/tests/*.st"]),
+    ("Stralog", ["lang/stralog/stralog.s", "lang/stralog/*.s", "lang/stralog/boot.pl",
+                 "lang/stralog/examples/*.pl"]),
     ("Conformance tests", ["conformance/tests/*.s", "conformance/tests/lib/*.s"]),
 ]
 
@@ -59,6 +63,8 @@ RUN = {
     "lang/cc/cc.s": "cc",
     "lang/cc/cc.c": "cc",
     "lang/cc/examples/hi.c": "cc",
+    "lang/stratalk/vm.s": "stratalk",
+    "lang/stralog/stralog.s": "stralog",
 }
 
 
@@ -158,9 +164,14 @@ def header(text, lang):
             body = rest[2:end].rstrip().split("\n")
             text = "\n".join("// " + (re.sub(r"^ ?\* ?| {1,3}", "", l, count=1) if n else l.strip())
                              for n, l in enumerate(body))
+    if lang == "stratalk":            # the first comment, "...", if the file starts with one
+        rest = text.lstrip()
+        end = rest.find('"', 1)
+        text = "\n".join("// " + l.strip() for l in rest[1:end].split("\n")) if rest.startswith('"') and end > 0 else ""
     for raw in text.splitlines():
         s = raw.strip()
-        m = re.match(r"^\\ ?(.*)$" if lang == "forth" else r"^(?:;+|#|//) ?(.*)$", s)
+        m = re.match(r"^\\ ?(.*)$" if lang == "forth" else r"^% ?(.*)$" if lang == "prolog"
+                     else r"^(?:;+|#|//) ?(.*)$", s)
         if m:
             lines.append(m.group(1).rstrip())
             continue
@@ -242,7 +253,8 @@ def main():
                 if rel in seen or not os.path.isfile(p):
                     continue
                 seen.add(rel)
-                lang = "forth" if rel.endswith(".fs") else "c" if rel.endswith((".c", ".h")) else "asm"
+                lang = ("forth" if rel.endswith(".fs") else "c" if rel.endswith((".c", ".h"))
+                        else "stratalk" if rel.endswith(".st") else "prolog" if rel.endswith(".pl") else "asm")
                 text = read(rel)
                 title, desc = header(text, lang)
                 n = text.count("\n") + (0 if text.endswith("\n") or not text else 1)
