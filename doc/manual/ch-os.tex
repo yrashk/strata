@@ -367,8 +367,10 @@ Software cache & its CSRs are restored; its tag table and lines are data and tra
 \end{table}
 
 The I-LS cannot be read back and the D-LS has no address translation, so there is nothing to remap:
-every byte of a switch is a byte moved by a transfer. A switch between two small programs moves a few
-kilobytes; one between two programs that each use their whole data extent moves more than a hundred.
+every byte of a switch is a byte moved by a transfer. A thread that returns to a core where nothing
+else ran moves only its extent and stack, a few kilobytes for a small program; a switch between two
+processes moves at least the 48~KiB that isolation needs (Section~\ref{sec:os-isolate}), and one
+between two programs that each use their whole data extent more than a hundred.
 The dispatcher counts context switches and bytes moved per process and per core; \texttt{ps},
 \texttt{cores}, \texttt{uptime} and \texttt{sched} print them, and the window server draws them.
 It also times itself with \csr{cycle}: \texttt{cores} shows, per core, its cycles per switch (from
@@ -432,6 +434,14 @@ registers, of the other threads on the core) and its code. Isolation between the
 is therefore against disclosure to programs that read memory they did not write, not against a hostile
 program, which only a hardware bound on user-mode Local Store addresses would stop. Far memory is
 protected by capabilities either way.
+
+\paragraph{Where the bytes go.} \texttt{make ls-stats} counts what the switches of a few sessions move
+(8 cores, \texttt{-T virtual}): 66 to 81~KiB per switch. The 48~KiB restore is 55 to 70\% of it, the
+save of the outgoing extent most of the rest, and code 7 to 15\%. Nearly every switch is between two
+processes (473 of 480), so the cheaper path for a returning thread rarely applies. The dispatcher
+cannot move less without knowing which bytes a program wrote, or may reach, and only the hardware can
+tell it that; \texttt{doc/ls-switch.md} compares the ways (a mask of the D-LS segments written, lazy
+restore, user-mode windows that relocate and bound) with the same measurements.
 
 \section{Emulating the inbox}\label{sec:os-emul}
 

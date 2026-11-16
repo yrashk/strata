@@ -676,6 +676,14 @@ Not covered, and why:
   addresses, which the ISA does not have. Far memory is protected by
   capabilities either way.
 
+**Where the bytes go.** `make ls-stats` (`tools/ls-stats.sh`, an emulator
+built with `-DSTRATA_LSSTATS`) counts what the switches of a few sessions
+move: 66 to 81 KiB per switch, 8 cores, `-T virtual`. The 48 KiB restore
+is 55 to 70% of it, the save of the outgoing extent most of the rest,
+code 7 to 15%; 473 of 480 switches were between two processes. Moving
+less needs the hardware to tell the dispatcher which bytes a program
+wrote or may reach: `doc/ls-switch.md` compares the ways.
+
 **The arena** (1 MiB unless the spawner asked for more, whole 256 KiB
 granules, zeroed when handed out), for a process with N threads, with
 P = 0xD0000 − (N−1) × 48 KiB. The offsets are from the arena's **layout
