@@ -1,0 +1,529 @@
+# db: the messages of os/servers/db.s (format: os/spec/README.md)
+
+[server]
+key = "db"
+title = "db"
+role = "the store: trees, values, commits, snapshots"
+does = "the store: the page cache, the copy-on-write trees, commits, snapshots, the boot manifest, the store for programs; reaches the disk through `blk`"
+reached = "fs holds an endpoint to its core (index 1, header word 48); programs send DBGET and DBSCAN through their endpoint for pipe's core, and DBBATCH to fs, which forwards it"
+start = "kernel"
+pid = 5
+place = { core = 5, index = 1, alone = "no" }
+core_note = "a program holds endpoints for four cores only (c1..c4: proc's, fs's, tty's, pipe's); proc and tty must be alone, and on fs's core db would be switched with fs at every call (and from 8 cores fs is alone, so that db can trust what comes from there), so pipe's is the one where programs reach db with no new capability (DBGET, DBSCAN). Pipelines and the store share core 5"
+holds = "an endpoint to blk's core (c1); a 512 KiB I/O buffer with the page cache: 124 frames of 4 KiB (c5)"
+sources = ["os/servers/db.s", "os/servers/dbsnap.s", "os/servers/dbprog.s", "os/servers/store.s", "os/servers/storew.s", "os/servers/sblob.s"]
+dispatch = { file = "os/servers/db.s", first = ";\\s*dispatch", last = "^bad:" }
+calls = "message"
+note = """pid 5, made by the kernel at boot. The disk is a store (doc/strata-fs-proposal.md): copy-on-write \
+B+trees in namespaces, a change on the disk whole or not at all; db keeps it (the page cache, three page \
+buffers in its D-LS) and reaches the disk through blk only (a run of blocks per BREAD; a commit's writes \
+and its flushes in WRITEVs). fs is the file system on top (doc/fs-split.md). A tree is named by a \
+handle: its entry in db's table of open trees (TREE), or one of a snapshot's (SNAPT). The calls by \
+handle, COMMIT, ABORT, SNAP and BOOT are taken from fs only (its pid); the store for programs (64..66) \
+from anyone that reaches db, and fs hands programs' calls on. Every reply's word 56 is the commit under \
+way | the count of aborts << 48. A call that fills the disk answers −1 and one whose page fails its \
+checksum (or that the device refuses) −5; either gives up the commit under way, and the count of aborts \
+says so. A request from fs may carry a batch of writes after its data (header word 48 bits \
+16..31: its bytes; items {u8 kind, u8 flag, u16 key length, u16 value length, u16 the extents' tree, \
+u64 tree, key, value}, each padded to 8 bytes): db applies it first, in order. Kinds: 1 PUT, 2 DEL, \
+3 VDEL (a value and its extents), 4 VWRITE (the item's value is {u64 offset, the bytes}; flag 1: a \
+stream even when short), 5 a value moved (the key's value goes and the value under the key that is the \
+item's value moves to it, as VDEL, VSIZE, PUT, DEL would). fs sends its puts, deletes, writes of at \
+most 512 bytes and renames of a file's contents this way, so a file made by `echo > f` costs one GET \
+and the COMMIT. A request names db by header word 48 = 0x53 << 56 | 1. FORWARDING: fs forwards a \
+program's DBGET, DBSCAN and DBBATCH to db as they are (REPLY to db's core: the buffer arrives there as \
+a request, its sender stamped as the program), with the core to answer in header word 56; db takes \
+that word only from a request that comes from fs's core (fs is alone there) and is not fs's own, and \
+answers the program directly (from 8 cores on; on fewer, fs shares its core and relays them, and db \
+trusts no forwarded request). Every answer to a program has header word 48 cleared. FULL DISK: a \
+change stops while 128 pages are free (64 kept for the allocator's trees, 64 for changes that free \
+space); fs marks the calls of such a change (UNLINK, a snapshot deleted) with header word 48 bit 32, \
+and a program's batch of deletes only is one too, so a full disk can be emptied."""
+
+[[op]]
+num = 64
+name = "DBGET"
+summary = "A value from a program's tree"
+note = """The store for programs: trees of keys and values (bytes, compared unsigned) in namespaces of \
+their own. Namespaces made by DBBATCH are public; `fs` is private and refused. Programs send DBGET and DBSCAN \
+to db (os/lib/kv.s: through c4, pipe's core, header word 48 = 0x53 << 56 | 1), or to fs, which forwards them."""
+
+[op.request]
+length = "the data's bytes (8..4032)"
+data = [
+  { type = "u8", name = "namespace name length", note = "1..32" },
+  { type = "u8", name = "tree name length", note = "1..28" },
+  { type = "u16", name = "key length" },
+  { type = "u32", name = "0" },
+  { type = "bytes", name = "the namespace's name" },
+  { type = "bytes", name = "the tree's name", note = "not starting with `.`" },
+  { type = "bytes", name = "the key" },
+]
+
+[op.reply]
+result = "the value's length"
+data = [{ type = "bytes", name = "the value" }]
+
+[op.errors]
+"-1" = "a bad request (lengths, a key that does not lie inside the data, a tree name starting with `.`), a private namespace, or a value kept as a stream"
+"-4" = "no such namespace, tree or key"
+
+[[op]]
+num = 65
+name = "DBSCAN"
+summary = "Records of a program's tree, in key order"
+note = "The first record is the nearest on the mode's side of the key; those after it follow in key order, as many as fit. Ask again with the last key and mode 1."
+
+[op.request]
+length = "the data's bytes (8..4032)"
+modes = { "0" = "ST_GE: from the key on", "1" = "ST_GT: after the key", "2" = "ST_LE: from the last key at or before it", "3" = "ST_LT: from the last key before it" }
+data = [
+  { type = "u8", name = "namespace name length", note = "1..32" },
+  { type = "u8", name = "tree name length", note = "1..28" },
+  { type = "u16", name = "key length", note = "0: from the start" },
+  { type = "u32", name = "0" },
+  { type = "bytes", name = "the namespace's name" },
+  { type = "bytes", name = "the tree's name", note = "not starting with `.`" },
+  { type = "bytes", name = "the key" },
+]
+
+[op.reply]
+result = "the records"
+length = "the data's bytes"
+data = [
+  { repeat = "per record", fields = [
+    { type = "u16", name = "key length" },
+    { type = "u16", name = "value length" },
+    { type = "u32", name = "0" },
+    { type = "bytes", name = "the key" },
+    { type = "pad" },
+    { type = "bytes", name = "the value" },
+    { type = "pad" },
+  ] },
+]
+
+[op.errors]
+"-1" = "a bad request (lengths, a key that does not lie inside the data, a tree name starting with `.`), or a private namespace"
+"-4" = "no such namespace or tree"
+
+[[op]]
+num = 66
+name = "DBBATCH"
+summary = "Puts and deletes in a program's tree, in one commit"
+note = "Taken only as fs forwards or relays it (a program sends it to fs): it then lands between two of fs's requests, never inside one. What fs had not committed is committed first; the batch is one commit of its own. Every item is checked before any is done: all of them reach the disk, or none; a batch the disk has no room for is given up alone (fs loses nothing and is not told of an abort). The namespace and the tree are made by the first write (a namespace or tree made by a refused batch stays, empty)."
+
+[op.request]
+handle = "the items"
+length = "the data's bytes (8..4032)"
+data = [
+  { type = "u8", name = "namespace name length", note = "1..32" },
+  { type = "u8", name = "tree name length", note = "1..28" },
+  { type = "u16", name = "key length", note = "unused" },
+  { type = "u32", name = "0" },
+  { type = "bytes", name = "the namespace's name" },
+  { type = "bytes", name = "the tree's name", note = "not starting with `.`" },
+  { type = "pad" },
+  { repeat = "per item", fields = [
+    { type = "u8", name = "1 put, 2 delete" },
+    { type = "u8", name = "0" },
+    { type = "u16", name = "key length", note = "1 to a page / 8 − 32 (480 with 4 KiB pages)" },
+    { type = "u16", name = "value length", note = "with the key padded to 8, at most (page − 32) / 4 − 10, down to a multiple of 8 (1000 with 4 KiB pages); for a delete 0 (a value is passed over)" },
+    { type = "u16", name = "0" },
+    { type = "bytes", name = "the key" },
+    { type = "pad" },
+    { type = "bytes", name = "the value", note = "none for a delete" },
+    { type = "pad" },
+  ] },
+]
+
+[op.reply]
+result = "0: every item is on the disk"
+
+[op.errors]
+"-1" = "a bad request, a private namespace, or a bad item (its kind, its lengths, past the data's end): none is done; or the disk is full"
+[[op]]
+num = 70
+name = "TREE"
+summary = "A handle to a tree of a namespace"
+from = "fs only"
+
+[op.request]
+handle = "the namespace's id"
+length = "the name's length (1..28)"
+modes = { "0" = "open it if it is there", "1" = "make it if it is not" }
+data = [{ type = "bytes", name = "the tree's name" }]
+
+[op.reply]
+result = "the handle; 0: no such tree"
+
+[op.errors]
+"-1" = "not from fs, or a bad name"
+
+[[op]]
+num = 71
+name = "GET"
+summary = "A value by its key"
+from = "fs only"
+
+[op.request]
+handle = "the tree"
+length = "the key's length"
+data = [{ type = "bytes", name = "the key" }]
+
+[op.reply]
+result = "the value's length"
+mode = "the value's flag (1: a stream's 16 bytes)"
+data = [{ type = "bytes", name = "the value" }]
+
+[op.errors]
+"-1" = "no such key (or not from fs, or a bad handle)"
+
+[[op]]
+num = 72
+name = "SEEK"
+summary = "The nearest record on one side of a key"
+from = "fs only"
+
+[op.request]
+handle = "the tree"
+length = "the key's length"
+modes = { "0" = "ST_GE", "1" = "ST_GT", "2" = "ST_LE", "3" = "ST_LT" }
+data = [{ type = "bytes", name = "the key" }]
+
+[op.reply]
+result = "1 found, 0 none"
+length = "the found key's length"
+mode = "the value's length | its flag << 32"
+data = [
+  { type = "bytes", name = "the key" },
+  { type = "pad" },
+  { type = "bytes", name = "the value" },
+]
+
+[op.errors]
+"-1" = "not from fs, or a bad handle"
+
+[[op]]
+num = 73
+name = "PUT"
+summary = "A record in, or replaced"
+from = "fs only"
+note = "fs sends its puts in batches with its other calls instead (see the note above); the call is there for any other client."
+
+[op.request]
+handle = "the tree"
+mode = "the value's flag (0, 1)"
+length = "the data's bytes"
+data = [
+  { type = "u16", name = "key length" },
+  { type = "u16", name = "value length" },
+  { type = "u32", name = "0" },
+  { type = "bytes", name = "the key" },
+  { type = "pad" },
+  { type = "bytes", name = "the value" },
+]
+
+[op.reply]
+result = "1 added, 0 replaced"
+
+[op.errors]
+"-1" = "too long, not from fs, or a bad handle; or the disk is full"
+
+[[op]]
+num = 74
+name = "DEL"
+summary = "A record out"
+from = "fs only"
+
+[op.request]
+handle = "the tree"
+length = "the key's length"
+data = [{ type = "bytes", name = "the key" }]
+
+[op.reply]
+result = "1 deleted, 0 not there"
+
+[op.errors]
+"-1" = "not from fs, or a bad handle; or the disk is full"
+
+[[op]]
+num = 75
+name = "VSIZE"
+summary = "A value's length, whatever its size"
+from = "fs only"
+note = "The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8)."
+
+[op.request]
+handle = "the tree | the extents' tree << 16 (0: as last named) | the key's length << 32"
+data = [{ type = "bytes", name = "the key, when it is longer than 8 bytes" }]
+
+[op.reply]
+result = "the value's length"
+mode = "its flag: 0 in the tree, 1 a stream of extents"
+data = [{ type = "bytes", name = "the value as the tree holds it: a short one itself, a stream's 16 bytes" }]
+
+[op.errors]
+"-1" = "no such value (or not from fs, or a bad handle)"
+
+[[op]]
+num = 76
+name = "VREAD"
+summary = "Part of a value, by offset"
+from = "fs only"
+note = "The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8). The value may be any length: a file's contents are one."
+
+[op.request]
+handle = "the tree | the extents' tree << 16 (0: as last named) | the key's length << 32"
+length = "the bytes wanted (at most 4032 are answered)"
+mode = "the offset"
+
+[op.reply]
+result = "the bytes read; 0 at the end"
+data = [{ type = "bytes", name = "them" }]
+
+[op.errors]
+"-1" = "no such value (or not from fs, or a bad handle)"
+
+[[op]]
+num = 77
+name = "VWRITE"
+summary = "Part of a value written, by offset"
+from = "fs only"
+note = "The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8). The value is made when it is not there; a short one stays in the tree."
+
+[op.request]
+handle = "the tree | the extents' tree << 16 (0: as last named) | the key's length << 32"
+length = "the data's bytes"
+mode = "the offset | 1 << 63: a stream even when short"
+data = [{ type = "bytes", name = "the key, when it is longer than 8 bytes, padded" }, { type = "bytes", name = "the bytes" }]
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "not from fs, or a bad handle; or the disk is full"
+
+[[op]]
+num = 78
+name = "VTRUNC"
+summary = "A value cut or grown to a length"
+from = "fs only"
+note = "The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8)."
+
+[op.request]
+handle = "the tree | the extents' tree << 16 (0: as last named) | the key's length << 32"
+mode = "the new length"
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "not from fs, or a bad handle; or the disk is full"
+
+[[op]]
+num = 79
+name = "VDEL"
+summary = "A value out, its extents freed"
+from = "fs only"
+note = "The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8)."
+
+[op.request]
+handle = "the tree | the extents' tree << 16 (0: as last named) | the key's length << 32"
+
+[op.reply]
+result = "1 deleted, 0 not there"
+
+[op.errors]
+"-1" = "not from fs, or a bad handle; or the disk is full"
+
+[[op]]
+num = 80
+name = "VLOAD"
+summary = "A whole value into a lent arena"
+from = "fs only"
+note = "The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8). A stream's pages go from the disk straight into the arena, whole pages."
+
+[op.request]
+handle = "the tree | the extents' tree << 16 (0: as last named) | the key's length << 32"
+length = "the most bytes"
+mode = "the offset in the arena"
+attachment = "the arena (LOADIMG, READALL: a program's), lent for the call: db lends it on to blk, and blk to the device"
+
+[op.reply]
+result = "the value's length, all of it copied in"
+attachments = { c6 = "the arena, back" }
+
+[op.errors]
+"-1" = "longer than the most bytes, not from fs, or a bad handle"
+"-4" = "no such value"
+
+[[op]]
+num = 81
+name = "COMMIT"
+summary = "Everything changed, on the disk"
+from = "fs only"
+
+[op.request]
+
+[op.reply]
+result = "0: on the disk (a FLUSH, the meta block, a FLUSH)"
+
+[op.errors]
+"-1" = "not from fs; or the disk is full (the commit is given up)"
+
+[[op]]
+num = 82
+name = "ABORT"
+summary = "Back to the last commit"
+from = "fs only"
+
+[op.request]
+
+[op.reply]
+result = "0: what was not committed is given up; every handle is to be opened again"
+
+[op.errors]
+"-1" = "not from fs"
+
+[[op]]
+num = 83
+name = "INFO"
+summary = "The store's sizes"
+from = "fs only"
+
+[op.request]
+
+[op.reply]
+result = "8"
+length = "64"
+data = [
+  { type = "u64", name = "the page size" },
+  { type = "u64", name = "blocks per page" },
+  { type = "u64", name = "pages" },
+  { type = "u64", name = "free pages" },
+  { type = "u64", name = "the commit under way" },
+  { type = "u64", name = "the last commit on the disk" },
+  { type = "u64", name = "the newest snapshot's commit (0: none)" },
+  { type = "u64", name = "the disk's blocks" },
+]
+
+[op.errors]
+"-1" = "not from fs"
+
+[[op]]
+num = 84
+name = "SNAP"
+summary = "Snapshots: take, delete, list, restore"
+from = "fs only"
+note = "A snapshot is the whole store as of one commit, under a name: taking one records that commit's catalog root and copies nothing; from then on the pages it uses are kept (dead lists)."
+
+[op.request]
+length = "the data's bytes"
+modes = { "0" = "take one: data = its name (1..32 bytes); what is under way is committed first", "1" = "delete it: data = the name", "2" = "list them", "3" = "restore it: data = {u64 the name's length, name[32], u64 trees, the live trees' handles, the namespace's extents' tree last}: they take the snapshot's roots; not committed (fs writes the boot manifest and commits)" }
+
+[op.reply]
+result = "0; list: the snapshots"
+data = [
+  { repeat = "per snapshot (mode 2)", fields = [
+    { type = "u64", name = "its commit" },
+    { type = "bytes", name = "its name, 32 bytes, zero padded" },
+  ] },
+]
+
+[op.errors]
+"-1" = "a bad name, taken already (0), not from fs, or the disk is full"
+"-4" = "no such snapshot (1, 3)"
+
+[[op]]
+num = 85
+name = "SNAPT"
+summary = "Handles to a snapshot's trees"
+from = "fs only"
+
+[op.request]
+handle = "the snapshot's commit"
+length = "the data's bytes"
+data = [
+  { type = "u64", name = "trees (8 at most)" },
+  { type = "u64", name = "a live tree's handle, per tree: the one of that namespace and name" },
+]
+
+[op.reply]
+result = "the trees"
+data = [{ type = "u64", name = "per tree: a handle to it as the snapshot has it (empty when it had none), good until the next SNAPT" }]
+
+[op.errors]
+"-1" = "no such snapshot, a bad handle, or not from fs"
+
+[[op]]
+num = 86
+name = "BOOT"
+summary = "The boot manifest anew"
+from = "fs only"
+note = "The kernel loads the first servers from the manifest: each object in one run of pages. Which values are boot objects is fs's to say: the files with the boot flag."
+
+[op.request]
+handle = "the data tree | the extents' tree << 16"
+length = "the data's bytes"
+data = [
+  { type = "u64", name = "the key (8 bytes) of a value to make one run of pages first; 0: none" },
+  { type = "u64", name = "entries (64 at most)" },
+  { repeat = "per entry", fields = [
+    { type = "bytes", name = "the name, 16 bytes" },
+    { type = "u64", name = "the value's key in the data tree" },
+    { type = "u64", name = "the size" },
+  ] },
+]
+
+[op.reply]
+result = "0: the manifest is written anew, at a new page, in the commit under way"
+
+[op.errors]
+"-1" = "a bad request, not from fs, or the disk has no run of pages for the value"
+
+[[op]]
+num = 87
+name = "SCAN"
+summary = "Records in key order, as many as fit"
+from = "fs only"
+note = "fs reads ahead with it: a walk over a tree (SEEK after SEEK, GET after GET of growing keys) is answered from one SCAN, until it changes something."
+
+[op.request]
+handle = "the tree"
+length = "the key's length"
+modes = { "0" = "ST_GE: from the key on", "1" = "ST_GT: after it" }
+data = [{ type = "bytes", name = "the key" }]
+
+[op.reply]
+result = "the records"
+length = "the data's bytes"
+mode = "1 when the last is the tree's last"
+data = [
+  { repeat = "per record", fields = [
+    { type = "u16", name = "key length" },
+    { type = "u16", name = "value length" },
+    { type = "u32", name = "flag" },
+    { type = "bytes", name = "the key" },
+    { type = "pad" },
+    { type = "bytes", name = "the value" },
+    { type = "pad" },
+  ] },
+]
+
+[op.errors]
+"-1" = "not from fs, or a bad handle"
+
+[[op]]
+num = 88
+name = "FLUSH"
+summary = "Nothing but the batch that comes with it"
+from = "fs only"
+
+[op.request]
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "not from fs; or the disk is full"
+

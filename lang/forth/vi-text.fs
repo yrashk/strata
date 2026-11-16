@@ -7,29 +7,77 @@
 2048 constant chsz                              \ bytes per chunk of text
 1000 constant lmax                              \ the longest line
 $40000000 constant bigcol                       \ "the end of the line" for j and k after $
-$1c00 constant f-y   $c000 constant ysz         \ the far heap: keyword tables at 0 (three of 2 KiB),
-$dc00 constant f-u   $18000 constant usz        \ messages at $1800, the register, the undo history,
-$25c00 constant f-t                             \ and the text (chunks) from here
+$2c00 constant f-y   $c000 constant ysz         \ the far heap: keyword tables at 0 (five of 2 KiB),
+$ec00 constant f-u   $18000 constant usz        \ messages at $2800, the register, the undo history,
+$26c00 constant f-t                             \ and the text (chunks) from here
 heap-cap tag constant htag                      \ the heap's transfers' tag mask
 38 kvar constant hdl                            \ standard handles 0..2: server register, then the ids
-variable cols  variable rows  variable trows variable tcols  variable numw
-variable nl    variable cy    variable cx    variable want   variable setw  variable dcur
-variable top   variable lcol  variable ins   variable syn    variable synon
-variable dirty variable dall  variable clear variable con    variable quit
-variable cnt   variable cnt1  variable chg   variable rep
-variable nch   variable nfree variable cidx  variable cdirty variable nchmax
-variable f-c   variable f-b   variable f-o   variable f-len  variable lc-n
-variable lblive variable lblen
-variable u-end variable u-top variable u-rec variable u-w    variable u-ok  variable u-saved
-variable chg-a variable chg-n variable chg-y variable chg-x
-variable y-kind variable y-cnt
-variable kb-pos variable kb-len variable k-pend
-variable rq-pos variable rq-len variable dotn variable rec-len variable dot-len
-variable msgl  variable patl  variable sdir  variable fnl    variable hs-n  variable hs-s
-variable mv-y  variable mv-x  variable mv-w  variable p-y    variable p-x
-variable x-bang variable x-arg variable x-argl
+\ The editor's state. The names are vi.s's (v_cols is cols here, f_c f-c, ...), and so is
+\ the order (several are read as pairs).
+variable cols  variable rows                    \ the screen's columns and rows (the last: the status line)
+variable trows variable tcols                   \ text rows; text columns (a row after its line number)
+variable numw                                   \ the line numbers' columns (0: :set nonu)
+variable nl                                     \ lines in the text (at least 1)
+variable cy    variable cx                      \ the cursor: line, byte in the line
+variable want  variable setw                    \ the column j and k aim for; 1: the cursor's becomes it
+variable dcur                                   \ the cursor's column in its line
+variable top   variable lcol                    \ the first line and the first column on the screen
+variable ins                                    \ 1: insert mode
+variable syn   variable synon                   \ highlighting: 0 none, 1 assembly, 2 Forth, 3 C, 4 Stratalk,
+                                                \   5 Prolog; :syntax on
+variable dirty variable dall  variable clear    \ rows to draw (bit r: text row r); 1: all; 1: clear first
+variable con   variable quit                    \ 1: standard input is the console; 1: leave
+variable cnt   variable cnt1                    \ the count typed (0: none); the same, at least 1
+variable chg   variable rep                     \ 1: the command changed the text (. repeats it); 1: its
+                                                \   keys come from . (they are not recorded again)
+variable nch   variable nfree                   \ chunks in the table; chunks on the free stack
+variable cidx  variable cdirty                  \ the chunk in cbuf (-1: none); 1: cbuf changed since read
+variable nchmax                                 \ the chunks the heap has room for
+variable f-c   variable f-b   variable f-o      \ the line lfind found last: its chunk, the chunk's first
+variable f-len variable lc-n                    \   line, its offset in cbuf, its length; the line (-1: none)
+variable lblive variable lblen                  \ 1: lbuf is the cursor's line (insert mode); its bytes
+variable u-end variable u-top                   \ undo: records [0, u-end) can be undone, [u-end, u-top) redone;
+variable u-rec variable u-w    variable u-ok    \   the record being written, where its next line goes, 0: too big;
+variable u-saved                                \   u-end when the file was written (-1: not reachable)
+variable chg-a variable chg-n                   \ the change: its first line, the lines it replaces,
+variable chg-y variable chg-x                   \   the cursor before it
+variable y-kind variable y-cnt                  \ the register: 0 characters, 1 lines; its lines (0: empty)
+variable kb-pos variable kb-len                 \ input bytes: the next, how many
+variable k-pend                                 \ a key that comes before any other (0: none)
+variable rq-pos variable rq-len variable dotn   \ the keys of . replayed: the next, how many; replays to come
+variable rec-len variable dot-len               \ the keys of the command so far; of the last change
+variable msgl  variable patl                    \ the message's length (0: the status line); the search text's
+variable sdir  variable fnl                     \ the last search: 1 forward, -1 back; the file name's length
+variable hs-n  variable hs-s                    \ Forth, C ...: a line where the comment state is known; that state
+variable mv-y  variable mv-x  variable mv-w     \ a motion's end: line, byte; 1: j k keep want, 2: $ (the end)
+variable p-y   variable p-x                     \ a position walking the text (w b e %): line, byte
+variable x-bang variable x-arg variable x-argl  \ a : command: 1 after "!"; its argument, and its length
 variable kw-fold variable hc-fill variable ck-n \ 32: keywords case folded; hl-c fills cls; ckbits known
 1 ck-n !
+\ Visual mode's state is one array, vv, not 32 variables: their names would cost data space
+\ this program does not have. V@ i and V! i compile one load or store of cell i. The cells,
+\ with vi.s's names:
+\    0 v_vis    visual mode: 0 none, 1 v (characters), 2 V (lines), 3 Ctrl-V (a block)
+\    1 v_vy     the selection's other end: line, 2 v_vx byte
+\    3 vm_y     the cursor's line when the rows were last marked
+\    4 vs_k     the selection worked out (v-sel): its kind, 5 vs_y0 its first line, 6 vs_y1
+\               its last, 7 vs_x0 8 vs_x1 v: the first and last byte, Ctrl-V: the first and
+\               last column (bigcol: after $)
+\    9 lv_k     the last selection (gv, '< '>): its kind (0 none), 10 lv_ay 11 lv_ax the other
+\               end, 12 lv_cy 13 lv_cx the cursor's end, 14 lv_w the column aimed for
+\   15 v_gv     1: the motion was gv
+\   16 v_grp    1: chg-begin and chg-end do nothing (a visual operation's change is one):
+\               17 vo_n the lines it replaces, 18 vo_nl the lines of the text before it
+\   19 vb_col   a block's insert: the column, 20 vb_pad 1: lines short of it are padded (A)
+\   21 y_w      the register as a block: its longest line
+\   22 ms_y     a mouse report: the cell, row and 23 ms_x column; 24 ms_py 25 ms_px where the
+\               button went down (line -1: not on the text)
+\   26 x_rng    a : command: 1 after a range, 27 x_r0 28 x_r1 its first and last line
+\   29 v_hs     the row being drawn: its selected bytes [v_hs, v_he), 30 v_he; 31 v_hnl 1: its
+\               newline too (a cell after the text)
+create vv 32 cells allot
+: v@ ( "i" -- ) parse-name number? drop cells vv + postpone literal postpone @ ; immediate
+: v! ( "i" -- ) parse-name number? drop cells vv + postpone literal postpone ! ; immediate
 create ctab 200 8 * allot                       \ the chunks in order: u16 store number, u16 bytes, u32 lines
 create fstk 200 allot                           \ store numbers that are free (a stack)
 create cbuf chsz 16 + allot                     \ the chunk in the D-LS
@@ -41,13 +89,16 @@ create kbuf 64 allot                            \ input bytes read
 create recbuf 128 allot                         \ the keys of the command (16 bits each, 64 at most)
 create dotbuf 128 allot                         \ the keys of the last change
 create patbuf 128 allot  create fname 128 allot  create msgbuf 128 allot
-create rowst 64 allot                           \ Forth, C: the comment state at the start of each text row
-create ckbits 256 allot  ckbits 256 erase       \ ... and at the start of line 16 k (bit k; ck-n known)
+create rowst 64 allot                           \ Forth, C ...: the comment state at the start of each text row
+create ckbits 256 allot  ckbits 256 erase       \ ... and at the start of line 16 k (bits 2k, 2k+1; ck-n known;
+                                                \   lines [0, 16384): vi.s keeps twice as many)
 create hdrb 48 allot                            \ an undo record's header
 create ctype 256 allot                          \ byte types: 1 letter or _, 2 digit, 4 ".", 8 "$",
-: ct! ( type from to -- ) 1+ swap ?do dup ctype i + c! loop drop ; \ 16 blank, 32 capital, 64 "_"
-ctype 256 erase  1 'a' 'z' ct!  33 'A' 'Z' ct!  2 '0' '9' ct!  65 '_' '_' ct!
-4 '.' '.' ct!  8 '$' '$' ct!  16 bl bl ct!  16 9 9 ct!
+: ct! ( type from to -- ) 1+ swap ?do dup ctype i + c! loop drop ; \ 16 blank, 32 capital, 64 "_", 128 a
+ctype 256 erase  1 'a' 'z' ct!  33 'A' 'Z' ct!  2 '0' '9' ct!  65 '_' '_' ct! \ byte of a Stratalk binary
+4 '.' '.' ct!  8 '$' '$' ct!  16 bl bl ct!  16 9 9 ct!                       \ selector
+128 '!' '!' ct!  128 '%' '&' ct!  128 '*' '-' ct!  128 '/' '/' ct!  128 '<' '@' ct!
+128 '\' '\' ct!  128 '|' '|' ct!  128 '~' '~' ct!
 create sgrtab                                   \ the site's colours (site/hl.css) as SGR codes, by class
   39 c, 90 c, 97 c, 92 c, 96 c, 94 c, 95 c, 33 c, 93 c, 31 c, 91 c, 36 c, 34 c, 37 c, 93 c, 91 c,
   32 c, 35 c, 31 c, 97 c, 95 c, 34 c, 33 c, 93 c,
@@ -59,12 +110,12 @@ far-size f-t - chsz / 200 min nchmax !          \ the chunks the heap has room f
 : size-upd ( -- ) rows @ 1- trows !  cols @ numw @ - tcols !  1 dall ! ;
 : set-size ( rows cols -- )                     \ the terminal's size, from its report
   dup 20 < 2 pick 3 < or if 2drop exit then  250 min cols !  62 min rows !  1 clear !  size-upd ;
-: lbu, ( rd rs imm -- ) $16 rri, ;             \ (more of the assembler, for the code words below:
-: andi, ( rd rs imm -- ) $02 rri, ;            \   a byte load, and, or with an immediate)
-: ori, ( rd rs imm -- ) $03 rri, ;
-: or, ( rd rs1 rs2 -- ) 3 rrr, ;
-: sub, ( rd rs1 rs2 -- ) 1 rrr, ;
-: blt, ( ra rb off -- ) $22 rri, ;
+\ More of the assembler, for the code words below (core.fs has add, sub, and, ld, beq, ...).
+: lbu,  ( rd rs imm -- ) $16 rri, ;             \ rd = the byte at rs + imm
+: andi, ( rd rs imm -- ) $02 rri, ;             \ rd = rs & imm
+: ori,  ( rd rs imm -- ) $03 rri, ;             \ rd = rs | imm (with %zero: a 16-bit address)
+: or,   ( rd rs1 rs2 -- ) 3 rrr, ;              \ rd = rs1 | rs2
+: blt,  ( ra rb off -- ) $22 rri, ;             \ branch if ra < rb (signed)
 13 constant %a3  14 constant %a4  15 constant %a5
 variable kw-pos  variable kw-b                 \ making a keyword table: its end, the last first byte done
 : kw-begin ( -- ) 0 kw-pos !  $20 kw-b !  cbuf 2048 erase ;
@@ -73,18 +124,18 @@ variable kw-pos  variable kw-b                 \ making a keyword table: its end
   >r begin parse-name dup while
     over c@ kw-fill  cbuf 192 + kw-pos @ +  2dup c!  r@ over 1+ c!  2 + swap dup 2 + kw-pos +! move
   repeat 2drop rdrop ;
-: kw-end ( n -- )                               \ done: into far memory as table n (1 asm, 2 Forth, 3 C): an
+: kw-end ( n -- )                               \ done: into far memory as table n (1 asm ... 5 Prolog): an
   $80 kw-fill  kw-pos @ 192 + 2048 > abort" vi-syntax.fs: a table too big" \ index of 96 halfwords by
   cbuf swap 1- 2048 * 2048 far-write htag twait ; \ first byte, then {u8 length, u8 class, bytes}
 include /vi-syntax.fs
 \ Messages: m" text" in a definition keeps the text in far memory (not in data
 \ space, which is scarce) and compiles its address and length; m+" appends.
-variable m-pos  $1800 m-pos !                   \ where the next message's text goes
+variable m-pos  $2800 m-pos !                   \ where the next message's text goes
 : m-far ( x -- ) dup $ff and msgl !  8 rshift msgbuf swap msgl @ aligned far-read htag twait ;
 : m-far+ ( x -- ) dup $ff and >r 8 rshift hdrb swap r@ aligned far-read htag twait
   r> 120 msgl @ - min 0 max  hdrb msgbuf msgl @ + 2 pick move  msgl +! ;
 : m-text ( "text" -- x ) '"' parse dup >r cbuf swap move  cbuf m-pos @ r@ aligned far-write htag twait
-  m-pos @ 8 lshift r@ or  r> aligned m-pos +!  m-pos @ $1c00 > abort" vi: messages too long" ;
+  m-pos @ 8 lshift r@ or  r> aligned m-pos +!  m-pos @ $2c00 > abort" vi: messages too long" ;
 : m" ( "text" -- ) m-text postpone literal postpone m-far ; immediate   \ the message is the text
 : m+" ( "text" -- ) m-text postpone literal postpone m-far+ ; immediate \ ... appended to the message
 
@@ -144,12 +195,14 @@ variable m-pos  $1800 m-pos !                   \ where the next message's text 
   kb-pos @ kb-len @ = if flush 0 rd dup 0> 0= if 0 kb-len ! -2 = 1- exit then kb-len ! 0 kb-pos ! then
   kbuf kb-pos @ + c@ 1 kb-pos +! ;
 : csi ( -- k|0 )                              \ the rest of ESC [ ...: a key, $10b (a size report), 0 (none)
-  0 0 begin rd-byte  dup 0< if drop 2drop 0 exit then
+  0 0 0 begin rd-byte  dup 0< if 2drop 2drop 0 exit then
     dup '0' - 10 u< if '0' - swap 10 * + false else
-    dup ';' = if drop nip 0 false else dup $40 < if drop false else true then then then
+    dup ';' = if drop rot drop 0 false else dup $40 < if drop false else true then then then
   until
-  dup 'R' = if drop set-size $10b exit then
-  dup '~' = if drop nip dup 9 u< if tildes + c@ dup if $100 + then else drop 0 then exit then
+  dup 'R' = if drop rot drop set-size $10b exit then
+  dup $20 or 'm' = if >r 1- v! 22 1- v! 23      \ ESC [ < button ; column ; row M (m: released): the
+    case 64 of $10e endof 65 of $10f endof 0 of r@ 'M' = $10d + endof 0 swap endcase rdrop exit then \ mouse
+  rot drop  dup '~' = if drop nip dup 9 u< if tildes + c@ dup if $100 + then else drop 0 then exit then
   nip nip  s" ABCDHF" 0 ?do 2dup i + c@ = if 2drop $101 i + unloop exit then loop 2drop 0 ;
 : rd-wait ( polls -- f )                        \ a byte waiting (asked up to polls times more, 2 ms apart)?
   begin kb-pos @ kb-len @ < if drop true exit then
@@ -220,8 +273,8 @@ variable m-pos  $1800 m-pos !                   \ where the next message's text 
     mark resolve  swap mark resolve             \ (the next entry)
     %a0 %t0 0 lbu,  %t0 %t0 %a0 add,  %t0 %t0 2 addi,  ahead, 3 roll resolve
     mark resolve  %s1 %t0 1 lbu,  ahead,  swap mark resolve  %s1 %zero 0 addi,  mark resolve ] ;
-: kw-find ( a u -- class|0 )                    \ the word's class in the keyword table (case folded,
-  dup 0= if nip exit then  syn @ 3 <> 32 and kw-fold !  \   but for C)
+: kw-find ( a u -- class|0 )                    \ the word's class in the keyword table (case folded
+  dup 0= if nip exit then  syn @ 3 < 32 and kw-fold !  \   for assembly and Forth)
   over c@ kw-fold @ if lower then $21 - dup 94 u< 0= if drop 2drop 0 exit then  kw-range kw-scan ;
 : scan-id ( a u i -- i' )                       \ past the identifier at i ([A-Za-z_.$][A-Za-z0-9_.$]*)
   [ %t1 %s0 0 ld,  %t2 %s0 8 ld,  %s0 %s0 16 addi,  %a1 %zero ctype ori,   \ (a code word)
@@ -431,16 +484,116 @@ variable hf-want                                \ what the word before asked for
       if a u i c-num  i over 16 hc-pt  to i else i 1+ to i then
     then then then then
   again ;
-: hl-on ( -- syn ) synon @ if syn @ else 0 then ; \ the highlighting in effect (0 none, 1 asm, 2 Forth, 3 C)
-: hl-state ( a u s -- s' ) syn @ 3 = if 0 hl-c else hl-forth then ; \ the comment state after a line
-: ck@ ( k -- s ) dup 3 rshift ckbits + c@ swap 7 and rshift 1 and ; \ the state kept for line 16 k
-: ck! ( s k -- ) dup 3 rshift ckbits + >r 7 and 1 swap lshift r@ c@ over invert and rot if or else nip then r> c! ;
+
+\ ---- highlighting Stratalk and Prolog (site/hl.js's stLines and plLines, as vi.s has them) ---------
+\ (Short names: a name of five bytes or fewer costs a 16-byte header, a longer one 24.)
+: b@ ( a u i -- c ) tuck > if + c@ else 2drop 0 then ; \ the byte at i (0 past the end)
+: q-end ( a u i q fl -- j stop last )           \ past the quote q that closes one opened before i (-1:
+  -1 { a u i q fl last }                        \   none), where the scan stopped (the end, or a last \),
+  begin i u < while                             \   the last doubled quote (-1: none); fl 1: a doubled quote
+    a i + c@  i 1+ to i                         \   is inside, 2: \ and a byte are
+    dup q = if drop
+      fl 1 and i u < and if a i + c@ q = else false then
+      if i 1- to last  i 1+ to i else i i last exit then
+    else '\' = fl 2 and and if
+      i u < if i 1+ to i else -1 i 1- last exit then then
+    then
+  repeat -1 i last ;
+: d-num ( a u i fold -- j )                     \ past the number at i: digits; then (fold 0: Stratalk) r and
+  { a u i fold }                                \   digits or capitals (16r1F), or a "." and digits; then e
+  begin a u i b@ ct 2 and while i 1+ to i repeat \  (fold 32, Prolog: e or E), a sign (Stratalk: -, Prolog:
+  fold 0= if a u i b@ 'r' = if a u i 1+ b@ ct 34 and if \ - or +) and digits
+      i 1+ to i  begin a u i b@ ct 34 and while i 1+ to i repeat  i exit then then then
+  a u i b@ '.' = if a u i 1+ b@ ct 2 and if i 1+ to i  begin a u i b@ ct 2 and while i 1+ to i repeat then then
+  a u i b@ fold or 'e' = if
+    i 1+  a u 2 pick b@  dup '-' = swap '+' = fold 0<> and or if 1+ then
+    a u 2 pick b@ ct 2 and if to i  begin a u i b@ ct 2 and while i 1+ to i repeat else drop then then
+  i ;
+: st-q ( a u i s q -- j|-1 )                    \ a comment or a string from s (its quote q) to its closing
+  { a u i s q }  a u i q 1 q-end 2drop          \   quote, searched from i: painted; j past it, -1: open
+  q '"' = if 1 else 17 then  over 0< if s u rot paint else s 2 pick rot paint then ;
+: st-w ( a u i -- j )                           \ a word at i: a keyword part, a pseudo-variable, a class
+  3dup num-end { a u i j }
+  a u j b@ ':' = a u j 1+ b@ '=' <> and if i j 1+ 20 paint j 1+ exit then
+  a i + j i - kw-find ?dup 0= if a i + c@ ct 32 and if 19 else j exit then then  i j rot paint j ;
+: st-# ( a u i -- j )                           \ # at i: a symbol (#name:, #'text', #+, #(), j past it
+  3dup 1+ b@ { a u i c }
+  c ct 1 and if i 1+ begin 1+ a u 2 pick b@ dup ':' = swap ct 3 and or 0= until else
+  c '(' = if i 2 + else
+  c ''' = if a u i 2 + ''' 1 q-end nip swap dup 0< if drop dup 0< if drop i 1+ exit then 1+ else nip then else
+  c ct 128 and if i 1+ begin 1+ a u 2 pick b@ ct 128 and 0= until else
+  i 1+ exit then then then then
+  i over 3 paint ;
+: st-1 ( a u i -- j )                           \ the token at i (not a quote), painted; j past it
+  2 pick 2 pick 2 pick b@  3 pick 3 pick 3 pick 1+ b@  2 pick 1+ { a u i c d j }
+  c ct 2 and if a u i 0 d-num to j 16 else
+  c ct 1 and if a u i st-w exit else
+  c '#' = if a u i st-# exit else
+  c '^' = if 9 else
+  c '$' = if j u < if j 1+ to j 17 else 0 then else
+  c ':' = if d '=' = if j 1+ to j 9 else d ct 1 and if a u j num-end to j 14 else 0 then then else
+  c '>' = d '>' = and if j 1+ to j 9 else 0
+  then then then then then then then
+  i j rot paint j ;
+: hl-st ( a u st -- st' )                       \ the classes of a Stratalk line; st: 1 a "comment" is open
+  0 0 { a u st i q }  0 u 0 paint               \   at its start (and after it), 2 a 'string'
+  st if a u 0 0 st 1 = if '"' else ''' then st-q dup 0< if drop st exit then to i then
+  a u i skip-bl to i  a u i b@ '|' = if         \ | temporaries |, first
+    i begin 1+ a u 2 pick b@ dup ct 19 and while drop repeat
+    '|' = if 1+ i over 14 paint to i else drop then then
+  begin i u < while
+    a i + c@ to q
+    q '"' = q ''' = or if
+      a u i 1+ i q st-q dup 0< if drop q '"' = if 1 else 2 then exit then
+    else a u i st-1 then  to i
+  repeat 0 ;
+: pl-op ( c d e -- n class )                    \ the operator that starts with the bytes c d e (the first of
+  { c d e }                                     \   site/hl.js's the text has): its bytes (0: none), its class
+  c ':' = d '-' = and if 2 9 exit then
+  c '-' = if d '-' = e '>' = and if 3 9 exit then  d '>' = if 2 20 exit then  0 0 exit then
+  c '?' = d '-' = and if 2 9 exit then
+  c '\' = if d '+' = if 2 20 exit then  d '=' = if e '=' = if 3 else 2 then 12 exit then  0 0 exit then
+  c '=' = if d '.' = e '.' = and  d ':' = e '=' = and or  d '\' = e '=' = and or if 3 12 exit then
+    d '<' = d '=' = or if 2 else 1 then 12 exit then
+  c '>' = if d '=' = if 2 else 1 then 12 exit then
+  c '<' = if 1 12 exit then
+  c '@' = if d '<' = d '>' = or if e '=' = if 3 else 2 then 12 exit then  0 0 exit then
+  c '!' = if 1 9 exit then
+  c ';' = if 1 20 exit then  0 0 ;
+: pl-1 ( a u i -- j )                           \ the token at i (not a comment), painted; j past it
+  2 pick over + c@ 0 { a u i c j }
+  c '"' = c ''' = or if                         \ a string; a quoted atom (a head at column 0)
+    a u i 1+ c c '"' = if 2 else 3 then q-end drop swap dup 0< if drop else nip then to j
+    c '"' = if 17 else i if 3 else 2 then then
+  else c '0' = a u i 1+ b@ ''' = and i 2 + u < and if \ 0'c
+    i 3 + to j  a i + 2 + c@ '\' = j u < and if j 1+ to j then 16
+  else c ct 2 and if a u i 32 d-num to j 16
+  else c ct 1 and if a u i num-end to j          \ a word: a variable, a clause's head, control, builtins
+    c ct 96 and if 14 else i 0= if 2 else a i + j i - kw-find then then
+  else c a u i 1+ b@ a u i 2 + b@ pl-op swap 1 max i + to j
+  then then then then
+  i j rot paint j ;
+: hl-pl ( a u open -- open' )                   \ the classes of a Prolog line; open: 1 if a /* comment is
+  0 { a u open i }  0 u 0 paint                 \   open (after it too)
+  open if a u 0 com-end dup 0< if drop 0 u 1 paint 1 exit then  dup to i  0 swap 1 paint then
+  begin i u < while
+    a i + c@ '/' = a u i 1+ b@ '*' = and if
+      a u i 2 + com-end dup 0< if drop i u 1 paint 1 exit then  i over 1 paint to i
+    else a i + c@ '%' = if i u 1 paint 0 exit then
+      a u i pl-1 to i then
+  repeat 0 ;
+
+: hl-on ( -- syn ) synon @ if syn @ else 0 then ; \ the highlighting in effect (0 none, 1 asm, 2 Forth, 3 C ...)
+: hl-state ( a u s -- s' )                      \ the comment state after a line
+  syn @ 3 = if 0 hl-c else syn @ 4 = if hl-st else syn @ 5 = if hl-pl else hl-forth then then then ;
+: ck@ ( k -- s ) dup 2 rshift ckbits + c@ swap 3 and 2* rshift 3 and ; \ the state kept for line 16 k
+: ck! ( s k -- ) dup 2 rshift ckbits + >r 3 and 2* tuck lshift  3 rot lshift invert r@ c@ and or r> c! ;
 : fstate-top ( -- s )                           \ the comment state at the start of the top line (Forth's (,
-  hl-on 2 < if 0 exit then                      \   C's /*): from the nearer above it of the line it was
+  hl-on 2 < if 0 exit then                      \   C's /*, Stratalk's " and '): from the nearer above it of the line it was
   top @ 4 rshift ck-n @ 1- min  dup ck@ swap 4 lshift \ known for (hs-n) and the state kept in ckbits;
   hs-n @ dup 2 pick < 0= swap top @ > 0= and if 2drop hs-s @ hs-n @ then \ those ckbits wants next on
   begin dup top @ < while                       \   the way are kept
-    dup 15 and 0= if dup 4 rshift dup ck-n @ = over 2048 < and if 1 ck-n +! 2 pick swap ck! else drop then then
+    dup 15 and 0= if dup 4 rshift dup ck-n @ = over 1024 < and if 1 ck-n +! 2 pick swap ck! else drop then then
     dup lfind 3 pick hl-state rot drop swap 1+
   repeat  hs-n ! dup hs-s ! ;
 
@@ -501,25 +654,47 @@ variable hf-want                                \ what the word before asked for
 
 \ ---- drawing -------------------------------------------------------------------------------------
 : hl-on ( -- syn ) synon @ if syn @ else 0 then ; \ (again: called for every row)
-: hl-line ( a u state -- state' ) syn @ 2 = if hl-forth else syn @ 3 = if 1 hl-c else drop hl-asm 0 then then ;
+: hl-line ( a u state -- state' ) syn @ 2 = if hl-forth else syn @ 3 = if 1 hl-c else
+  syn @ 4 = if hl-st else syn @ 5 = if hl-pl else drop hl-asm 0 then then then then ;
 : dcol ( a i -- col ) 0 swap 0 ?do over i + c@ 9 = if 7 or then 1+ loop nip ; \ byte i's column
+: b-col ( a u col -- i )                       \ the first byte that reaches column col (u if none)
+  0 0 { a u col c i }
+  begin i u < while  a i + c@ 9 = if c 7 or to c then  c 1+ to c  c col > if i exit then  i 1+ to i repeat u ;
+: v-sel ( -- )                                  \ the selection in order (4 kind, 5 6 lines, 7 8: v the
+  v@ 0 dup v! 4                                 \   first and last byte, V 0 and bigcol, Ctrl-V the first
+  v@ 1 cy @ < v@ 1 cy @ = v@ 2 cx @ > 0= and or \   and last column, bigcol after $)
+  if v@ 1 v@ 2 cy @ cx @ else cy @ cx @ v@ 1 v@ 2 then  v! 8 v! 6 v! 7 v! 5
+  dup 2 = if 0 v! 7  bigcol v! 8 then
+  3 = if v@ 1 lfind v@ 2 min dcol  cur-text drop cx @ dcol  2dup > if swap then
+    want @ bigcol = if drop bigcol then  v! 8 v! 7 then ;
+: v-rng ( n a u -- s e nl? )                    \ line n of the selection (its text a u): its bytes [s, e)
+  v@ 4 3 = if rot drop  2dup v@ 7 b-col -rot v@ 8 1+ b-col 0 exit then \ selected; nl?: its newline too
+  v@ 4 2 = if nip nip 0 swap true exit then
+  nip { n u }  n v@ 5 = if v@ 7 else 0 then  n v@ 6 = if v@ 8 1+ else u then  u min  tuck min swap  n v@ 6 < ;
 : emit-row ( a u color? -- )                    \ the columns shown, tabs as spaces, others as ?; a
-  0 39 { a u color col shown }                  \   colour only where a non-blank byte needs another
-  u 0 ?do
-    a i + c@ 1  over 9 = if 2drop bl col 7 or 1+ col - then  ( c n )
+  0 39 0 { a u color col shown rev }            \   colour only where a non-blank byte needs another;
+  u 0 ?do                                       \   bytes [29, 30) of vv in reverse video, and a cell
+    a i + c@ 1  over 9 = if 2drop bl col 7 or 1+ col - then  ( c n ) \ after the text if 31
     over $20 - $5f u< 0= if nip '?' swap then
     begin dup while
-      col lcol @ tcols @ + < 0= if 2drop unloop shown 39 <> if 0 o-sgr then exit then
-      col lcol @ < 0= if color if over bl <> if cls i + c@ sgrtab + c@ dup shown <> if dup to shown o-sgr else drop then then then
+      col lcol @ tcols @ + < 0= if 2drop unloop shown 39 <> rev or if 0 o-sgr then exit then
+      col lcol @ < 0= if
+        i v@ 29 v@ 30 within dup rev <> if dup to rev if 7 else 27 then o-sgr else drop then
+        color if over bl <> if cls i + c@ sgrtab + c@ dup shown <> if dup to shown o-sgr else drop then then then
         over emit then
       col 1+ to col  1-
     repeat 2drop
-  loop shown 39 <> if 0 o-sgr then ;
+  loop
+  v@ 31 if col lcol @ dup tcols @ + within if rev 0= if true to rev 7 o-sgr then space then then
+  shown 39 <> rev or if 0 o-sgr then ;
 : draw-row ( r -- )                             \ text row r: its line (or ~ past the end), highlighted
   dup 0 o-goto  dup top @ +
   dup nl @ < 0= if 2drop 94 o-sgr '~' emit 0 o-sgr o-el exit then
   numw @ if 33 o-sgr dup 1+ 5 u.r 0 o-sgr space then
-  dup cy @ = lblive @ and if drop lbuf lblen @ else lfind then  ( r a u )
+  dup cy @ = lblive @ and if lbuf lblen @ else dup lfind then  ( r n a u )
+  0 v! 29  0 v! 30  0 v! 31                     \ its bytes selected (visual mode)
+  v@ 0 if 2 pick v@ 5 v@ 6 1+ within if 2 pick 2 pick 2 pick v-rng v! 31 v! 30 v! 29 then then
+  rot drop  ( r a u )
   hl-on if 2dup 4 pick rowst + c@ hl-line       \ the next row starts in another ( state: drawn too
     3 pick 1+ rowst + dup c@ 2 pick <> if c! 2 pick 1+ 1 swap lshift dirty @ or dirty ! else 2drop then
     true else false then  emit-row drop o-el ;
@@ -527,6 +702,7 @@ variable hf-want                                \ what the word before asked for
   rows @ 1- 0 o-goto
   msgl @ if msgbuf msgl @ cols @ 1- min type o-el exit then
   ins @ if esc[ ." 1m-- INSERT --" esc[ ." 0m  " then
+  v@ 0 ?dup if esc[ ." 1m-- VISUAL" dup 2 = if ."  LINE" then 3 = if ."  BLOCK" then ."  --" esc[ ." 0m  " then
   fnl @ if fname fnl @ 40 min type else ." [No Name]" then
   is-mod if ."  [+]" then  o-el
   rows @ 1- cols @ 18 - o-goto  cy @ 1+ o-n ',' emit  cx @ 1+ o-n  o-el ;
@@ -540,7 +716,7 @@ variable hf-want                                \ what the word before asked for
   cur-text drop cx @ dcol  dup dcur !  setw @ if dup want ! then
   dup lcol @ < over lcol @ tcols @ + < 0= or if tcols @ 2/ - 0 max lcol ! 1 dall ! else drop then ;
 : refresh ( -- )                                \ the screen up to date: rows marked, status, cursor
-  fix-cursor view  esc[ ." ?25l"
+  fix-cursor view  v@ 0 if v-sel then  esc[ ." ?25l"
   clear @ if 0 clear ! esc[ ." 2J" then
   dall @ if 0 dall ! -1 dirty ! fstate-top rowst c! then
   trows @ 0 ?do dirty @ i rshift 1 and if i draw-row then loop

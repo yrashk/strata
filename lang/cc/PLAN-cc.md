@@ -241,14 +241,14 @@ host and gives the same).
 
 ## Size
 
-`cc.c`: 5,500 lines of C. Compiled by itself: 106 KiB of code in 4 KiB
-units (`cc.u`), and an image `cc` of 47 KiB: the 9 KiB library and 38 KiB of
-data (1.7 KiB of the 40 are left). The host program `strata-cc` is the same
+`cc.c`: 5,900 lines of C. Compiled by itself: 107 KiB of code in 4 KiB
+units (`cc.u`), and an image `cc` of 47 KiB: the 9 KiB library and 39 KiB of
+data (1.4 KiB of the 40 are left). The host program `strata-cc` is the same
 source and 115 lines of `host/host.c`.
 
 `cc.s` and the files it includes: 13,900 lines of assembly, of which the
 resident part is 4 KiB of code and the 30 code units 119 KiB; the D-LS
-section is the full 40 KiB (16 KiB symbols, 7 KiB types, 13 KiB variables
+section is the full 40 KiB (16 KiB symbols, 7.5 KiB types, 13 KiB variables
 and buffers). The library: 3,000 lines of assembly, 9 KiB of code and 3 KiB
 of data in every program, and 480 lines of C that a program gets only the
 functions it calls of. `cc.lib` is 45 KiB (the library, the headers, the

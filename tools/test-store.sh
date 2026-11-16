@@ -548,4 +548,48 @@ run "$tmp/w1.txt" "$disk" -w "$tmp/w1.img" || fail "the session with two writers
   { "$b/stdb" get "$tmp/w1.img" /t/sa | od -c | head -3 >&2; fail "two programs writing at once: a file does not hold its own bytes"; }
 "$b/stdb" check "$tmp/w1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk two programs wrote at once fails its check"; }
 echo "test-store: two programs writing a byte at a time, in turns: each file holds its own bytes"
+# ---- 13. the store for programs on a full disk ---------------------------------------------
+# Files fill the disk, from large to small, each until one does not fit;
+# then puts into a program's tree until one is refused. A batch is
+# forwarded by fs and committed alone by db: when the disk has no room for
+# it, only the batch is given up, and fs is not told of an abort: it goes
+# on reading (its trees still open) and the values put before are there.
+# Growth stops ST_RESD pages (64) short of what a delete may use, so the
+# full disk is not stuck: a file is removed, and a new one written.
+v=$(printf 'v%.0s' $(seq 200))
+{
+  for i in $(seq 1 16); do echo "seq 100000 > /t/l$i"; done
+  for i in $(seq 1 12); do echo "seq 10000 > /t/m$i"; done
+  for i in $(seq 1 12); do echo "seq 1000 > /t/s$i"; done
+  for i in $(seq 1 40); do echo "seq 100 > /t/t$i"; done
+  echo "echo --puts"
+  for i in $(seq 100 499); do echo "db put full/t k$i $v"; done
+  echo "echo --after"
+  echo "cat /t/l1 | wc"
+  echo "db get full/t k100 | wc"
+  echo "ls /t | wc"
+  echo "rm /t/l1"
+  echo "echo written > /t/after; cat /t/after"
+  echo "db del full/t k100"
+  echo "echo --end"
+  echo "fsck"
+  echo "halt"
+} >"$tmp/p1.txt"
+run "$tmp/p1.txt" "$disk" -w "$tmp/p1.img" -m 40000000000 || fail "the session that fills the disk with a program's tree did not end well"
+python3 - "$tmp/out.txt" <<'PYEOF' || { tail -40 "$tmp/out.txt" >&2; exit 1; }
+import sys
+t = open(sys.argv[1], errors="replace").read()
+puts, after = t.split("\n--puts\n")[1].split("\n--after\n")
+after, end = after.split("\n--end\n")
+assert "db: refused" in puts, "no put was refused: the disk did not fill"
+assert puts.split("db: refused")[0].count("db put") >= 1, "the first put was refused"
+assert "\n1 1 201\n" in after, "a value put before the disk filled is gone"
+assert "100000 100000 588895" in after, "fs does not read a file after the program's batch was given up"
+assert "no such file" not in after, "a file could not be removed from the full disk"
+assert "\nwritten\n" in after, "no file was written after one was removed from the full disk"
+assert "refused" not in after, "a delete from the program's tree was refused on the full disk"
+assert "no problems" in end, "fsck after a program's batch did not fit"
+PYEOF
+"$b/stdb" check "$tmp/p1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk after a program's batch did not fit fails its check"; }
+echo "test-store: a program's batch the full disk has no room for is given up alone; fs goes on, and the full disk is emptied: a file removed, another written"
 echo "test-store: OK"

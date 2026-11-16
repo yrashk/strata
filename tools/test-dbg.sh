@@ -165,7 +165,7 @@ EOF
     "console| strata\$ " \
     "stopped: breakpoint 1: process ls runs (at its entry)" "<_start> (ls.s:" \
     "pid parent state  core n  running  name" "  proc" "  sh" "  ls" \
-    "pid 8 ls"
+    "pid 10 ls"
   # a guest OS: its cores while it runs, then `guest stop`'s core-control resets
   cp "$b/disk.img" "$tmp/disk.img"
   cat > "$tmp/guest.cmd" <<'EOF'

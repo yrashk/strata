@@ -190,6 +190,9 @@ back:   beq a0, a1, start
         csrr a0, sscratch
         csrr a0, ipend
         csrr a0, xslot
+        csrr a0, wdata
+        csrr a0, wstack
+        csrr a0, wcode
         csrr a0, 17
         csrr a0, X+0x100
         csrw tvec, a0
@@ -427,7 +430,7 @@ echo "errors       ok    $nerr rejected inputs rejected by as too"
 # a real StrataOS boot: `run as < hello.s > hello`, then run the result. The
 # disk holds what StrataOS 0.1 needs to come up (its servers and the shell)
 # plus the `as` built here and hello.s.
-OSB="$B/prog/proc $B/prog/dev $B/prog/fs $B/prog/tty $B/prog/pipe $B/prog/sh $B/prog/cat"
+OSB="$B/prog/proc $B/prog/dev $B/prog/fs $B/prog/blk $B/sys/db $B/prog/tty $B/prog/pipe $B/prog/sh $B/prog/cat"
 make -s BUILD="$B" "$B/mkdisk" "$B/bootrom.stx" "$B/kernel.stx" $OSB || exit 1
 mkdir -p "$tmp/disk"
 cp "$B/as-os.stx" "$tmp/disk/as"

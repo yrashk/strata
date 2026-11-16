@@ -1,7 +1,7 @@
 // Strata syntax highlighting, shared by every page of the site: the source
 // browser (code/), the landing page and the instruction-set and architecture
-// pages. Two line-at-a-time scanners, one for Strata assembly and one for
-// Forth (which keeps one bit of state across lines: an open paren comment).
+// pages. Line-at-a-time scanners for Strata assembly, Forth (which keeps one
+// bit of state across lines: an open paren comment), C, Stratalk and Prolog.
 //
 // The keyword tables are the real assembler's (asm/sasm.c) and Strata
 // Forth's, extracted by tools/web-code.py. A page gets them either from
@@ -10,7 +10,8 @@
 // scanners still colour comments, labels, numbers, strings and c/tg registers.
 //
 // On load, every <pre><code class="language-strata-asm">,
-// <pre><code class="language-c"> and
+// <pre><code class="language-c">, <pre><code class="language-stratalk">,
+// <pre><code class="language-prolog"> and
 // <pre><code class="language-forth"> is coloured. A Forth block with
 // data-session is a transcript: a trailing "ok" is the prompt, and indented
 // "addr:  insn" lines (the output of see) are coloured as assembly.
@@ -212,6 +213,110 @@
     });
   }
 
+  // -------------------------------------------------------------- Stratalk
+  // A comment ("...") or a string ('...') may span lines: the state carried
+  // from one line to the next is the one that is open, if any. Keyword
+  // message parts (at:put:) take the branch colour, as the control words do
+  // in Forth; classes are bold; block arguments and temporaries take the
+  // register colour; ^ and := and >> (a method's definition) the system one.
+  const ST_PSEUDO = new Set("self super nil true false thisContext".split(" "));
+  const RE_ST = /"|'|\$.|#(?:[A-Za-z_][\w:]*|'(?:[^']|'')*'|[-+*\/\\~<>=@%|&?!,]+|\()|\d+r[0-9A-Z]+|\d+(?:\.\d+)?(?:e-?\d+)?|:[A-Za-z_]\w*|[A-Za-z_]\w*:(?!=)|[A-Za-z_]\w*|\^|:=|>>/g;
+
+  function stLines(lines, open) {
+    let inside = open || null;            // '"' or "'" while a comment or a string goes on
+    const out = lines.map((s) => {
+      let o = "", p = 0;
+      if (inside) {
+        const e = closeAt(s, 0, inside);
+        if (e < 0) return sp(inside === '"' ? "c" : "s", s);
+        o = sp(inside === '"' ? "c" : "s", s.slice(0, e + 1)); p = e + 1; inside = null;
+      }
+      const temps = /^(\s*)(\|[\w\s]*\|)/.exec(s.slice(p));
+      if (temps) { o += temps[1] + sp("cr", temps[2]); p += temps[0].length; }
+      RE_ST.lastIndex = p;
+      let m, last = p;
+      while ((m = RE_ST.exec(s))) {
+        o += esc(s.slice(last, m.index));
+        const t = m[0];
+        last = m.index + t.length;
+        if (t === '"' || t === "'") {
+          const e = closeAt(s, last, t);
+          const cls = t === '"' ? "c" : "s";
+          if (e < 0) { o += sp(cls, s.slice(m.index)); inside = t; last = s.length; break; }
+          o += sp(cls, s.slice(m.index, e + 1)); last = RE_ST.lastIndex = e + 1;
+        } else if (t[0] === "$") o += sp("s", t);
+        else if (t[0] === "#") o += sp("kc", t);
+        else if (/^\d/.test(t)) o += sp("n", t);
+        else if (t[0] === ":" && t !== ":=") o += sp("cr", t);
+        else if (t === "^" || t === ":=" || t === ">>") o += sp("k-sys", t);
+        else if (t.endsWith(":")) o += sp("f-ctl", t);
+        else if (ST_PSEUDO.has(t)) o += sp("d", t);
+        else if (/^[A-Z]/.test(t)) o += sp("f-name", t);
+        else o += esc(t);
+      }
+      return o + esc(s.slice(last));
+    });
+    out.open = inside;
+    return out;
+  }
+  // the index of the quote that closes one opened before `from` ('' and "" are doubled quotes, inside)
+  function closeAt(s, from, q) {
+    for (let i = from; i < s.length; i++) {
+      if (s[i] !== q) continue;
+      if (s[i + 1] === q) { i++; continue; }
+      return i;
+    }
+    return -1;
+  }
+
+  // -------------------------------------------------------------- Prolog (Stralog)
+  // A clause's head (an atom at the start of a line) is bold, as a label is
+  // in assembly; variables take the register colour; :- --> ?- and ! the
+  // system colour; control (-> ; \+ call/N, catch, findall...) the branch
+  // colour; arithmetic and comparison builtins the directive colour.
+  const PL_CTL = new Set("call catch throw findall bagof setof forall once ignore not true fail false halt repeat between".split(" "));
+  const PL_BI = new Set(("is assert asserta assertz retract retractall abolish consult functor arg copy_term atom_codes " +
+    "atom_chars atom_length atom_concat sub_atom number_codes atom_number write writeln print nl format read " +
+    "length append member msort sort keysort nth0 nth1 reverse last sum_list max_list min_list succ plus " +
+    "var nonvar atom number integer atomic compound callable is_list ground").split(" "));
+  const RE_PL = /\/\*|%.*$|"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.|'')*'?|0'(?:\\.|.)|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[A-Z_]\w*|[a-z]\w*|:-|-->|\?-|->|\\\+|=\.\.|=:=|=\\=|=<|>=|\\==?|==|@[<>]=?|[=<>]|!|;/g;
+
+  function plLines(lines, open) {
+    let inCom = !!open;
+    const out = lines.map((s) => {
+      let o = "", p = 0;
+      if (inCom) {
+        const e = s.indexOf("*/");
+        if (e < 0) return sp("c", s);
+        o = sp("c", s.slice(0, e + 2)); p = e + 2; inCom = false;
+      }
+      RE_PL.lastIndex = p;
+      let m, last = p;
+      while ((m = RE_PL.exec(s))) {
+        o += esc(s.slice(last, m.index));
+        const t = m[0];
+        last = m.index + t.length;
+        if (t === "/*") {
+          const e = s.indexOf("*/", last);
+          if (e < 0) { o += sp("c", s.slice(m.index)); inCom = true; last = s.length; break; }
+          o += sp("c", s.slice(m.index, e + 2)); last = RE_PL.lastIndex = e + 2;
+        } else if (t[0] === "%") o += sp("c", t);
+        else if (t[0] === '"') o += sp("s", t);
+        else if (t[0] === "'") o += sp(m.index === 0 ? "lb" : "kc", t);
+        else if (/^\d/.test(t)) o += sp("n", t);
+        else if (/^[A-Z_]/.test(t)) o += sp("cr", t);
+        else if (/^[a-z]/.test(t)) {
+          o += m.index === 0 ? sp("lb", t) : PL_CTL.has(t) ? sp("f-ctl", t) : PL_BI.has(t) ? sp("d", t) : esc(t);
+        } else if (t === ":-" || t === "-->" || t === "?-" || t === "!") o += sp("k-sys", t);
+        else if (t === "->" || t === ";" || t === "\\+") o += sp("f-ctl", t);
+        else o += sp("d", t);
+      }
+      return o + esc(s.slice(last));
+    });
+    out.open = inCom;
+    return out;
+  }
+
   // A Forth transcript: input lines answered by "ok", and see's disassembly.
   const RE_DIS = /^(\s+)([0-9a-f]+:)(.*)$/;
   const RE_OK = /^(.*?)(\s+)(ok)(\s*)$/;
@@ -230,15 +335,19 @@
     if (el.dataset.hl === "done") return;
     const text = el.textContent.replace(/\n$/, "");
     const lines = text.split("\n");
-    const forth = el.classList.contains("language-forth");
-    const out = el.classList.contains("language-c") ? cLines(lines)
+    const has = (c) => el.classList.contains(c);
+    const forth = has("language-forth");
+    const out = has("language-c") ? cLines(lines)
+      : has("language-stratalk") || has("language-smalltalk") ? stLines(lines)
+      : has("language-prolog") || has("language-stralog") ? plLines(lines)
       : forth ? ("session" in el.dataset ? sessionLines(lines) : forthLines(lines)) : asmLines(lines);
     el.innerHTML = out.join("\n");
     el.dataset.hl = "done";
     el.classList.add("hl");
   }
   function highlightAll(root) {
-    for (const el of (root || document).querySelectorAll("code.language-strata-asm, code.language-forth, code.language-c")) colour(el);
+    for (const el of (root || document).querySelectorAll("code.language-strata-asm, code.language-forth, code.language-c, " +
+      "code.language-stratalk, code.language-smalltalk, code.language-prolog, code.language-stralog")) colour(el);
   }
 
   // -------------------------------------------------------------- hover help
@@ -300,7 +409,7 @@
   });
   addEventListener("scroll", () => { if (tip) tip.hidden = true; }, { passive: true, capture: true });
 
-  window.StrataHL = { init, asmLines, forthLines, cLines, sessionLines, highlightAll, colour };
+  window.StrataHL = { init, asmLines, forthLines, cLines, stLines, plLines, sessionLines, highlightAll, colour };
   if (window.STRATA_SYNTAX) init(window.STRATA_SYNTAX);
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => highlightAll());
   else highlightAll();

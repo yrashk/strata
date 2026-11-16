@@ -134,8 +134,8 @@ strata$ wait %1
 [1] done  sleep 0.05
 strata$ seq 3 > f2 &
 [1] PID
-strata$ wait
 [1] done  seq 3 > f2
+strata$ wait
 strata$ cat f2
 1
 2
@@ -145,6 +145,7 @@ strata$ spin > f3 &
 strata$ kill %1
 [1] killed  spin > f3
 strata$ wait
+strata$ rm f3; touch f3
 strata$ sleep 0.05 &
 [1] PID
 strata$ fg
@@ -163,10 +164,11 @@ strata$ cat mo
 cat: no such file: mo
 [exit 1]
 [1] strata$ cat /doc/motd  | wc
-25 260 1672
+26 264 1702
 strata$ cat 
-bin/    doc/    f1      f3      guest/  src/    tfile   www/
-demo/   etc/    f2      forth/  s1      sys/    ws/
+bin/       doc/       f1         forth/     s1         stratalk/  ws/
+cc/        etc/       f2         guest/     src/       sys/       www/
+demo/      examples/  f3         iso/       stralog/   tfile
 strata$ cat ^[[4D^[[K
 strata$ echo alpha > n1; echo beta > /notes/n2; echo gamma > /notes/work/n3
 strata$ ls -t; tag n1 notes; ls -t
@@ -185,6 +187,11 @@ demo/
 forth/
 ws/
 www/
+cc/
+stratalk/
+examples/
+stralog/
+iso/
 guest/
 notes/
 work/
@@ -202,6 +209,11 @@ demo/
 forth/
 ws/
 www/
+cc/
+stratalk/
+examples/
+stralog/
+iso/
 guest/
 notes/
 work/
@@ -269,6 +281,11 @@ demo/
 forth/
 ws/
 www/
+cc/
+stratalk/
+examples/
+stralog/
+iso/
 guest/
 notes/
 work/
@@ -408,6 +425,11 @@ demo/
 forth/
 ws/
 www/
+cc/
+stratalk/
+examples/
+stralog/
+iso/
 guest/
 proj/
 todo/
@@ -489,7 +511,7 @@ ls: no such tag or file: /cdt
 /
 strata$ rm f1 f2 f3 s1 tfile
 strata$ date
-2000-02-29 05:30:02 +05:30
+2000-02-29 05:30:01 +05:30
 strata$ exit 3 &
 [1] PID
 strata$ wait

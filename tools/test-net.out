@@ -32,8 +32,8 @@ cat: no such file: sh.s
 LINES WORDS BYTES
 strata$ netstat
 proto local                 remote                state        recv  send  rexmit  pid
-tcp   10.0.0.1:49152        10.0.0.1:7            TIME-WAIT       0     0       0   15
-tcp   127.0.0.1:49153       127.0.0.1:7           TIME-WAIT       0     0       0   17
+tcp   10.0.0.1:49152        10.0.0.1:7            TIME-WAIT       0     0       0   17
+tcp   127.0.0.1:49153       127.0.0.1:7           TIME-WAIT       0     0       0   19
 strata$ echo hello peer | nc -u 10.0.0.2 7
 from 10.0.0.2:7: hello peer
 strata$ nc -u -l 5003 &

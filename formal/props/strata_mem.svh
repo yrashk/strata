@@ -20,12 +20,15 @@
 // Assumed (the bus: proved for strata_bus):
 //   - reset in the first cycle
 //   - a transaction is started only when none is under way
+//   - the master takes every read beat (rready high): a core with LS_1P,
+//     whose Transfer Unit can hold a beat, is not covered
 // The address is taken modulo the memory's size (capabilities keep every
 // far address inside its space; not checked here).
 
   logic f_past = 0;
   logic f_rstd = 0;
   always_comb if (!f_past) assume (rst);
+  always_comb assume (rready);
   always_ff @(posedge clk) begin
     f_past <= 1;
     if (rst) f_rstd <= 1;

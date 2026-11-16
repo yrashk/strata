@@ -83,6 +83,7 @@ svg .arre { fill: var(--edge); }
 
 /* the specifications (os/spec/, made into pages by tools/web-os.py) */
 .srvnote { color: var(--text); opacity: 0.9; font-size: 15px; margin: 16px 0 0; }
+.srvdoes { color: var(--text); font-size: 16px; margin: 12px 0 4px; }
 .opindex { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 0 28px; margin: 20px 0 6px; }
 .opindex a { display: grid; grid-template-columns: 30px 104px 1fr; gap: 8px; align-items: baseline;
   padding: 4px 0; border-bottom: 1px solid rgba(31, 111, 139, 0.25); color: var(--text); font-size: 14px; }

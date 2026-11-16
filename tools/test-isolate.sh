@@ -5,12 +5,14 @@
 # process on that core. tools/dlsgap.s fills those parts with a pattern and
 # sleeps, over and over, pinned to core 6; a second copy pinned to the same
 # core scans its own gaps for the pattern at its first load and after each of
-# 8 switches back from the filler. Then the arenas: `-m 2 dlsgap farfill`
-# writes the pattern over all of its far memory and exits, and `dlsgap
-# farscan` (in 1 and in 2 MiB, on the same granules: first fit) must find none
-# of it: the kernel scrubs what a new process can read. It does not scrub an
-# image's area beyond the image, so dlsgapcut (dlsgap without its last 8
-# bytes, its data section ending beyond them) must be refused, right after a
+# 8 switches back from the filler. Then tools/lsprot.s tries every way into the
+# kernel's part of its core's Local Stores (the dispatcher's data, the kernel's
+# code), which the Local Store windows must refuse. Then the arenas: `-m 2
+# dlsgap farfill` writes the pattern over all of its far memory and exits, and
+# `dlsgap farscan` (in 1 and in 2 MiB, on the same granules: first fit) must
+# find none of it: the kernel scrubs what a new process can read. It does not
+# scrub an image's area beyond the image, so dlsgapcut (dlsgap without its last
+# 8 bytes, its data section ending beyond them) must be refused, right after a
 # filler left the pattern there. Runs on the emulator with the virtual timer,
 # with the written-page map (the kernel zeroes only the pages written since it
 # last zeroed them) and without it (--no-pmap: it zeroes everything); RTL=1
@@ -23,19 +25,21 @@ b="$here/${BUILD:-build}"
 n=${NCORES:-8}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-printf -- '-c 6 dlsgap fill &\n-c 6 dlsgap scan 8\nps\nkill %%1\nwait\n-m 2 dlsgap farfill\ndlsgap farscan\n-m 2 dlsgap farfill\n-m 2 dlsgap farscan\n-m 2 dlsgap farfill\ndlsgapcut scan 0\nhalt\n' >"$tmp/in.txt"
+printf -- '-c 6 dlsgap fill &\n-c 6 dlsgap scan 8\nps\nkill %%1\nwait\nlsprot\n-m 2 dlsgap farfill\ndlsgap farscan\n-m 2 dlsgap farfill\n-m 2 dlsgap farscan\n-m 2 dlsgap farfill\ndlsgapcut scan 0\nhalt\n' >"$tmp/in.txt"
 check() { # $1 = which machine, $2 = its output
   # the scanner's verdict, and the filler's switches (ps: pid ppid state core cpus switches KiB name)
   ok=$(grep -c '^dlsgap: 9 looks, clean$' "$2")
   sw=$(awk '$4 == 6 && $8 == "dlsgap" && $6 >= 8 { k++ } END { print k + 0 }' "$2")
+  prot=$(grep -c '^lsprot: 8 of 8 refused, own parts fine$' "$2")
   far=$(grep -c '^dlsgap: far memory clean$' "$2")
   cut=$(grep -c 'dlsgapcut: cannot start$' "$2")
-  if [ "$ok" = 1 ] && [ "$sw" -ge 1 ] && [ "$far" = 2 ] && [ "$cut" = 1 ]; then
-    printf '%-14s OK    nothing of the filler in the scanner'"'"'s D-LS gaps, 8 switches; arenas scrubbed, a short image refused (%s)\n' isolate "$1"
+  if [ "$ok" = 1 ] && [ "$sw" -ge 1 ] && [ "$prot" = 1 ] && [ "$far" = 2 ] && [ "$cut" = 1 ]; then
+    printf '%-14s OK    nothing of the filler in the scanner'"'"'s D-LS gaps, 8 switches; the kernel'"'"'s parts out of reach; arenas scrubbed, a short image refused (%s)\n' isolate "$1"
     return 0
   fi
   printf '%-14s FAIL  (%s)\n' isolate "$1"
   grep -A12 'dlsgap scan' "$2" | head -16 | sed 's/^/    /'
+  grep 'lsprot' "$2" | sed 's/^/    /'
   grep -A2 'dlsgap far\|dlsgapcut' "$2" | head -16 | sed 's/^/    /'
   return 1
 }

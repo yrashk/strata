@@ -92,6 +92,9 @@
                                      !(iss_kind == XF_GETX && iss_space == SP_DEV)));
   always_comb begin
     assume (f_core_ok);
+    // two Local Stores (LS_1P = 0): the core never makes the unit wait for
+    // the memory (a core with LS_1P is not covered)
+    assume (ls_gnt && !ls_want && !ls_used && !ls_denied);
     assume (!b_gnt || b_req);
     if (!f_bus) assume (!b_rvalid && !b_done && !b_retry);
     if (b_rvalid) assume (!h_put && off < h_len);

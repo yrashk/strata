@@ -115,7 +115,14 @@
   must be naturally aligned and inside <span class="m">[0, 65536)</span>, or they trap with
   <span class="cause">lsfault</span>. The I-LS is the only memory instructions are fetched from; it is
   filled at reset from the boot image and at run time only by
-  <a href="../isa/#insn-tgetx"><code class="insn">tgetx</code></a>. There is no address translation.</p>
+  <a href="../isa/#insn-tgetx"><code class="insn">tgetx</code></a>. Supervisor mode addresses both
+  stores physically. User mode goes through the <b class="term">Local Store windows</b>
+  ({{ref:sec:lswin}}) when the supervisor enables them: <code class="csr">wdata</code> and
+  <code class="csr">wstack</code> for the D-LS, <code class="csr">wcode</code> for the I-LS, each a range
+  of 1/64ths of the store and where it lands. An address outside them traps
+  (<span class="cause">lsfault</span>, or <span class="cause">ifault</span> for a fetch); one inside is
+  relocated. That keeps a supervisor's own code and data out of a program's reach, and lets
+  programs share a core's stores without copying them on a switch.</p>
 
 {{section:ch-memory.tex:Far spaces}}
 <p>Everything beyond the Local Stores is organised into spaces. A far location is never named by a
@@ -291,8 +298,9 @@
   through core control, delivered as a trap at an instruction boundary.</p>
 {{section:sec:modes}}
 {{tabular:ch-traps.tex:Bit}}
-<p>Authority over memory and devices is never a matter of mode: it comes from the capabilities a core
-  holds. User mode differs from supervisor mode in exactly these operations:</p>
+<p>Authority over far memory and devices is never a matter of mode: it comes from the capabilities a
+  core holds. Of its own Local Stores, user mode reaches what the Local Store windows give it. User
+  mode differs from supervisor mode in exactly these operations:</p>
 {{table:tab:userlimits}}
 
 {{section:sec:trapentry}}

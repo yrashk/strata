@@ -291,7 +291,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "  attr FILE [NAME VALUE]  attributes; in a path: ls /src/lang=asm, ls '/src/size>9000'\n" ; (continued)
          .ascii "  seq grep wc upper spin as units sh\n" ; (continued)
          .ascii "  cc FILE.c         the C compiler: writes the program FILE (cc -o OUT)\n" ; (continued)
-         .ascii "  vi FILE           the editor (vi keys; :wq writes and leaves; colours .c .s .fs)\n" ; (continued)
+         .ascii "  vi FILE           the editor (vi keys, v V ^V; :wq writes and leaves; colours .s .fs .c .st .pl)\n" ; (continued)
          .ascii "  nav [DIR [DIR]]   two panels of files; type to search the whole disk; F10 quits\n" ; (continued)
          .ascii "  examples: hello mandel parsum race ...\n" ; (continued)
          .ascii "windows: ws starts the window server; its keys, in the screen:\n" ; (continued)
@@ -300,7 +300,7 @@ m_help:  .ascii "builtins:\n"           ; the help text
          .ascii "  Alt+F full screen         Alt+Z one tile alone (again: back)\n" ; (continued)
          .ascii "  Alt+Q close the window    Alt+Shift+Q quit ws, back to this shell\n" ; (continued)
          .ascii "  Ctrl-C interrupts the program in the focused window\n" ; (continued)
-         .ascii "  programs for windows: term wmandel wclock wdoom kira wdb\n" ; (continued)
+         .ascii "  programs for windows: term wmandel wclock wdoom kira plat wdb\n" ; (continued)
 m_help_e:                               ; end of the help text
 
         .text                           ; instruction Local Store

@@ -11,8 +11,8 @@
 <link rel="icon" href="../favicon.ico" sizes="32x32">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../apple-touch-icon.png">
-<link rel="stylesheet" href="../style.css">
-<link rel="stylesheet" href="c.css">
+<link rel="stylesheet" href="../style.css?v=__BUILD__">
+<link rel="stylesheet" href="c.css?v=__BUILD__">
 </head>
 <body>
 
@@ -23,8 +23,15 @@
     <a href="../arch/">Architecture</a>
     <a href="../isa/">Instructions</a>
     <a href="../os/">OS</a>
-    <a href="../forth/">Forth</a>
-    <a href="./" aria-current="page">C</a>
+    <div class="menu current">
+      <span class="menu-btn" tabindex="0" aria-haspopup="true">Languages</span>
+      <div class="drop">
+        <a href="../forth/">Forth</a>
+        <a href="../stratalk/">Stratalk</a>
+        <a href="../stralog/">Stralog</a>
+        <a href="./" aria-current="page">C</a>
+      </div>
+    </div>
     <a href="../hardware/">Hardware</a>
     <a href="../play/">Play</a>
     <a href="../debug/">Debug</a>
@@ -33,6 +40,7 @@
     <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
   </div>
 </nav>
+<script src="../nav.js?v=__BUILD__" defer></script>
 
 <main class="cc">
 
@@ -47,9 +55,9 @@
   </div>
   <div class="stats">
     <div class="stat hot"><b>521 / 521</b><span>conformance tests, both compilers</span></div>
-    <div class="stat"><b>5,500</b><span>lines of C: the compiler</span></div>
-    <div class="stat"><b>13,900</b><span>lines of assembly: the bootstrap</span></div>
-    <div class="stat"><b>106 KiB</b><span>of its own code, paged in 4 KiB units</span></div>
+    <div class="stat"><b>5,900</b><span>lines of C: the compiler</span></div>
+    <div class="stat"><b>13,600</b><span>lines of assembly: the bootstrap</span></div>
+    <div class="stat"><b>107 KiB</b><span>of its own code, paged in 4 KiB units</span></div>
     <div class="stat"><b>40 KiB</b><span>of data: all a program has</span></div>
   </div>
 </header>
@@ -63,7 +71,7 @@
       <p><a class="srcpath" href="../code/#lang/cc/cc.c">lang/cc/cc.c</a> is the compiler: the <code>cc</code> of StrataOS,
         written in the C it compiles. <a class="srcpath" href="../code/#lang/cc/cc.s">lang/cc/cc.s</a> and the files beside
         it are the bootstrap compiler, <code>cc0</code>: the same language again, in Strata assembly.</p>
-      <p>Both are on the disk, with the compiler's source, so the bootstrap can be run where it belongs, on the
+      <p>Both are on the disk, with their sources (<code>/src/cc.c</code>, and <code>cc0</code>'s in <code>/src/cc</code>), so the bootstrap can be run where it belongs, on the
         machine. One test of the build does exactly that, and compares the results byte for byte.</p>
       <ul class="ticks">
         <li><code>cc1</code> differs from <code>c2</code>: other compiler, other code</li>
@@ -87,7 +95,7 @@ c2 /bin/cc: same</pre>
   <div class="chain">
     <div><code>cc0(cc.c) = cc1</code><span>The bootstrap compiler only has to be good enough to compile <code>cc.c</code>.
       It was taken further: it passes the same tests.</span></div>
-    <div><code>cc1(cc.c) = c2</code><span>From here on the compiler is its own product. Its 106 KiB of code do not fit the
+    <div><code>cc1(cc.c) = c2</code><span>From here on the compiler is its own product. Its 107 KiB of code do not fit the
       32 KiB instruction store: it pages itself.</span></div>
     <div><code>c2(cc.c) = c3 = c2</code><span>The fixed point. Any difference between these two would be a bug in the
       compiler that compiling a compiler is large enough to show.</span></div>
@@ -109,8 +117,10 @@ c2 /bin/cc: same</pre>
         the start-up code loads.</p></div>
     <div class="card"><h3>One pass, no assembler, no linker</h3>
       <p>Code is emitted while the source is parsed, with what has not yet had to be computed kept on a stack of
-        value descriptors. The image is written directly; the run-time library is assembled once, at fixed
-        addresses, and copied into every program.</p></div>
+        value descriptors. A function's body is read ahead once, so that the variables it uses most, and never
+        by address, can live in registers: <code>cc</code> compiling itself runs 12% fewer instructions, its code is 7% smaller,
+        and tight loops 21&ndash;29% fewer. The image is written directly; the run-time library is assembled
+        once, at fixed addresses, and copied into every program.</p></div>
     <div class="card"><h3>No floating-point hardware</h3>
       <p><code>float</code> and <code>double</code> are IEEE 754 in software, round to nearest even, in the
         library. The compiler folds constants with the same routines the programs

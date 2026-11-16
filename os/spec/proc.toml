@@ -4,15 +4,19 @@
 key = "proc"
 title = "proc"
 role = "processes and names"
+does = "the process server: spawning, the process tree, exit statuses, WAIT and KILL, interrupts, the name registry. It is the endpoint every process is born with, and it holds the kernel's endpoint"
 reached = "c1 of every process"
-core = "core 1, alone on it"
+start = "kernel"
+pid = 1
+place = { core = 1, index = 0, alone = "yes" }
 holds = "the kernel's endpoint (c1); endpoints to fs, tty and pipe; may mint endpoints in a REPLY"
 sources = ["os/servers/proc.s"]
 dispatch = { file = "os/servers/proc.s", first = "^lp_proc:", last = "^\\s*li\\s+a0,\\s*-1\\s*;\\s*unknown" }
 calls = "message"
 note = """pid 1, made first by the kernel. It is the only process that asks the kernel to create and \
 destroy processes. It keeps the process tree (64 records), exit statuses, interrupt flags and the \
-name registry (8 names: proc, dev, fs, tty and pipe take five). At start it spawns tty, pipe and \
+name registry (8 names: proc, dev, fs, tty and pipe take five; blk (pid 4) and db (pid 5), made by the \
+kernel, are in the table but not the registry). At start it spawns tty, pipe and \
 the login shell (`/bin/sh -l`, started again whenever it ends). Pids are 4..239, given round robin; \
 240..255 are guest ids. A request that needs the kernel or another server waits parked in the \
 kernel meanwhile. From the kernel (sender pid 0) proc takes only op 7, EXITED."""
@@ -28,7 +32,9 @@ start-up block into it (pid, parent, the three descriptors, the command), has fs
 (LOADIMG), tells fs the child starts in the caller's tag path (CWD mode 2), sends DUPS to fs, tty \
 and pipe for the handles passed, and asks the kernel to CREATE the process. The caller is the \
 child's parent. A command whose first word is exactly `ws` is made the server of the lowest empty \
-core; exactly `net`, the server of the lowest empty core and alone on it. Both stay ordinary \
+core, a busy one (CREATE flag bit 14: its clients, `term`, are placed on other cores); exactly `net`, the server of the lowest empty core and alone on it (proc keeps the endpoint \
+CREATE gives it, parked in the kernel, to send it CANCEL and CLEANUP; with no room to park it, \
+that net is stopped again and SPAWN answers −7). Both stay ordinary \
 children (WAIT, KILL and Ctrl-C work) and may REGISTER. A bare-metal image (no "SYS2" marker) runs \
 as N threads, one on each of N contiguous cores without a server (N = 1 if the thread count is 0); a file as its handle 0 is copied \
 into its arena first (fs READALL to 0x80000, a0 = its length), and a file as its handle 1 gets its \
@@ -37,8 +43,8 @@ output at exit (0xC0000, as many bytes as the exit code, at most 64 KiB; the sta
 [op.request]
 length = "the command's bytes (at most 440 are used)"
 mode = """bit 0: the child gets no endpoints at all (c1..c4 empty: not even proc's), a sandbox; \
-bit 1: pin the first thread to core `mode >> 8` (not core 0; proc passes all of `mode >> 8`, so \
-pinning works only with bits 16..23 at 0); bits 16..23: the arena's size in MiB (0: 1 MiB)"""
+bit 1: pin the first thread to core `(mode >> 8) & 255` (not core 0); bits 16..23: the arena's \
+size in MiB (0: 1 MiB)"""
 data = [
   { type = "u64", name = "thread count", note = "0: one time-shared thread; N (1..6): N threads, one on each of N contiguous cores without a server (other processes may share them)" },
   { type = "u64", name = "descriptor of the child's handle 0", note = "server register << 32 | the server's id (2 fs, 3 tty, 4 pipe); -1 none" },
@@ -86,7 +92,7 @@ num = 7
 name = "KILL"
 summary = "Stop a process"
 note = """proc asks the kernel to DESTROY it: its arena is revoked, and the kernel's EXITED gives it \
-status bit 62. Any process may kill any other but proc, dev and fs (pids 1..3)."""
+status bit 62. Any process may kill any other but proc, dev, fs, blk and db (pids 1..5)."""
 
 [op.request]
 handle = "the pid"
@@ -96,6 +102,7 @@ result = "0: stopped, or it had already ended"
 
 [op.errors]
 "-1" = "pid 0..3, no such process, or the kernel no longer knows it (it has ended and its EXITED is not handled yet)"
+"-7" = "the kernel has no room to park the request"
 
 [[op]]
 num = 9
@@ -126,6 +133,9 @@ data = [
   ] },
 ]
 
+[op.errors]
+"-7" = "the kernel has no room to park the request"
+
 [[op]]
 num = 16
 name = "INFO"
@@ -146,14 +156,17 @@ data = [
   { type = "u64", name = "0" },
 ]
 
+[op.errors]
+"-7" = "the kernel has no room to park the request"
+
 [[op]]
 num = 17
 name = "SIGNAL"
 summary = "Interrupt a process (Ctrl-C)"
 note = """A process that catches interrupts (CATCH 1) is interrupted: its WAIT at proc is answered −2 \
-(or the interrupt is kept for its next WAIT), proc sends CANCEL for it to tty and pipe (their \
-waiting reads answer −2), and the kernel notifies it (bit 0: a sleep ends). Any other process is \
-killed as by KILL, except a server that proc started at boot (tty, pipe) and pids 1..3."""
+(or the interrupt is kept for its next WAIT), proc sends CANCEL for it to tty, pipe and net \
+(their waiting requests answer −2), and the kernel notifies it (bit 0: a sleep ends). Any other process is \
+killed as by KILL, except a server that proc started at boot (tty, pipe) and pids 1..5."""
 
 [op.request]
 handle = "the pid"
@@ -162,7 +175,8 @@ handle = "the pid"
 result = "0: interrupted, killed, or it had already ended"
 
 [op.errors]
-"-1" = "no such process, or it may not be killed (pids 1..3, tty, pipe) and does not catch interrupts, or the kernel no longer knows it"
+"-1" = "no such process, or it may not be killed (pids 1..5, tty, pipe) and does not catch interrupts, or the kernel no longer knows it"
+"-7" = "the kernel has no room to park the request"
 
 [[op]]
 num = 22
@@ -203,18 +217,21 @@ name = "REGISTER"
 summary = "Give a name to the caller's core"
 note = """Requests sent to the name reach the caller's core, so it is for a process that is its \
 core's server. The entry leaves the registry when the process ends. A process may hold several \
-names, and register a name it holds again."""
+names, and register a name it holds again. Mode 1 is for net, at the end of its start: it makes \
+no more calls to proc, which from then on sends it CANCEL and CLEANUP."""
 
 [op.request]
 length = "the name's bytes (1..8)"
+mode = "bit 0: net only: it is ready for CANCEL and CLEANUP"
 data = [{ type = "bytes", name = "the name" }]
 
 [op.reply]
-result = "0; also when the registry is full (then nothing is registered)"
+result = "0"
 
 [op.errors]
 "-1" = "a length of 0 or more than 8, or the caller is not in proc's table"
-"-5" = "the caller may not register: the login shell, or proc, dev or fs (every process started with SPAWN, and tty and pipe, may)"
+"-5" = "the caller may not register: only a process made its core's server may (tty and pipe, and `ws` and `net` started with SPAWN); not proc, dev or fs, nor any other program. Mode bit 0 from any process but the net whose endpoint proc keeps"
+"-6" = "the registry is full (8 names)"
 "-7" = "another process holds the name"
 
 [[op]]
@@ -237,6 +254,7 @@ data = [
 
 [op.errors]
 "-1" = "set: the slice is out of range (the kernel's TUNE)"
+"-7" = "the kernel has no room to park the request"
 
 [[op]]
 num = 31
@@ -264,6 +282,9 @@ data = [
   ] },
 ]
 
+[op.errors]
+"-7" = "the kernel has no room to park the request"
+
 [[op]]
 num = 39
 name = "WHOIS"
@@ -285,12 +306,12 @@ num = 40
 name = "GUEST"
 summary = "Start a guest OS on whole cores"
 note = """proc gets an arena from the kernel (MEMORY), has fs load the image into its top 256 KiB \
-(LOADIMG), and asks the kernel to start the guest (GSTART) on a run of free cores, with tty as its \
-console. Any process may ask."""
+(LOADIMG; 2 MiB with a pool), and asks the kernel to start the guest (GSTART) on a run of free \
+cores, with tty as its console. Any process may ask."""
 
 [op.request]
 data = [
-  { type = "u64", name = "cores", note = "0 or less: 1" },
+  { type = "u64", name = "cores", note = "bits 0..7, 0: 1; bit 16 (guest -p): a pool, for a guest StrataOS (GSTART flags bit 0)" },
   { type = "u64", name = "arena MiB", note = "less than 2: 2" },
   { type = "text", name = "the guest image's path", note = "up to 240 bytes; the header's length is not used" },
 ]
@@ -303,7 +324,11 @@ data = [
 ]
 
 [op.errors]
-"-6" = "no memory for the arena, the image did not load, or the kernel refused (no run of free cores, four guests already, a bad arena)"
+"-6" = "no memory for the arena"
+"-4" = "no such image (fs LOADIMG)"
+"-1" = "the image is larger than 256 KiB (fs LOADIMG), or the kernel found the arena bad"
+"-5" = "the kernel refused: no run of that many free worker cores, or four guests already"
+"-7" = "the kernel has no room to park the request"
 
 [[op]]
 num = 41
@@ -319,6 +344,7 @@ result = "0"
 
 [op.errors]
 "-1" = "no such guest"
+"-7" = "the kernel has no room to park the request"
 
 [[op]]
 num = 42
@@ -337,6 +363,9 @@ data = [
     { type = "u64", name = "state", note = "1 live" },
   ] },
 ]
+
+[op.errors]
+"-7" = "the kernel has no room to park the request"
 
 [[op]]
 num = 43

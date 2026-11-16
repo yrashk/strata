@@ -23,11 +23,12 @@
   u-ok @ 0= if drop exit then  tbuf 8 + lget dup >r 15 + -8 and u-room
   if f-u u-w @ + r> fl-put u-w +! else rdrop 0 u-ok ! then ;
 : chg-begin ( first n -- )                      \ a change replaces those lines (0: it adds): the old ones
+  v@ 16 if 2drop exit then                      \   (in a group, a visual operation's: nothing)
   2dup chg-n ! chg-a !  u-end @ dup u-rec ! dup u-top ! 48 + u-w ! \ go into a new record (redo is gone)
   u-saved @ u-end @ > if -1 u-saved ! then  1 u-ok !  cy @ chg-y !  cx @ chg-x !
   0 u-room u-ok !  bounds ?do i u-line loop ;
 : chg-end ( n -- )                              \ it made n lines from chg-a: they go in; the record is done
-  1 chg !  dup hdrb 24 + !  chg-a @ tuck + swap ?do i u-line loop
+  v@ 16 if drop exit then  1 chg !  dup hdrb 24 + !  chg-a @ tuck + swap ?do i u-line loop
   u-ok @ 0= if 0 u-end ! 0 u-top ! -1 u-saved ! m" undo: the change was too big; history cleared" exit then
   u-w @ 8 + dup u-rec @ -  dup hdrb !  chg-a @ hdrb 8 + !  chg-n @ hdrb 16 + !  chg-y @ hdrb 32 + !
   chg-x @ hdrb 40 + !  hdrb f-u u-rec @ + 48 far-write htag twait
@@ -76,7 +77,7 @@
     dup 10 = over 13 = or if drop ir-nl else
     dup 127 = over 8 = or if drop cx @ if -1 cx +! ir-dl then else
     dup $107 = if drop cx @ lblen @ < if ir-dl then else
-    dup $106 > if drop else  dup $100 > if ir-mv else
+    dup $106 > if drop else  dup $100 > if v@ 16 if drop else ir-mv then else
     dup 9 <> over 32 < and if drop else ir-ch then then then then then then
   again ;
 : c-ins ( -- ) cy @ 1 chg-begin ins-run ;
@@ -128,8 +129,47 @@
   { u at }  cnt1 @ 0 ?do lblen @ u + lmax > if leave then
     lbuf at + dup u + lblen @ at - move  tbuf 8 + lbuf at + u move  u lblen +!  at u + to at loop
   at 1- 0 max cx !  cy @ lbuf lblen @ lput drop  1 chg-end  cy @ mark-row ;
+: v-pos ( n pad? -- i|-1 )                      \ line n into lbuf: its byte at column 19 of vv (bigcol:
+  swap lbuf lget dup lblen !  lbuf swap dcol  v@ 19  \ its end); if it is shorter, padded with spaces
+  2dup < 0= if 2drop drop lbuf lblen @ v@ 19 b-col exit then \ to it (pad?), else -1 (-1 also when it
+  dup bigcol = if 2drop drop lblen @ exit then  \   would be too long)
+  rot 0= if 2drop -1 exit then
+  swap - lblen @ over + lmax > if drop -1 exit then
+  lbuf lblen @ + over bl fill  lblen +!  lblen @ ;
+: pm-add ( a u -- ) lmax lblen @ - min  tuck lbuf lblen @ + swap move  lblen +! ; \ appended to lbuf
+: l-gap ( q n -- ) over lbuf + dup 2 pick + lblen @ 4 pick - move  lblen +! drop ; \ n bytes more at q
+: l-cut ( q n -- ) 2dup + lbuf + 2 pick lbuf + lblen @ 4 pick - 3 pick - move  negate lblen +! drop ; \ fewer
+: l-in ( src n q -- f )                         \ n bytes from src into lbuf at q, if they fit
+  lblen @ 2 pick + lmax > if drop 2drop false exit then  2dup swap l-gap  lbuf + swap move  true ;
+: put-m ( after? -- )                           \ characters of several lines (v): the line split at the
+  cy @ 1 chg-begin  cy @ lbuf lget  tuck 0<> and cx @ +  \ place, what follows it a line of its own; the
+  cy @ 1+ lbuf 2 pick + 3 pick 3 pick - lins drop      \   first piece ends the line, the others are lines
+  nip dup lblen !  f-y cy @ y-cnt @ { at off line left } \  before that one, the last begins it
+  begin
+    off fl-get off + to off
+    left 1- dup to left if  tbuf 8 + swap pm-add  line lbuf lblen @ line cy @ = if lput else lins then drop
+      0 lblen !  line 1+ to line
+    else  line lbuf lget lblen !  tbuf 8 + swap 0 l-in drop  line lbuf lblen @ lput drop then
+  left 0= until
+  line cy @ - 1+ chg-end  at cx !  cy @ mark-from ;
+: put-b ( after? -- )                           \ a block (Ctrl-V): at the cursor's column (p: the next) on
+  cy @ nl @ cy @ - y-cnt @ min chg-begin        \   its line and those below (new ones past the end),
+  cur-text rot over 0<> and cx @ + nip dcol v! 19 \ padded with spaces
+  f-y cy @ { off line }
+  y-cnt @ 0 ?do
+    line nl @ < 0= if line lbuf 0 lins drop then
+    line 1 v-pos  off fl-get off + to off  ( p u )
+    over 0< if 2drop else
+      over lblen @ < if v@ 21 else dup then     \ text after it: the piece padded to the block's width
+      tbuf 8 + 2 pick + over 3 pick - bl fill  nip
+      tbuf 8 + swap rot l-in if line lbuf lblen @ lput drop then
+    then
+    line 1+ to line
+  loop
+  y-cnt @ chg-end  cy @ 0 v-pos cx !  cy @ mark-from ;
 : put ( after? -- )                             \ p P
-  y-cnt @ 0= if drop exit then  y-kind @ if put-lines exit then
+  y-cnt @ 0= if drop exit then  y-kind @ 2 = if put-b exit then  y-kind @ if put-lines exit then
+  y-cnt @ 1 > if put-m exit then
   cy @ 1 chg-begin  f-y fl-get drop  cy @ lbuf lget dup lblen !
   if swap cx @ + else nip cx @ then put-at ;
 
@@ -146,11 +186,13 @@
 : m-name ( -- ) 0 msgl ! '"' m-chr fname fnl @ m-add '"' m-chr ; \ the message: "NAME"
 : m-dec ( n -- ) <# #s #> m-add ;
 : buf-bytes ( -- u ) 0 nch @ 0 ?do i cb@ + loop ; \ the text's bytes as a file
-: m-size ( -- ) bl m-chr nl @ m-dec m+"  lines," bl m-chr buf-bytes m-dec m+"  bytes" ;
+: m-sz ( n b -- ) swap bl m-chr m-dec m+"  lines," bl m-chr m-dec m+"  bytes" ; \ " N lines, B bytes"
+: m-size ( -- ) nl @ buf-bytes m-sz ;
 : zlen ( a max -- a u ) over swap 0 ?do dup c@ 0= if leave then 1+ loop over - ;
-: syn-detect ( -- )                             \ highlighting by the name (.s .fs .c .h), else by the tags
-  1 dall !  0 syn !  1 ck-n !  0 hs-n !  0 hs-s ! \   (src forth)
-  fnl @ 3 < 0= if fname fnl @ + 3 - 3 s" .fs" str= if 2 syn ! exit then then
+: syn-detect ( -- )                             \ highlighting by the name (.s .fs .c .h .st .pl), else by
+  1 dall !  0 syn !  1 ck-n !  0 hs-n !  0 hs-s ! \   the tags (src forth)
+  fnl @ 3 < 0= if fname fnl @ + 3 - 3 2dup s" .fs" str= if 2drop 2 syn ! exit then
+    2dup s" .st" str= if 2drop 4 syn ! exit then  s" .pl" str= if 5 syn ! exit then then
   fnl @ 2 < 0= if fname fnl @ + 2 - 2 2dup s" .s" str= if 2drop 1 syn ! exit then
     2dup s" .c" str= >r s" .h" str= r> or if 3 syn ! exit then then
   fnl @ 0= if exit then
@@ -168,19 +210,19 @@
       dup dl-file swap fs-close  m-name m-size  if m-name m+"  is cut short: the buffer is full" then
     then then
   fixempty drop  syn-detect ;
-: dw-lines ( id -- f )                          \ every line and its newline, a message at a time
-  0 { id k }
-  nl @ 0 ?do i lfind  k over + 1+ 1008 > if id k fs-write 0= if 2drop false unloop exit then 0 to k then
-    tuck tbuf k + swap move  k + dup tbuf + 10 swap c!  1+ to k loop
-  k if id k fs-write else true then ;
-: do-write ( a u -- f )                         \ the text into that file
+: dw-lines ( id -- n f )                        \ lines 27 .. 28 of vv and their newlines, a message at a
+  0 0 { id k t }                                \   time; n: the bytes
+  v@ 28 1+ v@ 27 ?do i lfind  k over + 1+ 1008 > if id k fs-write 0= if 2drop t false unloop exit then 0 to k then
+    dup 1+ t + to t  tuck tbuf k + swap move  k + dup tbuf + 10 swap c!  1+ to k loop
+  t  k if id k fs-write else true then ;
+: do-write ( a u -- f )                         \ lines 27 .. 28 of vv into that file
   2dup 1 fs-open dup 0< if drop m" cannot write: " m-add false exit then
-  dup dw-lines swap fs-close 0= if m" cannot write: " m-add false exit then
-  0 msgl ! '"' m-chr m-add '"' m-chr m-size m+"  written" true ;
+  dup dw-lines rot fs-close 0= if drop m" cannot write: " m-add false exit then
+  >r 0 msgl ! '"' m-chr m-add '"' m-chr  v@ 28 v@ 27 - 1+ r> m-sz m+"  written" true ;
 
 \ ---- the : line ----------------------------------------------------------------------------------
-: readline ( c -- u|-1 )                        \ a line typed on the status row (in cmdbuf); -1: abandoned
-  0 { p n }
+: readline ( c n -- u|-1 )                      \ a line typed on the status row (in cmdbuf, n bytes of
+  { p n }                                       \   it there already); -1: abandoned
   begin rows @ 1- 0 o-goto  p emit cmdbuf n type o-el
     begin getkey
       dup 10 = over 13 = or if drop n exit then
@@ -190,9 +232,11 @@
     until
   again ;
 : x-name ( -- a u ) x-argl @ if x-arg @ x-argl @ else fname fnl @ then ; \ the file a : command names
-: ex-w ( -- f )                                 \ :w [NAME]
-  x-name dup 0= if 2drop m" No file name" false exit then
-  do-write 0= if false exit then
+: ex-w ( -- f )                                 \ :w [NAME] (a range: those lines; to the buffer's own
+  x-name dup 0= if 2drop m" No file name" false exit then  \ file only with !, and it is not written then)
+  v@ 26 if x-argl @ x-bang @ or 0= if 2drop m" Use ! to write part of the buffer to its file" false exit then
+    do-write exit then
+  0 v! 27  nl @ 1- v! 28  do-write 0= if false exit then
   fnl @ 0= if x-arg @ fname x-argl @ dup fnl ! move syn-detect u-end @ u-saved ! true exit then
   x-argl @ 0= if u-end @ u-saved ! then true ;
 : nowrite ( -- ) m" No write since last change (add ! to override)" ;
@@ -205,6 +249,7 @@
 : ex-syn ( -- )                                 \ :syntax on / off
   x-arg @ x-argl @ pack case $6e6f of 1 endof $66666f of 0 endof drop m" Unknown option: " exit endcase
   synon ! 1 dall ! ;
+: x-lin ( op -- ) v@ 26 if v@ 27 v@ 28 else cy @ dup then op-lines ; \ :d :y: the range's lines
 : ex-do ( n -- f )                              \ the command, its letters packed in a number (w = $77 ...)
   case
     $77 of ex-w drop endof                                              \ w
@@ -214,6 +259,7 @@
     $65 of x-bang @ is-mod 0= or if x-name do-load else nowrite then endof \ e
     $746573 of ex-set endof  $6573 of ex-set endof                      \ set se
     $7861746e7973 of ex-syn endof  $6e7973 of ex-syn endof              \ syntax syn
+    $64 of 'd' x-lin endof  $79 of 'y' x-lin endof                      \ d y
     drop false exit
   endcase true ;
 : ex-run ( a u -- )                             \ a command [!] [argument]
@@ -222,9 +268,28 @@
   k to j  0 x-bang !  j u < if a j + c@ '!' = if 1 x-bang !  j 1+ to j then then
   a u j skip-bl dup a + x-arg !  u swap - x-argl !
   a k pack ex-do 0= if m" Not an editor command: " a u m-add then ;
-: c-colon ( -- )                                \ a : line: a line number, or a command
-  ':' readline dup 0> 0= if drop exit then  cmdbuf swap 2dup 0 skip-bl /string
-  2dup number? if nip nip 1- mo-line mv-y @ dup cy ! fnb cx ! exit then  ex-run ;
+: x-adr ( a u -- a' u' n true | a u 0 false )  \ an address there: N . $ '< '> (the last selection's first
+  dup 0= if 0 false exit then                   \   and last line)
+  over c@ '0' - 10 u< if
+    0 begin over if 2 pick c@ '0' - dup 10 u< else 0 false then while swap 10 * + >r 1 /string r> repeat
+    drop 1- true exit then
+  over c@ '.' = if 1 /string cy @ true exit then
+  over c@ '$' = if 1 /string nl @ 1- true exit then
+  over c@ 39 = over 1 > and v@ 9 0<> and if over 1+ c@ dup '<' = over '>' = or
+    if >r 2 /string v@ 10 v@ 12 2dup > if swap then r> '<' = if drop else nip then true exit then drop then
+  0 false ;
+: c-colon ( n -- )                              \ a : line (n bytes of it typed already): [range] [command
+  ':' swap readline dup 0> 0= if drop exit then \   [!] [argument]]; a range alone goes to its last line.
+  cmdbuf over 2dup 0 skip-bl /string  rot >r    \ A range: %, or ADDR[,ADDR] (x-adr). Not repeated by .
+  0 v! 26  0 v! 27  nl @ 1- v! 28
+  dup if over c@ '%' = if 1 /string  1 v! 26 then then
+  v@ 26 0= if x-adr if v! 27  v@ 27 v! 28  1 v! 26
+      dup if over c@ ',' = if 1 /string x-adr 0= if 2drop drop m" Not an editor command: " cmdbuf r> m-add exit then
+        v! 28 then then
+    else drop then then  rdrop
+  v@ 26 if v@ 27 mo-line mv-y @  v@ 28 mo-line mv-y @  2dup > if swap then v! 28 v! 27
+    dup 0= if 2drop v@ 28 dup cy ! fnb cx ! exit then then
+  ex-run  0 chg ! ;
 
 \ ---- searching -----------------------------------------------------------------------------------
 : sfind ( a u from dir -- i|-1 )                \ where the text searched for starts: the first at or
@@ -244,7 +309,7 @@
   wrapped if dir 0< if m" search hit TOP, continuing at BOTTOM" else m" search hit BOTTOM, continuing at TOP" then
     then true ;
 : c-find ( dir -- )                             \ / ?: the text, then the search
-  dup 0> if '/' else '?' then readline dup 0< if 2drop exit then
+  dup 0> if '/' else '?' then 0 readline dup 0< if 2drop exit then
   ?dup if dup patl ! cmdbuf patbuf rot move then
   dup sdir ! search if mv-y @ cy ! mv-x @ cx ! then ;
 
@@ -311,12 +376,20 @@
     '$' of drop cur-text nip 1- 0 max mv-x !  2 mv-w ! 1 true endof
     false over
   endcase ;
+: mo-go ( kind -- )                              \ the cursor where the motion went (if it did): j and k
+  0< if exit then  mv-y @ cy !  mv-x @ cx !     \   keep the column aimed for, $ the end
+  mv-w @ ?dup if 0 setw ! 2 = if bigcol want ! then then ;
+: mo-mk ( line? -- kind )                       \ '< '> `< `>: the last selection's first and last place
+  getkey  v@ 9 0= over '<' <> 2 pick '>' <> and or if 2drop -1 exit then
+  '<' =  v@ 10 v@ 12 < v@ 10 v@ 12 = v@ 11 v@ 13 > 0= and or  =
+  if v@ 10 v@ 11 else v@ 12 v@ 13 then  mv-x !  swap if mo-fl else mo-line 0 then ;
 : motion ( k -- kind )                          \ -1 none (or it failed), 0 to a byte, 1 to a byte (inclusive),
-  cy @ dup mv-y ! p-y !  cx @ dup mv-x ! p-x !  0 mv-w !  cnt1 @ swap \ 2 to a line: mv-y mv-x (mv-w: 1 j k, 2 $)
+  0 v! 15  cy @ dup mv-y ! p-y !  cx @ dup mv-x ! p-x !  0 mv-w !  cnt1 @ swap \ 2 to a line: mv-y mv-x (mv-w: 1 j k, 2 $)
   mo-lines if exit then  mo-words if exit then
   case
     'G' of drop cnt @ 1- dup 0< if drop nl @ 1- then mo-fl endof
-    'g' of drop getkey 'g' = if cnt @ 1- 0 max mo-fl else -1 then endof
+    'g' of drop getkey dup 'v' = if drop 1 v! 15 -1 else 'g' = if cnt @ 1- 0 max mo-fl else -1 then then endof
+    39 of drop 1 mo-mk endof  '`' of drop 0 mo-mk endof
     '%' of drop m-pair if 1 mo-p else -1 then endof
     'n' of drop sdir @ search if 0 else -1 then endof
     'N' of drop sdir @ negate search if 0 else -1 then endof
@@ -364,22 +437,150 @@
   endcase ;
 : nc-other ( k -- k|0 )                         \ the others, but for motions (0: it was one)
   case
-    ':' of c-colon 0 endof  '/' of 1 c-find 0 endof  '?' of -1 c-find 0 endof
+    ':' of 0 c-colon 0 endof  '/' of 1 c-find 0 endof  '?' of -1 c-find 0 endof
     4 of trows @ 2/ dup scroll 0 endof  21 of trows @ 2/ negate dup scroll 0 endof
     6 of trows @ 2 - -1 scroll 0 endof  2 of trows @ 2 - negate -2 scroll 0 endof
     12 of 1 clear ! 1 dall ! esc[ ." 999;999H" esc[ ." 6n" 0 endof
     7 of m-name m-size 0 endof
-    'Z' of getkey 'Z' = if 0 x-bang ! 0 x-argl ! ex-x then 0 endof
+    'Z' of getkey 'Z' = if 0 x-bang ! 0 x-argl ! 0 v! 26 ex-x then 0 endof
     3 of m" Type :q and Enter to exit vi" 0 endof
     $1c of 1 quit ! 0 endof
     dup
   endcase ;
+\ ---- visual mode ---------------------------------------------------------------------------------
+\ vi.s's (its notes say how it works), its state in vv (vi-text.fs lists the cells; the words have short
+\ names: a header of a name up to 5 bytes takes 16 bytes of data space, a longer one 24).
+: kbit ( k lo hi -- f )                         \ is k (below 128) one of the 128-bit set lo hi?
+  rot dup 64 < if nip else 64 - rot drop dup 64 < 0= if 2drop false exit then then 1 swap lshift and 0<> ;
+: m-rng ( a b -- )                              \ the rows of lines a .. b (those on the screen) drawn again
+  top @ - trows @ 1- min swap top @ - 0 max  2dup < if 2drop exit then
+  -1 swap lshift  -2 rot lshift invert and  dirty @ or dirty ! ;
+: v-mrk ( -- )                                  \ the rows from the other end to the cursor, and to where
+  v@ 1 dup cy @ min swap cy @ max  v@ 3 tuck max >r min r>  cy @ v! 3  m-rng ; \ it was the last time
+: v-lv ( -- )                                   \ visual mode ends: the selection is the last one (gv, '< '>)
+  v@ 0 v! 9  0 v! 0  v@ 1 v! 10  v@ 2 v! 11  cy @ v! 12  cx @ v! 13  want @ v! 14  v-mrk ;
+: v-n ( -- n ) v@ 6 v@ 5 - 1+ ;                 \ the selection's lines
+: v-beg ( n -- ) dup v! 17  nl @ v! 18  v@ 5 swap chg-begin  1 v! 16 ; \ one change for all an operator does
+: v-end ( -- ) 0 v! 16  v@ 17 nl @ + v@ 18 - chg-end ; \ ... ends (the lines: as many more as the text has)
+: v-yk ( -- )                                   \ the selection into the register: V lines; v, Ctrl-V a
+  v@ 5 v-n  v@ 4 2 = if y-lines exit then       \   piece of each line (v: newlines between; a block)
+  dup y-cnt !  v@ 4 1- y-kind !  0 v! 21  0 -rot bounds ?do
+    i lfind over swap i -rot v-rng drop over - dup v@ 21 max v! 21
+    -rot + tbuf 8 + 2 pick move
+    2dup 15 + + ysz > if 2drop 0 y-cnt ! m" too much for the register (48 KiB)" unloop exit then
+    f-y 2 pick + swap fl-put +
+  loop drop ;
+: v-cut ( yank? -- )                            \ the selection out of the text (the caller's change has it)
+  if v-yk then  v@ 5 dup mark-from  v-n { y n }
+  v@ 4 2 = if n 0 ?do y ldel loop exit then
+  v@ 4 3 = if n 0 ?do y i + dup lbuf lget lblen !  dup lbuf lblen @ v-rng drop over - l-cut
+      lbuf lblen @ lput drop  loop exit then
+  v@ 6 dup lfind v-rng drop nip  v@ 6 lfind rot /string  tuck tbuf 8 + swap move \ v: what follows it
+  y lbuf lget  y lbuf rot v-rng 2drop lblen !  tbuf 8 + swap pm-add             \   after what precedes it
+  n 1- 0 ?do y 1+ ldel loop  y lbuf lblen @ lput drop ;
+: v-ins ( col pad? -- )                         \ a block's insert at column col (pad?: short lines padded):
+  v! 20 v! 19  v@ 5 1 v-pos  dup 0< if drop v-end exit then \ on the first line, then (no Enter) what was
+  lblen @ { p len0 }  p cx !  v@ 5 cy !  v@ 5 lbuf len0 lput drop  ins-run \ typed on the others too
+  nl @ v@ 18 = if v@ 5 lfind len0 - dup 0> if
+      swap p + cls 2 pick move
+      v@ 6 1+ v@ 5 1+ ?do i v@ 20 v-pos dup 0< 0= if cls 2 pick rot l-in if i lbuf lblen @ lput drop then
+        else drop then loop drop
+    else 2drop then then
+  v-end  v@ 5 cy !  p cx ! ;
+: v-sh ( k -- )                                 \ > <: each line, count times: > a tab before it (not before
+  v-n v-beg  v@ 6 1+ v@ 5 ?do                   \   an empty line), < a tab away (or up to 8 spaces)
+    i lbuf lget lblen !  cnt1 @ 0 ?do  dup '<' = if
+        0 begin dup lblen @ < if lbuf over + c@ dup 9 = if drop 1+ true else bl = if 1+ dup 8 = else true then then
+          else true then until  0 swap l-cut
+      else lblen @ dup 0<> swap lmax < and if 0 1 l-gap  9 lbuf c! then then
+    loop  i lbuf lblen @ lput drop
+  loop drop  v-end  v@ 5 fnb cx ! ;
+: v-cs ( k -- )                                 \ ~ u U r: each byte selected changed (r: to the next key)
+  dup 'r' = if getkey dup 9 <> over $20 - $5f u< 0= and if 2drop exit then else 0 then { k ch }
+  v-n v-beg  v@ 6 1+ v@ 5 ?do
+    i lbuf lget  i lbuf 2 pick v-rng drop swap ?do
+      k 'r' = if ch else lbuf i + c@  dup ct dup 1 = if drop k 'u' <> if 32 - then else
+        33 = if k 'U' <> if 32 + then then then then  lbuf i + c!
+    loop  i lbuf rot lput drop
+  loop v-end ;
+: v-p ( -- )                                    \ p P: the register in the selection's place (it stays)
+  y-cnt @ 0= if exit then  v-n y-cnt @ + nl @ v@ 5 - min v-beg  false v-cut
+  v@ 4 2 = if y-kind @ 1 = if nl @ v@ 5 > if 0 else nl @ if nl @ 1- cy ! 1 else 0 then then
+      else v@ 5 lbuf 0 lins drop  0 cx !  0 then             \ lines out: in their place (characters: in
+  else y-kind @ 1 = if v@ 5 lbuf lget cx @  v@ 5 1+ lbuf 2 pick + 3 pick 3 pick - lins drop \ an empty line);
+      v@ 5 lbuf rot lput drop drop 1 else 0 then then        \ lines into characters: the line split there
+  put fixempty drop v-end ;
+: v-d ( -- )                                    \ d: out (into the register)
+  v-n v-beg  true v-cut  fixempty drop  v-end
+  v@ 4 2 = if v@ 5 nl @ 1- min dup cy ! fnb cx ! then ;
+: v-c ( -- )                                    \ c: out, then insert mode (a block: on each line)
+  v-n v-beg  true v-cut  v@ 4 3 = if v@ 7 0 v-ins exit then
+  v@ 4 2 = if v@ 5 lbuf 0 lins drop then  0 v! 16  ins-run ;
+: v-map ( k -- k' )                             \ x as d, s as c; Y X S R on whole lines, D C too (but on a
+  dup 'x' = if drop 'd' exit then  dup 's' = if drop 'c' exit then \ block: to the ends of its lines)
+  s" YyXdScRcDdCc" 0 ?do dup i + c@ 2 pick = if
+      i + 1+ c@ nip  i 7 > v@ 4 3 = and if bigcol v! 8 else 2 v! 4  0 v! 7  bigcol v! 8 then unloop exit then
+  2 +loop drop ;
+: v-op ( k -- )                                 \ visual mode ends; the operator works on the selection, as
+  v-sel v-lv v-map  v@ 5 dup lfind v-rng 2drop cx !  v@ 5 cy ! \ one change; the cursor at its start
+  case                                          \   first (undo comes back there)
+    'y' of v-yk endof  'd' of v-d endof  'c' of v-c endof
+    '>' of '>' v-sh endof  '<' of '<' v-sh endof
+    '~' of '~' v-cs endof  'u' of 'u' v-cs endof  'U' of 'U' v-cs endof  'r' of 'r' v-cs endof
+    'J' of v-n 2 max cnt1 ! c-J endof  'p' of v-p endof  'P' of v-p endof
+    ':' of $3e272c3c27 cmdbuf ! 5 c-colon endof \ : with '<,'> typed
+    'I' of v@ 4 3 = if v-n v-beg v@ 7 0 v-ins then endof
+    'A' of v@ 4 3 = if v-n v-beg v@ 8 dup bigcol <> - 1 v-ins then endof
+  endcase  v@ 5 mark-from ;
+: v-dot ( k -- )                                \ the keys of . for it: $110, the kind, lines - 1, bytes or
+  v-sel  $110 recbuf w!  v@ 4 dup recbuf 2 + w!  v@ 6 v@ 5 - dup recbuf 4 + w! \ columns (v on one line:
+  v@ 8 -rot 0<> swap 1 = and 0= if v@ 7 - $ffff min then  recbuf 6 + w!       \ on; over lines: the last
+  recbuf 8 + w!  5 rec-len ! ;                  \   one; Ctrl-V: on, $ffff after $), the operator
+: v-key ( k -- f )                              \ a key in visual mode (f: visual mode ended)
+  dup 27 = over 3 = or if drop v-lv true exit then
+  dup 'v' = if drop 1 else dup 'V' = if drop 2 else dup 22 = if drop 3 else 0 then then then
+  ?dup if dup v@ 0 = if drop v-lv true else v! 0 false then exit then \ v V Ctrl-V: that kind, or the end
+  dup 'o' = over 'O' = or if drop v@ 1 cy @ v! 1 cy !  v@ 2 cx @ v! 2 cx !  false exit then \ the other end
+  dup $5400000000000000 $432d0018032d061a kbit if dup ':' <> if dup v-dot then v-op true exit then \ an operator
+  dup $80008000002010d4 0 kbit if nc-other drop false exit then \ Ctrl-F, / ...
+  motion mo-go false ;
+: v-run ( kind -- )                             \ visual mode (the other end in 1 2 of vv) until Esc or an
+  v! 0  cy @ v! 3                               \   operator
+  begin v-mrk refresh
+    0 begin getkey 0 msgl ! count? while '0' - swap 10 * + repeat
+    swap dup cnt ! 1 max cnt1 !  1 setw !
+    dup $10c = over $10a = or if k-pend ! v-lv exit then  \ a click, the end: visual mode ends
+    dup $10e $110 within if $10e = if -3 else 3 then dup scroll false else \ the wheel
+      dup $10b > if drop false else kmapk v-key then then
+  until ;
+: v-go ( kind -- ) cy @ v! 1  cx @ v! 2  v-run ; \ v V Ctrl-V: visual mode from the cursor
+: v-gv ( -- )                                   \ gv: the last selection again
+  v@ 9 ?dup 0= if exit then  v@ 10 nl @ 1- min v! 1  v@ 11 v! 2  v@ 12 cy !  v@ 13 cx !  v@ 14 want !
+  0 setw !  v-run ;
+: m-pos ( -- n x f )                            \ the line and byte under the mouse; f: it is over the text
+  v@ 22 trows @ u< 0= if 0 0 false exit then
+  v@ 22 top @ + mo-line  mv-y @ dup lfind v@ 23 numw @ - lcol @ + xcol true ;
+: c-ms ( k -- )                                 \ the mouse: a click puts the cursor there, a release
+  dup $10d > if $10e = if -3 else 3 then dup scroll exit then \ elsewhere selects from the click to it
+  m-pos 0= if 2drop drop exit then              \   (v); the wheel scrolls three lines
+  rot $10c = if 2dup v! 25 v! 24 cx ! cy ! exit then
+  v@ 24 v@ 25  -1 v! 24  over 0< if 2drop 2drop exit then
+  2over 2over rot = -rot = and if 2drop 2drop exit then
+  v! 2 v! 1  cx ! cy !  1 v-run ;
+: v-rep ( -- )                                  \ . after a visual operation: from the cursor, as many lines
+  getkey getkey getkey { k l c }                \   and bytes (columns) as then, and the operator again
+  cy @ v! 1  cx @ v! 2  0 want !  cy @ l + mo-line mv-y @ cy !
+  k 1 = if l if c else v@ 2 c + then cx ! then
+  k 3 = if c $ffff = if bigcol want ! then  v@ 1 lfind drop v@ 2 dcol c +  cur-text rot xcol cx ! then
+  k v! 0  getkey v-op ;
+
 : ncmd ( -- )                                   \ one command: a count, a key, what it does
   0 begin getkey 0 msgl ! count? while '0' - swap 10 * + repeat
-  swap dup cnt ! 1 max cnt1 !  1 setw !  kmapk
+  swap dup cnt ! 1 max cnt1 !  1 setw !
+  dup $110 = if drop v-rep exit then  dup $10c < 0= if c-ms exit then  kmapk \ (the mouse; . of a visual one)
+  dup 'v' = if drop 1 v-go exit then  dup 'V' = if drop 2 v-go exit then  dup 22 = if drop 3 v-go exit then
   nc-ins ?dup 0= if exit then  nc-edit ?dup 0= if exit then  nc-other ?dup 0= if exit then
-  motion dup 0< 0= if mv-y @ cy ! mv-x @ cx !
-    mv-w @ ?dup if 0 setw ! 2 = if bigcol want ! then then then drop ;
+  motion dup 0< if drop v@ 15 if v-gv then exit then  mo-go ;
 
 : vi-loop ( -- )                                \ show, then one command, until :q
   begin refresh
@@ -394,14 +595,15 @@
   1 0 0 22 1 (msg) drop                         \ interrupts come as READs that return -2
   80 cols !  24 rows !  0 numw !  size-upd  1 synon !  1 clear !  0 quit !  0 msgl !  0 ins !  0 lblive !
   0 kb-pos !  0 kb-len !  0 k-pend !  0 rq-pos !  0 rq-len !  0 dotn !  0 dot-len !  0 y-cnt !  0 patl !
-  1 sdir !  0 dirty ! ;
+  1 sdir !  0 dirty !  vv 32 cells erase  -1 v! 24
+  con @ 0= if esc[ ." ?1000h" then ;           \ (a window's terminal: mouse reports, please)
 : vi-main ( a u -- )                            \ edit that file (u = 0: an empty buffer)
   vi-init
   esc[ ." 999;999H" esc[ ." 6n" flush           \ the size: the answer comes while the file is read
   120 min do-load
   100 rd-wait if kbuf kb-pos @ + c@ 27 = if getkey dup $10b = if drop else k-pend ! then then then
   vi-loop
-  esc[ ." H" esc[ ." 2J" flush
+  con @ 0= if esc[ ." ?1000l" then  esc[ ." H" esc[ ." 2J" flush
   con @ if 0 0 0 19 3 (msg) drop then  0 0 0 22 1 (msg) drop ;
 : vi ( "name" -- ) parse-name vi-main ;         \ at the Forth prompt: vi FILE
 : cmd-word ( a u -- rest u' word u2 )           \ the next word of the command line

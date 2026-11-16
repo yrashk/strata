@@ -1,0 +1,13 @@
+RTL of commit 858a4f7; nextpnr-ecp5 0.11.1; 2026-11-14
+synthesis: 1888 s
+place and route: 890 s (nextpnr, all of it)
+  Static Placer Time: 39.82s
+  SA placement time 153.08s
+  Router1 time 683.43s
+  	              DP16KD:     180/    208    86%
+  	          MULT18X18D:       4/    156     2%
+  	          TRELLIS_FF:    7334/  83640     8%
+  	        TRELLIS_COMB:   52992/  83640    63%
+Max frequency for clock '$glbnet$clk$TRELLIS_IO_IN': 18.93 MHz (PASS at 10.00 MHz)
+path: Longest path 52.8 ns, 81% of it wire: from u_dec.ir to x.0.15$DPRAM_COMB3.
+render: 24 s (both pictures)

@@ -12,7 +12,7 @@
 <link rel="icon" href="../favicon.ico" sizes="32x32">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../apple-touch-icon.png">
-<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="../style.css?v=__BUILD__">
 <link rel="stylesheet" href="debug.css?v=__BUILD__">
 </head>
 <body>
@@ -24,8 +24,15 @@
     <a href="../arch/">Architecture</a>
     <a href="../isa/">Instructions</a>
     <a href="../os/">OS</a>
-    <a href="../forth/">Forth</a>
-    <a href="../c/">C</a>
+    <div class="menu">
+      <span class="menu-btn" tabindex="0" aria-haspopup="true">Languages</span>
+      <div class="drop">
+        <a href="../forth/">Forth</a>
+        <a href="../stratalk/">Stratalk</a>
+        <a href="../stralog/">Stralog</a>
+        <a href="../c/">C</a>
+      </div>
+    </div>
     <a href="../hardware/">Hardware</a>
     <a href="../play/">Play</a>
     <a href="./" aria-current="page">Debug</a>
@@ -34,6 +41,7 @@
     <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
   </div>
 </nav>
+<script src="../nav.js?v=__BUILD__" defer></script>
 
 <main class="dbg">
   <header class="dbg-head">
@@ -102,6 +110,25 @@
       <div class="view"><button class="seg" id="con-float" title="A floating window: it stays put while the page scrolls, beside the page where there is room; drag its bar, resize its corner, double-click its bar to put it back in the arrangement">⧉ Float</button></div>
     </div>
     <div class="term-box"><div id="term"></div></div>
+  </section>
+
+  <section class="panel msgs" id="msgs-panel" aria-label="StrataOS messages" hidden>
+    <div class="tag"><span>▸ MESSAGES</span><em id="msginfo">every request to the kernel and the servers, and its reply; a click shows it whole</em>
+      <div class="view">
+        <button class="seg" id="msg-pause" title="Hold the list where it is (the engine keeps recording)">❚❚ Pause</button>
+        <button class="seg" id="msg-sum" title="Per receiver and op: how many, errors, average round trip">Summary</button>
+        <button class="seg" id="msg-float" title="A floating window: it stays put while the page scrolls; drag its bar, resize its corner, double-click its bar to put it back in the arrangement">⧉ Float</button>
+      </div>
+    </div>
+    <form class="form msgfilt" id="msgfilt" autocomplete="off">
+      <input id="mf-from" placeholder="from: sh · 6 · proc · kernel" size="22" spellcheck="false" aria-label="Sender (a process's name or pid, a server, kernel)">
+      <span class="d">→</span>
+      <select id="mf-server" aria-label="Receiver"><option value="">to every server</option><option value="kernel">to kernel</option><option value="proc">to proc</option><option value="dev">to dev</option><option value="fs">to fs</option><option value="tty">to tty</option><option value="pipe">to pipe</option><option value="net">to net</option><option value="ws">to ws</option></select>
+      <input id="mf-op" placeholder="op: OPEN · 3" size="10" spellcheck="false" aria-label="Op (name or number)">
+      <label class="pick"><input type="checkbox" id="mf-wait"> waiting</label>
+    </form>
+    <div class="msgbox" id="msgbox"><table class="msgtab"><thead id="msghead"><tr><th>#</th><th>tick</th><th>from (sender)</th><th>to (receiver)</th><th>op</th><th title="handle · length · mode">h · len · mode</th><th>data</th><th>reply</th><th>reply data</th><th>rt</th></tr></thead><tbody id="msglist"></tbody></table></div>
+    <div class="msghex" id="msghex"></div>
   </section>
 
   <section class="panel xfers" id="xfers" aria-label="Transfer timeline">
@@ -182,6 +209,12 @@
         <b>Run</b> types a program's name at the shell and, if asked, stops at its first instruction.
         Graphical programs (<code>ws</code>) draw on the <b>Screen</b>, which opens when the framebuffer is first
         written; the keys and the mouse you give it are recorded, so going back replays them.</li>
+      <li><b>Messages</b> (StrataOS): every request to the kernel and to the servers, with its reply beside it:
+        who sent it (a process, a server, or the kernel) to whom, from and to which core, the op by name (from the same specifications as the
+        <a href="../os/">OS pages</a>), the header, its data decoded (a path, the bytes read or written, a key),
+        what it carried, the result and its meaning, the round trip in ticks. Filter by sender, receiver or op; Pause holds
+        the list; a click shows the whole header and data in hex; Summary counts them per server and op.
+        <code>strata-dbg</code> has the same as <code>msgs</code>, <code>msg</code> and <code>msgs stats</code>.</li>
       <li>The reference emulator copies a memory transfer at the instant it issues, so its bars have no
         length; device reads that wait (console input, the timer's WAIT) stay in flight, and their tags
         stay busy, until the device completes them. Stalls are the rounds a core could not make its step.</li>

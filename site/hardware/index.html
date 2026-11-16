@@ -11,8 +11,8 @@
 <link rel="icon" href="../favicon.ico" sizes="32x32">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../apple-touch-icon.png">
-<link rel="stylesheet" href="../style.css">
-<link rel="stylesheet" href="hardware.css">
+<link rel="stylesheet" href="../style.css?v=__BUILD__">
+<link rel="stylesheet" href="hardware.css?v=__BUILD__">
 </head>
 <body>
 
@@ -23,8 +23,15 @@
     <a href="../arch/">Architecture</a>
     <a href="../isa/">Instructions</a>
     <a href="../os/">OS</a>
-    <a href="../forth/">Forth</a>
-    <a href="../c/">C</a>
+    <div class="menu">
+      <span class="menu-btn" tabindex="0" aria-haspopup="true">Languages</span>
+      <div class="drop">
+        <a href="../forth/">Forth</a>
+        <a href="../stratalk/">Stratalk</a>
+        <a href="../stralog/">Stralog</a>
+        <a href="../c/">C</a>
+      </div>
+    </div>
     <a href="./" aria-current="page">Hardware</a>
     <a href="../play/">Play</a>
     <a href="../debug/">Debug</a>
@@ -33,6 +40,7 @@
     <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
   </div>
 </nav>
+<script src="../nav.js?v=__BUILD__" defer></script>
 
 <main class="hw">
 

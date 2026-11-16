@@ -1,0 +1,259 @@
+Info: Critical path report for clock '$glbnet$clk$TRELLIS_IO_IN' (posedge -> posedge):
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source g_core[0].u_core.u_dec.ir_(TRELLIS_FF...).Q
+Info:    routing  2.68  3.20 Net all_halted_(LUT4...) (51,86) -> (51,48)
+Info:                          Sink g_core[0].u_core.pc_(TRELLIS_FF...).C
+Info:      logic  0.24  3.44 Source g_core[0].u_core.pc_(TRELLIS_FF...).F
+Info:    routing  2.40  5.84 Net g_core[0].u_core.pc_(TRELLIS_FF...) (51,48) -> (24,45)
+Info:                          Sink g_core[0].u_core.pc_(TRELLIS_FF...).M
+Info:      logic  0.26  6.10 Source g_core[0].u_core.pc_(TRELLIS_FF...).OFX
+Info:    routing  4.73  10.83 Net g_core[0].u_core.pc_(TRELLIS_FF...) (24,45) -> (76,23)
+Info:                          Sink g_core[0].u_core.x.1.6_RAD_(LUT4...).C
+Info:      logic  0.24  11.07 Source g_core[0].u_core.x.1.6_RAD_(LUT4...).F
+Info:    routing  1.07  12.13 Net g_core[0].u_core.x.1.6_RAD (76,23) -> (76,19)
+Info:                          Sink g_core[0].u_core.x.1.12$DPRAM_COMB3.D
+Info:      logic  0.24  12.37 Source g_core[0].u_core.x.1.12$DPRAM_COMB3.F
+Info:    routing  1.12  13.49 Net g_core[0].u_core.x.1.28_DO_3[1] (76,19) -> (75,20)
+Info:                          Sink g_core[0].u_core.x.1.28_DO_3_(LUT4...).C
+Info:      logic  0.24  13.73 Source g_core[0].u_core.x.1.28_DO_3_(LUT4...).F
+Info:    routing  3.50  17.22 Net g_core[0].u_core.lt_off_(TRELLIS_FF...) (75,20) -> (80,63)
+Info:                          Sink g_core[0].u_core.x.1.28_DO_(LUT4...).D
+Info:      logic  0.24  17.46 Source g_core[0].u_core.x.1.28_DO_(LUT4...).F
+Info:    routing  0.21  17.67 Net g_core[0].u_core.x.1.28_DO_(LUT4...) (80,63) -> (80,63)
+Info:                          Sink g_core[0].u_core.x.1.28_DO_(LUT4...).D
+Info:      logic  0.24  17.91 Source g_core[0].u_core.x.1.28_DO_(LUT4...).F
+Info:    routing  0.74  18.65 Net g_core[0].u_core.x.1.28_DO_(LUT4...) (80,63) -> (81,64)
+Info:                          Sink g_core[0].u_core.x.1.28_DO_(LUT4...).M
+Info:      logic  0.26  18.90 Source g_core[0].u_core.x.1.28_DO_(LUT4...).OFX
+Info:    routing  0.88  19.78 Net g_core[0].u_core.x.1.28_DO_(LUT4...) (81,64) -> (78,64)
+Info:                          Sink ext_t3_addr_(TRELLIS_FF...).D
+Info:      logic  0.24  20.01 Source ext_t3_addr_(TRELLIS_FF...).F
+Info:    routing  0.00  20.01 Net ext_t3_addr_(TRELLIS_FF...) (78,64) -> (78,64)
+Info:                          Sink ext_t3_addr_(TRELLIS_FF...).F1
+Info:      logic  0.17  20.18 Source ext_t3_addr_(TRELLIS_FF...).OFX
+Info:    routing  2.76  22.94 Net ext_t3_addr_(TRELLIS_FF...) (78,64) -> (54,47)
+Info:                          Sink g_core[0].u_core.xm_v[10]_(LUT4...).M
+Info:      logic  0.26  23.20 Source g_core[0].u_core.xm_v[10]_(LUT4...).OFX
+Info:    routing  2.20  25.39 Net g_core[0].u_core.s_tval_(TRELLIS_FF...) (54,47) -> (41,32)
+Info:                          Sink g_core[0].u_core.xm_sp[1]_(LUT4...).C
+Info:      logic  0.24  25.63 Source g_core[0].u_core.xm_sp[1]_(LUT4...).F
+Info:    routing  0.00  25.63 Net g_core[0].u_core.xm_sp[1]_(LUT4...) (41,32) -> (41,32)
+Info:                          Sink g_core[0].u_core.xm_sp[1]_(LUT4...).F1
+Info:      logic  0.17  25.80 Source g_core[0].u_core.xm_sp[1]_(LUT4...).OFX
+Info:    routing  0.00  25.80 Net g_core[0].u_core.xm_sp[1]_(LUT4...) (41,32) -> (41,32)
+Info:                          Sink g_core[0].u_core.xm_sp[1]_(LUT4...).FXB
+Info:      logic  0.24  26.04 Source g_core[0].u_core.xm_sp[1]_(LUT4...).OFX
+Info:    routing  0.00  26.04 Net g_core[0].u_core.xm_sp[1]_(LUT4...) (41,32) -> (41,32)
+Info:                          Sink g_core[0].u_core.xm_sp[1]_(LUT4...).FXB
+Info:      logic  0.24  26.28 Source g_core[0].u_core.xm_sp[1]_(LUT4...).OFX
+Info:    routing  1.93  28.21 Net g_core[0].u_core.xm_sp[1]_(LUT4...) (41,32) -> (45,47)
+Info:                          Sink g_core[0].u_core.x.0.0_DO_1_(LUT4...).M
+Info:      logic  0.26  28.47 Source g_core[0].u_core.x.0.0_DO_1_(LUT4...).OFX
+Info:    routing  0.00  28.47 Net g_core[0].u_core.x.0.0_DO_1_(LUT4...) (45,47) -> (45,47)
+Info:                          Sink g_core[0].u_core.x.0.0_DO_1_(LUT4...).FXB
+Info:      logic  0.24  28.71 Source g_core[0].u_core.x.0.0_DO_1_(LUT4...).OFX
+Info:    routing  0.00  28.71 Net g_core[0].u_core.x.0.0_DO_1_(LUT4...) (45,47) -> (45,47)
+Info:                          Sink g_core[0].u_core.x.0.0_DO_1_(LUT4...).FXB
+Info:      logic  0.24  28.95 Source g_core[0].u_core.x.0.0_DO_1_(LUT4...).OFX
+Info:    routing  0.90  29.85 Net g_core[0].u_core.x.0.0_DO_1_(LUT4...) (45,47) -> (46,48)
+Info:                          Sink g_core[0].u_core.x.1.2_DO_3_(LUT4...).D
+Info:      logic  0.24  30.09 Source g_core[0].u_core.x.1.2_DO_3_(LUT4...).F
+Info:    routing  0.00  30.09 Net g_core[0].u_core.x.1.2_DO_3_(LUT4...) (46,48) -> (46,48)
+Info:                          Sink g_core[0].u_core.x.1.2_DO_3_(LUT4...).F1
+Info:      logic  0.17  30.25 Source g_core[0].u_core.x.1.2_DO_3_(LUT4...).OFX
+Info:    routing  0.00  30.25 Net g_core[0].u_core.x.1.2_DO_3_(LUT4...) (46,48) -> (46,48)
+Info:                          Sink g_core[0].u_core.x.1.2_DO_3_(LUT4...).FXB
+Info:      logic  0.24  30.50 Source g_core[0].u_core.x.1.2_DO_3_(LUT4...).OFX
+Info:    routing  3.63  34.12 Net g_core[0].u_core.x.1.2_DO_3_(LUT4...) (46,48) -> (88,23)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).M
+Info:      logic  0.26  34.38 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).OFX
+Info:    routing  2.53  36.91 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (88,23) -> (103,5)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).D
+Info:      logic  0.24  37.14 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).F
+Info:    routing  1.95  39.09 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (103,5) -> (80,4)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).D
+Info:      logic  0.40  39.49 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).OFX
+Info:    routing  0.00  39.49 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (80,4) -> (80,4)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FXB
+Info:      logic  0.24  39.74 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).OFX
+Info:    routing  0.97  40.71 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (80,4) -> (83,5)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).M
+Info:      logic  0.26  40.97 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).OFX
+Info:    routing  1.22  42.18 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (83,5) -> (88,7)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).M
+Info:      logic  0.26  42.44 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).OFX
+Info:    routing  1.33  43.77 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (88,7) -> (92,14)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).M
+Info:      logic  0.26  44.02 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).OFX
+Info:    routing  1.11  45.13 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (92,14) -> (99,13)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.24_DIB1_(LUT4...).M
+Info:      logic  0.26  45.39 Source g_core[0].u_core.u_dls.mem.0.24_DIB1_(LUT4...).OFX
+Info:    routing  0.00  45.39 Net g_core[0].u_core.u_dls.mem.0.24_DIB1_(LUT4...) (99,13) -> (99,13)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.24_DIB1_(LUT4...).FXB
+Info:      logic  0.24  45.63 Source g_core[0].u_core.u_dls.mem.0.24_DIB1_(LUT4...).OFX
+Info:    routing  0.49  46.12 Net g_core[0].u_core.u_dls.mem.0.24_DIB1_(LUT4...) (99,13) -> (99,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).D
+Info:      logic  0.24  46.36 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).F
+Info:    routing  1.42  47.77 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (99,18) -> (96,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).A
+Info:      logic  0.45  48.22 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  48.22 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (96,18) -> (96,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  48.29 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  48.29 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (96,18) -> (96,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:      logic  0.00  48.29 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  48.29 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (96,18) -> (96,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  48.36 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  48.36 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (96,18) -> (96,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:      logic  0.00  48.36 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  48.36 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (96,18) -> (97,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  48.43 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  48.43 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (97,18) -> (97,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:      logic  0.00  48.43 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  48.43 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (97,18) -> (97,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  48.51 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  48.51 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (97,18) -> (97,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:      logic  0.00  48.51 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  48.51 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (97,18) -> (97,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  48.58 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  48.58 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (97,18) -> (97,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:      logic  0.00  48.58 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  48.58 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (97,18) -> (97,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  48.65 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  48.65 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (97,18) -> (97,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:      logic  0.00  48.65 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  48.65 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (97,18) -> (98,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:                               /opt/homebrew/Cellar/yosys/0.70/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  48.72 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  48.72 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (98,18) -> (98,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:      logic  0.40  49.12 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).F
+Info:    routing  1.93  51.06 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (98,18) -> (79,23)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).D
+Info:      logic  0.24  51.29 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).F
+Info:    routing  1.46  52.75 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (79,23) -> (72,23)
+Info:                          Sink g_core[0].u_core.x.0.15$RAMW_SLICE.B1
+Info:      logic  0.00  52.75 Source g_core[0].u_core.x.0.15$RAMW_SLICE.WDO3
+Info:    routing  0.08  52.83 Net g_core[0].u_core.x.0.15$RAMW_SLICE$conn$WDO3 (72,23) -> (72,23)
+Info:                          Sink g_core[0].u_core.x.0.15$DPRAM_COMB3.WD
+Info:      setup  0.00  52.83 Source g_core[0].u_core.x.0.15$DPRAM_COMB3.WD
+Info: 9.60 ns logic, 43.24 ns routing
+
+Info: Critical path report for cross-domain path '<async>' -> 'posedge $glbnet$clk$TRELLIS_IO_IN':
+Info:       type curr  total name
+Info:     source  0.00  0.00 Source rst$tr_io.O
+Info:    routing  11.08  11.08 Net rst$TRELLIS_IO_IN (4,95) -> (98,11)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).B
+Info:      logic  0.24  11.31 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).F
+Info:    routing  1.90  13.22 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (98,11) -> (83,3)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).M
+Info:      logic  0.26  13.47 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).OFX
+Info:    routing  0.00  13.47 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (83,3) -> (83,3)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).FXB
+Info:      logic  0.24  13.72 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).OFX
+Info:    routing  1.68  15.40 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (83,3) -> (91,7)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).D
+Info:      logic  0.24  15.63 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).F
+Info:    routing  1.21  16.85 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (91,7) -> (85,7)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...).C
+Info:      logic  0.24  17.08 Source g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...).F
+Info:    routing  0.00  17.08 Net g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...) (85,7) -> (85,7)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...).F1
+Info:      logic  0.17  17.25 Source g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...).OFX
+Info:    routing  0.00  17.25 Net g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...) (85,7) -> (85,7)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...).FXB
+Info:      logic  0.24  17.49 Source g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...).OFX
+Info:    routing  1.58  19.07 Net g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...) (85,7) -> (94,14)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...).D
+Info:      logic  0.24  19.31 Source g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...).F
+Info:    routing  1.01  20.31 Net g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...) (94,14) -> (96,12)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...).D
+Info:      logic  0.24  20.55 Source g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...).F
+Info:    routing  0.00  20.55 Net g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...) (96,12) -> (96,12)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...).F1
+Info:      logic  0.17  20.71 Source g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...).OFX
+Info:    routing  0.80  21.51 Net g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...) (96,12) -> (98,12)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...).D
+Info:      logic  0.24  21.75 Source g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...).F
+Info:    routing  1.30  23.05 Net g_core[0].u_core.u_dls.mem.0.2_DIB0_(LUT4...) (98,12) -> (98,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).D
+Info:      logic  0.24  23.28 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).F
+Info:    routing  0.81  24.10 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (98,18) -> (98,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).A
+Info:      logic  0.45  24.55 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCO
+Info:    routing  0.00  24.55 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (98,18) -> (98,18)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).FCI
+Info:      logic  0.40  24.95 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).F
+Info:    routing  1.93  26.88 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (98,18) -> (79,23)
+Info:                          Sink g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).D
+Info:      logic  0.24  27.12 Source g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...).F
+Info:    routing  1.46  28.58 Net g_core[0].u_core.u_dls.mem.0.31_DIB1_(LUT4...) (79,23) -> (72,23)
+Info:                          Sink g_core[0].u_core.x.0.15$RAMW_SLICE.B1
+Info:      logic  0.00  28.58 Source g_core[0].u_core.x.0.15$RAMW_SLICE.WDO3
+Info:    routing  0.08  28.66 Net g_core[0].u_core.x.0.15$RAMW_SLICE$conn$WDO3 (72,23) -> (72,23)
+Info:                          Sink g_core[0].u_core.x.0.15$DPRAM_COMB3.WD
+Info:      setup  0.00  28.66 Source g_core[0].u_core.x.0.15$DPRAM_COMB3.WD
+Info: 3.81 ns logic, 24.85 ns routing
+
+Info: Critical path report for cross-domain path 'posedge $glbnet$clk$TRELLIS_IO_IN' -> '<async>':
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source g_core[0].u_core.u_dec.ir_(TRELLIS_FF...).Q
+Info:    routing  3.18  3.71 Net all_halted_(LUT4...) (51,86) -> (62,57)
+Info:                          Sink g_core[0].u_core.x.2.7_DO_2_(LUT4...).B
+Info:      logic  0.24  3.94 Source g_core[0].u_core.x.2.7_DO_2_(LUT4...).F
+Info:    routing  0.64  4.58 Net g_core[0].u_core.s_epc_(TRELLIS_FF...) (62,57) -> (65,57)
+Info:                          Sink g_core[0].u_core.x.0.30_DO_2_(PFUMX...).D
+Info:      logic  0.24  4.82 Source g_core[0].u_core.x.0.30_DO_2_(PFUMX...).F
+Info:    routing  1.97  6.78 Net g_core[0].u_core.x.0.30_DO_2_(PFUMX...) (65,57) -> (76,47)
+Info:                          Sink g_core[0].u_core.x.0.30_DO_2_(PFUMX...).D
+Info:      logic  0.24  7.02 Source g_core[0].u_core.x.0.30_DO_2_(PFUMX...).F
+Info:    routing  2.56  9.58 Net g_core[0].u_core.csr_stalls_(TRELLIS_FF...) (76,47) -> (81,21)
+Info:                          Sink g_core[0].u_core.x.2.3_RAD_2_(PFUMX...).M
+Info:      logic  0.26  9.84 Source g_core[0].u_core.x.2.3_RAD_2_(PFUMX...).OFX
+Info:    routing  1.56  11.40 Net g_core[0].u_core.x.2.3_RAD_2 (81,21) -> (77,26)
+Info:                          Sink g_core[0].u_core.x.2.16$DPRAM_COMB1.C
+Info:      logic  0.24  11.63 Source g_core[0].u_core.x.2.16$DPRAM_COMB1.F
+Info:    routing  0.86  12.49 Net g_core[0].u_core.x.2.0_DO_1[0] (77,26) -> (78,27)
+Info:                          Sink g_core[0].u_core.lt_victim_(TRELLIS_FF...).B
+Info:      logic  0.24  12.73 Source g_core[0].u_core.lt_victim_(TRELLIS_FF...).F
+Info:    routing  1.63  14.35 Net g_core[0].u_core.lt_victim_(TRELLIS_FF...) (78,27) -> (69,32)
+Info:                          Sink g_core[0].u_core.u_tu.q_sp[0]_(LUT4...).D
+Info:      logic  0.24  14.59 Source g_core[0].u_core.u_tu.q_sp[0]_(LUT4...).F
+Info:    routing  0.44  15.03 Net g_core[0].u_core.u_tu.q_sp[0]_(LUT4...) (69,32) -> (69,32)
+Info:                          Sink ext_t3_wdata_(PFUMX...).D
+Info:      logic  0.24  15.26 Source ext_t3_wdata_(PFUMX...).F
+Info:    routing  0.00  15.26 Net ext_t3_wdata_(PFUMX...) (69,32) -> (69,32)
+Info:                          Sink ext_t3_wdata_(PFUMX...).F1
+Info:      logic  0.17  15.43 Source ext_t3_wdata_(PFUMX...).OFX
+Info:    routing  1.36  16.79 Net all_halted_(LUT4...) (69,32) -> (57,39)
+Info:                          Sink all_halted_(LUT4...).D
+Info:      logic  0.24  17.02 Source all_halted_(LUT4...).F
+Info:    routing  1.18  18.20 Net all_halted_(LUT4...) (57,39) -> (57,53)
+Info:                          Sink all_halted_(LUT4...).D
+Info:      logic  0.24  18.44 Source all_halted_(LUT4...).F
+Info:    routing  0.04  18.48 Net all_halted_(LUT4...) (57,53) -> (57,53)
+Info:                          Sink all_halted_(LUT4...).D
+Info:      logic  0.24  18.71 Source all_halted_(LUT4...).F
+Info:    routing  4.76  23.48 Net all_halted$TRELLIS_IO_OUT (57,53) -> (0,35)
+Info:                          Sink all_halted$tr_io.I
+Info: 3.31 ns logic, 20.17 ns routing
+
+Info: Max frequency for clock '$glbnet$clk$TRELLIS_IO_IN': 18.93 MHz (PASS at 10.00 MHz)

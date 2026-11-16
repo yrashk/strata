@@ -67,6 +67,24 @@ module strata_tu
   output logic        put_idle,     // nothing in flight but device reads (what a gift to the block device waits for)
   output logic        cc_busy,      // a core-control write in flight (the next instruction waits for it)
   output logic        quiet,        // only waiting device reads are left, and no bus transaction runs
+  output logic        getx_busy,    // a tgetx is queued or under way (the I-LS is about to change)
+  // one memory for both Local Stores (strata_core LS_1P): a beat that
+  // arrives from the bus is written this cycle and the core gives way
+  // (get_beat); a tput's read of the D-LS waits for a cycle the core does
+  // not use (ls_gnt; 1 always with two dual-port stores)
+  output logic        get_beat,
+  output logic        put_want,     // a tput wants to read the D-LS this cycle
+  input  logic        ls_gnt,
+  // ... and the unit is not ready for a beat from far memory (b_rready low)
+  // in a cycle the core is about to use the memory (ls_want: what its state
+  // registers say, so that nothing of its execute logic reaches the bus),
+  // but never two cycles running: the core and a burst take turns. When
+  // the core then did not use the memory (ls_used: it was waiting for
+  // something), its word is not taken again until a beat has made it wait
+  // (ls_denied). Device beats are never held
+  input  logic        ls_want,
+  input  logic        ls_used,
+  input  logic        ls_denied,
 
   // hazard queries
   input  logic [LSW-1:0] hz_addr,
@@ -98,6 +116,7 @@ module strata_tu
   input  logic        b_gnt,
   input  logic        b_wready,
   input  logic        b_rvalid,
+  output logic        b_rready,
   input  logic [63:0] b_rdata,
   input  logic        b_done,
   input  logic        b_retry,
@@ -161,10 +180,12 @@ module strata_tu
     mem_idle = 1;     // device transfers (a break read may wait forever) do not count
     put_idle = 1;
     cc_busy  = 0;
+    getx_busy = 0;
     for (int i = 0; i < QD; i++) begin
       if (q_v[i] && q_sp[i] != SP_DEV) mem_idle = 0;
       if (q_v[i] && !(q_sp[i] == SP_DEV && q_kind[i] == XF_GET)) put_idle = 0;
       if (q_v[i] && q_sp[i] == SP_CORE) cc_busy = 1;
+      if (q_v[i] && q_kind[i] == XF_GETX) getx_busy = 1;
     end
   end
   // quiet: every entry is a device read that waits, and the bus is not
@@ -243,8 +264,13 @@ module strata_tu
   logic pop, pf_issue;
   assign pop      = b_wvalid && b_wready;
   // keep at most two words buffered or in flight
-  assign pf_issue = es == E_XFER && h_put && rd_off < h_len
+  logic rd_skipped, rd_notrust, rd_mem;
+  assign rd_mem   = es == E_XFER && !h_put && !h_dev;
+  assign b_rready = !(rd_mem && ls_want && !rd_notrust && !rd_skipped);
+  assign get_beat = es == E_XFER && !h_put && b_rvalid && b_rready;
+  assign put_want = es == E_XFER && h_put && rd_off < h_len
                     && ({1'b0, pf_cnt} + (pf_inflight ? 3'd1 : 3'd0) - (pop ? 3'd1 : 3'd0)) < 3'd2;
+  assign pf_issue = put_want && ls_gnt;
 
   always_comb begin
     dls_en    = 0;
@@ -254,7 +280,7 @@ module strata_tu
     ils_en    = 0;
     ils_addr  = g_ls[15:3];
     ils_wdata = b_rdata;
-    if (es == E_XFER && !h_put && b_rvalid) begin
+    if (get_beat) begin
       if (h_getx) begin
         ils_en = 1;
       end else begin
@@ -288,7 +314,12 @@ module strata_tu
       rd_off      <= '0;
       pf_cnt      <= '0;
       pf_inflight <= 0;
+      rd_skipped  <= 0;
+      rd_notrust  <= 0;
     end else begin
+      rd_skipped <= b_rvalid && !b_rready;               // a beat was held: the next cycle takes it
+      if (!b_rready && !ls_used) rd_notrust <= 1;
+      else if (ls_denied) rd_notrust <= 0;
       // ---- the engine works on the head of the queue
       case (es)
         E_IDLE: if (count != 0) begin
@@ -307,7 +338,7 @@ module strata_tu
             es <= off == 0 && count > 1 ? E_ROT : E_PARK;
             q_w[head] <= 1;
           end else begin
-            if (!h_put && b_rvalid) off <= off + step;
+            if (get_beat) off <= off + step;
             if (h_put) begin
               // the prefetch buffer: pop the head when the bus takes it,
               // append the word read from the Local Store last cycle

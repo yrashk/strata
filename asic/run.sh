@@ -4,6 +4,15 @@
 #
 #   asic/run.sh [NCORES [PERIOD_NS]]       (1, 2 or 6 cores; 40 ns by default)
 #
+# ASIC_LS1P=1: every core with LS_1P = 1, its two Local Stores in one
+# single-port memory (asic/rtl/gf180mcu/strata_ram1.sv: the same RAM as the
+# RTL's, where the default's strata_ram.sv is a stand-in). ASIC_SRAM=ocd1024
+# (with ASIC_LS1P=1): that memory from the 1024 x 8 macros of
+# gf180mcu_ocd_ip_sram instead of the PDK's 512 x 8. ASIC_PREP=1: stop
+# before LibreLane, with the netlist source, the macro list, the placement
+# and the die size in the run's directory (no container, no PDK needed);
+# asic/area.sh then gives the standard-cell area with Yosys on the host.
+#
 # NCORES 1: one strata_core (with its Transfer Unit, multiplier, divider);
 # its far bus, gift / take, granule and control ports are the chip's pins.
 # NCORES > 1: strata_top with T2 (asic/mktop.py: T3 and the device block
@@ -30,6 +39,17 @@ pdk_root="$here/build/asic/pdk"
 scl=${ASIC_SCL:-gf180mcu_fd_sc_mcu7t5v0}
 suffix=""
 [ "$scl" = gf180mcu_fd_sc_mcu7t5v0 ] || suffix="-${scl##*_}"
+ls1p=${ASIC_LS1P:-0}
+sram=${ASIC_SRAM:-fd512}
+[ "$ls1p" = 0 ] || suffix="$suffix-1p"
+[ "$sram" = fd512 ] || suffix="$suffix-$sram"
+defs=""
+case $sram in
+  fd512) ;;
+  ocd1024) [ "$ls1p" = 1 ] || { echo "ASIC_SRAM=ocd1024 needs ASIC_LS1P=1"; exit 2; }
+           defs="-DASIC_SRAM_OCD" ;;
+  *) echo "unknown ASIC_SRAM $sram"; exit 2 ;;
+esac
 out="$here/build/asic/gf180mcu-$n$suffix"
 mkdir -p "$out/src"
 cd "$here"
@@ -40,25 +60,36 @@ cd "$here"
 python3 asic/mktop.py core rtl/strata_core.sv > "$out/src/strata_core.sv"
 core="rtl/strata_pkg.sv rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv rtl/strata_mul.sv
       rtl/strata_tu.sv $out/src/strata_core.sv asic/rtl/gf180mcu/strata_ram.sv
+      asic/rtl/gf180mcu/strata_ram1.sv
       asic/rtl/gf180mcu/strata_sram_w.sv"
 if [ "$n" = 1 ]; then
   top=strata_core
-  sv2v $core > "$out/src/strata.v"
+  sv2v $defs $core > "$out/src/strata.v"
 else
   top=strata_asic_top
   python3 asic/mktop.py top rtl/strata_top.sv rtl/strata_dev.sv > "$out/src/strata_asic_top.sv"
   python3 asic/mktop.py mem rtl/strata_mem.sv > "$out/src/strata_mem.sv"
-  sv2v $core rtl/strata_bus.sv asic/rtl/gf180mcu/strata_sram_sp.sv "$out/src/strata_mem.sv" \
+  sv2v $defs $core rtl/strata_bus.sv asic/rtl/gf180mcu/strata_sram_sp.sv "$out/src/strata_mem.sv" \
        "$out/src/strata_asic_top.sv" > "$out/src/strata.v"
 fi
 cp asic/rtl/gf180mcu/*.bb.v asic/pdn_cfg.tcl "$out/"
 
 # the macro instances' flattened names, for the placement
-yosys -q -p "read_verilog $out/src/strata.v $out/gf180mcu_fd_ip_sram__sram512x8m8wm1.bb.v $out/gf180mcu_fd_ip_sram__sram256x8m8wm1.bb.v; chparam -set NCORES $n $top;
-             hierarchy -top $top; flatten; select -write $out/macros.raw t:gf180mcu_fd_ip_sram__*" \
+yosys -q -p "read_verilog $out/src/strata.v $out/gf180mcu_fd_ip_sram__sram512x8m8wm1.bb.v $out/gf180mcu_fd_ip_sram__sram256x8m8wm1.bb.v $out/gf180mcu_ocd_ip_sram__sram1024x8m8wm1.bb.v; chparam -set NCORES $n -set LS_1P $ls1p $top;
+             hierarchy -top $top; flatten; select -write $out/macros.raw t:gf180mcu_*_ip_sram__*" \
   2>&1 | grep -v '^Warning: Replacing memory' || true
 sed 's|^[^/]*/||' "$out/macros.raw" > "$out/macros.txt"
-ASIC_SCL=$scl ASIC_THREADS=$threads python3 asic/mkconfig.py "$out" "$n" "$period" "$out/macros.txt"
+ASIC_SCL=$scl ASIC_THREADS=$threads ASIC_LS1P=$ls1p ASIC_SRAM=$sram python3 asic/mkconfig.py "$out" "$n" "$period" "$out/macros.txt"
+echo "$n $ls1p $top" > "$out/prep.txt"
+if [ -n "${ASIC_PREP:-}" ]; then
+  echo "prepared $out (ASIC_PREP: LibreLane not run)"
+  exit 0
+fi
+if [ "$sram" = ocd1024 ]; then
+  echo "ASIC_SRAM=ocd1024: the macro's LEF, GDS and liberty are not in the PDK asic/pdk.sh fetches;"
+  echo "the LibreLane run with it is not set up (asic/README.md). ASIC_PREP=1 and asic/area.sh work."
+  exit 2
+fi
 
 # LibreLane in its container: the worktree at the same path, the PDK from
 # build/asic/pdk, OpenROAD with threads (asic/bin/openroad-mt)

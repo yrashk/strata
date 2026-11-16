@@ -1,5 +1,5 @@
 ; =============================================================================
-; sblob.s: blobs: values of any length (included by fs.s)
+; sblob.s: blobs: values of any length (included by db.s)
 ; =============================================================================
 ;
 ; A value under a key is inline bytes (up to about a quarter page), or, with
