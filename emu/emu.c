@@ -307,6 +307,116 @@ static void st_dump(void) {
   fprintf(stderr, " total %llu blk %llu\n", t, st_blk);
 }
 #endif
+#ifdef STRATA_LSSTATS
+/* make ls-stats: what StrataOS's context switches move, and what they would
+ * move if the hardware told the dispatcher which 1 KiB segments of the D-LS
+ * were written (doc/ls-switch.md). Printed at exit when STRATA_LSSTATS is set.
+ * The switch's transfers are recognised by shape (supervisor mode, D-LS
+ * addresses of the StrataOS layout): the save puts [0, extent) and the live
+ * stack; a restore from another process gets [0, 0xA000) and [0xE000,
+ * 0x10000); a thread's first load then gets the image's data section; a
+ * thread coming back to its own bytes gets its extent and stack; tgetx in
+ * supervisor mode is code. The model keeps, per thread (keyed by its save
+ * area's address), F = the segments its save area may hold non-zero, and per
+ * core L = the segments the D-LS may hold non-zero bytes of its occupant in:
+ * a save moves the written segments of the extent and the stack, a restore
+ * from another process moves F(in) | L. */
+#define LSS_SEGS 64
+#define LSS_KMASK 0x00ffff0000000000ull /* 0xA000..0xDFFF: the dispatcher's data */
+typedef struct { uint64_t key, f; } LssThr;
+static LssThr lss_thr[4096];
+static struct {
+  uint64_t dirty, l, inkey, codelen, prevcode, touch, need;
+  bool fresh; /* no user instruction since a restore from another process */
+  unsigned long long sw, same, save, rest, code, msave, mrest, msave4, mrest4, fit, fitk, other, mlazy, traps;
+} lss[MAXCORES];
+static uint64_t lss_seg(uint64_t a) { return a / (dls_size / LSS_SEGS); }
+static uint64_t lss_mask(uint64_t ls, uint64_t len) {
+  if (!len) return 0;
+  uint64_t a = lss_seg(ls), b = lss_seg(ls + len - 1), m = 0;
+  for (uint64_t i = a; i <= b && i < LSS_SEGS; i++) m |= 1ull << i;
+  return m & ~LSS_KMASK;
+}
+static uint64_t *lss_f(uint64_t key) {
+  size_t h = (key * 0x9e3779b97f4a7c15ull) >> 52;
+  while (lss_thr[h].key && lss_thr[h].key != key) h = (h + 1) & 4095;
+  lss_thr[h].key = key;
+  return &lss_thr[h].f;
+}
+static uint64_t lss_x4(uint64_t m) { /* the same, in 4 KiB pages */
+  uint64_t r = 0;
+  for (int i = 0; i < LSS_SEGS; i += 4)
+    if (m >> i & 15) r |= 15ull << i;
+  return r & ~LSS_KMASK;
+}
+static void lss_store(Core *c, uint64_t ls, uint64_t len) {
+  if (c->id) lss[c->id].dirty |= lss_mask(ls, len), lss[c->id].touch |= lss_mask(ls, len);
+}
+static void lss_load(Core *c, uint64_t ls, uint64_t len) {
+  if (c->id && c->user) lss[c->id].touch |= lss_mask(ls, len);
+}
+static void lss_lazy(typeof(&lss[0]) k) { /* a lazy restore: only the segments of F | L the thread touched */
+  uint64_t t = k->touch & k->need;
+  k->mlazy += (unsigned long long)__builtin_popcountll(t) * (dls_size / LSS_SEGS);
+  k->traps += (unsigned long long)__builtin_popcountll(t);
+  k->need = 0;
+}
+static void lss_xfer(Core *c, unsigned sub, uint64_t ls, uint64_t far, uint64_t len) {
+  if (!c->id || !len) return;
+  typeof(&lss[0]) k = &lss[c->id];
+  uint64_t seg = dls_size / LSS_SEGS, m = lss_mask(ls, len);
+  if (c->user) { k->touch |= m; if (sub == XF_GET) k->dirty |= m; return; }
+  if (sub == XF_GETX) { k->code += len; k->codelen = len; return; }
+  if (ls >= 0xA000 && ls < 0xE000) return; /* the dispatcher's own data */
+  if (sub == XF_PUT) { /* the save: data at 0, then the stack */
+    if (ls == 0) k->inkey = far, lss_lazy(k);
+    uint64_t *f = lss_f(k->inkey), w = k->dirty & m;
+    k->save += len;
+    k->msave += (unsigned long long)__builtin_popcountll(w) * seg;
+    k->msave4 += (unsigned long long)__builtin_popcountll(lss_x4(w)) * seg;
+    *f |= w;
+    k->l = *f | k->dirty;
+    return;
+  }
+  if (ls == 0 && len == 0xA000) { /* a restore from another process */
+    uint64_t *f = lss_f(far), need = (*f | k->l) & ~LSS_KMASK;
+    k->sw++, k->rest += len;
+    k->mrest += (unsigned long long)__builtin_popcountll(need) * seg;
+    k->mrest4 += (unsigned long long)__builtin_popcountll(lss_x4(need)) * seg;
+    unsigned fin = (unsigned)__builtin_popcountll(*f), fout = (unsigned)__builtin_popcountll(k->l);
+    if ((fin + fout) * seg <= 0xC000 && k->codelen + k->prevcode <= 0x8000) k->fit++; /* both would fit side by side */
+    if ((fin + fout) * seg <= 0xC000) k->fitk++;
+    lss_lazy(k);
+    k->need = need, k->touch = 0;
+    k->inkey = far, k->l = *f, k->dirty = 0, k->fresh = true;
+    return;
+  }
+  if (ls == 0xE000 && len == 0x2000 && k->fresh) { k->rest += len; return; }
+  if (k->fresh) { k->rest += len; k->dirty |= m; return; } /* a first load: the image's data */
+  /* a thread back on its own bytes: the D-LS holds them already */
+  if (ls == 0 || ls >= 0xE000) { if (ls == 0) k->sw++, k->same++; k->rest += len; k->dirty = 0; return; }
+  k->other += len;
+}
+static void lss_user(Core *c) {
+  if (lss[c->id].fresh) { lss[c->id].fresh = false; lss[c->id].prevcode = lss[c->id].codelen; }
+}
+static void lss_dump(void) {
+  unsigned long long t[16] = {0};
+  fprintf(stderr, "lsstats: core switches same | today: save restore code KiB | 1K segments: save restore | 4K pages: save restore | fit fit-data | lazy traps\n");
+  for (int i = 1; i < MAXCORES; i++) {
+    typeof(&lss[0]) k = &lss[i];
+    if (!k->sw) continue;
+    fprintf(stderr, "lsstats: %d %llu %llu | %llu %llu %llu | %llu %llu | %llu %llu | %llu %llu | %llu %llu\n", i, k->sw,
+            k->same, k->save >> 10, k->rest >> 10, k->code >> 10, k->msave >> 10, k->mrest >> 10, k->msave4 >> 10,
+            k->mrest4 >> 10, k->fit, k->fitk, k->mlazy >> 10, k->traps);
+    unsigned long long v[] = {k->sw, k->same, k->save, k->rest, k->code, k->msave, k->mrest, k->msave4, k->mrest4, k->fit,
+                              k->fitk, k->mlazy, k->traps};
+    for (int j = 0; j < 13; j++) t[j] += v[j];
+  }
+  fprintf(stderr, "lsstats: all %llu %llu | %llu %llu %llu | %llu %llu | %llu %llu | %llu %llu | %llu %llu\n", t[0], t[1],
+          t[2] >> 10, t[3] >> 10, t[4] >> 10, t[5] >> 10, t[6] >> 10, t[7] >> 10, t[8] >> 10, t[9], t[10], t[11] >> 10, t[12]);
+}
+#endif
 static bool inbox_push(Core *dst, Cap cap, int from) {
 #ifdef STRATA_MSGSTATS
   if (cap.space == SP_T3 && cap.len == 4096 && from >= 0 && from < 64) st_msgs[from]++;
@@ -730,6 +840,9 @@ static void dec_invalidate(Core *c, uint64_t ls, uint64_t len); /* the fast loop
 /* Executes one instruction. Returns false if the core is blocked (nothing happened). */
 static bool step(Core *c) {
   if (c->user && c->ipend) { c->ipend = false; trap(c, C_STOP, 0); return true; }
+#ifdef STRATA_LSSTATS
+  if (c->user) lss_user(c);
+#endif
   if (c->pc & 3 || c->pc >= ils_size) { trap(c, C_IFAULT, c->pc); return true; }
   uint32_t ir;
   memcpy(&ir, c->ils + c->pc, 4);
@@ -775,9 +888,15 @@ static bool step(Core *c) {
     if (store) {
       uint64_t v = c->x[rd];
       memcpy(c->dls + addr, &v, sz);
+#ifdef STRATA_LSSTATS
+      lss_store(c, addr, sz);
+#endif
     } else {
       uint64_t v = 0;
       memcpy(&v, c->dls + addr, sz);
+#ifdef STRATA_LSSTATS
+      lss_load(c, addr, sz);
+#endif
       bool sgn = op == OP_LW || op == OP_LH || op == OP_LB;
       if (sgn && lg < 3) v = (uint64_t)sext(v, 8 << lg);
       setx(c, rd, v);
@@ -838,6 +957,9 @@ static bool step(Core *c) {
     unsigned tg = (ir >> 19) & 15;
     if (tag_busy(c) >> tg & 1) return false; /* the tag is still in flight: the issue waits */
     uint64_t far = k->base + off;
+#ifdef STRATA_LSSTATS
+    if (k->space != SP_CORE) lss_xfer(c, sub, ls, far, len);
+#endif
     if (k->space != SP_CORE)
       bus_count(c->id, c->user, c->pc, c->x[1], sub == XF_GET ? BS_GET : sub == XF_PUT ? BS_PUT : BS_GETX, k->space, far, len, k->len);
     if (sub == XF_GETX) { /* code being replaced: forget overlay mappings that point into it */
@@ -1176,6 +1298,9 @@ static bool step(Core *c) {
         }
       setx(c, rd, res);
     } else {
+#ifdef STRATA_LSSTATS
+      lss_store(c, eb, 8ull * ways + 8);
+#endif
       wr64(c->dls + eb + 8 * victim, key);
       wr64(c->dls + eb + 8ull * ways, victim + 1 == ways ? 0 : victim + 1);
     }
@@ -1868,6 +1993,9 @@ int main(int argc, char **argv) {
 #ifdef STRATA_MSGSTATS
   if (getenv("STRATA_MSGSTATS")) atexit(st_dump);
 #endif
+#ifdef STRATA_LSSTATS
+  if (getenv("STRATA_LSSTATS")) atexit(lss_dump);
+#endif
   const char *path = NULL, *in_path = NULL, *ppm = NULL;
   const char *disk_path = NULL;
   bool gfx = true, hold = false, snd_opt = false;
@@ -1994,6 +2122,10 @@ int main(int argc, char **argv) {
   fast_off = trace != NULL;
 #ifdef NO_FAST /* a build for checking the fast paths against plain step() */
   fast_off = true;
+#endif
+#ifdef STRATA_LSSTATS /* (every store through step(), where it is seen) */
+  fast_off = true;
+  jit_opt = 0;
 #endif
   use_jit = !trace && (jit_opt >= 0 ? jit_opt == 1 : !virtual_time);
   if (use_jit) {
