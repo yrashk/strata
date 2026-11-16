@@ -14,6 +14,7 @@
 # (but not the tests' expected outputs)
 !/tools/*.out
 !/lang/forth/tests/*.out
+!/lang/prolog/tests/*.out
 *.lof
 *.lot
 *.idx
