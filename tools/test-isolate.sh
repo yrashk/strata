@@ -5,8 +5,10 @@
 # process on that core. tools/dlsgap.s fills those parts with a pattern and
 # sleeps, over and over, pinned to core 6; a second copy pinned to the same
 # core scans its own gaps for the pattern at its first load and after each of
-# 8 switches back from the filler. Runs on the emulator with the virtual timer;
-# RTL=1 runs it on the Verilated RTL as well.
+# 8 switches back from the filler. Then tools/lsprot.s tries every way into the
+# kernel's part of its core's Local Stores (the dispatcher's data, the kernel's
+# code), which the Local Store windows must refuse. Runs on the emulator with
+# the virtual timer; RTL=1 runs it on the Verilated RTL as well.
 #
 #   tools/test-isolate.sh build/bootrom.stx build/isol-test/disk.img
 set -u
@@ -15,17 +17,19 @@ b="$here/${BUILD:-build}"
 n=${NCORES:-8}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-printf -- '-c 6 dlsgap fill &\n-c 6 dlsgap scan 8\nps\nkill %%1\nwait\nhalt\n' >"$tmp/in.txt"
+printf -- '-c 6 dlsgap fill &\n-c 6 dlsgap scan 8\nps\nkill %%1\nwait\nlsprot\nhalt\n' >"$tmp/in.txt"
 check() { # $1 = which machine, $2 = its output
   # the scanner's verdict, and the filler's switches (ps: pid ppid state core cpus switches KiB name)
   ok=$(grep -c '^dlsgap: 9 looks, clean$' "$2")
   sw=$(awk '$4 == 6 && $8 == "dlsgap" && $6 >= 8 { k++ } END { print k + 0 }' "$2")
-  if [ "$ok" = 1 ] && [ "$sw" -ge 1 ]; then
-    printf '%-14s OK    nothing of the filler in the scanner'"'"'s D-LS gaps, 8 switches (%s)\n' isolate "$1"
+  prot=$(grep -c '^lsprot: 7 of 7 refused, own parts fine$' "$2")
+  if [ "$ok" = 1 ] && [ "$sw" -ge 1 ] && [ "$prot" = 1 ]; then
+    printf '%-14s OK    nothing of the filler in the scanner'"'"'s D-LS gaps, 8 switches; the kernel'"'"'s parts out of reach (%s)\n' isolate "$1"
     return 0
   fi
   printf '%-14s FAIL  (%s)\n' isolate "$1"
   grep -A12 'dlsgap scan' "$2" | head -16 | sed 's/^/    /'
+  grep 'lsprot' "$2" | sed 's/^/    /'
   return 1
 }
 cp "$2" "$tmp/d.img"

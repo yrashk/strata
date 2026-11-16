@@ -190,6 +190,9 @@ back:   beq a0, a1, start
         csrr a0, sscratch
         csrr a0, ipend
         csrr a0, xslot
+        csrr a0, wdata
+        csrr a0, wstack
+        csrr a0, wcode
         csrr a0, 17
         csrr a0, X+0x100
         csrw tvec, a0

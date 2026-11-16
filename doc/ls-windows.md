@@ -1,9 +1,12 @@
 # User-mode Local Store windows: protection and switches that copy nothing
 
-Status: design, 2026-11-15. Nothing is implemented. Four decisions are
-open (the end of this file). This is option B of `doc/ls-switch.md`. It
-is the same hardware as the open item "user-mode Local Store protection"
-in HANDOFF, so this document covers both.
+Status, 2026-11-15: the four decisions are taken as recommended (the end
+of this file). Step 1 is done: the ISA, the emulator, the RTL, the debug
+engine, the conformance test `lswin`, StrataOS's identity windows (the
+protection) and the documentation. Steps 2 to 4 are open. This is option
+B of `doc/ls-switch.md`. It is the same hardware as the item "user-mode
+Local Store protection" that HANDOFF listed, so this document covers
+both.
 
 ## What it solves
 
@@ -171,6 +174,39 @@ In order, each step passing `make test` before the next:
    protection model, traps, the OS chapter's switch and isolation
    sections), `doc/strataos.md`, the site's ISA pages and
    `site/os/kernel.html` section 04, HANDOFF.
+
+## Step 1, as done
+
+- **The windows are the same for every thread.** StrataOS sets
+  `wdata` = [0, 0xA000), `wstack` = [0xE000, 0x10000) and `wcode` =
+  I-LS [0x8000, 0x10000), all identity, once per worker in `wboot`. That
+  keeps every program's view exactly as before (`as`'s heap above its
+  data section included) and costs a switch nothing. Tight windows
+  (the extent) belong to step 3, where they decide what fits side by side.
+- **The fast paths.** The emulator keeps per core a 64-entry relocation
+  table per store for the current mode (`drel`, `irel`; `win_sync` after
+  every mode change and window write). The fast loop and the JITs relocate
+  every load and store through `drel` (about five more host instructions
+  per access in the native JITs). They run code only where `irel` is 0
+  (inside the code window, not relocated): a block or region keeps to one
+  1/64 of the I-LS and checks its unit when it starts. A relocated code
+  window runs in `step()` until step 3 needs it fast.
+- **The RTL's stream fetch** goes back through F0 whenever the next pc
+  starts another unit of the I-LS, so the read-ahead never carries
+  execution past a window's end.
+- **What it found.** `lang/cc/examples/vla.c` had a 16 KiB array on its
+  8 KiB stack: it wrote over the dispatcher's data at 0xC000..0xE000 on
+  every run. It faults now; the array is a variable-length one (from the
+  heap), which is what the example meant. The `overlay` example put its
+  overlay slots at I-LS 0x7700, in the worker kernel's part; its slots are
+  its own code now. The worker's resident kernel had 16 bytes left, not
+  48; the windows' setup took 12 of the bytes three `la sp` became `addi`s
+  to free.
+- **Checked:** `lswin` passes on the interpreter, the JIT (arm64, and
+  x86-64 under Rosetta) and the RTL, and in the WebAssembly build; mutations
+  of each piece (the range check, the D-LS and I-LS relocation, the stream
+  fetch's unit break, `xmap`, `ltag`, the transfer relocation) each make it
+  fail.
 
 ## Decisions
 

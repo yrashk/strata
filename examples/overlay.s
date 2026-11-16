@@ -25,10 +25,8 @@
 ;   calls          = 12
 ;   overlay misses = 3
 
-SLOT0   = 0x7700                        ; I-LS address of overlay slot 0 (under StrataOS,
-                                        ;   0x7700.. is the part of a worker's kernel only core 0 runs)
-SLOT1   = 0x7740                        ; I-LS address of overlay slot 1
-SLOTSZ  = 64                            ; bytes per slot (16 instructions)
+SLOTSZ  = 64                            ; bytes per slot (16 instructions); the two slots are
+                                        ;   I-LS space of our own (`slots`, at the end)
 
         .data                           ; data Local Store
         .align 8                        ; keep the words below aligned
@@ -119,12 +117,12 @@ handler:                                ; trap handler: tvec points here
         xori  t2, t1, 1                 ; t2 = the other slot
         sd    t2, nslot(zero)           ; next time, replace the other one (round robin)
         bnez  t1, use_slot1             ; pick the code path for this slot (xmap's index is an immediate)
-        li    t2, SLOT0                 ; t2 = I-LS address of slot 0
+        la    t2, slots                 ; t2 = I-LS address of slot 0
         tgetx tg2, t2, c0, t0, t3       ; copy the code from T3 into the instruction LS
         xmap  0, t2, c0, t0             ; map entry 0: far address -> slot 0 (replacing what was there)
         j     loaded                    ; continue
 use_slot1:                              ; load into slot 1
-        li    t2, SLOT1                 ; t2 = I-LS address of slot 1
+        la    t2, slots + SLOTSZ        ; t2 = I-LS address of slot 1
         tgetx tg2, t2, c0, t0, t3       ; copy the code into slot 1
         xmap  1, t2, c0, t0             ; map entry 1: far address -> slot 1
 loaded:                                 ; the code is on its way; fetching it stalls until it lands
@@ -168,3 +166,5 @@ st_loop:                                ; loop: add the counter, count down
 
         .text                           ; back to the instruction LS for the library
         .include "lib/print.s"          ; console helpers
+        .align 64                       ; the two overlay slots: part of our own code, so that
+slots:  .space 2 * SLOTSZ               ;   they are where we are (under StrataOS too)

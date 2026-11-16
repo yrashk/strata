@@ -543,7 +543,7 @@ static const char *const xr_names[32] = {
 static const char *const csr_nm[] = {
   "cycle", "instret", "cause", "epc", "tval", "tvec", "ccr", "coreid", "ttag", "tdata", "tgeom", "ncores",
   "scratch", "stalls", "takefrom", "corebase", "corecount", "reserved17", "status", "ucause", "uepc",
-  "utval", "utvec", "sscratch", "ipend", "xslot",
+  "utval", "utvec", "sscratch", "ipend", "xslot", "wdata", "wstack", "wcode",
 };
 static const char *const alu_nm[16] = {"add", "sub", "and", "or", "xor", "sll", "srl", "sra",
                                        "slt", "sltu", "mul", "mulhu", "divu", "remu", "div", "rem"};

@@ -53,8 +53,9 @@
 ; (NARENA arenas, NKPROC process records, NSLOT threads per worker).
 ;
 ; Core 0's own resident code (event loop, paging trap) sits at I-LS 0x7700
-; (K0TEXT) and up: workers never run it, so programs may overwrite that range
-; of a worker's I-LS (the `overlay` example does) without harming its kernel.
+; (K0TEXT) and up: workers never run it. User mode cannot reach it, nor any
+; of the kernel's code or data: each worker sets the Local Store windows
+; (wdata, wstack, wcode) to the program's parts of its stores (wboot).
 ;
 ; An arena (1 MiB + E: E bytes more than the default), for a process with N threads,
 ; at offsets from its LAYOUT BASE L = arena base + E (a 1 MiB arena: L = base):
@@ -198,6 +199,7 @@ K0TEXT   = 0x7700                       ; core 0's own resident code (workers ne
 STACKTOP = 0x10000                      ; top of the D-LS
 DATAMAX  = 0xA000                       ; programs' data ends below the kernel's
 STACKLO  = 0xE000                       ; programs' stack: 0xE000..0xFFFF
+WIN_EN   = 1 << 63                      ; a Local Store window's enable bit (wdata, wstack, wcode)
 
 KST_SIZE = 0x8000                       ; the kernel shared table: 32 KiB
 NRINGS   = 64                           ; console rings in T2 after the KST: one per arena slot
@@ -1032,7 +1034,7 @@ kst_xchg0:                              ; kst_xchg0(a0 = offset) -> a0 = old val
 ; ---- boot -------------------------------------------------------------------------------
 wboot:
         sd    a0, w_me-GPBASE(gp)       ; our core (also a core core 0 reset and re-provisioned:
-        la    sp, kstack_top            ;   the boot ROM gave it the OS shares again, so this
+        addi  sp, gp, kstack_top-GPBASE ;   the boot ROM gave it the OS shares again, so this
         cbase t0, c3                    ;   path is the same as at boot; a guest's c3 is core
         bnez  t0, wb_guest              ;   control, its c2 the clock: "Guest mode")
 wb_take:
@@ -1089,6 +1091,12 @@ wb_clock:
         li    a0, G_CTAB                ; the save table's size: the pool
         call  kst_rd                    ; ...
         call  w_params                  ; ...
+        ld    t0, w_wins-GPBASE(gp)     ; what user mode reaches of the Local Stores: its
+        csrw  wdata, t0                 ;   data, stack and code, not the dispatcher's data
+        ld    t0, w_wins+8-GPBASE(gp)   ;   or the kernel's code (the windows: identity, the
+        csrw  wstack, t0                ;   same for every thread; supervisor mode ignores
+        ld    t0, w_wins+16-GPBASE(gp)  ;   them)
+        csrw  wcode, t0                 ; ...
         csrr  t0, cycle                 ; the dispatcher is busy from here
         sd    t0, w_tent-GPBASE(gp)     ; ...
         j     w_sched                   ; and wait for work
@@ -1146,7 +1154,7 @@ w_trap:
         csrr  t1, epc                   ; where it was
         sd    t1, PR_EPC(t0)            ; ...
         la    gp, GPBASE                ; kernel data base
-        la    sp, kstack_top            ; kernel stack
+        addi  sp, gp, kstack_top-GPBASE ; kernel stack
         mv    s0, t0                    ; s0 = the record (callee-saved through the dispatcher)
         csrr  t1, cycle                 ; the dispatcher is busy from here (cores: cycles per trap)
         sd    t1, w_tent-GPBASE(gp)     ; ...
@@ -2049,7 +2057,7 @@ carea:
 ; Takes everything from the inbox, applies the kernel's commands, completes
 ; waits that can complete, and runs the next process (or idles).
 w_sched:
-        la    sp, kstack_top            ; a fresh stack (nothing is pending on it)
+        addi  sp, gp, kstack_top-GPBASE ; a fresh stack (nothing is pending on it)
         call  kcaps                     ; c9 = KST
         call  w_cmds                    ; kills, notifications, new jobs, freed zombies
         call  w_drain                   ; the inbox
@@ -4619,10 +4627,7 @@ xmap_tab:
 
 ; =============================================================================
 ; Core 0's own resident code, at I-LS K0TEXT (0x7700) and up. Workers never run
-; it, so a program on a worker may overwrite this range of its I-LS (the
-; bare-metal `overlay` example loads code at 0x7700..0x777F) without harming its
-; kernel. (A worker's panic report calls the firmware here: a worker whose
-; program overwrote it cannot report a kernel fault.)
+; it. (A worker's panic report calls the firmware here.)
 ; =============================================================================
         .org  K0TEXT                    ; (the worker code above must end below it)
 ; ---- the event loop: one tany for everything ---------------------------------------
@@ -5000,6 +5005,9 @@ w_tmp:     .space 32                    ; scratch words for transfers
 w_bell:    .dword 0                     ; the doorbell word (1 = stop)
 w_dpid:    .dword 0                     ; the process whose bytes the D-LS holds (w_in)
 w_outp:    .dword 0                     ; record whose D-LS w_outdls saves (0: none)
+w_wins:    .dword WIN_EN | (DATAMAX >> 10) << 8              ; wdata: [0, DATAMAX)
+           .dword WIN_EN | STACKLO >> 10 | ((STACKTOP - STACKLO) >> 10) << 8 | (STACKLO >> 10) << 16 ; wstack
+           .dword WIN_EN | PTEXT >> 10 | ((0x10000 - PTEXT) >> 10) << 8 | (PTEXT >> 10) << 16    ; wcode
 w_tent:    .dword 0                     ; cycle of the dispatcher's last entry (trap, wake from idle)
 w_swt0:    .dword 0                     ; cycle at which the switch being made began
 w_swcyc:   .dword 0                     ; cycles in w_out + w_in (CA_SWCYC)    (these four in

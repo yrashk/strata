@@ -428,12 +428,16 @@ and \insn{linst} work on the D-LS tag table, and \insn{xcall} and \insn{xret} re
 the overlay map, which every switch-in clears. A program could only jump into that code and execute it;
 overwriting it would cost up to 32~KiB of far-bus traffic per switch, and it is not done.
 
-Neither Local Store is protected from user mode: loads, stores and \insn{tgetx} reach every address,
-including the dispatcher's own data at \hex{A000}--\hex{DFFF} (which holds the records, and so the saved
-registers, of the other threads on the core) and its code. Isolation between the processes on one core
-is therefore against disclosure to programs that read memory they did not write, not against a hostile
-program, which only a hardware bound on user-mode Local Store addresses would stop. Far memory is
-protected by capabilities either way.
+The kernel's part of the Local Stores is out of user mode's reach. Every worker sets the Local Store
+windows (Section~\ref{sec:lswin}) once, when it starts, to the program's parts and nothing else:
+\csr{wdata} the data, \hex{0000}--\hex{9FFF}; \csr{wstack} the stack, \hex{E000}--\hex{FFFF}; \csr{wcode}
+the code and code cache, I-LS \hex{8000}--\hex{FFFF}; all three without relocation, the same for every
+thread. A program that loads, stores or transfers into the dispatcher's data at \hex{A000}--\hex{DFFF}
+(the records, and so the saved registers, of the other threads on the core), or copies code over the
+kernel's or jumps into it, traps with \cause{lsfault} or \cause{ifault}, and like any fault the kernel
+does not handle, that ends it. \texttt{tools/test-isolate.sh} checks this with \texttt{tools/lsprot.s},
+which tries each way in. The supervisor itself is not confined, and far memory is protected by
+capabilities either way.
 
 \paragraph{Where the bytes go.} \texttt{make ls-stats} counts what the switches of a few sessions move
 (8 cores, \texttt{-T virtual}): 66 to 81~KiB per switch. The 48~KiB restore is 55 to 70\% of it, the

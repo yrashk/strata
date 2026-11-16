@@ -47,14 +47,16 @@ out:
 int main(void)
 {
     long t = 0;
-    int i, n = 0;
+    int i, n = 0, len = 2000;
 
     printf("sum(100) = %ld\n", sum(100));
     for (i = 0; i < 400; i++) t += leave(500, i & 3);
     printf("left 400 times: %ld\n", t);
 retry:
     {
-        long big[2000];                     /* 16 KiB: there is no room for two */
+        long big[len];                      /* 16 KiB of heap: there is no room for two
+                                               (a constant size would put it on the
+                                               stack, which has only 8 KiB) */
         big[1999] = n;
         if (++n < 50) goto retry;           /* back, to before its declaration */
         printf("retried %ld times\n", big[1999] + 1);

@@ -112,10 +112,10 @@ Not verified:
 - **Parallel agents** worked in git worktrees (`.claude/worktrees/`), each on
   its own branch, merged into main by hand after review and a full test.
   When two branches touch `os/kernel.s`, check the worker's resident code
-  still ends below K0TEXT (0x7700): it ends at 0x76D0 now, 48 bytes to spare;
+  still ends below K0TEXT (0x7700): it ends at 0x76FC now, 4 bytes to spare
+  (workers have no kernel units: everything the dispatcher runs is resident);
   core 0's own resident code (K0TEXT..0x8000) has 4 bytes to spare.
-  Anything new on the worker side should go into a kernel unit
-  (`os/kunits/`), not the resident part.
+  Anything new on the worker side has to make room for itself.
 - Commit messages end with a `Co-Authored-By:` line naming the model that
   made the commit.
 
@@ -333,20 +333,18 @@ the program); the debugger takes a server's symbols from `build/sys/` first
 ## Open work
 
 **Waiting on a decision**
-- *User-mode Local Store protection* (an ISA change). In user mode a load,
-  store or transfer can reach any Local Store address, including the
-  dispatcher's data (D-LS 0xA000..0xDFFF) and the kernel's code (I-LS
-  0x4000..0x7FFF), so a hostile program can take over its core's kernel.
-  Capabilities themselves are safe (they never live in Local Store bytes).
-  The proposal: supervisor-only bounds registers, a user window per Local
-  Store, checked on every user-mode access and transfer range; nestable
-  (any mode may narrow, only the outer level widens, a trap restores the
-  outer window). Not started.
-  The same windows, given a base as well as a bound, would let two programs
-  share a core's Local Stores so that a switch between them moves nothing:
-  `doc/ls-switch.md` (option B) measures that against the other ways of
-  making switches cheaper; `doc/ls-windows.md` designs the windows
-  (four decisions open).
+- *Local Store windows, steps 2 to 4* (`doc/ls-windows.md`). Step 1 is
+  done (2026-11-15, branch `claude/zen-kalam-10f6fb`): the CSRs `wdata`,
+  `wstack`, `wcode` (26..28) bound and relocate user-mode Local Store
+  addresses in the emulator (interpreter, fast loop, the three JITs), the
+  RTL and the debug engine (`conformance/tests/lswin.s`), and StrataOS
+  sets identity windows on every worker, so user mode can no longer reach
+  the dispatcher's data or the kernel's code (`tools/lsprot.s` in
+  `test-isolate`). Open: ECP5 synthesis with the windows (timing); the
+  dispatcher keeping several threads resident in relocated windows, so
+  that switches between them copy nothing; window-aware code relocation
+  in the JITs and the fast loop (they leave a relocated code window to
+  `step()` today).
 - *ASIC with two and six cores*: scripted (`asic/run.sh N`), paused by the
   user.
 

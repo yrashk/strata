@@ -666,15 +666,22 @@ Not covered, and why:
   overlay map, which every switch-in clears. A program could only jump
   into it and execute it; overwriting it would cost up to 32 KiB of
   far-bus traffic per switch.
-- **The Local Stores have no user/supervisor protection.** User-mode
-  loads, stores and `tgetx` reach every address, including the
-  dispatcher's data at 0xA000..0xDFFF (the records, and so the saved
-  registers, of the other threads on the core) and its code. Isolation
-  between the processes of one core is therefore against disclosure to
-  programs that read memory they did not write, not against a hostile
-  program; that needs a hardware bound on user-mode Local Store
-  addresses, which the ISA does not have. Far memory is protected by
-  capabilities either way.
+
+**The kernel's part of the Local Stores is out of reach.** Every worker
+sets the Local Store windows (the CSRs `wdata`, `wstack`, `wcode`; the
+manual's "Local Store windows") once, in `wboot`, to the program's parts
+of its stores: data 0x0000..0x9FFF, stack 0xE000..0xFFFF, code and code
+cache I-LS 0x8000..0xFFFF, without relocation, the same for every thread.
+A user-mode load, store, transfer, `ltag`/`linst`, `xmap` or fetch outside
+them traps (`lsfault`, `ifault`), so a program can neither read nor write
+the dispatcher's data at 0xA000..0xDFFF (the records, and so the saved
+registers, of the other threads on the core) nor copy code over the
+kernel's or jump into it; the fault ends it like any other.
+`tools/test-isolate.sh` checks it with `tools/lsprot.s`, which tries each
+way in. The windows cost a switch nothing (they never change). Far memory
+is protected by capabilities either way. A program whose stack outgrows
+the 8 KiB at 0xE000 now faults instead of writing over the dispatcher's
+data (`lang/cc/examples/vla.c` did, with a 16 KiB array on its stack).
 
 **Where the bytes go.** `make ls-stats` (`tools/ls-stats.sh`, an emulator
 built with `-DSTRATA_LSSTATS`) counts what the switches of a few sessions

@@ -713,12 +713,14 @@ $(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
 
 # the disk of tools/test-isolate.sh: the standard one plus dlsgap (tools/dlsgap.s),
-# which checks that no process sees what another left in its core's D-LS
-$(BUILD)/isol-test/dlsgap: tools/dlsgap.s os/lib/sys.s $(BUILD)/sasm
+# which checks that no process sees what another left in its core's D-LS, and
+# lsprot (tools/lsprot.s), which checks that user mode cannot reach the kernel's
+# part of the Local Stores
+$(BUILD)/isol-test/%: tools/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/isol-test
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
-$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap
+$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot
 
 # the disk of tools/test-files.sh: the standard one plus 300 small files tagged
 # many (f000 .. f299, each holding its own name): more files than one window
