@@ -2,22 +2,36 @@
 \   forth cores.fs
 \   core 0: system
 \   core 1: running 3, 1 runnable, 4 processes, server; 120 switches, 40 KiB moved, 41 slots free
-\ proc's CORES: a 32-byte record per core (u8 core, pid running (0 none), runnable,
-\ processes, flags (1 exclusive, 2 server, 4 solo), free slots of the core's
-\ capability save table; u32 switches, u32 KiB moved at 8 and 12).
 [defined] sys.fs 0= [if] include /sys.fs [then]
 
-create tab 16 32 * allot
-: flag. ( r bit a u -- r ) 2>r over 4 + c@ and if 2r> type else 2r> 2drop then ;
-: cores-main ( a u -- )
-  2drop 0 0 0 31 proc dup 0< if drop s" cores: cannot ask the process server" +e e! 1 stop then
-  16 min  tab over 32 * msg>
-  0 ?do tab i 32 * +  ." core " dup c@ dup .u
-    0= if ." : system" else
-      dup 1+ c@ ?dup if ." : running " .u else ." : idle" then
-      ." , " dup 2 + c@ .u ."  runnable, " dup 3 + c@ .u ."  processes"
-      1 s" , exclusive" flag.  2 s" , server" flag.  4 s" , solo" flag.
-      ." ; " dup 8 + l@ .u ."  switches, " dup 12 + l@ .u ."  KiB moved, " dup 5 + c@ .u ."  slots free"
-    then drop cr
-  loop ;
+31 constant op-cores                            \ proc's CORES: a 32-byte record per core
+16 constant max-cores
+32 constant /record
+: core#     ( r -- n )   c@ ;
+: running   ( r -- pid ) 1+ c@ ;                \ the process it runs, 0 none
+: runnable  ( r -- n )   2 + c@ ;
+: procs     ( r -- n )   3 + c@ ;
+: flags     ( r -- n )   4 + c@ ;               \ 1 exclusive, 2 server, 4 solo
+: slots     ( r -- n )   5 + c@ ;               \ free slots of its capability save table
+: switches  ( r -- n )   8 + l@ ;
+: kib-moved ( r -- n )   12 + l@ ;
+
+create tab  max-cores /record * allot
+: record ( i -- r ) /record * tab + ;
+: ask ( -- n )                                  \ the records, into tab: how many
+  0 0 0 op-cores proc  dup 0< if drop s" cores: cannot ask the process server" fail then
+  max-cores min  tab over /record * msg> ;
+
+: state.   ( r -- ) running ?dup if ." : running " .u else ." : idle" then ;
+: load.    ( r -- ) ." , " dup runnable .u ."  runnable, " procs .u ."  processes" ;
+: roles.   ( r -- )
+  flags  dup 1 and s" , exclusive" ?type  dup 2 and s" , server" ?type  4 and s" , solo" ?type ;
+: traffic. ( r -- )
+  ." ; " dup switches .u ."  switches, " dup kib-moved .u ."  KiB moved, " slots .u ."  slots free" ;
+: core. ( r -- )
+  ." core " dup core# .u
+  dup core# 0= if drop ." : system" cr exit then
+  dup state.  dup load.  dup roles.  traffic. cr ;
+
+: cores-main ( a u -- ) 2drop  ask 0 ?do i record core. loop ;
 ' cores-main main: cores
