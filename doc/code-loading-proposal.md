@@ -2,7 +2,49 @@
 
 Status: a proposal. Nothing described under "Options", "Recommendation" or
 "Plan" is implemented. The survey and the measurements describe the tree at
-commit d8946b7 (2026-11-13), plus two branches where said so.
+commit d8946b7 (2026-11-13), plus two branches where said so. The next
+section lists what has changed on main since.
+
+## What has changed since (2026-11-16)
+
+The survey below was not redone. Read it with these changes in mind; where a
+line number of `os/kernel.s` is given, the routine is still there under the
+same name (`page_in` is now at `:4293`, `wt_page` at `:1209`, `k_trap` at
+`:4588`).
+
+- **More programs page code, each with its own build step.** The file server
+  keeps its seldom used handlers in code units (`os/servers/fsunits.s`,
+  checked by `tools/check-fsunits.py`). `stralog` is split by
+  `lang/stralog/mkimg.py` into `/bin/stralog` and `/bin/stralog.u`, 4 KiB
+  units, with a check that no jump leaves its unit. `cc` is on main and reads
+  its units from `/bin/cc.u`. `stralog` copied `cc`'s start-up loader
+  (`load_units`, `lang/stralog/stralog.s:330`). So the finding of section 2.3
+  is stronger than stated: there are now two more ways of cutting code into
+  units, two separate checkers of the rule the assembler does not check, and
+  two programs that read their own code from a second file because an image
+  holds 128 KiB at most.
+- **The stream fetch is the default** (`STREAM` = 1). The column "RTL cycles,
+  stream fetch" of section 2.4 is the machine as built; the first column is
+  `make STREAM=0`.
+- **User-mode Local Store windows exist for the D-LS** (`doc/ls-windows.md`).
+  User mode can no longer reach the dispatcher's data or the kernel's code,
+  so the paragraph "Local Store protection" of section 3 describes the past:
+  a pager in the dispatcher is now protected from the program it serves.
+  Threads stay resident in relocated D-LS slices, and a switch between two
+  that fit moves only their code. Code is therefore the larger part of what a
+  switch moves, which raises the value of not reloading a shared unit that is
+  already in its slot (section 3, "The context switch"). The code window is
+  not relocated yet; when it is, the code cache moves with it.
+- **The dispatcher has room again.** Workers now copy an extension
+  (`os/kunits/wext.s`) to I-LS 0x7700, the range that was core 0's alone. The
+  "24 bytes" of section 3 and the first item of stage 2 no longer hold as
+  written: an addition to the mechanism can go into the extension.
+- **The file server is the store** (`fs` on the database format). LOADIMG
+  still reads a whole image into the arena, and it now looks a program up
+  where its starter is, then in `/bin`, then `/sys`.
+
+None of this changes the comparison of section 5 or the recommendation.
+The measurements of section 2.4 were not repeated on this tree.
 
 The question: should StrataOS offer loading of code on demand as one shared
 service, so that not every large program carries its own, and where should it
