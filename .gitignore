@@ -10,11 +10,8 @@
 *.aux
 *.log
 *.toc
-*.out
-# (but not the tests' expected outputs)
-!/tools/*.out
-!/lang/forth/tests/*.out
-!/lang/stralog/tests/*.out
+# (LaTeX's .out only where it runs: elsewhere .out is a test's expected output)
+/doc/manual/*.out
 *.lof
 *.lot
 *.idx
