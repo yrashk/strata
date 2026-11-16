@@ -168,7 +168,7 @@ test-list:
 .PHONY: build-main build-test-disks build-stdb-test build-forth build-small build-nostream build-ls1p build-ls32 build-ls16-4 build-ls4-32 build-f44 \
         build-wasm build-wasm-test build-wasm-rtl-test
 build-main: all examples os $(BUILD)/stdb
-build-test-disks: $(BUILD)/http-test/disk.img $(BUILD)/isol-test/disk.img $(BUILD)/files-test/disk.img $(BUILD)/forth-test/disk.img $(BUILD)/far-test/disk.img
+build-test-disks: $(BUILD)/http-test/disk.img $(BUILD)/isol-test/disk.img $(BUILD)/files-test/disk.img $(BUILD)/forth-test/disk.img $(BUILD)/far-test/disk.img $(BUILD)/paged-test/disk.img
 build-stdb-test: $(BUILD)/stdb-test $(BUILD)/stdb-many
 build-forth: $(BUILD)/forth.stx
 
@@ -308,15 +308,15 @@ SRCS    := $(EXSRCS) $(BUILD)/src/as.s $(BUILD)/src/units.s
 # (every program also gets a debug map, PROG.map next to it: strata-dbg --os)
 $(BUILD)/prog/%: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -r -n -g $@.map -o $@ $<
 
 $(BUILD)/prog/fs: os/servers/fsunits.s os/servers/fsops.s os/servers/fsattr.s os/servers/dbcall.s os/servers/stutil.s
 $(BUILD)/sys/db: os/servers/db.s os/servers/store.s os/servers/storew.s os/servers/sblob.s os/servers/dbsnap.s os/servers/dbprog.s os/servers/stutil.s os/lib/srv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/sys
-	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -r -n -g $@.map -o $@ $<
 $(filter $(BUILD)/prog/%,$(SPROGS)): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -r -n -g $@.map -o $@ $<
 
 # db: looks into the store on the disk (os/lib/stview.s; wdb is its window)
 DBPROGS := $(BUILD)/prog/db $(BUILD)/prog/snap $(BUILD)/prog/attr $(BUILD)/prog/fsck
@@ -324,7 +324,7 @@ $(BUILD)/prog/db: os/lib/stview.s os/lib/kv.s
 $(BUILD)/prog/fsck: os/lib/stview.s
 $(UPROGS) $(NPROGS) $(DBPROGS): $(BUILD)/prog/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -r -n -g $@.map -o $@ $<
 
 # guest OS images: bare STX (no "SYS2", no system library), booted as a guest
 GUESTS  := gdemo ghostile
@@ -372,7 +372,7 @@ WSPROGS := $(patsubst %,$(BUILD)/prog/%,ws term wmandel wclock wdb)
 $(BUILD)/prog/wdb: os/lib/stview.s
 $(WSPROGS): $(BUILD)/prog/%: os/progs/%.s $(wildcard os/ws/*.s) os/lib/gfx.s os/lib/font/font.s os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -I os/ws -I os/lib -g $@.map -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -r -n -I os/ws -I os/lib -g $@.map -o $@ $<
 
 # wdoom, the first-person shooter in a window (os/progs/wdoom.s, os/progs/wdoom/):
 # the program, and its data file, which tools/wdoom-assets.py makes from a
@@ -380,7 +380,7 @@ $(WSPROGS): $(BUILD)/prog/%: os/progs/%.s $(wildcard os/ws/*.s) os/lib/gfx.s os/
 WDOOM_DAT := os/progs/wdoom/wdoom.dat
 $(BUILD)/prog/wdoom: os/progs/wdoom.s $(wildcard os/progs/wdoom/*.s) os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -I os/lib -g $@.map -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -r -n -I os/lib -g $@.map -o $@ $<
 
 # kira, Princess Kira's games in a window (os/progs/kira.s, os/progs/kira/): the
 # program, and its data file, which tools/kira-assets.py makes from the art
@@ -389,7 +389,7 @@ $(BUILD)/prog/wdoom: os/progs/wdoom.s $(wildcard os/progs/wdoom/*.s) os/lib/wscl
 KIRA_DAT := os/progs/kira/kira.dat
 $(BUILD)/prog/kira: os/progs/kira.s $(wildcard os/progs/kira/*.s) os/progs/wdoom/sound.s os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -I os/lib -g $@.map -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -r -n -I os/lib -g $@.map -o $@ $<
 
 .PHONY: kira-dat
 kira-dat:
@@ -403,7 +403,7 @@ kira-dat:
 PLAT_DAT := os/progs/plat/plat.dat
 $(BUILD)/prog/plat: os/progs/plat.s $(wildcard os/progs/plat/*.s) os/progs/wdoom/sound.s os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -I os/lib -g $@.map -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -r -n -I os/lib -g $@.map -o $@ $<
 
 .PHONY: plat-dat
 plat-dat:
@@ -433,20 +433,20 @@ $(BUILD)/forth-os/progs.pk: tools/forth-pack.py lang/forth/progs.fs $(FORTH_PROG
 
 $(BUILD)/prog/vi: os/progs/vi.s os/lib/sys.s $(BUILD)/vi-syntax.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -I $(BUILD) -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -r -n -I $(BUILD) -o $@ $<
 
 # nav, the file navigator
 $(BUILD)/prog/nav: os/progs/nav.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -r -n -g $@.map -o $@ $<
 
 $(BUILD)/prog/units: os/progs/units.s examples/lib/print.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -r -n -g $@.map -o $@ $<
 
 $(BUILD)/prog/as: os/progs/as.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -r -n -g $@.map -o $@ $<
 
 # the C compiler (lang/cc/, DESIGN.md section 6):
 #   cc.lib      what compiled programs are made with: the run-time library
@@ -472,7 +472,7 @@ $(BUILD)/cc/asm.tab: lang/cc/lib/mkasm.py asm/sasm.c $(BUILD)/sasm
 	python3 lang/cc/lib/mkasm.py $(BUILD)/sasm asm/sasm.c $@
 $(BUILD)/cc/libc.stx: lang/cc/lib/libc.s lang/cc/lib/rt.s lang/cc/lib/fp.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/cc
-	$(BUILD)/sasm -T 0x8000 -I lang/cc/lib -g $(BUILD)/cc/libc.map -o $@ lang/cc/lib/libc.s
+	$(BUILD)/sasm -T 0x8000 -r -n -I lang/cc/lib -g $(BUILD)/cc/libc.map -o $@ lang/cc/lib/libc.s
 $(BUILD)/cc/cc.lib: $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS) $(BUILD)/cc/asm.tab $(CC_LIBSRC)
 	python3 lang/cc/lib/mklib.py $@ $(CC_LIBIN) $(CC_LIBSRC)
 $(BUILD)/strata-cc: lang/cc/cc.c lang/cc/host/host.c lang/cc/host/strata.h
@@ -485,7 +485,7 @@ STRATALK_EX := $(sort $(wildcard lang/stratalk/examples/*.st))
 STRATALK_DISK := $(BUILD)/prog/stratalk $(BUILD)/stratalk/stratalk.image $(STRATALK_ST) $(STRATALK_EX)
 $(BUILD)/prog/stratalk: $(STRATALK_VM) os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -I lang/stratalk -g $(BUILD)/prog/stratalk.map -o $@ lang/stratalk/vm.s
+	$(BUILD)/sasm -T 0x8000 -r -n -I lang/stratalk -g $(BUILD)/prog/stratalk.map -o $@ lang/stratalk/vm.s
 $(BUILD)/stratalk/stratalk.image: $(STRATALK_ST) lang/stratalk/kernel/LOAD $(wildcard lang/stratalk/host/*.py)
 	@mkdir -p $(BUILD)/stratalk
 	python3 lang/stratalk/host/stratalk.py build -o $@ lang/stratalk/kernel/LOAD
@@ -501,7 +501,7 @@ $(BUILD)/prog/cc.u: $(BUILD)/prog/cc
 # cc0.lib
 $(BUILD)/cc/cc-full.stx: $(CC_SRC) $(BUILD)/sasm lang/cc/tests/check-units.py
 	@mkdir -p $(BUILD)/cc $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -I lang/cc -g $(BUILD)/prog/cc0.map -o $@ lang/cc/cc.s
+	$(BUILD)/sasm -T 0x8000 -r -n -I lang/cc -g $(BUILD)/prog/cc0.map -o $@ lang/cc/cc.s
 	python3 lang/cc/tests/check-units.py $@
 $(BUILD)/prog/cc0: $(BUILD)/cc/cc0.lib
 	@touch $@
@@ -518,7 +518,7 @@ $(BUILD)/stralog/bootpl.s: lang/stralog/boot.pl lang/stralog/mkboot.py
 	@mkdir -p $(BUILD)/stralog
 	python3 lang/stralog/mkboot.py lang/stralog/boot.pl > $@
 $(BUILD)/stralog/stralog.stx: $(STRALOG_SRC) $(BUILD)/stralog/atoms.s $(BUILD)/stralog/bootpl.s $(BUILD)/sasm
-	$(BUILD)/sasm -T 0x8000 -I lang/stralog -I $(BUILD)/stralog -g $(BUILD)/stralog/stralog.map -o $@ lang/stralog/stralog.s
+	$(BUILD)/sasm -T 0x8000 -r -n -I lang/stralog -I $(BUILD)/stralog -g $(BUILD)/stralog/stralog.map -o $@ lang/stralog/stralog.s
 $(BUILD)/prog/stralog: $(BUILD)/stralog/stralog.stx lang/stralog/mkimg.py
 	@mkdir -p $(BUILD)/prog
 	python3 lang/stralog/mkimg.py $< $(BUILD)/stralog/stralog.map $@ $(BUILD)/prog/stralog.u
@@ -717,7 +717,7 @@ $(BUILD)/forth-os/corefs.s: $(FORTH_OS_FS)
 
 $(BUILD)/prog/forth: $(FORTH_OS_SRC) $(BUILD)/forth-os/corefs.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
-	$(BUILD)/sasm -T 0x8000 -I lang/forth/os -I $(BUILD)/forth-os -g $@.map -o $@ lang/forth/forth.s
+	$(BUILD)/sasm -T 0x8000 -r -n -I lang/forth/os -I $(BUILD)/forth-os -g $@.map -o $@ lang/forth/forth.s
 
 # the C compiler's tests (lang/cc/tests/README.md):
 #   test-cc       the whole ladder of C test programs, compiled and run inside StrataOS
@@ -756,11 +756,30 @@ $(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 # 8 bytes: its last section ends beyond the bytes loaded, and CREATE must refuse it
 $(BUILD)/isol-test/%: tools/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/isol-test
+	$(BUILD)/sasm -T 0x8000 -r -n -o $@ $<
+# programs as sasm assembles a StrataOS program by default: paged code (units
+# paged from the image through c15) and far data (a data cache, tgeom.FA); sh
+# with -n (its data leaves no room for the cache). tools/test-paged.sh runs the
+# vi and shell tests on a disk that has these in place of the usual ones.
+PAGED_NAMES := vi sh cat wc grep seq ls
+PAGED_PROGS := $(addprefix $(BUILD)/paged-test/,$(PAGED_NAMES))
+$(BUILD)/paged-test/vi: os/progs/vi.s os/lib/sys.s $(BUILD)/vi-syntax.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/paged-test
+	$(BUILD)/sasm -T 0x8000 -I $(BUILD) -o $@ $<
+$(BUILD)/paged-test/sh: os/progs/sh.s os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/paged-test
+	$(BUILD)/sasm -T 0x8000 -n -o $@ $<
+$(BUILD)/paged-test/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/paged-test
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
+PAGED_ARGS = $(foreach w,$(DISK_ARGS),$(if $(filter $(addprefix $(BUILD)/prog/,$(PAGED_NAMES)),$(w)),$(BUILD)/paged-test/$(notdir $(w)),$(w)))
+$(BUILD)/paged-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST) $(PAGED_PROGS)
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(PAGED_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
+
 # far loads and stores (tgeom.FA): tools/fardata.s, the dispatcher's dmiss service
 $(BUILD)/far-test/%: tools/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/far-test
-	$(BUILD)/sasm -T 0x8000 -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -r -n -o $@ $<
 $(BUILD)/far-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/far-test/fardata
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/far-test/fardata
 $(BUILD)/isol-test/dlsgapcut: $(BUILD)/isol-test/dlsgap
@@ -792,7 +811,7 @@ ls-stats: $(BUILD)/strata-emu-ls $(BUILD)/bootrom.stx $(BUILD)/disk.img
 	tools/ls-stats.sh $(BUILD)/strata-emu-ls $(BUILD) $(BUILD)/disk.img
 $(BUILD)/bench/dbbench: tools/bench/dbbench.s os/lib/sys.s os/lib/kv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/bench
-	$(BUILD)/sasm -T 0x8000 -o $@ $<
+	$(BUILD)/sasm -T 0x8000 -r -n -o $@ $<
 $(BUILD)/bench/disk.img: $(BUILD)/files-test/disk.img $(BUILD)/bench/dbbench
 	@i=0; while [ $$i -lt 100 ]; do echo "echo $$i > /sm/f$$i"; i=$$((i + 1)); done > $(BUILD)/bench/small
 	@$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) -t bin $(BUILD)/bench/dbbench \

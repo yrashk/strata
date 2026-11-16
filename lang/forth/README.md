@@ -413,7 +413,7 @@ constant value to defer is s" ." abort" catch throw evaluate`...):
 
 The images are built by
 `build/sasm -I lang/forth/bare -I build/forth -o build/forth.stx lang/forth/forth.s`,
-`build/sasm -T 0x8000 -I lang/forth/os -I build/forth-os -o build/prog/forth lang/forth/forth.s`
+`build/sasm -T 0x8000 -r -n -I lang/forth/os -I build/forth-os -o build/prog/forth lang/forth/forth.s`
 and (the guest)
 `build/sasm -I lang/forth/guest -I lang/forth/bare -I build/forth-guest -o build/guest/forth.g lang/forth/forth.s`;
 `corefs.s` in the last include directory is generated from the `.fs`

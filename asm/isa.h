@@ -18,7 +18,7 @@
 #define GRAN_BYTES (1u << GRAN_SHIFT)
 
 /* .stx image section kinds */
-enum { SK_ILS = 1, SK_DLS = 2, SK_T3 = 3, SK_T2 = 4 };
+enum { SK_ILS = 1, SK_DLS = 2, SK_T3 = 3, SK_T2 = 4, SK_UNITS = 5 }; /* SK_UNITS: code units paged from the image */
 
 enum {
   OP_ALU = 0x00, OP_ADDI = 0x01, OP_ANDI = 0x02, OP_ORI = 0x03, OP_XORI = 0x04,

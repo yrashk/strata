@@ -52,6 +52,9 @@ static inline void stx_load(const char *path, StxImage *img) {
     case SK_DLS: dst = img->dls; limit = DLS_BYTES; break;
     case SK_T2: dst = img->t2; limit = T2_BYTES; break;
     case SK_T3: dst = img->t3; limit = T3_BYTES; break;
+    case SK_UNITS: /* code units: StrataOS pages them from the image; nothing to load */
+      if (fseek(f, size, SEEK_CUR)) { fprintf(stderr, "%s: truncated\n", path); exit(2); }
+      continue;
     default: fprintf(stderr, "%s: unknown section kind %u\n", path, kind); exit(2);
     }
     if ((uint64_t)base + size > limit) { fprintf(stderr, "%s: section too large\n", path); exit(2); }

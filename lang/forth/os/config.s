@@ -4,7 +4,7 @@
 ;
 ; The kernel (lang/forth/forth.s) includes "config.s" first, "boot.s" as its
 ; .text and "platform.s" near its end. This is the StrataOS set:
-;   build/sasm -T 0x8000 -I lang/forth/os -I build/forth-os -o build/prog/forth lang/forth/forth.s
+;   build/sasm -T 0x8000 -r -n -I lang/forth/os -I build/forth-os -o build/prog/forth lang/forth/forth.s
 ; Forth is an ordinary StrataOS program (marker "SYS2"): one thread that
 ; time-shares a worker core, or N threads on N cores when started with -n N.
 ; It talks to the servers itself (the message code is in platform.s; os/lib/

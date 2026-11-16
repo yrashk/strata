@@ -45,6 +45,38 @@ xstart:
         j     xplan                     ; XE_PLAN
         j     xevict                    ; XE_EVICT
         j     xrestore                  ; XE_REST
+        xmap  0, a1, c15, a2           ; XE_XMAP15: slot 0 (a unit of the image)
+        ret                             ; .
+        xmap  1, a1, c15, a2           ; XE_XMAP15: slot 1 (a unit of the image)
+        ret                             ; .
+        xmap  2, a1, c15, a2           ; XE_XMAP15: slot 2 (a unit of the image)
+        ret                             ; .
+        xmap  3, a1, c15, a2           ; XE_XMAP15: slot 3 (a unit of the image)
+        ret                             ; .
+        xmap  4, a1, c15, a2           ; XE_XMAP15: slot 4 (a unit of the image)
+        ret                             ; .
+        xmap  5, a1, c15, a2           ; XE_XMAP15: slot 5 (a unit of the image)
+        ret                             ; .
+        xmap  6, a1, c15, a2           ; XE_XMAP15: slot 6 (a unit of the image)
+        ret                             ; .
+        xmap  7, a1, c15, a2           ; XE_XMAP15: slot 7 (a unit of the image)
+        ret                             ; .
+        xmap  8, a1, c15, a2           ; XE_XMAP15: slot 8 (a unit of the image)
+        ret                             ; .
+        xmap  9, a1, c15, a2           ; XE_XMAP15: slot 9 (a unit of the image)
+        ret                             ; .
+        xmap  10, a1, c15, a2           ; XE_XMAP15: slot 10 (a unit of the image)
+        ret                             ; .
+        xmap  11, a1, c15, a2           ; XE_XMAP15: slot 11 (a unit of the image)
+        ret                             ; .
+        xmap  12, a1, c15, a2           ; XE_XMAP15: slot 12 (a unit of the image)
+        ret                             ; .
+        xmap  13, a1, c15, a2           ; XE_XMAP15: slot 13 (a unit of the image)
+        ret                             ; .
+        xmap  14, a1, c15, a2           ; XE_XMAP15: slot 14 (a unit of the image)
+        ret                             ; .
+        xmap  15, a1, c15, a2           ; XE_XMAP15: slot 15 (a unit of the image)
+        ret                             ; .
 
 ; ---- xinit(): every unit of the program part free; the code window ---------------------------
 xinit:

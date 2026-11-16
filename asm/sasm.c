@@ -16,7 +16,17 @@
  *   -T addr   start .text at addr instead of 0 (programs run under StrataOS
  *             use -T 0x8000)
  *   -g file   also write a symbol and line map for the debuggers (see
- *             write_map below; doc/debug-protocol.md describes the format) */
+ *             write_map below; doc/debug-protocol.md describes the format)
+ *
+ * A StrataOS program (-T 0x8000) is assembled, unless told otherwise, with
+ * paged code and far data (doc/big-code-proposal.md; "Paged code and far
+ * data" below):
+ *   -r        resident code: no paging (also the directive .resident)
+ *   -n        near data: no far data cache (also the directive .near)
+ *   -u KIB    the code unit size, 1, 2 or 4 KiB (default 2)
+ *   -c KIB    the far data cache, 1 to 16 KiB (default 4)
+ *   -v        print the layout: each group of code, where it went and why
+ * A bare-metal program (text origin 0) is always resident and near. */
 #include <ctype.h>
 #include <errno.h>
 #include <stdarg.h>
@@ -123,7 +133,7 @@ static void read_file(const char *path, int depth) {
 
 /* ------------------------------------------------------------ sections */
 
-enum { S_TEXT, S_DATA, S_FAR, S_CLUSTER, NSECT };
+enum { S_TEXT, S_DATA, S_FAR, S_CLUSTER, S_UNITS, NSECT };
 
 typedef struct {
   const char *name;
@@ -140,10 +150,41 @@ static Section sects[NSECT] = {
   {".data", SK_DLS, DLS_BYTES, 0, 0, 0, 0, 0},
   {".far", SK_T3, T3_BYTES, 0, 0, 0, 0, 0},
   {".cluster", SK_T2, T2_BYTES, 0, 0, 0, 0, 0},
+  {"(units)", SK_UNITS, 1u << 20, 0, 0, 0, 0, 0}, /* paged code: image offsets (not a directive) */
 };
 static int cs; /* current section */
 static uint32_t text_org;
 static int pass;
+static int cur_li; /* the line being assembled */
+
+/* ------------------------------------------------------------ paged code and far data: state */
+
+static int opt_paged = -1, opt_far = -1; /* -1: by the text origin (on for StrataOS programs) */
+static int ulg = 11;                     /* log2 of a code unit */
+static int cache_kib = 4;                /* the far data cache */
+static int opt_report;                   /* -v: print the layout */
+
+/* .text labels, as the pre-scan finds them */
+typedef struct { char *name; int region, func, taken; } TLabel;
+static TLabel *tlabs;
+static int ntlabs, captlabs;
+static int *lsect;  /* per line: the section its contents go to (before the line's own directive) */
+static int *lreg;   /* per line: its .text region, -1 for lines outside .text */
+static int nregions;
+static int *rgroup, *rpinned, *rfirst; /* per region: group, pinned, first line */
+static int *rjoin;  /* per region: joined to the next one (a branch, a jump or a fall-through) */
+static int *rwhy;   /* per region: the line that joined it to the next */
+static int ngroups;
+static int *gpinned, *gsect, *gfirst;   /* per group: pinned, actual section, first region */
+static uint32_t *gbase, *gloc, *gsize;  /* per group: where it starts, where it is now, its bytes */
+static int first_insn_line = -1;        /* the program's entry: its first .text instruction */
+static uint32_t pinned_end, ubase;      /* the end of pinned code; the first unit's offset */
+static uint32_t user_far_end;           /* the end of the program's own .far contents */
+static const char *entry_target;        /* the entry's own `j` target */
+static int paged_transfer(int rd, const char *target, int tail);
+static int paged_branch(int op, int a, int b, const char *target);
+static int line_paged(void);
+static void emit_flink(uint32_t ret);
 
 static void emit_byte(uint8_t b) {
   Section *s = &sects[cs];
@@ -645,11 +686,29 @@ static void assemble_insn(const Insn *in, char **o, int n) {
   case F_LUI: imm = value(o[1]); check_imm16(imm); emit_insn(enc_i(in->op, xreg(o[0]), 0, imm)); break;
   case F_LD: memop(o[1], &imm, &r); check_simm16(imm); emit_insn(enc_i(in->op, xreg(o[0]), r, imm)); break;
   case F_ST: memop(o[1], &imm, &r); check_simm16(imm); emit_insn(enc_i(in->op, xreg(o[0]), r, imm)); break;
-  case F_B: emit_insn(enc_i(in->op, xreg(o[0]), xreg(o[1]), pcrel(o[2], 16))); break;
-  case F_JAL:
-    emit_insn((uint32_t)in->op << 26 | (uint32_t)xreg(o[0]) << 21 | (uint32_t)(pcrel(o[1], 21) & 0x1fffff));
+  case F_B:
+    if (paged_branch(in->op, xreg(o[0]), xreg(o[1]), o[2])) break;
+    emit_insn(enc_i(in->op, xreg(o[0]), xreg(o[1]), pcrel(o[2], 16)));
     break;
-  case F_JALR: imm = value(o[2]); check_simm16(imm); emit_insn(enc_i(in->op, xreg(o[0]), xreg(o[1]), imm)); break;
+  case F_JAL:
+    r = xreg(o[0]);
+    if ((r == 0 || r == 1) && paged_transfer(r, o[1], r == 0)) break;
+    emit_insn((uint32_t)in->op << 26 | (uint32_t)r << 21 | (uint32_t)(pcrel(o[1], 21) & 0x1fffff));
+    break;
+  case F_JALR:
+    imm = value(o[2]);
+    check_simm16(imm);
+    if (opt_paged && xreg(o[0]) == 0 && imm == 0) { emit_insn(enc_r(OP_XCALL, 0, xreg(o[1]), 0, 1 << 4)); break; }
+    if (line_paged()) {
+      r = xreg(o[1]);
+      if (xreg(o[0]) != 1 || imm != 0 || r == 1 || r == 31)
+        err("paged code: only `jalr ra, rs, 0` (rs not ra or t6) is allowed; pin this function (.pinned) or use -r");
+      emit_flink(sects[cs].loc + 4 * 8);
+      emit_insn(enc_i(in->op, 0, r, 0));               /* jalr zero, rs, 0 */
+      break;
+    }
+    emit_insn(enc_i(in->op, xreg(o[0]), xreg(o[1]), imm));
+    break;
   case F_XF:
     emit_insn((uint32_t)in->op << 26 | (uint32_t)in->fn << 23 | (uint32_t)tagreg(o[0]) << 19 |
               (uint32_t)xreg(o[1]) << 14 | (uint32_t)creg(o[2]) << 10 | (uint32_t)xreg(o[3]) << 5 |
@@ -704,10 +763,31 @@ static int pseudo(const char *m, char **o, int n) {
   if (!strcmp(m, "seqz")) { NEED(2); emit_insn(enc_i(OP_SLTIU, xreg(o[0]), xreg(o[1]), 1)); return 1; }
   if (!strcmp(m, "snez")) { NEED(2); emit_insn(enc_r(OP_ALU, xreg(o[0]), 0, xreg(o[1]), ALU_SLTU)); return 1; }
   if (!strcmp(m, "neg")) { NEED(2); emit_insn(enc_r(OP_ALU, xreg(o[0]), 0, xreg(o[1]), ALU_SUB)); return 1; }
-  if (!strcmp(m, "j")) { NEED(1); emit_insn((uint32_t)OP_JAL << 26 | (uint32_t)(pcrel(o[0], 21) & 0x1fffff)); return 1; }
-  if (!strcmp(m, "call")) { NEED(1); emit_insn((uint32_t)OP_JAL << 26 | 1u << 21 | (uint32_t)(pcrel(o[0], 21) & 0x1fffff)); return 1; }
-  if (!strcmp(m, "ret")) { NEED(0); emit_insn(enc_i(OP_JALR, 0, 1, 0)); return 1; }
-  if (!strcmp(m, "jr")) { NEED(1); emit_insn(enc_i(OP_JALR, 0, xreg(o[0]), 0)); return 1; }
+  if (!strcmp(m, "j")) {
+    NEED(1);
+    if (cur_li == first_insn_line && (opt_paged || opt_far)) { /* the entry: through the set-up stub */
+      static char tgt[256];
+      snprintf(tgt, sizeof tgt, "%s", o[0]);
+      entry_target = tgt;
+      emit_insn((uint32_t)OP_JAL << 26 | (uint32_t)(pcrel("__pinit", 21) & 0x1fffff));
+      return 1;
+    }
+    if (paged_transfer(0, o[0], 1)) return 1;
+    emit_insn((uint32_t)OP_JAL << 26 | (uint32_t)(pcrel(o[0], 21) & 0x1fffff));
+    return 1;
+  }
+  if (!strcmp(m, "call")) {
+    NEED(1);
+    if (paged_transfer(1, o[0], 0)) return 1;
+    emit_insn((uint32_t)OP_JAL << 26 | 1u << 21 | (uint32_t)(pcrel(o[0], 21) & 0x1fffff));
+    return 1;
+  }
+  if (!strcmp(m, "ret")) { NEED(0); emit_insn(opt_paged ? enc_r(OP_XCALL, 0, 1, 0, 1 << 4) : enc_i(OP_JALR, 0, 1, 0)); return 1; }
+  if (!strcmp(m, "jr")) {
+    NEED(1);
+    emit_insn(opt_paged ? enc_r(OP_XCALL, 0, xreg(o[0]), 0, 1 << 4) : enc_i(OP_JALR, 0, xreg(o[0]), 0));
+    return 1;
+  }
   if (!strcmp(m, "tfence")) { NEED(0); emit_insn(enc_i(OP_TWAIT, 0, 0, 0xffff)); return 1; }
   struct { const char *name; int op, swap, zero; } br[] = {
     {"beqz", OP_BEQ, 0, 1}, {"bnez", OP_BNE, 0, 1}, {"bltz", OP_BLT, 0, 1}, {"bgez", OP_BGE, 0, 1},
@@ -721,6 +801,7 @@ static int pseudo(const char *m, char **o, int n) {
     if (br[i].zero) { NEED(2); a = xreg(o[0]); b = 0; t = o[1]; }
     else { NEED(3); a = xreg(o[0]); b = xreg(o[1]); t = o[2]; }
     if (br[i].swap) { int x = a; a = b; b = x; }
+    if (paged_branch(br[i].op, a, b, t)) return 1;
     emit_insn(enc_i(br[i].op, a, b, pcrel(t, 16)));
     return 1;
   }
@@ -757,6 +838,7 @@ static int directive(const char *d, char *rest) {
   for (int i = 0; i < NSECT; i++)
     if (!strcmp(d, sects[i].name)) { cs = i; return 1; }
   if (!strcmp(d, ".global") || !strcmp(d, ".globl")) return 1;
+  if (!strcmp(d, ".pinned") || !strcmp(d, ".resident") || !strcmp(d, ".near")) return 1; /* (the pre-scan's) */
   if (!strcmp(d, ".ascii")) { emit_string(rest, 0); return 1; }
   if (!strcmp(d, ".asciz") || !strcmp(d, ".string")) { emit_string(rest, 1); return 1; }
   int width = !strcmp(d, ".byte") ? 1 : !strcmp(d, ".half") ? 2 : !strcmp(d, ".word") ? 4 :
@@ -783,6 +865,7 @@ static int directive(const char *d, char *rest) {
     return 1;
   }
   if (!strcmp(d, ".org")) {
+    if (opt_paged && cur_li < nlines && lreg && lreg[cur_li] >= 0) { err(".org in paged code (assemble with -r)"); return 1; }
     int u;
     int64_t a = eval(rest, &u);
     if (u || a < sects[cs].loc) { err(".org cannot move backwards"); return 1; }
@@ -799,6 +882,423 @@ static int directive(const char *d, char *rest) {
     return 1;
   }
   return 0;
+}
+
+/* ------------------------------------------------------------ paged code and far data
+
+   Paged code. The program's .text is cut into regions, one per function:
+   a function is a label that some `call` or `jal ra` targets, and a region
+   runs from such a label to the next (the first one from the start of
+   .text). A branch, a jump that is not a tail call, and falling off the end
+   of a region join regions into a group. A group is the unit of placement:
+   either pinned (kept resident in .text, from the text origin) or paged
+   (packed into code units of 2^ulg bytes in a section of its own, kind
+   SK_UNITS, the image's first, its offsets the image file's: StrataOS gives
+   a program a read and execute share of its image in c15 and pages units
+   from it into the I-LS on a miss, so they take nothing of its memory). Pinned: the group of the entry, every group with a label
+   whose address is taken (in an expression other than a branch or call
+   target: a trap handler, a resume point, a function pointer, a jump
+   table), every group with a `.pinned` line, and every group larger than a
+   unit. So every code address the
+   program can hold is an I-LS address.
+   The rewrites, all of a fixed size so that pass 1 knows the layout:
+     call/jal ra to a paged function   lui t6, ori t6, xcall ra, c15, t6
+     j to a paged function (tail call) lui t6, ori t6, xcall zero, c15, t6
+     call from paged to pinned code    a far link in ra (cbase c15 + the return
+                                       point's offset, bit 63), ori t6, jalr
+     j from paged to pinned code       ori t6, jalr zero, t6
+     jalr ra, rs, 0 in paged code      a far link in ra, jalr zero, rs
+     ret, jr rs (jalr zero, rs, 0)     xret rs, everywhere
+   so a return address into a unit is always a far link, which xret
+   resolves wherever the unit is now, paging it back in if need be. t6 is
+   the rewrites' scratch register: a value in t6 does not survive a call
+   (nor a branch or jump to a function). c15 is the kernel's: a paged
+   program must not use it.
+
+   Far data. A cache for far loads and stores (tgeom bit 16, FA) is appended
+   to .data: its tag table (__fc_tags) and lines (__fc_lines), 64-byte lines,
+   2 ways. A load or store past the D-LS then reaches the arena (c0) at that
+   offset; the kernel serves the misses.
+
+   Either mode needs set-up before the program runs: the entry, the
+   program's first .text instruction, must be `j L`; it becomes `j __pinit`,
+   a stub after the pinned code that sets xslot, ttag, tdata and tgeom and
+   then goes on to L. A program that sets xslot or uses the overlay
+   instructions itself is refused in paged mode, one that sets the cache
+   CSRs or uses ltag / linst in far mode: they manage their own (-r, -n). */
+
+static void strip_comment(char *s);
+
+static int tl_find(const char *name) {
+  for (int i = 0; i < ntlabs; i++)
+    if (!strcmp(tlabs[i].name, name)) return i;
+  return -1;
+}
+
+/* Splits a source line (a copy, comment stripped) into its labels, its
+   mnemonic (lower case, "" if none) and the rest. Lines `name = expr` give
+   the mnemonic "=" and the rest the expression. */
+static int parse_line(char *buf, char **labs, char *m, size_t mlen, char **rest) {
+  strip_comment(buf);
+  char *s = trim(buf);
+  int nl = 0;
+  for (;;) {
+    char *q = s;
+    if (!is_symstart((unsigned char)*q)) break;
+    while (is_symchar((unsigned char)*q)) q++;
+    if (*q != ':') break;
+    *q = 0;
+    if (nl < 8) labs[nl++] = s;
+    s = trim(q + 1);
+  }
+  *m = 0;
+  *rest = s;
+  if (!*s) return nl;
+  char *eq = s;
+  while (is_symchar((unsigned char)*eq)) eq++;
+  while (isspace((unsigned char)*eq)) eq++;
+  if (is_symstart((unsigned char)*s) && *eq == '=' && eq[1] != '=') {
+    snprintf(m, mlen, "=");
+    *rest = eq + 1;
+    return nl;
+  }
+  char *sp = s + strcspn(s, " \t");
+  snprintf(m, mlen, "%.*s", (int)(sp - s), s);
+  for (char *c = m; *c; c++) *c = (char)tolower((unsigned char)*c);
+  *rest = sp;
+  return nl;
+}
+
+/* Marks every .text label named in expression e as address-taken. */
+static void mark_taken(const char *e) {
+  for (const char *p = e; *p;) {
+    if (*p == '"' || *p == '\'') { /* skip a quoted string or character */
+      char q = *p++;
+      while (*p && *p != q) { if (*p == '\\' && p[1]) p++; p++; }
+      if (*p) p++;
+      continue;
+    }
+    if (is_symstart((unsigned char)*p) && (p == e || !is_symchar((unsigned char)p[-1]))) {
+      const char *b = p;
+      while (is_symchar((unsigned char)*p)) p++;
+      char name[256];
+      snprintf(name, sizeof name, "%.*s", (int)(p - b), b);
+      int t = tl_find(name);
+      if (t >= 0) tlabs[t].taken = 1;
+      continue;
+    }
+    p++;
+  }
+}
+
+static int is_branch(const char *m) {
+  static const char *br[] = {"beq", "bne", "blt", "bge", "bltu", "bgeu", "beqz", "bnez", "bltz",
+                             "bgez", "bgtz", "blez", "bgt", "ble", "bgtu", "bleu"};
+  for (unsigned i = 0; i < sizeof br / sizeof *br; i++)
+    if (!strcmp(m, br[i])) return 1;
+  return 0;
+}
+
+/* jal's link register, or -1 if the line is not a jal */
+static int jal_rd(const char *m, char **o, int n) {
+  if (strcmp(m, "jal") || n != 2) return -1;
+  return parse_xreg(o[0]);
+}
+
+static int region_of_label(const char *name) {
+  int t = tl_find(name);
+  return t < 0 ? -1 : tlabs[t].region;
+}
+
+static int label_pinned(int t) { return gpinned[rgroup[tlabs[t].region]]; }
+static int line_paged(void) { return opt_paged && lreg[cur_li] >= 0 && !gpinned[rgroup[lreg[cur_li]]]; }
+
+static void prescan(void) {
+  lsect = xmalloc(sizeof *lsect * (size_t)(nlines + 1));
+  lreg = xmalloc(sizeof *lreg * (size_t)(nlines + 1));
+  char buf[4096], m[64], *labs[8], *rest, *o[MAXOPS];
+  /* 1: sections, .text labels, the directives that switch modes off, conflicts */
+  int sect = S_TEXT, own_code = -1, own_cache = -1, own_c15 = -1;
+  for (int li = 0; li < nlines; li++) {
+    snprintf(buf, sizeof buf, "%s", lines[li].text);
+    int nl = parse_line(buf, labs, m, sizeof m, &rest);
+    lsect[li] = sect;
+    if (sect == S_TEXT)
+      for (int k = 0; k < nl; k++) {
+        if (tl_find(labs[k]) >= 0) continue; /* (a redefinition: pass 1 says so) */
+        if (ntlabs == captlabs) { captlabs = captlabs ? captlabs * 2 : 256; tlabs = realloc(tlabs, captlabs * sizeof *tlabs); }
+        tlabs[ntlabs++] = (TLabel){xstrdup(labs[k]), -1, 0, 0};
+      }
+    for (int i = 0; i < NSECT; i++)
+      if (!strcmp(m, sects[i].name)) sect = i;
+    if (!strcmp(m, ".resident")) opt_paged = 0;
+    if (!strcmp(m, ".near")) opt_far = 0;
+    if (sect == S_TEXT && *m && m[0] != '.' && strcmp(m, "=") && first_insn_line < 0) first_insn_line = li;
+    int n = split_ops(rest, o);
+    for (int i = 0; i < n; i++)
+      if (!strcmp(o[i], "c15") && own_c15 < 0) own_c15 = li;
+    if (!strcmp(m, "xcall") || !strcmp(m, "xret") || !strcmp(m, "xmap") || !strcmp(m, "xunmap") ||
+        (!strcmp(m, "csrw") && n == 2 && !strcmp(o[0], "xslot")))
+      if (own_code < 0) own_code = li;
+    if (!strcmp(m, "ltag") || !strcmp(m, "linst") ||
+        (!strcmp(m, "csrw") && n == 2 && (!strcmp(o[0], "ttag") || !strcmp(o[0], "tdata") || !strcmp(o[0], "tgeom"))))
+      if (own_cache < 0) own_cache = li;
+  }
+  if (opt_paged < 0) opt_paged = text_org != 0;
+  if (opt_far < 0) opt_far = text_org != 0;
+  if (opt_paged && own_c15 >= 0) {
+    cur_file = lines[own_c15].file; cur_line = lines[own_c15].line;
+    err("paged code: c15 holds the program's image (the kernel's): use another register, or -r");
+  }
+  if (opt_paged && own_code >= 0) {
+    cur_file = lines[own_code].file; cur_line = lines[own_code].line;
+    err("the program pages its own code: assemble it with -r (or .resident)");
+  }
+  if (opt_far && own_cache >= 0) {
+    cur_file = lines[own_cache].file; cur_line = lines[own_cache].line;
+    err("the program manages its own data cache: assemble it with -n (or .near)");
+  }
+  if ((opt_paged || opt_far) && first_insn_line >= 0) {
+    snprintf(buf, sizeof buf, "%s", lines[first_insn_line].text);
+    parse_line(buf, labs, m, sizeof m, &rest);
+    if (strcmp(m, "j")) {
+      cur_file = lines[first_insn_line].file; cur_line = lines[first_insn_line].line;
+      err("paged code or far data: the program's first instruction must be `j` (or assemble with -r -n)");
+    }
+  }
+  if (!opt_paged) {
+    for (int li = 0; li < nlines; li++) lreg[li] = -1;
+    return;
+  }
+  /* 2: functions (call targets) and labels whose address is taken */
+  for (int li = 0; li < nlines; li++) {
+    snprintf(buf, sizeof buf, "%s", lines[li].text);
+    parse_line(buf, labs, m, sizeof m, &rest);
+    if (!*m) continue;
+    if (!strcmp(m, "=")) { mark_taken(rest); continue; }
+    int n = split_ops(rest, o);
+    if (!strcmp(m, "call") && n == 1) {
+      int t = tl_find(o[0]);
+      if (t >= 0) tlabs[t].func = 1;
+      continue;
+    }
+    int rd = jal_rd(m, o, n);
+    if (rd >= 0) {
+      if (rd == 1) { int t = tl_find(o[1]); if (t >= 0) tlabs[t].func = 1; }
+      continue;
+    }
+    if (!strcmp(m, "j") || is_branch(m)) continue; /* targets, not addresses */
+    if (!strcmp(m, ".equ") || !strcmp(m, ".set")) { if (n == 2) mark_taken(o[1]); continue; }
+    if (m[0] == '.' && strcmp(m, ".byte") && strcmp(m, ".half") && strcmp(m, ".word") && strcmp(m, ".dword"))
+      continue; /* (other directives name no code) */
+    for (int i = 0; i < n; i++) mark_taken(o[i]);
+  }
+  /* 3: regions, in .text order */
+  rfirst = xmalloc(sizeof *rfirst * (size_t)(nlines + 1));
+  int cur = -1;
+  for (int li = 0; li < nlines; li++) {
+    lreg[li] = -1;
+    if (lsect[li] != S_TEXT) continue;
+    snprintf(buf, sizeof buf, "%s", lines[li].text);
+    int nl = parse_line(buf, labs, m, sizeof m, &rest);
+    int sw = 0;
+    for (int i = 0; i < NSECT; i++) sw |= !strcmp(m, sects[i].name);
+    if (sw) continue; /* a section directive: not code */
+    int starts = cur < 0;
+    for (int k = 0; k < nl; k++) { int t = tl_find(labs[k]); if (t >= 0 && tlabs[t].func) starts = 1; }
+    if (starts) { rfirst[nregions] = li; cur = nregions++; }
+    lreg[li] = cur;
+    for (int k = 0; k < nl; k++) { int t = tl_find(labs[k]); if (t >= 0) tlabs[t].region = cur; }
+  }
+  rjoin = calloc((size_t)nregions + 1, sizeof *rjoin);
+  rwhy = calloc((size_t)nregions + 1, sizeof *rwhy);
+  rpinned = calloc((size_t)nregions + 1, sizeof *rpinned);
+  rgroup = xmalloc(sizeof *rgroup * (size_t)(nregions + 1));
+  /* 4: what joins regions, and what pins them */
+  int last_term = 1, last_reg = -1, last_line = 0; /* the region's last instruction ended it (j, ret, jr) */
+  for (int li = 0; li < nlines; li++) {
+    int r = lreg[li];
+    if (r < 0) continue;
+    snprintf(buf, sizeof buf, "%s", lines[li].text);
+    int nl = parse_line(buf, labs, m, sizeof m, &rest);
+    for (int k = 0; k < nl; k++) { int t = tl_find(labs[k]); if (t >= 0 && tlabs[t].taken) rpinned[r] = 1; }
+    if (r != last_reg) {
+      if (last_reg >= 0 && !last_term) for (int x = last_reg; x < r; x++) { if (!rjoin[x]) rwhy[x] = last_line; rjoin[x] = 1; } /* falls through */
+      last_reg = r;
+      last_term = 0;
+    }
+    if (!*m || !strcmp(m, "=") || !strcmp(m, ".equ") || !strcmp(m, ".set") || !strcmp(m, ".global") ||
+        !strcmp(m, ".globl") || !strcmp(m, ".text") || !strcmp(m, ".resident") || !strcmp(m, ".near"))
+      continue;
+    if (!strcmp(m, ".pinned")) { rpinned[r] = 1; continue; }
+    int n = split_ops(rest, o);
+    const char *target = NULL;
+    int term = 0;
+    if (is_branch(m) && n >= 2) target = o[n - 1];
+    else if (!strcmp(m, "j") && n == 1) { term = 1; target = o[0]; }
+    else if (!strcmp(m, "call") || !strcmp(m, "halt")) term = 1; /* (a call that ends a region does not return) */
+    else if (jal_rd(m, o, n) >= 0) {
+      int rd = jal_rd(m, o, n);
+      if (rd == 1) term = 1;
+      else { term = rd == 0; target = o[1]; }
+    } else if (!strcmp(m, "ret") || !strcmp(m, "jr") || !strcmp(m, "xret")) term = 1;
+    else if (!strcmp(m, "jalr") && n == 3 && parse_xreg(o[0]) <= 1) term = 1;
+    last_term = term;
+    last_line = li;
+    if (!target) continue;
+    int tr = region_of_label(target);
+    if (tr < 0 || tr == r) continue;
+    if (tlabs[tl_find(target)].func) continue; /* a (conditional) tail call: becomes a far one */
+    int lo = r < tr ? r : tr, hi = r < tr ? tr : r;
+    for (int x = lo; x < hi; x++) { if (!rjoin[x]) rwhy[x] = li; rjoin[x] = 1; }
+  }
+  if (nregions) rpinned[0] = 1; /* the entry */
+  /* 5: groups */
+  gpinned = calloc((size_t)nregions + 1, sizeof *gpinned);
+  gfirst = calloc((size_t)nregions + 1, sizeof *gfirst);
+  gsect = calloc((size_t)nregions + 1, sizeof *gsect);
+  gbase = calloc((size_t)nregions + 1, sizeof *gbase);
+  gloc = calloc((size_t)nregions + 1, sizeof *gloc);
+  gsize = calloc((size_t)nregions + 1, sizeof *gsize);
+  for (int r = 0; r < nregions; r++) {
+    if (r == 0 || !rjoin[r - 1]) gfirst[ngroups++] = r;
+    rgroup[r] = ngroups - 1;
+    if (rpinned[r]) gpinned[ngroups - 1] = 1;
+  }
+}
+
+/* The layout from the sizes pass 1 measured: pinned groups in source order
+   from the text origin, then the start-up stub; paged groups packed into
+   units in source order, from ubase. */
+static uint32_t stub_size(void);
+static void layout(uint32_t far_end) {
+  uint32_t us = 1u << ulg, a = text_org;
+  for (int g = 0; g < ngroups; g++) /* a group too large for a unit stays resident */
+    if (!gpinned[g] && gsize[g] > us) gpinned[g] = 2;
+  for (int g = 0; g < ngroups; g++)
+    if (gpinned[g]) { gsect[g] = S_TEXT; gbase[g] = a; a += gsize[g]; }
+  pinned_end = a;
+  (void)far_end;
+  ubase = us; /* the units section is the image's first: its bytes start at file offset 24, padded to a unit */
+  uint32_t u = ubase, used = 0;
+  for (int g = 0; g < ngroups; g++) {
+    if (gpinned[g]) continue;
+    gsect[g] = S_UNITS;
+    if (used + gsize[g] > us) { u += us; used = 0; }
+    gbase[g] = u + used;
+    used += gsize[g];
+  }
+}
+
+/* The far link of the instruction at `ret` (an image offset): what xret
+   resolves to come back there. ra = cbase(c15) + ret | 1 << 63; t6 clobbered. */
+static void emit_flink(uint32_t ret) {
+  emit_insn(enc_r(OP_CAP, 1, 15, 0, CF_BASE));           /* cbase ra, c15 (the image) */
+  emit_insn(enc_i(OP_LUI, 31, 0, (ret >> 16) & 0xffff)); /* t6 = ret */
+  emit_insn(enc_i(OP_ORI, 31, 31, ret & 0xffff));
+  emit_insn(enc_r(OP_ALU, 1, 1, 31, ALU_ADD));           /* add ra, ra, t6 */
+  emit_insn(enc_i(OP_ADDI, 31, 0, 1));                   /* t6 = 1 << 63 */
+  emit_insn(enc_i(OP_SLLI, 31, 31, 63));
+  emit_insn(enc_r(OP_ALU, 1, 1, 31, ALU_OR));            /* or ra, ra, t6 */
+}
+
+/* lui t6, ori t6, xcall rd, c15, t6: a call (rd = ra) or a jump (rd = zero)
+   to the function at image offset v */
+static void emit_farcall(int rd, int64_t v) {
+  emit_insn(enc_i(OP_LUI, 31, 0, (v >> 16) & 0xffff));
+  emit_insn(enc_i(OP_ORI, 31, 31, v & 0xffff));
+  emit_insn(enc_r(OP_XCALL, rd, 31, 0, 15));            /* xcall rd, c15, t6 */
+}
+
+/* A call (rd = ra) or a jump (rd = zero) to label `target` in paged mode.
+   Returns 0 if it is an ordinary one (assemble it as written). */
+static int paged_transfer(int rd, const char *target, int tail) {
+  if (!opt_paged || lreg[cur_li] < 0) return 0;
+  int t = tl_find(target);
+  if (t < 0) return 0;
+  if (tail && (!tlabs[t].func || rgroup[tlabs[t].region] == rgroup[lreg[cur_li]])) return 0; /* a branch */
+  int here_paged = line_paged(), there_pinned = label_pinned(t);
+  if (!here_paged && there_pinned) return 0;
+  int u;
+  int64_t v = eval(target, &u);
+  if (!there_pinned) { emit_farcall(rd, v); return 1; }
+  if (rd == 1) emit_flink(sects[cs].loc + 4 * 9);
+  emit_insn(enc_i(OP_ORI, 31, 0, v & 0xffff));           /* ori t6, zero, target */
+  emit_insn(enc_i(OP_JALR, 0, 31, 0));                   /* jalr zero, t6, 0 */
+  return 1;
+}
+
+/* A conditional branch (op, a, b) to `target` in paged mode: to another
+   group it becomes the opposite branch over a jump there (always 4 words).
+   Returns 0 if it is an ordinary one. */
+static int paged_branch(int op, int a, int b, const char *target) {
+  if (!opt_paged || lreg[cur_li] < 0) return 0;
+  int t = tl_find(target);
+  if (t < 0 || !tlabs[t].func || rgroup[tlabs[t].region] == rgroup[lreg[cur_li]]) return 0;
+  int here_paged = line_paged(), there_pinned = label_pinned(t);
+  if (!here_paged && there_pinned) return 0; /* both in .text */
+  int inv = op == OP_BEQ ? OP_BNE : op == OP_BNE ? OP_BEQ : op == OP_BLT ? OP_BGE : op == OP_BGE ? OP_BLT
+          : op == OP_BLTU ? OP_BGEU : OP_BLTU;
+  emit_insn(enc_i(inv, a, b, 4));                        /* over the jump */
+  int u;
+  int64_t v = eval(target, &u);
+  if (!there_pinned) emit_farcall(0, v);
+  else {
+    emit_insn(enc_i(OP_ORI, 31, 0, v & 0xffff));         /* ori t6, zero, target */
+    emit_insn(enc_i(OP_JALR, 0, 31, 0));                 /* jalr zero, t6, 0 */
+    emit_insn(enc_i(OP_ADDI, 0, 0, 0));                  /* (nop: four words either way) */
+  }
+  return 1;
+}
+
+static uint32_t stub_size(void) {
+  uint32_t n = 0;
+  if (opt_paged) n += 2;
+  if (opt_far) n += 9;
+  return 4 * (n + 3); /* and the jump on: at most 3 instructions */
+}
+
+/* __pinit: the set-up the entry `j L` now goes through, then on to L */
+static void emit_stub(void) {
+  sym_define("__pinit", sects[cs].loc, cs);
+  if (opt_paged) {
+    emit_insn(enc_i(OP_ADDI, 5, 0, ulg));                /* xslot = ulg */
+    emit_insn(enc_i(OP_CSRW, 0, 5, 25));
+  }
+  if (opt_far) {
+    int u;
+    gen_li(5, eval("__fc_tags", &u), 2);
+    emit_insn(enc_i(OP_CSRW, 0, 5, 8));                  /* ttag */
+    gen_li(5, eval("__fc_lines", &u), 2);
+    emit_insn(enc_i(OP_CSRW, 0, 5, 9));                  /* tdata */
+    int sets = cache_kib * 1024 / 64 / 2, slg = 0;
+    while ((1 << slg) < sets) slg++;
+    gen_li(5, 6 | slg << 6 | 2 << 12 | 1 << 16, 2);      /* 64-byte lines, 2 ways, FA */
+    emit_insn(enc_i(OP_CSRW, 0, 5, 10));                 /* tgeom */
+  }
+  uint32_t end = sects[cs].loc + 12;
+  int u;
+  int64_t v = entry_target ? eval(entry_target, &u) : 0;
+  int t = entry_target ? tl_find(entry_target) : -1;
+  if (opt_paged && t >= 0 && !label_pinned(t)) emit_farcall(0, v);
+  else {
+    int64_t d = (v - (int64_t)sects[cs].loc) >> 2;
+    if (pass == 2 && entry_target && (u || esect != S_TEXT)) err("the entry's target %s is not code", entry_target);
+    emit_insn((uint32_t)OP_JAL << 26 | (uint32_t)(d & 0x1fffff));
+  }
+  while (sects[cs].loc < end) emit_insn(enc_i(OP_ADDI, 0, 0, 0));
+}
+
+/* the far data cache, at the end of .data */
+static void emit_cache(void) {
+  while (sects[cs].loc & 63) emit_byte(0);
+  int sets = cache_kib * 1024 / 64 / 2, slg = 0;
+  while ((1 << slg) < sets) slg++;
+  sets = 1 << slg;
+  sym_define("__fc_lines", sects[cs].loc, cs);
+  for (int i = 0; i < sets * 2 * 64; i++) emit_byte(0);
+  sym_define("__fc_tags", sects[cs].loc, cs);
+  for (int i = 0; i < sets * 3 * 8; i++) emit_byte(0);
 }
 
 /* ------------------------------------------------------------ listing */
@@ -831,7 +1331,7 @@ static void map_line(int sect, uint32_t addr, int li) {
  *                               constant (abs: `=`, .equ, .set)
  *   line SECTION ADDR FILE LINE the first byte a source line emitted
  * Addresses are hexadecimal; lines come in source order. */
-static const char *sect_map_name[NSECT] = {"text", "data", "far", "cluster"};
+static const char *sect_map_name[NSECT] = {"text", "data", "far", "cluster", "units"};
 
 static void write_map(const char *path, const char *image) {
   FILE *f = fopen(path, "w");
@@ -883,13 +1383,21 @@ static void strip_comment(char *s) {
 
 static void run_pass(int p) {
   pass = p;
-  for (int i = 0; i < NSECT; i++) { sects[i].loc = 0; sects[i].lo = UINT32_MAX; }
+  for (int i = 0; i < NSECT; i++) { sects[i].loc = 0; sects[i].lo = UINT32_MAX; sects[i].size = 0; }
   sects[S_TEXT].loc = text_org;
   cs = S_TEXT;
   li_idx = 0;
+  if (p == 1) nli = 0;
+  for (int g = 0; g < ngroups; g++) gloc[g] = gbase[g];
+  user_far_end = 0;
   for (int li = 0; li < nlines; li++) {
     cur_file = lines[li].file;
     cur_line = lines[li].line;
+    cur_li = li;
+    /* paged code: a .text line goes where its group is (pinned in .text, paged in .far) */
+    int g = opt_paged && lreg[li] >= 0 ? rgroup[lreg[li]] : -1;
+    uint32_t user_loc = 0;
+    if (g >= 0) { cs = gsect[g]; user_loc = sects[cs].loc; sects[cs].loc = gloc[g]; }
     char buf[4096];
     snprintf(buf, sizeof buf, "%s", lines[li].text);
     strip_comment(buf);
@@ -937,6 +1445,11 @@ static void run_pass(int p) {
     }
 
     if (pass == 2 && start_sect == cs && sects[cs].loc > start_loc) map_line(cs, start_loc, li);
+    if (g >= 0) {
+      if (cs == gsect[g]) { gloc[g] = sects[cs].loc; sects[cs].loc = user_loc; }
+      else err("a section directive on a line with code (paged mode)");
+      cs = S_TEXT;
+    } else if (cs == S_FAR && sects[S_FAR].loc > user_far_end) user_far_end = sects[S_FAR].loc;
     if (pass == 2 && listing) {
       Section *sec = &sects[start_sect];
       uint32_t end = start_sect == cs ? sec->loc : start_loc;
@@ -951,6 +1464,33 @@ static void run_pass(int p) {
       fprintf(listing, " %s\n", lines[li].text);
     }
   }
+  cur_li = nlines;
+  if (opt_paged || opt_far) { /* the set-up stub after the pinned code, the cache after the data */
+    cs = S_TEXT;
+    sects[S_TEXT].loc = opt_paged ? pinned_end : sects[S_TEXT].size ? (sects[S_TEXT].size + 3) & ~3u : text_org;
+    emit_stub();
+    cs = S_DATA;
+    sects[S_DATA].loc = sects[S_DATA].size;
+    if (opt_far) emit_cache();
+  }
+  for (int g = 0; g < ngroups; g++) gsize[g] = gloc[g] - gbase[g];
+}
+
+static void report(void) {
+    for (int g = 0; g < ngroups; g++) {
+      int r0 = gfirst[g], r1 = g + 1 < ngroups ? gfirst[g + 1] : nregions, why = -1;
+      const char *first = "(start)";
+      for (int t = 0; t < ntlabs; t++)
+        if (tlabs[t].region == r0) { first = tlabs[t].name; break; }
+      for (int t = 0; t < ntlabs && why < 0; t++)
+        if (tlabs[t].region >= r0 && tlabs[t].region < r1 && tlabs[t].taken) why = t;
+      fprintf(stderr, "%-24s %5u bytes  %s %05x  %d region(s)%s%s%s%s\n", first, gsize[g],
+              gpinned[g] ? "pinned" : "unit  ", gbase[g], r1 - r0,
+              r0 == 0 ? "  (the entry)" : "", why >= 0 ? "  address taken: " : "", why >= 0 ? tlabs[why].name : "",
+              gpinned[g] == 2 ? "  larger than a unit" : "");
+      for (int r = r0; r + 1 < r1; r++)
+        fprintf(stderr, "    joined at %s:%d: %s\n", lines[rwhy[r]].file, lines[rwhy[r]].line, trim(lines[rwhy[r]].text));
+    }
 }
 
 static void wr32(FILE *f, uint32_t v) {
@@ -959,7 +1499,7 @@ static void wr32(FILE *f, uint32_t v) {
 }
 
 static void usage(void) {
-  fprintf(stderr, "usage: sasm [-o out.stx] [-l] [-g out.map] [-T text-origin] [-I dir] file.s\n");
+  fprintf(stderr, "usage: sasm [-o out.stx] [-l] [-g out.map] [-T text-origin] [-I dir] [-r] [-n] [-u KIB] [-c KIB] file.s\n");
   exit(2);
 }
 
@@ -972,6 +1512,17 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "-g") && i + 1 < argc) map = argv[++i];
     else if (!strcmp(argv[i], "-T") && i + 1 < argc) text_org = (uint32_t)strtoul(argv[++i], NULL, 0);
     else if (!strcmp(argv[i], "-I") && i + 1 < argc) { if (nincdirs < 16) incdirs[nincdirs++] = argv[++i]; }
+    else if (!strcmp(argv[i], "-r")) opt_paged = 0;
+    else if (!strcmp(argv[i], "-v")) opt_report = 1;
+    else if (!strcmp(argv[i], "-n")) opt_far = 0;
+    else if (!strcmp(argv[i], "-u") && i + 1 < argc) {
+      int k = atoi(argv[++i]);
+      if (k != 1 && k != 2 && k != 4) usage();
+      ulg = k == 1 ? 10 : k == 2 ? 11 : 12;
+    } else if (!strcmp(argv[i], "-c") && i + 1 < argc) {
+      cache_kib = atoi(argv[++i]);
+      if (cache_kib < 1 || cache_kib > 16 || (cache_kib & (cache_kib - 1))) usage();
+    }
     else if (argv[i][0] == '-') usage();
     else if (!in) in = argv[i];
     else usage();
@@ -989,9 +1540,36 @@ int main(int argc, char **argv) {
 
   read_file(in, 0);
   if (nerrors) return 1;
-
-  run_pass(1);
+  prescan();
   if (nerrors) return 1;
+
+  /* pass 1, again until the layout of paged code stops moving */
+  for (int it = 0;; it++) {
+    for (int i = 0; i < nsyms; i++) syms[i].defined = 0;
+    run_pass(1);
+    if (nerrors) return 1;
+    if (!opt_paged) break;
+    uint32_t *old = xmalloc(sizeof *old * (size_t)(ngroups + 1));
+    memcpy(old, gbase, sizeof *old * (size_t)ngroups);
+    uint32_t old_end = pinned_end, old_ub = ubase;
+    layout(user_far_end);
+    if (nerrors) { if (opt_report) report(); return 1; }
+    int same = it > 0 && pinned_end == old_end && ubase == old_ub && !memcmp(old, gbase, sizeof *old * (size_t)ngroups);
+    free(old);
+    if (same) break;
+    if (it == 20) { fprintf(stderr, "sasm: the paged layout does not settle\n"); return 1; }
+  }
+  if (opt_report && opt_paged) report();
+  if (opt_paged && pinned_end + stub_size() + (2u << ulg) > 0x10000) {
+    fprintf(stderr, "sasm: paged code: the pinned code (%u bytes) leaves no room for two %u-byte units\n",
+            pinned_end + stub_size() - text_org, 1u << ulg);
+    return 1;
+  }
+  if (opt_far && sects[S_DATA].size > 0xA000) {
+    fprintf(stderr, "sasm: far data: the data section with its cache ends at 0x%x, past StrataOS's 0xA000 "
+            "(a smaller cache with -c, or -n)\n", sects[S_DATA].size);
+    return 1;
+  }
   for (int i = 0; i < NSECT; i++) sects[i].buf = xmalloc(sects[i].limit);
   if (want_list) listing = stdout;
   run_pass(2);
@@ -1003,9 +1581,13 @@ int main(int argc, char **argv) {
   for (int i = 0; i < NSECT; i++) count += sects[i].size > 0;
   fwrite("STX2", 1, 4, f);
   wr32(f, (uint32_t)count);
-  for (int i = 0; i < NSECT; i++) {
+  for (int k = 0; k < NSECT; k++) {
+    int i = k == 0 ? S_UNITS : k - 1; /* the units first: their offsets are the file's */
     if (!sects[i].size) continue;
-    uint32_t lo = sects[i].lo & ~7u, n = sects[i].size - lo, pad = (8 - (n & 7)) & 7;
+    uint32_t lo = sects[i].lo & ~7u, n, pad;
+    if (i == S_UNITS) lo = 24;        /* (zeros up to the first unit) */
+    n = sects[i].size - lo;
+    pad = (8 - (n & 7)) & 7;
     wr32(f, (uint32_t)sects[i].kind);
     wr32(f, lo);
     wr32(f, n + pad);
