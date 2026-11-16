@@ -4,11 +4,19 @@
  sends them (arrows: ESC [ A ...); the pointer selects.
 
    Workspace open        ClassBrowser open        anObject inspect
-   stratalk -w           stratalk -b              (from a terminal of ws)"
+   stratalk -w           stratalk -b              (from a terminal of ws)
 
-Object subclass: #UIApp slots: 'window panes focus done status'.
+ Keys typed quickly come several to an event (up to 8 bytes), so an escape
+ sequence can be cut between two events: its beginning waits for the rest
+ (an ESC alone that nothing follows soon is the Esc key). The keys waiting
+ are taken together and the window drawn once after them: a held arrow
+ does not fall behind, and ws's queue (8 events) does not overflow. A
+ list tells what was selected (a class's selectors, a method's source)
+ once, after them."
+
+Object subclass: #UIApp slots: 'window panes focus done status pending batch stale chosen'.
 Object subclass: #Pane slots: 'app x y w h title'.
-Pane subclass: #ListPane slots: 'items selection top onSelect'.
+Pane subclass: #ListPane slots: 'items selection top onSelect all filter'.
 Pane subclass: #TextPane slots: 'lines row col top editable'.
 UIApp subclass: #Workspace slots: 'text last'.
 UIApp subclass: #ClassBrowser slots: 'classes selectors source meta sources'.
@@ -48,35 +56,81 @@ UIApp >> add: aPane [ panes add: aPane. ^aPane ]
 UIApp >> loop [
     | e |
     [done] whileFalse: [
-        e := window nextEvent.
-        e == nil ifFalse: [
-            e isClose ifTrue: [done := true].
-            e isResize ifTrue: [panes := OrderedCollection new. self layout. focus := panes first. self drawAll].
-            e isKey ifTrue: [self keys: e keys].
-            (e isPointer and: [e buttons ~= 0]) ifTrue: [self click: e x // Window cellWidth row: e y // Window cellHeight]]] ]
+        e := pending == nil ifTrue: [window nextEvent] ifFalse: [window nextEventWait: 40000].
+        (e == nil and: [pending notNil]) ifTrue: [self flushPending].
+        e == nil ifFalse: [self handle: e]] ]
+UIApp >> handle: e [
+    | ks more |
+    e isClose ifTrue: [done := true].
+    e isResize ifTrue: [panes := OrderedCollection new. self layout. focus := panes first. self drawAll].
+    e isKey ifTrue: [
+        ks := e keys.
+        [(more := window pollEvent) notNil and: [more isKey]] whileTrue: [ks := ks , more keys].
+        self batch: [self keys: ks].
+        more == nil ifFalse: [self handle: more]].
+    (e isPointer and: [e buttons ~= 0]) ifTrue: [self click: e x // Window cellWidth row: e y // Window cellHeight] ]
+UIApp >> batch: aBlock [
+    "aBlock, with the window drawn once at the end if it changed."
+    | lists |
+    batch := true. stale := false. chosen := OrderedCollection new.
+    [aBlock value] ensure: [batch := false. lists := chosen. chosen := nil].
+    lists do: [:p | p changed].
+    stale ifTrue: [stale := false. self drawAll] ]
+UIApp >> selectionChanged: aList [
+    "aList's onSelect now, or, while keys are taken together, after them."
+    chosen == nil ifTrue: [^aList changed].
+    (chosen includes: aList) ifFalse: [chosen add: aList] ]
 UIApp >> keys: aString [
-    | s c |
-    s := ReadStream on: aString.
+    "The keys of an event, after what an earlier one left of an escape sequence."
+    | s c start |
+    "A sequence cut short, then another one: the rest of the first was dropped
+     (ws's queue was full); it is not an Esc."
+    (pending notNil and: [aString notEmpty and: [aString first value = 27]]) ifTrue: [pending := nil].
+    s := ReadStream on: (pending == nil ifTrue: [aString] ifFalse: [pending , aString]).
+    pending := nil.
     [s atEnd] whileFalse: [
+        start := s position.
         c := s next.
         c value = 27
-            ifTrue: [self escape: s]
+            ifTrue: [(self escape: s) ifFalse: [
+                pending := s collection copyFrom: start + 1 to: s collection size.
+                ^self]]
             ifFalse: [self key: c]] ]
 UIApp >> escape: s [
-    "ESC [ X, ESC [ n ~, or ESC alone"
+    "ESC [ X, ESC [ n ~ (or ESC [ n ; m ~), or ESC alone. false: the sequence
+     goes on in the next event (nothing is done yet). A sequence whose end
+     never came (ws drops events when its queue is full) is dropped, and the
+     key that follows it is a key."
     | c n |
-    s atEnd ifTrue: [^self key: (Character value: 27)].
-    s peek = $[ ifFalse: [^self key: (Character value: 27)].
+    s atEnd ifTrue: [^false].
+    s peek = $[ ifFalse: [self key: (Character value: 27). ^true].
     s next.
+    s atEnd ifTrue: [^false].
     c := s next.
-    c isDigit ifTrue: [n := c digitValue. [s atEnd not and: [s peek isDigit]] whileTrue: [n := n * 10 + s next digitValue]. s next.
-        ^self special: (#(#home #insert #delete #end #pageUp #pageDown) at: n ifAbsent: [#none])].
+    c value < 64 & c isDigit not ifTrue: [s skip: -1. ^true].
+    c isDigit ifTrue: [
+        n := c digitValue.
+        [s atEnd not and: [s peek isDigit]] whileTrue: [n := n * 10 + s next digitValue].
+        [s atEnd not and: [s peek isDigit or: [s peek = $;]]] whileTrue: [s next].
+        s atEnd ifTrue: [^false].
+        s peek value < 64 ifTrue: [^true].
+        s next.
+        self special: (#(#home #insert #delete #end #pageUp #pageDown) at: n ifAbsent: [#none]).
+        ^true].
     self special: (c = $A ifTrue: [#up] ifFalse: [c = $B ifTrue: [#down] ifFalse: [c = $C ifTrue: [#right] ifFalse: [
-        c = $D ifTrue: [#left] ifFalse: [c = $H ifTrue: [#home] ifFalse: [c = $F ifTrue: [#end] ifFalse: [#none]]]]]]) ]
+        c = $D ifTrue: [#left] ifFalse: [c = $H ifTrue: [#home] ifFalse: [c = $F ifTrue: [#end] ifFalse: [#none]]]]]]).
+    ^true ]
+UIApp >> flushPending [
+    "No more came: the ESC was the Esc key, and what followed it plain keys."
+    | p |
+    p := pending.
+    pending := nil.
+    self key: (Character value: 27).
+    p size > 1 ifTrue: [self keys: (p copyFrom: 2 to: p size)] ]
 UIApp >> key: c [
     c value = 9 ifTrue: [^self nextPane].
     c value = 17 ifTrue: [^done := true].
-    (c value = 27 and: [self quitsOnEscape]) ifTrue: [^done := true].
+    (c value = 27 and: [focus takesEscape not and: [self quitsOnEscape]]) ifTrue: [^done := true].
     (self command: c) ifTrue: [^self].
     focus key: c ]
 UIApp >> quitsOnEscape [ ^true ]
@@ -94,11 +148,13 @@ UIApp >> click: col row: r [
         ^self drawAll]] ]
 UIApp >> status: aString [ status := aString. self drawStatus ]
 UIApp >> drawAll [
+    batch == true ifTrue: [^stale := true].
     window clear: UIApp background.
     panes do: [:p | p draw].
     self drawStatus ]
 UIApp >> drawStatus [
     | s |
+    batch == true ifTrue: [^stale := true].
     s := status , (String new: (self columns - status size max: 0) withAll: $ ).
     window text: (s copyFrom: 1 to: (s size min: self columns)) column: 0 row: self rows - 1
         color: UIApp background background: UIApp accent ]
@@ -118,11 +174,46 @@ Pane >> draw [
     self drawBody ]
 Pane >> drawBody [ ^self ]
 Pane >> key: c [ ^self ]
+Pane >> takesEscape [ "true while Esc means something to the pane" ^false ]
 Pane >> special: aSymbol [ ^self ]
 Pane >> click: col row: r [ ^self ]
 Pane >> bodyRows [ ^h - 1 ]
 
-ListPane >> items: aCollection [ items := aCollection asOrderedCollection. selection := 0. top := 0 ]
+ListPane >> items: aCollection [
+    all := aCollection asOrderedCollection.
+    items := all.
+    selection := 0. top := 0.
+    filter == nil ifFalse: [filter := ''] ]
+ListPane >> typeahead [
+    "Typing filters the list: the item that is the text, those that begin
+     with it, then those that hold it elsewhere (in any case); the first is
+     selected. Backspace takes a character back, Esc or Ctrl-U clears it
+     (the list is whole again, the item selected stays so)."
+    filter := '' ]
+ListPane >> filter [ ^filter ]
+ListPane >> takesEscape [ ^filter notNil and: [filter notEmpty] ]
+ListPane >> filter: aString [
+    | f exact first rest was |
+    was := self selected.
+    filter := aString.
+    f := filter asLowercase.
+    f isEmpty
+        ifTrue: [items := all]
+        ifFalse: [
+            exact := OrderedCollection new. first := OrderedCollection new. rest := OrderedCollection new.
+            all do: [:it | | l |
+                l := it displayString asLowercase.
+                l = f ifTrue: [exact add: it] ifFalse: [
+                    (l beginsWith: f) ifTrue: [first add: it] ifFalse: [(l includesSubstring: f) ifTrue: [rest add: it]]]].
+            items := exact addAll: first; addAll: rest; yourself].
+    selection := 0. top := 0.
+    items isEmpty ifTrue: [app status: 'no match: ' , filter. ^app drawAll].
+    self select: ((f isEmpty and: [was notNil]) ifTrue: [(items indexOf: was) max: 1] ifFalse: [1]) ]
+ListPane >> draw [
+    | t |
+    t := (filter == nil or: [filter isEmpty]) ifTrue: [title] ifFalse: ['find: ' , filter , '_   (' , items size printString , ')'].
+    self line: ' ' , t at: 0 color: ((app hasFocus: self) ifTrue: [UIApp accent] ifFalse: [UIApp dim]) background: UIApp selection.
+    self drawBody ]
 ListPane >> items [ ^items ]
 ListPane >> onSelect: aBlock [ onSelect := aBlock ]
 ListPane >> selection [ ^selection ]
@@ -132,8 +223,9 @@ ListPane >> select: i [
     selection := i.
     selection <= top ifTrue: [top := selection - 1].
     selection > (top + self bodyRows) ifTrue: [top := selection - self bodyRows].
-    onSelect == nil ifFalse: [onSelect value: self selected].
+    app selectionChanged: self.
     app drawAll ]
+ListPane >> changed [ onSelect == nil ifFalse: [onSelect value: self selected] ]
 ListPane >> drawBody [
     | i item |
     1 to: self bodyRows do: [:r |
@@ -150,8 +242,15 @@ ListPane >> special: aSymbol [
     aSymbol == #home ifTrue: [^self select: 1].
     aSymbol == #end ifTrue: [^self select: items size] ]
 ListPane >> key: c [
-    "A letter: the next item that begins with it."
+    "A letter: the next item that begins with it (with typeahead: the filter)."
     | n i |
+    filter == nil ifFalse: [
+        (c value = 127 or: [c value = 8]) ifTrue: [
+            filter isEmpty ifFalse: [self filter: (filter copyFrom: 1 to: filter size - 1)].
+            ^self].
+        (c value = 27 or: [c value = 21]) ifTrue: [filter isEmpty ifFalse: [self filter: '']. ^self].
+        (c value > 32 and: [c value < 127]) ifTrue: [self filter: filter , (String with: c)].
+        ^self].
     c isLetter ifFalse: [^self].
     n := items size.
     1 to: n do: [:k |
@@ -272,16 +371,19 @@ ClassBrowser >> layout [
     third := self columns // 3.
     meta == nil ifTrue: [meta := false].
     classes := self add: (ListPane new app: self x: 0 y: 0 w: third h: half title: 'Classes').
-    selectors := self add: (ListPane new app: self x: third y: 0 w: self columns - third h: half title: 'Selectors   t: class side').
+    selectors := self add: (ListPane new app: self x: third y: 0 w: self columns - third h: half title: 'Selectors   Ctrl-T: class side').
     source := self add: (TextPane new app: self x: 0 y: half w: self columns h: self rows - 1 - half
-        title: 'Source   Ctrl-S accept   Tab: next pane   Esc, Ctrl-Q: close').
+        title: 'Source   Ctrl-S accept   Tab: next pane   Ctrl-Q: close').
     source editable: true.
     source setText: ''.
-    classes items: (Smalltalk allClasses collect: [:c | c name asString]).
+    classes typeahead; items: (Smalltalk allClasses collect: [:c | c name asString]).
+    selectors typeahead.
     classes onSelect: [:n | self showClass].
     selectors items: #().
     selectors onSelect: [:s | self showMethod].
-    self status: Smalltalk allClasses size printString , ' classes' ]
+    self status: Smalltalk allClasses size printString , ' classes   type to find one' ]
+ClassBrowser >> classList [ ^classes ]
+ClassBrowser >> selectorList [ ^selectors ]
 ClassBrowser >> quitsOnEscape [ ^focus ~~ source ]
 ClassBrowser >> currentClass [
     | c |
@@ -289,7 +391,7 @@ ClassBrowser >> currentClass [
     c := Smalltalk at: classes selected asSymbol ifAbsent: [^nil].
     ^meta ifTrue: [c class] ifFalse: [c] ]
 ClassBrowser >> command: c [
-    (c = $t and: [focus ~~ source]) ifTrue: [meta := meta not. self showClass. ^true].
+    c value = 20 ifTrue: [meta := meta not. self showClass. ^true].
     c value = 19 ifTrue: [self accept. ^true].
     ^false ]
 ClassBrowser >> showClass [
@@ -399,8 +501,7 @@ MethodSource class >> fromFiles: sel in: aClass ifAbsent: aBlock [
      selector, and the indented lines after it."
     | prefix |
     prefix := aClass name , ' >> '.
-    self files do: [:text | | lines i |
-        lines := text lines.
+    self files do: [:lines | | i |
         i := 1.
         [i <= lines size] whileTrue: [ | l |
             l := lines at: i.
@@ -424,8 +525,8 @@ MethodSource class >> selectorOf: aPattern [
     toks do: [:t | t last = $: ifTrue: [sel nextPutAll: t]].
     ^sel contents ]
 MethodSource class >> files [
-    "The kernel's sources, read from /stratalk/ once."
+    "The kernel's sources, read from /stratalk/ once, as lines."
     files == nil ifTrue: [
         files := (Smalltalk at: #SourceFiles ifAbsent: [#()]) collect: [:n |
-            [(File named: '/stratalk/' , n) contents] on: Error do: [:e | '']]].
+            [(File named: '/stratalk/' , n) contents lines] on: Error do: [:e | #()]]].
     ^files ]
