@@ -69,6 +69,12 @@ the kernel side. Section 9 says where the two differ.
   Kept near, they would cost +6%. Made far, they would cost about +30%
   (+4 instructions per load, +6 per store); a 4 KiB cache misses on 0.7% of
   them.
+- **`cc` pages code and data by default.** Flags turn either off for a
+  tighter program: `-r` keeps all code resident, `-n` keeps all data near.
+  Objects go near first and far only when the D-LS is full, so a program
+  that fits pays only the pointer test (+6% for `cc`, nothing once the ISA
+  change below exists) and the call sequences (+1% to +6%). Section 8.6
+  gives the details.
 - **One ISA change is worth weighing for data**: loads and stores beyond the
   D-LS doing the tag lookup themselves, with a dirty bit and a precise miss
   trap. That takes the +30% back to a few cycles per access, makes far data
@@ -79,7 +85,7 @@ the kernel side. Section 9 says where the two differ.
   convention, and the kernel pages them as it does now. Units come from a
   read-only segment, not from a copy in the arena, so images are no longer
   limited to 128 KiB (the earlier proposal's stages 2 and 3). `cc` gets the
-  far data model in software. The data ISA change is decided on the numbers
+  far data model in software and makes paged code and far data its defaults. The data ISA change is decided on the numbers
   from one large C program ported that way. Programs that manage their own
   units or transfers (the Forth, the Stratalk JIT, Stralog, wdoom's art) keep
   doing so. Section 10 lists the work.
@@ -362,18 +368,25 @@ existing pager, with three additions:
 - *Verdict.* Not worth it now. The assembler can do the rewrite, and the
   change buys convenience, not speed.
 
-**(b) A larger overlay map (NXMAP up to 32 or 64).**
+**(b) A larger overlay map (NXMAP up to 32).**
 - *What it buys.* Smaller units can fill the window. For `cc` that halves the
   misses (2.48 per 1000 with 1 KiB units in 28 slots, 1.73 with 512 B units
   in 56, against 3.03 with 2 KiB units). With the stream fetch a small unit
   is also cheaper per miss, so the time spent in misses falls by about 40%
   (1 KiB) to 60% (512 B). For the programs whose working set fits, it
   changes nothing.
+- *What it changes, exactly.*
+  - The platform range of NXMAP goes from 4..16 to 4..32.
+  - `xmap` and `xunmap` take their entry number from bits 24:21, with bit 25
+    fixed at 0 (an index with bit 25 set is illegal today). Bit 25 becomes
+    the top bit of a 5-bit index, so no encoding is added. A map of 64 would
+    need one of the spare `funct` bits as well, and the measurements do not
+    ask for it.
+  - The platform table already gives NXMAP in a 16-bit field.
 - *What it costs.*
-  - Comparators on the `xcall`/`xret` path only, not on the fetch. The map
-    is already a platform parameter (4 to 16), so the change is to its
-    range.
-  - The per-thread record grows: `PR_UNITS` from 16 to 32 or 64 entries.
+  - Comparators on the `xcall`/`xret` path only, not on the fetch: 32
+    instead of 16, and a wider priority encoder.
+  - The per-thread record grows: `PR_UNITS` from 16 to 32 entries.
   - A switch-in issues more, smaller transfers.
 - *Verdict.* The only lever for big working sets. Consider it once a program
   like `cc` matters for speed.
@@ -442,9 +455,13 @@ only as a fallback: for rare accesses, and for assembly nobody has converted.
   addresses them directly as now:
   - near: the stack (through `sp`), scalars and small statics (through
     `zero` and `gp`);
-  - far: the heap (`malloc` in the arena), statics above a size threshold,
-    string literals, and large locals and variable-length arrays (on a
-    second stack in the arena).
+  - far: what does not fit. Statics and string literals are placed near as
+    they are declared, until the D-LS budget for them is used up; later ones
+    go far. `malloc` returns near memory while the near heap has room and
+    arena memory after that. Large locals and variable-length arrays go on
+    a second stack in the arena.
+  - So a program whose data fits has no far objects at all, and all its
+    pointers are near.
   - Only accesses through pointers change.
 - **A dereference.** `gp` is 0x10000 in `cc`'s convention, so the test is one
   instruction: `bgeu p, gp, far`. The near path is the old load or store.
@@ -460,10 +477,16 @@ only as a fallback: for rare accesses, and for assembly nobody has converted.
   functions, `far_read` and `far_write` handle any mix of near and far:
   through the cache, or by writing back and dropping a range and then
   transferring it directly.
-- **The cache.** It lives in the program's data section: 4 to 8 KiB plus tags
-  and dirty bytes. That leaves about 32 KiB for near data, and the cache
-  travels with the thread like any other data.
-- **A compiler option**, `-d`. Programs that fit keep today's faster model.
+- **The cache.** It lives in the D-LS: 4 to 8 KiB plus tags and dirty bytes.
+  It is carved from the near heap when the first far object appears, so a
+  program that never goes far never gives up the space. It travels with the
+  thread like any other data.
+- **Code size.** The far path cannot be a shared routine without a register
+  convention for the address and the value, so it sits out of line at the
+  end of each function: the test stays inline (+1 word per dereference), the
+  far path adds about 6 words per dereference site. That growth, not the
+  speed, is the main reason to turn far data off for a small program.
+- **The default.** `cc` uses this model unless told not to (section 8.6).
 
 **Measured**, on `cc` compiling itself: a C program built by `cc`, 74.9
 million instructions, counted by the base register of every load and store.
@@ -504,41 +527,132 @@ measure first.
 
 ### 8.4 An ISA change: loads and stores through the tag table
 
-- **What it is.** A user-mode load or store whose address lies beyond the
-  D-LS (today an `lsfault`) looks the address up in the tag table instead,
-  as `ltag` does.
-  - On a hit it accesses the line, and a store sets the line's dirty bit
-    (the tag format gains one).
-  - On a miss it traps with a new cause, `dmiss`, with `tval` = the address.
-    The handler fills the line, and `eret` retries the access.
-- **What it buys.**
-  - Every dereference is the plain load or store: no test, no `ltag`, no
-    dirty byte.
-  - The +30% above becomes the lookup's cycles.
-  - Far data becomes transparent to assembly too: an assembly program's
-    pointers can simply be arena offsets.
-- **Who serves the miss.** Either of two:
-  - the program's run-time library, through its trap handler;
-  - the dispatcher, exactly as it pages code units. The geometry is in CSRs
-    and the victim's tag says what to write back, so no records are needed:
-    a shorter path than the code miss.
-- **What it costs the RTL.**
-  - The load/store path already detects an address beyond the D-LS (to raise
-    `lsfault`). That detection would start the existing tag-lookup sequencer
-    (`S_LG`/`S_LT`, one table word per two cycles: about 4 to 5 cycles for 2
-    ways) before the access.
-  - A store hit writes the tag word back with its dirty bit, as `linst`'s
-    second write (`S_LW`) does.
-- **What it costs elsewhere.**
-  - The tag format change reaches every `ltag` user: Stralog, Stratalk, the
-    `swcache` example, the manual.
-  - The emulator's fast loop and both JITs already range-check loads; their
-    slow path becomes the lookup.
-  - The conformance suite and the formal proofs change.
-- **Verdict.** Unlike the far PC of section 7a, this buys speed as well as
-  transparency, and its parts exist in the RTL. Decide it after the software
-  model has run one large C program, with that program's miss rate and
-  instruction counts in hand.
+The change reuses what `ltag` and `linst` already define: the geometry CSRs
+`ttag`, `tdata` and `tgeom`, and the tag table in the D-LS. It adds an enable
+bit, dirty bits, and one trap cause. A program that does not set the enable
+bit sees no difference anywhere.
+
+**1. An enable bit.** `tgeom` bit 16 is **FA** (far access). Today the bits of
+`tgeom` above 15 are ignored, and no program in the tree sets bit 16.
+
+**2. Loads and stores** (`lb` to `ld`, `sb` to `sd`).
+- Only an address at or above `DLS_SIZE` takes the new path. Every such
+  access traps with `lsfault` today, so nothing that works now changes.
+- An address inside the D-LS but outside the user-mode windows still traps
+  with `lsfault`, so the kernel's protection is untouched.
+- The path works in either mode, so bare-metal programs and conformance tests
+  can use it.
+
+```
+addr = X[rs1] + SignExtend(imm16, 64);
+if addr MOD n != 0 then Trap(lsfault, addr); end
+if UInt(addr) >= DLS_SIZE and TGEOM<16> == 1 then             // far: through the tag table
+    lsh, set, eb, pe, key, ctr as in LTAG for offset addr;       // the same lsfault on a bad table
+    if lsh < 3 then Trap(lsfault, addr); end                     // a line holds any aligned scalar
+    w = the way whose tag word == key, else Trap(dmiss, addr);
+    pa = Window(FALSE, TDATA + ((set*ways + w) << lsh) + (addr AND ((1 << lsh) - 1)), n);
+    if pa == FAULT then Trap(lsfault, addr); end
+    Stall as now while [pa, pa+n) overlaps an in-flight transfer;
+    load:  X[rd] = DLS.Read(pa, n), extended as now;
+    store: DLS.Write(pa, n, ...);
+           if ctr<32+w> == 0 then DLS.Write(pe + 8*ways, 8, ctr OR (1 << (32 + w))); end
+else
+    ... exactly as now (lsfault if addr > DLS_SIZE - n, the windows, the stalls)
+end
+```
+
+Natural alignment and lines of at least 8 bytes keep an access inside one
+line. The existing stall rule applies to the line, so a miss handler can
+issue its `tget`, `linst` and `eret` without waiting: the retried access waits
+for its bytes.
+
+**3. Dirty bits go in the set's counter word, not in the tag.** The counter
+doubleword that follows each set's tags holds only the round-robin index
+today (0 to 14). It becomes:
+
+| Bits | Meaning |
+|---|---|
+| 3:0 | the replacement index, as now |
+| 32 + w | way w is dirty (ways 0 to 14) |
+| others | zero |
+
+The tag format, `(line << 1) | 1`, does not change. `ltag` and `linst` change
+in three small ways:
+- `ltag` takes the victim from `ctr<3:0>` (if below `ways`, else 0) instead of
+  from the whole word.
+- On a miss, `ltag` also sets bit 62 of its result when the victim way is
+  dirty. Existing code clears bit 63 with `slli 1; srli 1`, which would keep
+  bit 62. That is safe, because only a far store with FA set ever sets a
+  dirty bit.
+- `linst` writes the next index into bits 3:0, clears the victim way's dirty
+  bit and leaves the other bits as they were.
+
+Software that never sets FA finds the counter word exactly as before. A flush
+routine finds the dirty lines by reading the counter words, which are
+ordinary D-LS memory, and clears the bits with ordinary stores.
+
+**4. A new cause.** 15 = **dmiss**: a far load or store whose line is not in
+the tag table. `tval` is the address. The trap is precise, `epc` is the load
+or store, and `eret` retries it. It takes the instruction's own place in the
+order of checks: after a misaligned address (`lsfault`) and a bad table
+entry (`lsfault`). Routing is the usual: the program's handler if it has
+installed one, otherwise the supervisor.
+
+**5. Serving the miss.** By default the dispatcher serves it, as it serves
+`xmiss` for code. It needs no per-thread records: the geometry is in the
+thread's CSRs and the lines and tags are the thread's data. About 30
+instructions:
+1. Reject an offset outside `c0`. The program then ends with a fault, as for
+   an `xmiss` that cannot be served.
+2. `ltag` the address to find the victim.
+3. If bit 62 says the victim is dirty, read its old tag and `tput` its line to
+   `c0` at that line's offset.
+4. `tget` the new line from `c0` into the victim's storage.
+5. `linst` the address, and `eret`.
+
+A program with a trap handler of its own serves its misses itself, or passes
+them on, as the Forth passes on code misses with svc PAGE.
+
+**What it buys.**
+- Every dereference is the plain load or store: no pointer test, no `ltag`,
+  no dirty byte. The +30% of section 8.3 becomes the lookup's cycles.
+- `cc` emits ordinary loads and stores for every dereference, near or far.
+  Its start-up sets the three CSRs with FA, and `malloc` returns arena
+  offsets once the near heap is full.
+- Assembly gets far data with no rewriting: a pointer can simply be an arena
+  offset.
+
+**What it costs the RTL.**
+- In EX, a load or store already compares its address with `DLS_SIZE` to raise
+  `lsfault`. With FA set, it goes instead to the existing tag-lookup sequencer
+  (`S_LG`/`S_LT`), keyed by the address and marked as a load or a store.
+- On a hit it continues to `S_LD`, or makes the store. A store to a clean way
+  then rewrites the counter word, like `linst`'s second write (`S_LW`).
+- A miss raises `dmiss`.
+- The `ltag`/`linst` datapath changes only in the counter's mask, bit 62 of
+  the result, and `linst`'s write of the counter.
+- Speed: the sequencer reads one table word per two cycles, so a 2-way lookup
+  plus the counter word takes about 6 cycles. That is the work `ltag` does
+  today; what the change saves is the 4 to 6 instructions around it.
+  An implementation may remember its last hit to skip repeated lookups. That
+  is a choice of the implementation, not part of the ISA, and it must forget
+  the hit on any store into the tag table and on `linst`.
+
+**What it costs elsewhere.**
+- **Emulator:** the slow path of loads and stores, and `ltag`/`linst`. The
+  predecoded loop and both JITs already leave their fast path on an
+  out-of-range address; there they check FA.
+- **Manual:** the load and store pages, `ltag`, `linst`, the `tgeom` figure,
+  the cause tables. Also the cause names in `common/stx.h` and the debugger.
+- **Conformance tests:** FA = 0 unchanged, hits, misses, dirty bits, `linst`
+  clearing a dirty bit, and `ltag`'s bit 62.
+- **Formal proofs:** the properties of the load/store path.
+- **Kernel:** the dmiss service, which fits in the worker extension.
+
+**Verdict.** Unlike the far PC of section 7a, this buys speed as well as
+transparency, and its parts exist in the RTL. Decide it after the software
+model has run one large C program, with that program's miss rate and
+instruction counts in hand.
 
 ### 8.5 What far data meets in the system
 
@@ -561,6 +675,57 @@ measure first.
 - **Debugging.** A far pointer is an arena offset. To show what it points at,
   the debugger must look in the program's cache before the arena, because
   the arena may be stale.
+
+### 8.6 `cc`'s defaults, and the flags that turn them off
+
+`cc` pages code and uses far data unless told otherwise. A program is written
+and compiled without flags whether it fits the Local Stores or not. The flags
+make a program tighter when it is known to fit:
+
+| Flag | What it turns off | What the program gets |
+|---|---|---|
+| (none) | | paged code (today's `-p`) and far data (section 8.3) |
+| `-r` | paged code | today's default: all code resident, calls are `jal`, no units; an error if the code does not fit the I-LS |
+| `-n` | far data | today's data model: no pointer test, no cache, no far path; an error if the data does not fit the D-LS |
+| `-r -n` | both | exactly today's default output |
+
+`-p` stays accepted and means the default. Two size options come with the
+defaults: `-u KIB` for the unit size (4 KiB, as now, until stage A's
+measurements say otherwise) and `-c KIB` for the data cache (4 KiB).
+
+What the defaults cost a program that would have fitted, measured on `cc`:
+- **Paged code.**
+  - +2 instructions per call: +6% at `cc`'s 31 calls per 1000 instructions,
+    +1% for vi- and wdoom-like code.
+  - One miss per unit at start-up.
+  - Misses beyond that only if the working set exceeds the cache, as for
+    `cc` itself.
+- **Far data, with no far objects** (near-first placement).
+  - The pointer test: +1 instruction per dereference, +6% for `cc`.
+  - About 1 word of code per dereference, plus the out-of-line far paths.
+  - No D-LS: the cache is never made.
+- **Far data after the ISA change of section 8.4.**
+  - The hardware chooses near or far by address, so the compiler emits the
+    plain load or store: no test and no far path.
+  - The default then costs a program that fits nothing at all, and `-n` only
+    turns off the library's far support.
+
+`cc` compiles in one pass, so it learns whether a program fits only at the
+end, after the call and dereference sequences are emitted. It cannot drop to
+the tight model by itself without compiling a second time. That could be
+offered later as an option, but it is not the default, because it doubles
+compile time.
+
+Consequences for the build and the tests:
+- **The bootstrap.**
+  - `cc0`, the bootstrap compiler in assembly, keeps today's models: it only
+    has to compile `cc.c`.
+  - `cc` itself is built with `-n`, because its data fits by design.
+  - `test-cc-boot` keeps comparing the same files.
+- **The test ladder.**
+  - It runs in the default model.
+  - A subset also runs with `-r`, `-n` and `-r -n`, so that the tight models
+    stay correct.
 
 ## 9. Where this differs from the earlier proposal
 
@@ -611,35 +776,39 @@ function runs and misses. The hook used here records code blocks; a symbol map
 turns them into functions. `sasm` takes the result as the pinned list. Pinning
 `cc`'s hottest few KiB is the cheapest experiment on its +57%.
 
-**Stage D: far data in `cc`.**
-- The `-d` model of section 8.3: the pointer test, inline far loads and
-  stores through an `ltag` cache, the miss routine, placement of the heap,
-  large statics and large locals in the arena.
+**Stage D: far data in `cc`, and the new defaults.**
+- The model of section 8.3: the pointer test, far loads and stores through an
+  `ltag` cache, the miss routine, near-first placement of statics and the
+  heap, large locals in the arena.
+- The defaults and flags of section 8.6: paged code and far data on, `-r` and
+  `-n` to turn them off, `-u` and `-c` for the sizes.
 - In the library: block operations, `far_read`/`far_write` and the flush, for
   near and far alike.
 - `cc` counts its cache's lookups, misses and write-backs, as Stralog's
   `statistics/0` does.
 - Check:
-  - the C test ladder compiled with `-d`;
+  - the C test ladder in the default model, and a subset with `-r`, `-n` and
+    `-r -n`;
   - a program with several MiB of heap (run with `-m`);
-  - `cc` itself built with `-d` and still reproducing itself.
+  - `cc` itself, built with `-n`, still reproducing itself;
+  - the cost on programs that fit, in instructions and in code size, against
+    `-r -n`.
 
 **Stage E: decide on loads and stores through the tag table** (section 8.4),
-with stage D's numbers from a ported program. If adopted, `cc -d` drops its
-inline sequences and the miss routine moves to the run-time library or the
-dispatcher.
+with stage D's numbers from a ported program. If adopted, `cc` drops its
+pointer tests and far paths, and the miss routine moves to the run-time
+library or the dispatcher.
 
 **Optional, later:**
 - a shorter miss path (184 instructions, of which the record keeping is a
   part);
-- `cc`: functions over a unit split at basic blocks, and `-p` with 2 KiB
-  units;
+- `cc`: functions over a unit split at basic blocks;
 - NXMAP 32 (section 7b), if `cc`-like programs matter for speed.
 
 **What ports most easily:**
 - C programs within the data limits: already, with `cc -p`.
-- C programs beyond them: with `-d`, at the cost of section 8.3, once stage D
-  exists.
+- C programs beyond them: with no flags at all once stage D exists, at the
+  cost of section 8.3.
 - Assembly that calls with `call`/`ret`, keeps code addresses only in
   registers and calls, and does not keep values in the scratch register
   across calls. A first count of `gp`, `t6`, `jalr` and `la` in vi, ws,
@@ -655,8 +824,11 @@ dispatcher.
 - **Far data and threads.** Threads that share far data must flush at their
   synchronisation points. A C program that relies on shared memory without
   locks will see stale data.
-- **The D-LS gets tighter.** The data cache takes 4 to 8 KiB of the 40 KiB
-  for near data.
+- **The D-LS gets tighter** for a program that goes far: the data cache takes
+  4 to 8 KiB of the 40 KiB for near data.
+- **The defaults cost programs that fit** until the ISA change: +6% (`cc`) in
+  pointer tests and some code growth, unless they are built with `-n`. The
+  flags exist for that; the risk is that nobody uses them.
 - **Programs with large working sets.** They pay +50% or more in
   instructions, as `cc` does today. Only pinning and a larger map reduce it.
 - **Hand-written assembly with its own conventions.** Some code uses `gp` as a
@@ -682,7 +854,8 @@ dispatcher.
 2. **The convention.** Should the scratch register for rewritten calls be
    fixed (`t6`, as `cc` uses) or chosen per program?
 3. **Data for C.**
-   - Should `cc` get the `-d` far data model of section 8.3 (stage D)?
+   - Should `cc` get the far data model of section 8.3, on by default as
+     section 8.6 proposes (stage D)?
    - Should loads and stores through the tag table (section 8.4) be
      considered only after a large C program has been ported in software, as
      recommended, or earlier?
