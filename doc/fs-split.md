@@ -173,8 +173,9 @@ core to spare the shell could sit alone.
 
 The store test (`tools/test-store.sh`, all its sessions on the counting
 emulator, `tools/bench/store-test.sh`): 1.54 G instructions, 90,492
-messages, 15,245 block commands before; 1.84 G (+20%), 164,962 messages
-(+82%), 15,020 block commands after.
+messages, 15,245 block commands before; 1.78 G (+16%), 164,988 messages
+(+82%), 15,088 block commands after (116 sessions counted against 117: one
+session fewer leaves its counts).
 
 Where the time goes: not in copies (a READ's bytes cross two more
 transfers, `cat` is 11% slower) but in round trips. A store call that was
@@ -203,6 +204,12 @@ the kernel part.**
   today — or `db` can be split out only where it is used across a
   boundary. The partial-value calls (VREAD, VWRITE at an offset) are what a
   guest's `blk` needs, and they work in one server as well as in two.
+- A bug the split exposed belongs on `main` either way: a program wrote
+  its console ring through `c10` (`os/lib/chan.s`), which does not survive
+  a context switch, so one preempted between copying the ring there and
+  writing it faulted (`test-procs` lost its login shell once `db` shared
+  the shell's core). `chan_put` now uses `c6`, where the ring is
+  (commit d2e7ba3).
 - If the guest work does build on `db` directly, two things are missing
   first: transactions for a second writer (today `fs` is `db`'s only
   writer; a guest's batch in the middle of an `fs` request would commit
