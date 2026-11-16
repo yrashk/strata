@@ -3,9 +3,11 @@
 
    genstratalk.py OUTDIR                  the page, OUTDIR/stratalk/index.html
    genstratalk.py --check [FILE.st...]    every class and method has a description
-   genstratalk.py --examples DIR [FILE.st...]
-                                          the comments' examples as DIR/doc.st and
-                                          DIR/doc.out, for lang/stratalk/tests/doc.sh
+   genstratalk.py --examples DIR [--host] [FILE.st...]
+                                          the comments' examples and the page's
+                                          runnable code blocks (not with --host: they
+                                          need StrataOS) as DIR/doc.st and DIR/doc.out,
+                                          for lang/stratalk/tests/doc.sh
 
 The prose is doc/manual/web/stratalk.html; the class reference (every class
 of the kernel, by file, with its slots and its methods: selector, comment,
@@ -133,11 +135,48 @@ def prose(text):
     return re.sub(r"`([^`]+)`", r"<code>\1</code>", esc(text))
 
 
+def try_button(text, lines=False, small=False):
+    """A Try button: the playground (site/stratalk/stratalk.js) puts text in its
+    editor and runs it, as a file, or with lines each line as the REPL would."""
+    return '<button type="button" class="small try-b%s" data-try="%s"%s title="Run it in the playground">Try</button>' % (
+        " mini" if small else "", esc(text), " data-lines" if lines else "")
+
+
 def examples_html(exs):
     if not exs: return ""
     return '<div class="st-ex">%s</div>' % "".join(
-        '<code class="e">%s</code><span class="to" aria-label="answers">→</span><code class="r">%s</code>' % (
-            esc(e), esc(r)) for e, r in exs)
+        '<code class="e">%s</code><span class="to" aria-label="answers">→</span><code class="r">%s</code>%s' % (
+            esc(e), esc(r), try_button(e, small=True)) for e, r in exs)
+
+
+SNIPPET = re.compile(r'<pre class="lst"><code([^>]*)>(.*?)</code></pre>', re.S)
+
+
+def snippet(attrs, body):
+    """What a prose code block's Try runs: (text, lines) or None. data-session: its
+    st> lines, one by one; data-try: the block, as a file; data-try-lines: each line."""
+    text = html.unescape(body)
+    if "data-session" in attrs:
+        ins = [l[4:] for l in text.split("\n") if l.startswith("st> ")]
+        return ("\n".join(ins), True) if ins else None
+    if "data-try-lines" in attrs:
+        return text, True
+    if re.search(r"\bdata-try\b", attrs):
+        return text, False
+    return None
+
+
+def with_try_buttons(prose):
+    """The prose's runnable code blocks, each with its Try button."""
+    def one(m):
+        sn = snippet(m.group(1), m.group(2))
+        if not sn: return m.group(0)
+        return '<div class="try-pre">%s%s</div>' % (try_button(*sn), m.group(0))
+    return SNIPPET.sub(one, prose)
+
+
+def prose_snippets():
+    return [sn for sn in (snippet(a, b) for a, b in SNIPPET.findall(web_file("stratalk.html"))) if sn]
 
 
 def class_html(c):
@@ -271,7 +310,7 @@ def write(out, page, link_sources=None, files_for_links=None):
     n_methods = sum(len(c["methods"]) for c in classes.values())
     ops = len(re.findall(r"^\w+Server >> \w+: args \[", open(os.path.join(ST, "kernel", "OSServers.st")).read(), re.M))
     counts = {"classes": len(classes), "methods": n_methods, "examples": len(exs), "ops": ops}
-    intro = re.sub(r"\{\{(\w+)\}\}", lambda m: str(counts[m.group(1)]), web_file("stratalk.html"))
+    intro = with_try_buttons(re.sub(r"\{\{(\w+)\}\}", lambda m: str(counts[m.group(1)]), web_file("stratalk.html")))
     side, main = page_parts(files, classes, exs, intro)
     head = ('<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">\n'
             '<link rel="stylesheet" href="stratalk.css?v=__BUILD__">')
@@ -319,14 +358,28 @@ def check(only=None):
     return bad
 
 
-def write_examples(d, only=None):
-    """The examples of the comments (EXPR >>> RESULT) as a test vector of
-    lang/stratalk/tests/run.sh: d/doc.st and d/doc.out."""
+def write_examples(d, only=None, prose=True):
+    """The examples of the comments (EXPR >>> RESULT) and, with prose, the page's
+    runnable code blocks, as a test vector of lang/stratalk/tests/run.sh: d/doc.st
+    and d/doc.out."""
     files, classes = collect()
     exs = []
     for c in classes.values():
         for com in [c["comment"]] + [m[2] for m in c["methods"] if not only or m[4] in only]:
             if com: exs.extend(com[1])
+    # the prose's runnable blocks: each must run without an error. A line of the
+    # console is at most 255 bytes, so a file is put together in a global first.
+    for text, lines in (prose_snippets() if prose and not only else []):
+        if lines:
+            for l in text.split("\n"):
+                if l.strip(): exs.append(("[%s. 'ok'] on: Error do: [:e | e messageText]" % l, "'ok'"))
+            continue
+        one = " ".join(text.split("\n"))
+        exs.append(("Smalltalk at: #DocSnippet put: ''. 0", "0"))
+        for i in range(0, len(one), 120):
+            exs.append(("Smalltalk at: #DocSnippet put: (Smalltalk at: #DocSnippet), '%s'. 0"
+                        % one[i:i + 120].replace("'", "''"), "0"))
+        exs.append(("[Compiler fileIn: (Smalltalk at: #DocSnippet). 'ok'] on: Error do: [:e | e messageText]", "'ok'"))
     with open(os.path.join(d, "doc.st"), "w") as f:
         f.write("".join(e + "\n" for e, _ in exs))
     with open(os.path.join(d, "doc.out"), "w") as f:
@@ -338,7 +391,9 @@ def main():
     if sys.argv[1:2] == ["--check"]:
         sys.exit(1 if check(sys.argv[2:]) else 0)
     if sys.argv[1:2] == ["--examples"]:
-        print("genstratalk: %d examples" % write_examples(sys.argv[2], sys.argv[3:]))
+        args = sys.argv[3:]
+        print("genstratalk: %d examples" % write_examples(sys.argv[2], [a for a in args if a != "--host"],
+                                                         "--host" not in args))
         return
     if len(sys.argv) != 2:
         sys.exit(__doc__)

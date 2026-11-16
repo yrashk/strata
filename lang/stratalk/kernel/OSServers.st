@@ -499,7 +499,7 @@ KernelServer >> create [
      (`create:` with an empty Dictionary)."
     ^self create: Dictionary new ]
 KernelServer >> create: args [
-    "CREATE (1): Start a process in an arena that holds its image. Request: data: pid, threads, flags, pin core, c1's core, c2's core, c3's core, c4's core, 0, a0, a1, a2; attachment: the arena, whole, as MEMORY gave it (not sent from Stratalk). Reply: result: 0: the process starts; data: first core; attachments: for a server: a send-only endpoint to its core; on failure: the arena, given back."
+    "CREATE (1): Start a process in an arena that holds its image. Request: mode: the image's length: the bytes fs loaded at 0xD0000; data: pid, threads, flags, pin core, c1's core, c2's core, c3's core, c4's core, 0, a0, a1, a2; attachment: the arena, whole, as MEMORY gave it (mode 0 or 2) (not sent from Stratalk). Reply: result: 0: the process starts; data: first core; attachments: for a server: a send-only endpoint to its core; on failure: the arena, given back."
     ^self op: 1 named: 'CREATE' args: args request: #(#(#u64 'pid') #(#u64 'threads') #(#u64 'flags') #(#s64 'pin core') #(#u8 'c1''s core') #(#u8 'c2''s core') #(#u8 'c3''s core') #(#u8 'c4''s core') #(#u32 '0') #(#u64 'a0') #(#u64 'a1') #(#u64 'a2')) reply: #(#(#u64 'first core')) ]
 KernelServer >> destroy [
     "DESTROY: Stop every thread of a process, with every request field zero (`destroy:` with an
@@ -513,7 +513,7 @@ KernelServer >> memory [
      Dictionary)."
     ^self memory: Dictionary new ]
 KernelServer >> memory: args [
-    "MEMORY (3): A fresh, zeroed arena. Request: handle: with mode 1: the pid whose extra arena it is (not checked); length: the size wanted in bytes: rounded up to whole 256 KiB granules, 1 MiB at least (0: 1 MiB); modes: 0 an arena for the sender, to make a process of (CREATE) or a guest (GSTART), 1 an extra arena of the process the handle names. Reply: result: 0; data: base, size; attachments: the arena."
+    "MEMORY (3): A fresh, zeroed arena. Request: handle: with mode 1: the pid whose extra arena it is (not checked); length: the size wanted in bytes: rounded up to whole 256 KiB granules, 1 MiB at least (0: 1 MiB); modes: 0 an arena for the sender, to make a process of (CREATE) or a guest (GSTART), 1 an extra arena of the process the handle names, 2 an arena for an image (CREATE), not zeroed where nothing reads; with bit 0 set it is ignored. Reply: result: 0; data: base, size; attachments: the arena."
     ^self op: 3 named: 'MEMORY' args: args request: #() reply: #(#(#u64 'base') #(#u64 'size')) ]
 KernelServer >> stats [
     "STATS: Counts of the machine, every core and every process, with every request field zero
@@ -534,7 +534,7 @@ KernelServer >> free [
      Dictionary)."
     ^self free: Dictionary new ]
 KernelServer >> free: args [
-    "FREE (6): Give an arena back to the pool. Request: attachment: the arena, whole: one MEMORY gave out and was not used, one that came with EXITED, or an extra arena (mode 1) (not sent from Stratalk). Reply: result: 0."
+    "FREE (6): Give an arena back to the pool. Request: attachment: the arena, whole: one MEMORY gave out and was not used (mode 0 or 2), one that came with EXITED, or an extra arena (mode 1) (not sent from Stratalk). Reply: result: 0."
     ^self op: 6 named: 'FREE' args: args request: #() reply: #() ]
 KernelServer >> opHalt [
     "HALT: Stop every core, with every request field zero (`opHalt:` with an empty Dictionary)."

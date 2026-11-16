@@ -442,6 +442,8 @@ TG_TMR   = 11                           ; core 0: the timer WAIT
 SLICE0   = 2000                         ; the preemption time slice at boot: 2 ms (TUNE changes it)
 GIFTPOLL = 10000                        ; at most this often a busy core is stopped for a waiting gift
 TMR_PORT = 0x3000                       ; timer window
+DEV_PMAP = 0x4400                       ; the written-page map: a word per T3 granule, a bit per 4 KiB page
+PT_PMAP  = 10                           ; its platform table entry
 FB_BASE0 = 0x3000000                    ; the framebuffer window (from c14)
 CON_OUT  = 0x0000                       ; console output port (device space)
 
@@ -469,6 +471,7 @@ AR_SIZE  = 8                            ;   size (bytes, whole granules)
 AR_STATE = 16                           ;   0 free, 1 issued (MEMORY), 2 a process's, 3 kept, 4 with proc,
                                         ;   5 a process's extra arena (MEMORY mode 1: freed when it ends),
                                         ;   6 a guest's (GSTART: freed by GSTOP)
+                                        ;   7 issued for an image (MEMORY mode 2: not all scrubbed, u_alloc)
 AR_PID   = 24                           ;   state 5: that process
 AR_SZ    = 32                           ; ...
 K0_GMAP  = 0x6800                       ; 32 bytes: bit g: pool granule g is in an arena
@@ -485,6 +488,8 @@ GU_PE    = 56                           ;   end (0: none)
 GU_HB    = 64                           ;   the base of the buffer it revokes with (0: none yet)
 GU_SIZE  = 72                           ; ...
 NGUEST   = 4                            ; guests at once (cores are the real limit)
+K0_PMAP  = K0_GUEST + NGUEST * GU_SIZE + 8 ; 1: the machine has the written-page map (u_alloc; 0x6950)
+K0_PMAPW = K0_PMAP + 8                  ; a word of it, read or being cleared (ends below K0_END)
 K0_END   = 0x6980                       ; (cleared at boot up to here)
 ; guest start/stop scratch (core 0 only, in K0_SCR; not the kernel data image):
 g_core   = K0_SCR + 0x800                ; first core
@@ -4899,7 +4904,7 @@ cr_n:      .dword 0                     ; result: cores
 cr_slot:   .dword 0                     ; result: local slot
 cr_code:   .dword 0                     ; image: code addr | len << 16 | off << 32
 cr_data:   .dword 0                     ; image: data
-cr_koff:   .dword 0                     ; result: arena offset of K
+cr_ilen:   .dword 0                     ; image: its length (the bytes loaded)
 k_evpid:   .dword 0                     ; core 0: the exit event being handled
 k_evst:    .dword 0                     ; ...
 k_tmpi:    .dword 0                     ; core 0: scratch
