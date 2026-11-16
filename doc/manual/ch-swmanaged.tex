@@ -27,14 +27,16 @@ A software cache is described by three CSRs:
 \bitheader{0,5,6,11,12,15}\\
 \bitbox{4}{ways}\bitbox{6}{$\log_2$ sets}\bitbox{6}{$\log_2$ line}
 \end{bytefield}
-\caption{Low 16 bits of \csr{tgeom}; higher bits are ignored}\label{fig:tgeom}
+\caption{Low 16 bits of \csr{tgeom}; bit 16 is FA (far access, Section~\ref{sec:farls}); higher bits are ignored}\label{fig:tgeom}
 \end{figure}
 
 The tag table holds, for each set, \textit{ways} tag doublewords followed by one replacement-counter
 doubleword, so set $s$ starts at $\csr{ttag} + s \cdot 8(\textit{ways}+1)$. A tag doubleword holds
 $(\textit{line} \ll 1) \mid 1$, where $\textit{line} = \textit{offset} \gg \log_2(\text{line bytes})$
-is the full line number; zero means invalid. Software initialises the table (normally to zero), so the
-format is architectural.
+is the full line number; zero means invalid. The counter doubleword holds the replacement index in
+bits 3:0 and, in bit $32 + w$, the dirty bit of way $w$, which far stores set
+(Section~\ref{sec:farls}); its other bits are zero. Software initialises the table (normally to zero),
+so the format is architectural.
 
 \subsection{Lookup and install}
 \insref{ltag} \texttt{rd, rs} looks up far offset \reg{rs}:
@@ -73,6 +75,46 @@ lc_miss:
 The \texttt{swcache} example (Section~\ref{sec:ex-swcache}) is a complete set-associative cache.
 Write-back, write-allocate, prefetching and replacement policy are all decided by software; the
 hardware supplies only the lookup.
+
+\subsection{Far loads and stores}\label{sec:farls}
+
+With bit 16 of \csr{tgeom} (FA) set, an ordinary load or store whose address is at or past
+\texttt{DLS\_SIZE} does the lookup itself: the address is a far offset, looked up in the tag table as
+\insn{ltag} would. On a hit the access reaches the cached bytes in the line, and a store marks the way
+dirty in its set's counter doubleword. On a miss the instruction traps with cause \cause{dmiss},
+\csr{tval} = the address, and nothing has changed: the handler brings the line in (writing the victim
+back first if \insn{ltag}'s bit~62 says it is dirty), records it with \insn{linst} and returns with
+\insn{eret}, which retries the access; the retried access waits for the bytes like any load after a
+\insn{tget}. An address below \texttt{DLS\_SIZE} is unaffected, and so is everything with FA clear.
+
+\begin{pseudo}
+// The D-LS address of the bytes [addr, addr+n) of a far access; store: mark the way dirty.
+func FarLine(addr, n, store)
+    lsh = TGEOM<5:0>; lsets = TGEOM<11:6>; ways = TGEOM<15:12>;
+    line = addr >> lsh;  set = line AND ((1 << lsets) - 1);
+    span = (ways + 1) * 8;  eb = TTAG + set * span;  key = (line << 1) OR 1;
+    if ways == 0 or eb MOD 8 != 0 or eb > DLS_SIZE - span then Trap(lsfault, eb); end
+    if lsh < 3 then Trap(lsfault, addr); end               // a line holds any aligned scalar
+    pe = Window(FALSE, eb, span);
+    if pe == FAULT then Trap(lsfault, eb); end
+    w = the way with DLS.Read(pe + 8*w, 8) == key, else Trap(dmiss, addr);
+    a = TDATA + ((set*ways + w) << lsh) + (addr AND ((1 << lsh) - 1));
+    if a MOD n != 0 or a > DLS_SIZE - n then Trap(lsfault, addr); end
+    pa = Window(FALSE, a, n);
+    if pa == FAULT then Trap(lsfault, addr); end
+    if store then
+        ctr = DLS.Read(pe + 8*ways, 8);
+        if ctr<32+w> == 0 then DLS.Write(pe + 8*ways, 8, ctr OR (1 << (32 + w))); end
+    end
+    return pa;
+end
+\end{pseudo}
+
+The cache stays the program's: its table and lines are D-LS memory, and its policy is the miss
+handler's. What the hardware adds is the lookup on the access itself, so that a pointer to far memory
+is used like any other: a C compiler can make a pointer from \texttt{DLS\_SIZE} up an offset in a
+program's memory and emit the plain load or store for every dereference. StrataOS serves \cause{dmiss}
+for its programs from their arena (Section~\ref{sec:os-fardata}).
 
 \section{Code overlays and code paging}\label{sec:overlays}
 

@@ -35,10 +35,17 @@ by the shell's `help`. It does **not** go through `as`:
 another); typing `hello` runs it.
 
 ```
-cc [-o OUT] [-p] [-h KIB] FILE.c ...
-  -p      page the program's code: functions go into 4 KiB code units
+cc [-o OUT] [-r] [-n] [-h KIB] FILE.c ...
+  -r      resident code: no code units (by default functions go into 4 KiB
+          code units, paged on demand; -p, the default, is still accepted)
+  -n      near data: everything in the D-LS (by default data that does not
+          fit goes to the arena, reached through a cache: "Far data" below)
   -h KIB  heap size (the D-LS after the program's data; default 8)
 ```
+
+The defaults let a program be written as if code and data were unlimited;
+`-r` and `-n` make a program that fits smaller and faster. `cc` itself is
+built with `-p -n`: its data fits the D-LS by design.
 
 ## 2. The machine, as a C target
 
@@ -66,18 +73,19 @@ cc [-o OUT] [-p] [-h KIB] FILE.c ...
 - `int` is 32 bits although the machine has no 32-bit arithmetic. Programs
   and tests assume it (overflow of `unsigned`, the type of `0xffffffff`,
   `sizeof(int)`), so the compiler pays for it: see "narrow values" below.
-- **A pointer is a D-LS address** held in 64 bits. A C object must be
-  reachable by a load, and loads reach only the D-LS, so every object (static,
-  automatic, allocated by `malloc`) lives there. A program has at most 40 KiB
-  of data and heap and 8 KiB of stack; this is the machine's scratchpad shown
-  as it is.
-- **System memory is not addressable from C.** The arena is reached through
-  library calls (`<strata.h>`: `far_read(offset, buffer, n)`,
-  `far_write(...)`, whole words, which are `tget`/`tput` on c0). A "far
-  pointer" that hid a software cache behind every dereference would cost a
-  check per access and code the 32 KiB instruction store has no room for.
-  Programs that need more than the D-LS manage it themselves, like the
-  assembly programs of this system do.
+- **A pointer below 0x10000 is a D-LS address; from 0x10000 up it is an
+  offset in the program's arena** (far data, the default). A load or store
+  past the D-LS goes through a cache of the program's (manual, "Far loads and
+  stores": the hardware looks the address up in a tag table, StrataOS serves
+  the misses), so the compiler emits the same instruction for either kind of
+  pointer and nothing tests which one it is. See "Far data" below. With `-n`
+  every object lives in the D-LS, as before: at most 40 KiB of data and heap
+  and 8 KiB of stack.
+- **The arena is also reached through library calls** (`<strata.h>`:
+  `far_read(offset, buffer, n)`, `far_write(...)`, whole words, which are
+  `tget`/`tput` on c0); they write back and drop the cache's lines in their
+  range first, so they see what plain stores wrote and plain loads see what
+  they wrote.
 - Floating point is soft: IEEE 754 double in the library (`lib/fp.s`:
   `__fadd`, `__fmul`, ...), round to nearest even; the compiler includes the
   same routines to fold constants. `float` is a 4-byte object and its
@@ -118,13 +126,36 @@ cc [-o OUT] [-p] [-h KIB] FILE.c ...
   immediate. The same register reaches the resident library from paged code
   (`jalr ra, gp, f-0x10000`).
 
+### Far data
+
+Without `-n`:
+- **Where objects go.** A static object at file scope goes to the D-LS while
+  it fits beside the heap (`-h`) and the cache; one that does not goes to the
+  arena. Paged, it takes the code's next addresses between two functions,
+  aligned to the code window (1 KiB) so that code and data never share one;
+  resident, the arena from 0x10000. Either way its bytes are in the image's
+  far section, which StrataOS loads into the arena at the same offsets.
+  Statics inside a function and string literals always go to the D-LS (they
+  are made while a function's code is being written). An object at file
+  scope used before its definition must be in the D-LS (a far one is an
+  error there).
+- **The heap.** `malloc` takes from the heap in the D-LS first and from the
+  far heap, the arena after the far data up to 0x7F000, when that is full;
+  `free` and `realloc` work on either.
+- **The cache.** 4 KiB of 64-byte lines, 32 sets of 2 ways, and its tag
+  table, in the D-LS image; start-up sets `ttag`, `tdata` and `tgeom` (FA)
+  from the start-up words (`lang/cc/lib/libc.s`). It costs about 4.8 KiB of the D-LS,
+  which is what `-n` saves.
+- **Not done:** large automatic objects and variable-length arrays stay on
+  the 8 KiB stack.
+
 ## 3. Programs larger than the instruction store
 
 Two code models, chosen on the command line:
 
-- **Resident** (default). Library and program share I-LS 0x8000..0xFFFF.
+- **Resident** (`-r`). Library and program share I-LS 0x8000..0xFFFF.
   Calls are `jal`, returns `jalr`. About 6000 instructions of program.
-- **Paged** (`-p`). The library stays resident; every C function goes into the
+- **Paged** (the default; `-p` is still accepted). The library stays resident; every C function goes into the
   image's `.far` section, packed into 4 KiB code units (a function never
   straddles a unit, so its branches stay inside one; a function over 4 KiB is
   an error). `crt0` sets `xslot` to 12 and StrataOS pages units into the code

@@ -492,7 +492,7 @@ $(BUILD)/stratalk/stratalk.image: $(STRATALK_ST) lang/stratalk/kernel/LOAD $(wil
 
 $(BUILD)/prog/cc: $(BUILD)/strata-cc $(BUILD)/cc/cc.lib lang/cc/cc.c
 	@mkdir -p $(BUILD)/prog
-	CC_LIB=$(BUILD)/cc/cc.lib $(BUILD)/strata-cc -p -h 0 -o $@ lang/cc/cc.c
+	CC_LIB=$(BUILD)/cc/cc.lib $(BUILD)/strata-cc -p -n -h 0 -o $@ lang/cc/cc.c
 	@test -f $@.u
 $(BUILD)/prog/cc.u: $(BUILD)/prog/cc
 	@touch $@

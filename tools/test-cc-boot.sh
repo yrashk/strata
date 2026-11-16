@@ -18,8 +18,8 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 {
   printf 'cc0 -p -h 0 -o cc1 /src/cc.c; echo status $?\n'
-  printf 'cc1 -p -h 0 -o c2 /src/cc.c; echo status $?\n'
-  printf 'c2 -p -h 0 -o c3 /src/cc.c; echo status $?\n'
+  printf 'cc1 -p -n -h 0 -o c2 /src/cc.c; echo status $?\n'
+  printf 'c2 -p -n -h 0 -o c3 /src/cc.c; echo status $?\n'
   printf 'cc -o cmp /src/cmp.c\n'
   printf 'cmp c2 c3\n'
   printf 'cmp c2.u c3.u\n'

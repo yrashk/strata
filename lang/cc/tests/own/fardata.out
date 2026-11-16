@@ -1,0 +1,8 @@
+big: far, sum 599970000; small: near, 4
+rec1999 1999
+rec0 0
+2000 records (some far), not all in the far heap, sum 1999000
+text: far, 50006, middle
+far_read: 77 27
+after far_write: 77 1234 30
+after free: allocated again

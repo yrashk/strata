@@ -1,8 +1,42 @@
 # Programs larger than the Local Stores: paging code and data without restructuring
 
-Status: a proposal. Nothing under "Options", "Recommendation" or "Work" is
-implemented. The measurements describe the tree at commit b9e3438
-(2026-11-16).
+Status: built, with the changes listed in "What was built" below; the rest
+of the document is the proposal as it was decided. The measurements
+describe the tree at commit b9e3438 (2026-11-16).
+
+## What was built
+
+- **The ISA change of section 8.4**, in the emulator, the RTL (a new state,
+  S_FA, after the tag-lookup sequencer; formal properties updated), the
+  manual ("Far loads and stores") and two conformance tests (`farls`,
+  `farlsx`). One rule was added: a far access whose line address is not a
+  multiple of its size is an lsfault (a `tdata` that is not 8-byte aligned).
+- **StrataOS serves `dmiss`** in the resident dispatcher (`xdmiss`), as
+  section 8.4 describes; `tools/test-far.sh`.
+- **Code units come from the program's image, not from a segment.** The
+  first attempt put `sasm`'s units in the arena, where a program like vi
+  (which uses all of its memory for text) overwrote them. Instead of the
+  earlier proposal's code segments, an image now carries its units in a
+  section of their own (kind 5); the kernel gives such a process its image as
+  a share of its own and puts it in c15 at every switch-in, and `page_in`
+  serves a miss outside c0 from c15. The units cost the program none of its
+  memory; the image is still limited to 128 KiB.
+- **`sasm`** pages code and uses far data by default for StrataOS programs
+  (`-r`, `-n`, `.resident`, `.near`, `.pinned`, `-u`, `-c`, `-v`). Its rules
+  came out of running real programs: a function is a target of `call`; a
+  branch or jump to a function in another group becomes a far one (t6 is
+  lost, as at a call); any other branch, jump or fall-through joins regions;
+  a group larger than a unit stays resident instead of being an error. Every
+  program of the tree is still built with `-r -n` and is byte for byte what
+  it was; `tools/test-paged.sh` runs the vi and shell tests with vi (paged
+  code and far data), sh (paged code; its data leaves no room for the cache,
+  so `-n`) and five utilities built with the defaults.
+- **`cc`** pages code and uses far data by default (`-r`, `-n`), as section
+  8.6 describes, except that the cache is part of every far-mode image
+  rather than carved from the heap on demand, and large automatic objects
+  stay on the stack (`lang/cc/DESIGN.md`, "Far data").
+- **The self-hosted `as`** follows `sasm` (`.resident`, `.near`, `.pinned`;
+  it has no command line).
 
 The question: how can a program whose code is much larger than the 32 KiB of
 I-LS a StrataOS program has, and whose data is much larger than the 40 KiB of

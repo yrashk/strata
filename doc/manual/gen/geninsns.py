@@ -229,8 +229,13 @@ LOADS = [("ld", "LD", 8, False, "doubleword"), ("lw", "LW", 4, True, "word, sign
          ("lhu", "LHU", 2, False, "halfword, zero-extended"), ("lb", "LB", 1, True, "byte, sign-extended"),
          ("lbu", "LBU", 1, False, "byte, zero-extended")]
 LS_WIN = r", or (user mode) outside the Local Store windows (\S\ref{sec:lswin})"
-LS_EXC_L = lambda n: [("lsfault", (r"\texttt{addr} $>$ \texttt{DLS\_SIZE} $-$ %d, or \texttt{addr} is not a multiple of %d" % (n, n)
-                       if n > 1 else r"\texttt{addr} $\geq$ \texttt{DLS\_SIZE}") + LS_WIN, r"\texttt{addr}"),
+FAR_FAULT = (r"; a far access (\csr{tgeom} bit 16 set, \texttt{addr} $\geq$ \texttt{DLS\_SIZE}): the set's entry "
+             r"misaligned or outside the D-LS (\csr{tval} = the entry's address), lines shorter than 8 bytes, or the "
+             r"line's address not a multiple of the size or outside the D-LS")
+FAR_MISS = ("dmiss", r"a far access whose line is not in the tag table (\S\ref{sec:farls})", r"\texttt{addr}")
+LS_EXC_L = lambda n: [("lsfault", (r"\texttt{addr} $>$ \texttt{DLS\_SIZE} $-$ %d (not a far access), or \texttt{addr} is not a multiple of %d" % (n, n)
+                       if n > 1 else r"\texttt{addr} $\geq$ \texttt{DLS\_SIZE} (not a far access)") + LS_WIN + FAR_FAULT, r"\texttt{addr}"),
+                      FAR_MISS,
                       ("pend", r"CCR.PTRAP = 1 and the bytes overlap the D-LS destination of an in-flight "
                                r"\insn{tget} (only in implementations with real transfer latency)", r"\texttt{addr}")]
 LTITLE = dict(ld="Load doubleword", lw="Load word", lwu="Load word unsigned", lh="Load halfword",
@@ -239,11 +244,16 @@ for (mn, opn, n, sgn, what) in LOADS:
     ext = "SignExtend" if sgn else "ZeroExtend"
     rd = "X[rd] = DLS.Read(addr, 8);" if n == 8 else "X[rd] = %s(DLS.Read(addr, %d), 64);" % (ext, n)
     op = """addr = X[rs1] + SignExtend(imm16, 64);
-if addr > DLS_SIZE - %d or addr MOD %d != 0 then Trap(lsfault, addr); end
-pa = Window(FALSE, addr, %d);                  // user mode: the D-LS windows
-if pa == FAULT then Trap(lsfault, addr); end
+if addr MOD %d != 0 then Trap(lsfault, addr); end
+if UInt(addr) >= DLS_SIZE and TGEOM<16> == 1 then
+    pa = FarLine(addr, %d, FALSE);                // far: through the tag table (dmiss on a miss)
+else
+    if addr > DLS_SIZE - %d then Trap(lsfault, addr); end
+    pa = Window(FALSE, addr, %d);              // user mode: the D-LS windows
+    if pa == FAULT then Trap(lsfault, addr); end
+end
 Stall while [pa, pa+%d) overlaps the destination of an in-flight tget;
-%s""" % (n, n, n, n, rd.replace("(addr", "(pa"))
+%s""" % (n, n, n, n, n, rd.replace("(addr", "(pa"))
     ins("ls", mn.upper(), LTITLE[mn],
         L_I(OP[opn]), ["%s rd, imm(rs1)" % mn],
         r"Loads a %s from the data Local Store at \reg{rs1} plus a sign-extended 16-bit offset. "
@@ -257,14 +267,20 @@ STORES = [("sd", "SD", 8, "doubleword"), ("sw", "SW", 4, "word"), ("sh", "SH", 2
 for (mn, opn, n, what) in STORES:
     val = "X[rs2]" if n == 8 else "X[rs2]<%d:0>" % (8 * n - 1)
     op = """addr = X[rs1] + SignExtend(imm16, 64);
-if addr > DLS_SIZE - %d or addr MOD %d != 0 then Trap(lsfault, addr); end
-pa = Window(FALSE, addr, %d);                  // user mode: the D-LS windows
-if pa == FAULT then Trap(lsfault, addr); end
+if addr MOD %d != 0 then Trap(lsfault, addr); end
+if UInt(addr) >= DLS_SIZE and TGEOM<16> == 1 then
+    pa = FarLine(addr, %d, TRUE);                 // far: through the tag table; marks the way dirty
+else
+    if addr > DLS_SIZE - %d then Trap(lsfault, addr); end
+    pa = Window(FALSE, addr, %d);              // user mode: the D-LS windows
+    if pa == FAULT then Trap(lsfault, addr); end
+end
 Stall while [pa, pa+%d) overlaps the destination of an in-flight tget
                        or the source of an in-flight tput;
-DLS.Write(pa, %d, %s);""" % (n, n, n, n, n, val)
-    exc = [("lsfault", (r"\texttt{addr} $>$ \texttt{DLS\_SIZE} $-$ %d, or \texttt{addr} is not a multiple of %d" % (n, n)
-            if n > 1 else r"\texttt{addr} $\geq$ \texttt{DLS\_SIZE}") + LS_WIN, r"\texttt{addr}"),
+DLS.Write(pa, %d, %s);""" % (n, n, n, n, n, n, val)
+    exc = [("lsfault", (r"\texttt{addr} $>$ \texttt{DLS\_SIZE} $-$ %d (not a far access), or \texttt{addr} is not a multiple of %d" % (n, n)
+            if n > 1 else r"\texttt{addr} $\geq$ \texttt{DLS\_SIZE} (not a far access)") + LS_WIN + FAR_FAULT, r"\texttt{addr}"),
+           FAR_MISS,
            ("pend", r"CCR.PTRAP = 1 and the bytes overlap an in-flight \insn{tget} destination or \insn{tput} source",
             r"\texttt{addr}")]
     ins("ls", mn.upper(), "Store " + what,
@@ -985,15 +1001,16 @@ ins("sys", "LTAG", "Look up software-cache tag", L_I(OP["LTAG"], imm=[(15, 0, b(
     ["ltag rd, rs1"],
     r"Looks up far offset \reg{rs1} in the set-associative tag table described by CSRs \csr{ttag}, "
     r"\csr{tdata} and \csr{tgeom} (\S\ref{sec:swcache}). On a hit, \reg{rd} receives the D-LS address of the "
-    r"cached byte. On a miss, \reg{rd} receives the D-LS address of the victim line's storage with bit~63 set.",
+    r"cached byte. On a miss, \reg{rd} receives the D-LS address of the victim line's storage with bit~63 set, "
+    r"and bit~62 set if the victim's way is dirty (a far store wrote it, \S\ref{sec:farls}).",
     """lsh = TGEOM<5:0>; lsets = TGEOM<11:6>; ways = TGEOM<15:12>;
 line = X[rs1] >> lsh;  set = line AND ((1 << lsets) - 1);
 span = (ways + 1) * 8;  eb = TTAG + set * span;  key = (line << 1) OR 1;
 if ways == 0 or eb MOD 8 != 0 or eb > DLS_SIZE - span then Trap(lsfault, eb); end
 pe = Window(FALSE, eb, span);                  // user mode: one D-LS window holds the entry
 if pe == FAULT then Trap(lsfault, eb); end
-ctr = DLS.Read(pe + 8*ways, 8);  victim = if ctr < ways then ctr else 0;
-X[rd] = (TDATA + ((set*ways + victim) << lsh)) OR (1 << 63);       // miss
+ctr = DLS.Read(pe + 8*ways, 8);  victim = if ctr<3:0> < ways then ctr<3:0> else 0;
+X[rd] = (TDATA + ((set*ways + victim) << lsh)) OR (1 << 63) OR (ctr<32+victim> << 62);   // miss
 for w = 0 to ways-1 do
     if DLS.Read(pe + 8*w, 8) == key then                          // hit
         X[rd] = TDATA + ((set*ways + w) << lsh) + (X[rs1] AND ((1 << lsh) - 1));
@@ -1008,10 +1025,12 @@ ins("sys", "LINST", "Install software-cache tag",
     [(31, 26, b(OP["LINST"], 6), "f"), (25, 21, b(0, 5), "z"), (20, 16, "rs1", "v"), (15, 0, b(0, 16), "z")],
     ["linst rs1"],
     r"Records the line containing far offset \reg{rs1} in the current victim way of its set and advances "
-    r"the set's replacement counter, which cycles $0, 1, \ldots, \textit{ways}-1$.",
+    r"the set's replacement counter, which cycles $0, 1, \ldots, \textit{ways}-1$, and clears the victim way's "
+    r"dirty bit; the other ways' dirty bits stay.",
     """(compute lsh, ways, set, eb, key, victim exactly as LTAG; same lsfault check)
 DLS.Write(pe + 8*victim, 8, key);
-DLS.Write(pe + 8*ways, 8, if victim + 1 == ways then 0 else victim + 1);""",
+DLS.Write(pe + 8*ways, 8, (ctr AND 0x7fff00000000 AND NOT (1 << (32 + victim)))
+                          OR (if victim + 1 == ways then 0 else victim + 1));""",
     [("lsfault", r"as \insn{ltag}", r"\texttt{eb}"),
      ("pend", r"CCR.PTRAP = 1 and the entry overlaps an in-flight \insn{tget} destination or \insn{tput} source", r"\texttt{eb}")],
     notes=r"\insn{linst} does not check whether the line is already present; call it only after an \insn{ltag} miss.",

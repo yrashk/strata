@@ -612,7 +612,9 @@ and **the parts of its Local Stores it uses**. On a switch the dispatcher:
    capability); the kernel puts the clock back only on CLOCK;
    **c8..c15 are a thread's own only while it is not
    switched out** (the dispatcher borrows c8 and c9 during a trap and
-   gives them back); they do not survive a switch;
+   gives them back); they do not survive a switch, except c15 of a program
+   whose image has code units (F_UNITS, below): the switch-in puts its
+   image there, a read and execute share;
 4. leaves the thread's D-LS where it is: a thread **stays resident**
    (below) while it is switched out, and its D-LS is copied out to its
    **save area** in its arena only when it is evicted: the data extent
@@ -698,6 +700,26 @@ Two calls let a program reduce or correct what a switch does:
   a unit interrupted while another program ran on its core resumed in that
   program's code). It costs the cache's bytes per switch-in, which the
   switch counts in its KiB moved; `units` and `forth units.fs` show it.
+- **Code units in the image.** An image may carry its code units in a
+  section of their own (kind 5, `sasm`'s paged code: its offsets are the
+  image file's, units aligned to their size). CREATE marks such a process
+  F_UNITS and gives it its image as a capability of its own, a copyable
+  read and execute share, even with one thread (otherwise image and save
+  area are one capability); `w_incode` copies it into the program's c15 at
+  every switch-in, and the program calls its units through c15. `page_in`
+  serves a miss outside c0 from c15 (bit 15 of the slot's PR_UNITS entry
+  says so, and the switch-in reloads it from there with the xmap table for
+  c15 in the worker extension, XE_XMAP15). The units are not in the
+  program's memory, and the program cannot write them.
+- **Far data.** A program that sets tgeom bit 16 (FA) has its loads and
+  stores past the D-LS go through its tag table (manual, "Far loads and
+  stores"); a miss (cause 15, dmiss) traps to the dispatcher, whose
+  `xdmiss` writes the victim line back to c0 if its way is dirty, brings
+  the line in from c0 at the same offset, records it and retries. It
+  checks first that the table and both lines lie in the data window and
+  inside c0, that c0 may be read and written, and the geometry (lines of 8
+  bytes to 4 KiB, at most 4096 sets); a miss it cannot serve ends the
+  program with fault 15. `tools/test-far.sh` tests it.
 
 **What the next process may see.** Only its own slices: the windows keep
 every other unit out of its reach. Units it is given anew may hold an

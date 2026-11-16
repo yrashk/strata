@@ -137,6 +137,7 @@ unchanged.
 12 & halt & \insn{halt} in user mode\\
 13 & stop & a stop request sent through core control, taken in user mode\\
 14 & svc & \insn{svc} in user mode: a supervisor call\\
+15 & dmiss & a far load or store (\csr{tgeom} bit 16) whose line is not in the tag table\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -165,6 +166,7 @@ For example, a \insn{tget} through an empty capability with a misaligned length 
   word;
 \item for capability instructions, the register or slot number concerned, or the offending value (see each
   instruction);
+\item for \cause{dmiss}, the address of the load or store;
 \item for \cause{xmiss}, the absolute far address of the call target, or the far link (bit~63 set) of
   an \insn{xret};
 \item for \cause{halt}, \cause{stop} and \cause{svc}, zero.

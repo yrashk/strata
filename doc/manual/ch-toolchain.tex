@@ -14,7 +14,7 @@ pass the same count to the emulator.
 \section{The assembler, \texttt{sasm}}
 
 \begin{shell}
-sasm [-o out.stx] [-l] [-g out.map] [-T text-origin] [-I dir] file.s
+sasm [-o out.stx] [-l] [-g out.map] [-T text-origin] [-I dir] [-r] [-n] [-u kib] [-c kib] [-v] file.s
 \end{shell}
 
 \begin{description}[leftmargin=1em,style=nextline]
@@ -26,7 +26,27 @@ sasm [-o out.stx] [-l] [-g out.map] [-T text-origin] [-I dir] file.s
 \item[\texttt{-T addr}] start \texttt{.text} at \texttt{addr} instead of 0. Programs for StrataOS use
   \texttt{-T 0x8000}.
 \item[\texttt{-I dir}] add a directory to the \texttt{.include} search path (up to 16).
+\item[\texttt{-r}, \texttt{-n}] for a StrataOS program: resident code, near data (below).
+\item[\texttt{-u kib}, \texttt{-c kib}] the code unit size (1, 2 or 4 KiB; 2) and the far data cache
+  (1 to 16 KiB; 4).
+\item[\texttt{-v}] print the layout of paged code: each group of code, where it went and why.
 \end{description}
+
+\paragraph{Paged code and far data.}\label{sec:sasm-paged} A StrataOS program (\texttt{-T 0x8000}) is assembled, unless told
+otherwise, as if its code and data could be larger than its Local Stores. Its \texttt{.text} is cut at
+the targets of \texttt{call}: a function, with whatever branches, jumps and falls through into it, is a
+group, packed into code units of a section of its own (kind 5, Section~\ref{sec:stx}), which StrataOS
+pages into the I-LS on demand (Section~\ref{sec:os-paging}); calls become \insn{xcall} through
+\reg{c15}, returns \insn{xret}. A group stays resident when it holds the entry, a label whose address
+is taken, a \texttt{.pinned} line, or more than a unit. A cache for far loads and stores
+(Section~\ref{sec:farls}) is appended to \texttt{.data}, so a load or store past the D-LS reaches the
+program's arena. The entry, which must be a \texttt{j}, goes through a short start-up stub that sets
+\csr{xslot}, \csr{ttag}, \csr{tdata} and \csr{tgeom}. The rules a program keeps: \reg{t6} does not
+survive a call, \reg{c15} is the kernel's, and code addresses are taken only of resident code (which
+taking one makes it). \texttt{-r} or \texttt{.resident} turns paging off, \texttt{-n} or \texttt{.near}
+far data; a program that manages its own code units or cache must say so, and the build of every
+program in this tree does (\texttt{-r -n}: the image is what it was before). A bare-metal program is
+always resident and near. \texttt{asm/sasm.c} has the details.
 
 \texttt{sasm} is a two-pass assembler. It knows every instruction of Part~\ref{part:isa}, including
 \insref{svc}, every CSR by name, and the pseudo-instructions of Table~\ref{tab:pseudo}. Its output is an
@@ -105,7 +125,7 @@ software (the boot ROM, the OS loader) can move it with transfers.
 0 & char[4] & magic \texttt{"STX2"}\\
 4 & u32 & number of sections\\
 \multicolumn{3}{@{}l}{\textit{then, for each section:}}\\
-+0 & u32 & kind: 1 I-LS, 2 D-LS, 3 T3, 4 T2\\
++0 & u32 & kind: 1 I-LS, 2 D-LS, 3 T3, 4 T2, 5 code units\\
 +4 & u32 & base: lowest address used, rounded down to a multiple of 8\\
 +8 & u32 & size in bytes, a multiple of 8\\
 +12 & u32 & reserved, zero\\
@@ -115,7 +135,10 @@ software (the boot ROM, the OS loader) can move it with transfers.
 \end{center}
 
 Empty sections are omitted. When an image is loaded by a simulator, the I-LS and D-LS contents go to
-every core, and the T2 and T3 contents to the shared memories.
+every core, and the T2 and T3 contents to the shared memories. Kind 5 holds a StrataOS program's code
+units: it comes first, its base is its own offset in the file (24), and a unit's address is its offset
+in the file, padded to a unit; StrataOS pages them from the image itself, and a simulator loading an
+image skips them.
 
 \section{The C compiler, \texttt{cc}}\label{sec:cc}
 
@@ -128,23 +151,30 @@ the \texttt{cc} on the StrataOS disk (Section~\ref{sec:os-as}). Both write the s
 byte.
 
 \begin{shell}
-strata-cc [-o out] [-p] [-h kib] file.c
+strata-cc [-o out] [-r] [-n] [-h kib] file.c
 \end{shell}
 
 \begin{description}[leftmargin=1em,style=nextline]
 \item[\texttt{-o}] the image (default: the source's name without \texttt{.c}).
-\item[\texttt{-p}] the paged code model: every function is placed in a 4~KiB code unit of the image's
-  T3 section, calls between functions are \texttt{xcall} and returns \texttt{xret}, and StrataOS pages
-  the units into the instruction Local Store (Section~\ref{sec:os-paging}). Without it the program and
-  the library share the 32~KiB of I-LS above \hex{8000}. An image holds at most 128~KiB; the units of a
-  larger program go to a second file, \textit{out}\texttt{.u}, which the start-up code loads.
+\item[\texttt{-r}] resident code. By default every function is placed in a 4~KiB code unit of the
+  image's T3 section, calls between functions are \texttt{xcall} and returns \texttt{xret}, and
+  StrataOS pages the units into the instruction Local Store (Section~\ref{sec:os-paging}); with
+  \texttt{-r} the program and the library share the 32~KiB of I-LS above \hex{8000}. An image holds at
+  most 128~KiB; the units of a larger program go to a second file, \textit{out}\texttt{.u}, which the
+  start-up code loads. (\texttt{-p}, the default, is still accepted.)
+\item[\texttt{-n}] near data: no far data (below).
 \item[\texttt{-h}] the size of the heap in KiB (default: what the data Local Store has left).
 \end{description}
 
 \paragraph{The machine as a C target.} \texttt{int} is 32 bits, \texttt{long}, \texttt{long long} and
-pointers are 64. A pointer is an address in the core's data Local Store: globals, string literals, the
-heap and the stack (8~KiB) share its 40~KiB of program data. System memory is not addressed: it is
-reached by transfers, through the library (\texttt{far\_read}, \texttt{far\_write}) or the intrinsics.
+pointers are 64. A pointer below \hex{10000} is an address in the core's data Local Store, where
+globals, string literals, the heap and the stack (8~KiB) share 40~KiB of program data. By default a
+pointer from \hex{10000} up is an offset in the program's arena, reached through a 4~KiB cache with
+far loads and stores (Section~\ref{sec:farls}): a static object at file scope that does not fit the
+D-LS beside the heap goes there, and so does the heap once the one in the D-LS is full. The compiler
+emits the same load or store for either. \texttt{-n} keeps everything in the D-LS and leaves out the
+cache. Transfers reach system memory too, through the library (\texttt{far\_read}, \texttt{far\_write},
+which write back the cache's lines first) or the intrinsics.
 Loads and stores must be aligned, so the compiler never emits a wide access to a narrowly aligned
 object. Arguments are passed in \texttt{a0}--\texttt{a7} and then on the stack, results returned in
 \texttt{a0}; \texttt{gp} holds \hex{10000}, which puts every static object and every library routine

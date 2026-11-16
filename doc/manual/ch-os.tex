@@ -873,6 +873,25 @@ leads back to (code in a unit may call resident code with \insn{jalr}), are wher
 slots (eight on an eight-entry platform) with call chains seven deep and checks its result against the
 same computation done by resident code.
 
+\paragraph{Units in the image.} A program assembled with paged code (\texttt{sasm}'s default,
+Section~\ref{sec:sasm-paged}) keeps its units in a section of its image of their own (kind 5), not in
+its memory. Such an image's process gets its image as a capability of its own, a read and execute
+share, and the dispatcher puts it in the program's \reg{c15} whenever the thread is switched in; the
+program calls its units with \insn{xcall} through \reg{c15}. A miss outside \reg{c0} is served from
+\reg{c15} the same way, and the slot remembers where its unit came from, so a switch reloads it from
+there. The units take nothing of the program's memory, and the program cannot write them.
+
+\subsection{Far data}\label{sec:os-fardata}
+
+A program that sets \csr{tgeom} bit 16 (Section~\ref{sec:farls}) has its far loads and stores served
+from its arena: a \cause{dmiss} traps to the dispatcher (unless the program has a handler of its own),
+which writes the victim line back to \reg{c0} if its way is dirty, brings the missed line in from
+\reg{c0} at the same offset, records it with \insn{linst} and retries the access. The table and the
+lines must lie in the program's data window; the dispatcher checks that, the geometry, \reg{c0}'s
+permissions and that both lines lie inside \reg{c0} before it moves anything, and a miss it cannot
+serve ends the program with a fault of cause \cause{dmiss}. The cache is the program's data: it
+travels with the thread, and a switch neither writes it back nor drops it.
+
 \subsection{The kernel pages itself}\label{sec:os-kpaging}
 
 The resident kernel is the 16~KiB at I-LS \hex{4000}--\hex{7FFF} of every core: the dispatcher, and on

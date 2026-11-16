@@ -1,10 +1,13 @@
 /* cc.c: the Strata C compiler.
  *
- *   cc [-o OUT] [-p] [-h KIB] FILE.c
+ *   cc [-o OUT] [-r] [-n] [-h KIB] FILE.c
  *
  * It reads C source and writes a StrataOS program image directly: no
  * assembler, no linker; the run-time library comes from /bin/cc.lib at
- * fixed addresses. -p pages the program's code in 4 KiB units; -h sizes
+ * fixed addresses. By default the program's code is paged in 4 KiB units
+ * and its data may be far (a pointer from 0x10000 up is an arena offset,
+ * reached through a cache: tgeom.FA); -r keeps all the code resident, -n
+ * all the data in the D-LS (-p is the default, still accepted); -h sizes
  * the heap.
  *
  * This is the compiler; cc.s, in assembly, is the bootstrap compiler that
@@ -342,6 +345,8 @@ long dw_base;
 int dw_dirty;
 long data_pc, res_end;
 int paged, heapsz, split;
+int farmode;                    /* far data (-n: none): a cache for loads and stores past the D-LS */
+long far_pc;                    /* the resident model's next far object, from 0x10000 */
 int nocode;
 long fw[2];                     /* a scratch word for the arena */
 long rbl[8], wbl[8];            /* byte reader and writer windows */
@@ -507,13 +512,21 @@ int enc(int op, int rd, int rs1, int imm)
 void e_i(int op, int rd, int rs1, int imm) { emit(enc(op, rd, rs1, imm)); }
 void e_r(int fn, int rd, int rs1, int rs2) { emit(rd << 21 | rs1 << 16 | rs2 << 11 | fn); }
 
+/* where the image's byte at address a is built: the D-LS image, or (far
+   data, from 0x10000) with the code */
+long dw_arena(long a)
+{
+    if (a >= 0x10000) return A_CODE + a - code_org;
+    return A_DATA + a;
+}
+
 char *dw_seek(long a)
 {
     if ((unsigned long)(a - dw_base) >= 256) {
-        if (dw_dirty) far_write(A_DATA + dw_base, dwl, 256);
+        if (dw_dirty) far_write(dw_arena(dw_base), dwl, 256);
         dw_dirty = 0;
         dw_base = a & ~255;
-        far_read(A_DATA + dw_base, dwl, 256);
+        far_read(dw_arena(dw_base), dwl, 256);
     }
     return (char *)dwl + (a - dw_base);
 }
@@ -526,11 +539,36 @@ void data_put(long a, long v, int n)
     while (n > 0) { data_b(a, v & 255); a++; v = v >> 8; n--; }
 }
 
+/* the far data cache: 4 KiB of 64-byte lines (32 sets of 2 ways), its tag
+   table (32 x 24 bytes), and room to align the lines */
+#define FC_ALL   (4096 + 768 + 64)
+#define FC_GEOM  (6 | 5 << 6 | 2 << 12 | 1 << 16)
+
 long data_alloc(int size, int align)
 {
     long a = (data_pc + align - 1) & -align;
-    if (a + size > 0xA000) err("data too large", 0);
+    if (a + size > 0xA000 - (farmode ? FC_ALL : 0)) err("data too large", 0);
     data_pc = a + size;
+    return a;
+}
+
+/* far data: an object at file scope that does not fit the D-LS beside the
+   heap and the cache goes to the arena. Paged, it takes the code's next
+   addresses (between functions), aligned to the code window so that code
+   and data never share one; resident, it is placed from 0x10000. Its bytes
+   are in the image's far section either way. */
+long far_alloc(long n)
+{
+    long a;
+    if (!paged) {
+        a = far_pc;
+        far_pc = (a + n + 7) & ~7;
+        if (far_pc > code_org + (A_CODEEND - A_CODE)) err("far data too large", 0);
+        return a;
+    }
+    cw_flush();
+    a = (code_pc + CWSZ - 1) & -CWSZ;
+    cw_seek((a + n + CWSZ - 1) & -CWSZ);
     return a;
 }
 
@@ -4601,7 +4639,9 @@ void static_var(int id, int t, int cls)
     if (init) { ini_static = 1; t = fix_len(t); next(); }
     if (ty[t].size || !ty[p->type].size) p->type = t;
     if ((init || cls != K_EXTERN) && !(p->flags & SF_DEF) && ty[t].size) {
-        p->val = data_alloc(ty[t].size, ty[t].align);
+        if (farmode && !scope && data_pc + ty[t].size > 0xA000 - FC_ALL - heapsz)
+            p->val = far_alloc(ty[t].size);
+        else p->val = data_alloc(ty[t].size, ty[t].align);
         p->flags = SF_DEF;
     }
     if (init) {
@@ -5684,6 +5724,7 @@ void link(void)
             code_wr(loc + 4, (w & ~0xffff) | (tg & 0xffff));
             break;
         case FK_MEM:
+            if (tg >= 0x10000) err("a far object is used before its definition", 0);
             w = w & ~0x1fffff;
             if (tg >= 0x8000) w = w | X_GP << 16;
             code_wr(loc, w | (tg & 0xffff));
@@ -5692,6 +5733,15 @@ void link(void)
     }
     data_put(0, sy[m].val, 8);
     data_put(8, paged ? 12 : 0, 8);
+    if (farmode) {                      /* the far data cache, and the far heap after the far data */
+        a = data_alloc(4096, 64);
+        data_put(40, a, 8);
+        data_put(48, data_alloc(768, 8), 8);
+        data_put(56, FC_GEOM, 8);
+        h = paged ? code_pc : far_pc;
+        h = (h + 63) & ~63;
+        if (h < 0x7F000) { data_put(64, h, 8); data_put(72, 0x7F000, 8); }
+    }
     h = (data_pc + 7) & ~7;
     he = h + heapsz;
     if (he > 0xA000) he = 0xA000;
@@ -5703,7 +5753,7 @@ void link(void)
         split = 1;                      /* larger than the kernel loads: the units go to OUT.u */
         data_put(32, units, 8);
     }
-    if (dw_dirty) far_write(A_DATA + dw_base, dwl, 256);
+    if (dw_dirty) far_write(dw_arena(dw_base), dwl, 256);
     cw_flush();
 }
 
@@ -5731,15 +5781,17 @@ void m_write(void)
     int fd, i;
     char *u = (char *)lfx;
     if (!paged && code_pc > 0x10000) err("the code does not fit the instruction store: compile with -p", 0);
-    if (!split && code_pc - code_org + data_pc + res_end - (0x8000 - 80) > 0x20000)
+    if (!split && code_pc - code_org + (far_pc - 0x10000) + data_pc + res_end - (0x8000 - 80) > 0x20000)
         err("the program is larger than 128 KiB", 0);
     fd = open(out_name, 1);
     if (fd < 0) err("cannot write ", out_name);
     ((int *)iob)[0] = 0x32585453;       /* "STX2" */
-    ((int *)iob)[1] = 2 + paged - split;
+    ((int *)iob)[1] = 2 + paged - split + (!paged && far_pc > 0x10000);
     write(fd, iob, 8);
-    if (!paged) put_sect(fd, 1, 0x8000, code_pc - 0x8000, A_CODE);
-    else {
+    if (!paged) {
+        put_sect(fd, 1, 0x8000, code_pc - 0x8000, A_CODE);
+        if (far_pc > 0x10000) put_sect(fd, 3, 0x10000, far_pc - 0x10000, A_CODE + 0x8000);
+    } else {
         put_sect(fd, 1, 0x8000, res_end - 0x8000, A_RES);
         if (!split) put_sect(fd, 3, 0x10000, code_pc - 0x10000, A_CODE);
     }
@@ -5771,7 +5823,7 @@ void predef(char *name, char *body)
 
 void usage(void)
 {
-    eputs("usage: cc [-o OUT] [-p] [-h KIB] FILE.c\n");
+    eputs("usage: cc [-o OUT] [-r] [-n] [-h KIB] FILE.c\n");
     _exit(2);
 }
 
@@ -5780,10 +5832,15 @@ void options(int argc, char **argv)
     int i, n;
     char *a, *b;
     heapsz = 8192;
+    paged = 1;                          /* the defaults: paged code and far data */
+    farmode = 1;
+    far_pc = 0x10000;
     for (i = 1; i < argc; i++) {
         a = argv[i];
         if (a[0] != '-') { src_name = a; continue; }
         if (a[1] == 'p') { paged = 1; continue; }
+        if (a[1] == 'r') { paged = 0; continue; }
+        if (a[1] == 'n') { farmode = 0; continue; }
         if (i + 1 >= argc) usage();
         b = argv[++i];
         if (a[1] == 'o') out_name = b;

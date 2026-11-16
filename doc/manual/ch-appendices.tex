@@ -62,6 +62,7 @@ architectural requirement.
 12 & halt & \insn{halt} in user mode (always to the supervisor) & 0\\
 13 & stop & a stop request from core control, taken in user mode (always to the supervisor) & 0\\
 14 & svc & \insn{svc} in user mode (always to the supervisor) & 0\\
+15 & dmiss & a far load or store (\csr{tgeom} bit 16, the address at or past the D-LS) whose line is not in the tag table (Section~\ref{sec:farls}) & the address\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -88,7 +89,7 @@ to the supervisor; the others go to the user handler when a user-mode program ha
 7 & coreid & R & R & this core's number, relative to \csr{corebase}\\
 8 & ttag & RW & RW & software cache: D-LS address of the tag table\\
 9 & tdata & RW & RW & software cache: D-LS address of the line storage\\
-10 & tgeom & RW & RW & software cache geometry (Figure~\ref{fig:tgeom})\\
+10 & tgeom & RW & RW & software cache geometry (Figure~\ref{fig:tgeom}); bit 16 FA: far loads and stores (Section~\ref{sec:farls})\\
 11 & ncores & R & R & \csr{corecount} if nonzero, otherwise the number of cores $N$\\
 12 & scratch & RW & RW & free for software, shared by both modes\\
 13 & stalls & R & R & cycles spent stalled. Timing-visible; the emulator returns 0\\
