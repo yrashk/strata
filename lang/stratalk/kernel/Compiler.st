@@ -3,47 +3,178 @@
  a scanner, a parser to a tree, pass 1 (what blocks capture), pass 2 (code)."
 
 Object subclass: #StToken slots: 'kind value start stop line'.
+"One token from StScanner: kind is a Symbol (#ident #kw #bin #int #char #str
+ #sym #eof, or the punctuation itself: #'(' #'[' #':=' #'#(' ...); value its
+ text or number (a character's code for #char); start and stop where it lies
+ in the source (stop is one past its end); line the line it is on.
+ (StScanner scan: 'x := 3') first kind >>> #ident"
+
 Object subclass: #StScanner slots: 'source pos line tokens'.
+"The compiler's scanning phase: turns source text into StTokens. source is the
+ text, pos the index of the next character, line the current line (for
+ errors), tokens the OrderedCollection made so far. Comments and blanks are
+ skipped; a minus sign right before digits is part of the number unless an
+ operand ends just before it. There are no floating point literals.
+ (StScanner scan: 'x := 3') size >>> 4"
+
 Object subclass: #StParser slots: 'tokens index source'.
+"The compiler's parsing phase: a recursive descent parser from StScanner's
+ tokens to a tree of StNodes, as stc.py's Parser. tokens are the tokens, index
+ the next one, source the text (kept for the methods' source in items). Errors
+ are CompileErrors that name the line."
+
 Object subclass: #StNode slots: 'line'.
+"The abstract node of the syntax tree that StParser builds. line is the source
+ line it starts on (set for variables, assignments, sends and methods). The
+ is... tests answer false here; each subclass answers true to its own."
+
 StNode subclass: #StLiteral slots: 'value'.
+"A literal in the tree: a number, character, string, symbol, literal array or
+ byte array, held in value."
+
 StNode subclass: #StVariable slots: 'name'.
+"A name used as a value: a temp, an argument, an instance variable, a global,
+ or one of self super nil true false thisContext. name is the String."
+
 StNode subclass: #StAssign slots: 'name value'.
+"An assignment in the tree: name := value. name is the assigned variable's
+ name (a String), value the node of the expression."
+
 StNode subclass: #StSend slots: 'receiver selector arguments'.
+"A message send in the tree: receiver (a node), selector (a String) and
+ arguments (an Array of nodes). A send to super is one whose receiver is the
+ variable super."
+
 StNode subclass: #StCascade slots: 'receiver messages'.
+"A cascade in the tree: receiver (a node, evaluated once) and messages, an
+ Array of {selector. arguments} pairs sent to it in turn."
+
 StNode subclass: #StBlock slots: 'arguments temps statements'.
+"A block in the tree: arguments and temps (Arrays of names) and statements (an
+ Array of nodes). Depending on the send it is an argument of, it becomes a
+ closure (pushClosure) or is compiled in line."
+
 StNode subclass: #StBrace slots: 'elements'.
+"A brace array in the tree, {a. b. c}: elements is the Array of nodes,
+ compiled to pushArray."
+
 StNode subclass: #StReturn slots: 'expr'.
+"A ^ statement in the tree; expr is the node of the returned expression."
+
 StNode subclass: #StMethod slots: 'selector arguments temps primitive statements'.
+"The root of a method's tree (or of a doIt's): selector (a String), arguments
+ and temps (Arrays of names), primitive (its number, 0 for none) and
+ statements."
+
 Object subclass: #StVar slots: 'name kind scope captured assigned remote vidx origin'.
+"A variable in the compiler's scope analysis: name; kind (#arg, #temp or
+ #copied); scope, the StScope that owns its slot; captured (used from an inner
+ block) and assigned; remote, true when it lives in its scope's temp vector at
+ index vidx (captured and assigned); and origin, for a #copied variable, the
+ outer StVar it copies."
+
 Object subclass: #StScope slots: 'parent isBlock args locals remotes copied vector lits code'.
+"One compiled unit, a method or a real block, in the compiler: parent is the
+ enclosing scope, isBlock which it is; args, locals, remotes (variables kept
+ in the temp vector) and copied (variables copied into the closure) are
+ StVars; vector is the StVar that holds the temp vector, or nil; lits the
+ literals and code the instructions emitted for it, as Arrays of the opcode
+ and its operands, with StLabels between them."
+
 Object subclass: #StLex slots: 'parent real names'.
+"A lexical level for name lookup in the compiler: a method, a real block or a
+ block compiled in line. names maps names to StVars; parent is the enclosing
+ level; real is the StScope whose slots the names live in (an in-line block's
+ real is its enclosing scope)."
+
 Object subclass: #StLabel slots: 'pos'.
+"A jump target in a scope's code during code generation; pos is its byte
+ offset, set when the code is assembled."
+
 Object subclass: #Compiler slots: 'ivars methodClass analysis scopes'.
+"The compiler in the image, which the REPL, file-in and Behavior compile: use.
+ It follows lang/stratalk/host/stc.py step by step and gives the same bytes:
+ scanning (StScanner), parsing (StParser), pass 1, the scope analysis (which
+ variables blocks capture, which go in a temp vector, an:in:), and pass 2,
+ code generation (gen...) and assembly into a CompiledMethod or CompiledBlock.
+ ivars are the instance variable names of methodClass, the class compiled for;
+ analysis maps nodes to what pass 1 found (block nodes to their StLex, to:do:
+ sends to their limit variable); scopes are the StScopes in order.
+ Compiler evaluate: '3 + 4' >>> 7"
 
 "---- tokens and the scanner ----------------------------------------------------"
 
-StToken class >> kind: k value: v start: s stop: e line: l [ ^self new setKind: k value: v start: s stop: e line: l ]
-StToken >> setKind: k value: v start: s stop: e line: l [ kind := k. value := v. start := s. stop := e. line := l ]
-StToken >> kind [ ^kind ]
-StToken >> value [ ^value ]
-StToken >> start [ ^start ]
-StToken >> stop [ ^stop ]
-StToken >> line [ ^line ]
-StToken >> is: k [ ^kind == k ]
-StToken >> isBin: op [ ^kind == #bin and: [value = op] ]
+StToken class >> kind: k value: v start: s stop: e line: l [
+    "A new token of kind k with value v, from index s to e (one past its end)
+     on line l."
+    ^self new setKind: k value: v start: s stop: e line: l ]
+StToken >> setKind: k value: v start: s stop: e line: l [
+    "Sets all the token's slots."
+    kind := k. value := v. start := s. stop := e. line := l ]
+StToken >> kind [
+    "The token's kind, a Symbol: #ident #kw #bin #int #char #str #sym #eof or
+     a punctuation Symbol."
+    ^kind ]
+StToken >> value [
+    "The token's value: its text, a number for #int, a character code for
+     #char, nil for punctuation."
+    ^value ]
+StToken >> start [
+    "The index in the source of the token's first character."
+    ^start ]
+StToken >> stop [
+    "The index in the source one past the token's last character."
+    ^stop ]
+StToken >> line [
+    "The source line the token is on."
+    ^line ]
+StToken >> is: k [
+    "Whether the token is of kind k."
+    ^kind == k ]
+StToken >> isBin: op [
+    "Whether the token is the binary operator op (a String)."
+    ^kind == #bin and: [value = op] ]
 
-StScanner class >> scan: aString [ ^self new setSource: aString; scan ]
-StScanner >> setSource: aString [ source := aString. pos := 1. line := 1. tokens := OrderedCollection new ]
-StScanner >> error: aString [ ^(CompileError new) line: line; signal: 'line ', line printString, ': ', aString ]
-StScanner >> peekAt: i [ i > source size ifTrue: [^nil]. ^source at: i ]
-StScanner >> isLetter: c [ ^c notNil and: [c isLetter or: [c = $_]] ]
-StScanner >> isDigit: c [ ^c notNil and: [c isDigit] ]
-StScanner >> isBinChar: c [ ^c notNil and: ['+-*/\<>=~@%|&?,' includes: c] ]
-StScanner >> add: k value: v from: s to: e [ tokens add: (StToken kind: k value: v start: s stop: e line: line) ]
-StScanner >> lastKind [ tokens isEmpty ifTrue: [^nil]. ^tokens last kind ]
-StScanner >> operandEnded [ ^#(#ident #int #char #str #sym #')' #']' #'}') includes: self lastKind ]
+StScanner class >> scan: aString [
+    "Scans aString and answers its tokens, an OrderedCollection of StTokens
+     ending with an #eof token. Signals a CompileError on bad input."
+    ^self new setSource: aString; scan ]
+StScanner >> setSource: aString [
+    "Starts scanning aString from its first character, on line 1."
+    source := aString. pos := 1. line := 1. tokens := OrderedCollection new ]
+StScanner >> error: aString [
+    "Signals a CompileError for the current line, its text prefixed with the
+     line number."
+    ^(CompileError new) line: line; signal: 'line ', line printString, ': ', aString ]
+StScanner >> peekAt: i [
+    "The character at index i, or nil past the end."
+    i > source size ifTrue: [^nil]. ^source at: i ]
+StScanner >> isLetter: c [
+    "Whether c can start or continue a name: a letter or the underscore (false
+     for nil)."
+    ^c notNil and: [c isLetter or: [c = $_]] ]
+StScanner >> isDigit: c [
+    "Whether c is a decimal digit (false for nil)."
+    ^c notNil and: [c isDigit] ]
+StScanner >> isBinChar: c [
+    "Whether c can be part of a binary operator: one of + - * / backslash < >
+     = ~ @ % pipe & ? and comma (false for nil)."
+    ^c notNil and: ['+-*/\<>=~@%|&?,' includes: c] ]
+StScanner >> add: k value: v from: s to: e [
+    "Appends a token of kind k with value v, from index s to e, on the current
+     line."
+    tokens add: (StToken kind: k value: v start: s stop: e line: line) ]
+StScanner >> lastKind [
+    "The kind of the last token scanned, or nil if there is none."
+    tokens isEmpty ifTrue: [^nil]. ^tokens last kind ]
+StScanner >> operandEnded [
+    "Whether the last token ends an operand (a name, a literal or a closing
+     bracket), so that a minus sign after it is the binary operator and not a
+     negative number's sign."
+    ^#(#ident #int #char #str #sym #')' #']' #'}') includes: self lastKind ]
 StScanner >> skipBlanks [
+    "Skips white space and comments, counting lines. Signals a CompileError
+     for a comment without its end."
     | c j |
     [pos <= source size] whileTrue: [
         c := source at: pos.
@@ -59,6 +190,7 @@ StScanner >> skipBlanks [
                         pos + 1 to: j - 1 do: [:k | (source at: k) value = 10 ifTrue: [line := line + 1]].
                         pos := j + 1]]] ]
 StScanner >> scan [
+    "Scans the whole source and answers the tokens, the last one #eof."
     | c s |
     [self skipBlanks.
      pos > source size] whileFalse: [
@@ -73,6 +205,8 @@ StScanner >> scan [
     self add: #eof value: nil from: pos to: pos.
     ^tokens ]
 StScanner >> scanWord [
+    "Scans a name (an #ident token) or a keyword (a #kw token with its colon;
+     not when := follows)."
     | s j |
     s := pos. j := pos.
     [j <= source size and: [(self isLetter: (source at: j)) or: [(source at: j) isDigit]]] whileTrue: [j := j + 1].
@@ -80,6 +214,9 @@ StScanner >> scanWord [
         ifTrue: [self add: #kw value: (source copyFrom: s to: j) from: s to: j + 1. pos := j + 1]
         ifFalse: [self add: #ident value: (source copyFrom: s to: j - 1) from: s to: j. pos := j] ]
 StScanner >> scanNumber [
+    "Scans an integer literal: decimal, with an optional minus sign, or radix
+     (16r1F, the digits uppercase). Signals a CompileError for a radix without
+     digits and for a floating point number."
     | s neg i j v base k |
     s := pos.
     neg := (source at: pos) = $-.
@@ -102,7 +239,9 @@ StScanner >> scanNumber [
     self add: #int value: v from: s to: j.
     pos := j ]
 StScanner >> scanString: from [
-    "The string whose opening quote is at from; answers {text. index after it}."
+    "Scans the string literal whose opening quote is at from, a doubled quote
+     standing for one; answers {its text. the index after it}. Signals a
+     CompileError for a string without its end."
     | j out |
     j := from + 1.
     out := WriteStream on: (String new: 16).
@@ -113,6 +252,9 @@ StScanner >> scanString: from [
             ifFalse: [(source at: j) value = 10 ifTrue: [line := line + 1]. out nextPut: (source at: j). j := j + 1]].
     ^Array with: out contents with: j + 1 ]
 StScanner >> scanOther: c [
+    "Scans a token that starts with c, not a letter or digit: a character
+     literal, a string, a # literal, :=, punctuation or a binary operator.
+     Signals a CompileError for an unexpected character."
     | s j r n |
     s := pos.
     c = $$ ifTrue: [
@@ -137,6 +279,9 @@ StScanner >> scanOther: c [
         pos := j. ^self].
     ^self error: 'unexpected character ', c printString ]
 StScanner >> scanHash [
+    "Scans what follows #: #( and #[ (literal and byte arrays), or a symbol,
+     quoted, a name with colons, or binary. Signals a CompileError for
+     anything else."
     | s n j r |
     s := pos.
     n := self peekAt: pos + 1.
@@ -161,76 +306,211 @@ StScanner >> scanHash [
 
 "---- the syntax tree ------------------------------------------------------------"
 
-StNode >> line [ ^line ]
-StNode >> line: n [ line := n ]
-StNode >> isReturn [ ^false ]
-StNode >> isBlock [ ^false ]
-StNode >> isSend [ ^false ]
-StNode >> isVariable [ ^false ]
-StNode >> isLiteral [ ^false ]
-StNode >> isAssign [ ^false ]
-StLiteral class >> value: v [ ^self new setValue: v ]
-StLiteral >> setValue: v [ value := v ]
-StLiteral >> value [ ^value ]
-StLiteral >> isLiteral [ ^true ]
-StVariable class >> name: n line: l [ ^self new setName: n; line: l; yourself ]
-StVariable >> setName: n [ name := n ]
-StVariable >> name [ ^name ]
-StVariable >> isVariable [ ^true ]
-StVariable >> isSuper [ ^name = 'super' ]
-StAssign class >> name: n value: v line: l [ ^self new setName: n value: v; line: l; yourself ]
-StAssign >> setName: n value: v [ name := n. value := v ]
-StAssign >> name [ ^name ]
-StAssign >> value [ ^value ]
-StAssign >> isAssign [ ^true ]
-StSend class >> receiver: r selector: s arguments: a line: l [ ^self new setReceiver: r selector: s arguments: a; line: l; yourself ]
-StSend >> setReceiver: r selector: s arguments: a [ receiver := r. selector := s. arguments := a ]
-StSend >> receiver [ ^receiver ]
-StSend >> selector [ ^selector ]
-StSend >> arguments [ ^arguments ]
-StSend >> isSend [ ^true ]
-StSend >> isSuperSend [ ^receiver isVariable and: [receiver isSuper] ]
-StCascade class >> receiver: r messages: m [ ^self new setReceiver: r messages: m ]
-StCascade >> setReceiver: r messages: m [ receiver := r. messages := m ]
-StCascade >> receiver [ ^receiver ]
-StCascade >> messages [ ^messages ]
-StBlock class >> arguments: a temps: t statements: s [ ^self new setArguments: a temps: t statements: s ]
-StBlock >> setArguments: a temps: t statements: s [ arguments := a. temps := t. statements := s ]
-StBlock >> arguments [ ^arguments ]
-StBlock >> temps [ ^temps ]
-StBlock >> statements [ ^statements ]
-StBlock >> isBlock [ ^true ]
-StBlock >> isBlock: n [ ^arguments size = n ]
-StBrace class >> elements: e [ ^self new setElements: e ]
-StBrace >> setElements: e [ elements := e ]
-StBrace >> elements [ ^elements ]
-StReturn class >> expr: e [ ^self new setExpr: e ]
-StReturn >> setExpr: e [ expr := e ]
-StReturn >> expr [ ^expr ]
-StReturn >> isReturn [ ^true ]
+StNode >> line [
+    "The source line the node starts on."
+    ^line ]
+StNode >> line: n [
+    "Sets the source line the node starts on."
+    line := n ]
+StNode >> isReturn [
+    "Whether the node is a ^ statement: false here."
+    ^false ]
+StNode >> isBlock [
+    "Whether the node is a block: false here."
+    ^false ]
+StNode >> isSend [
+    "Whether the node is a message send: false here."
+    ^false ]
+StNode >> isVariable [
+    "Whether the node is a variable: false here."
+    ^false ]
+StNode >> isLiteral [
+    "Whether the node is a literal: false here."
+    ^false ]
+StNode >> isAssign [
+    "Whether the node is an assignment: false here."
+    ^false ]
+StLiteral class >> value: v [
+    "A new literal node for v."
+    ^self new setValue: v ]
+StLiteral >> setValue: v [
+    "Sets the literal's value."
+    value := v ]
+StLiteral >> value [
+    "The literal's value."
+    ^value ]
+StLiteral >> isLiteral [
+    "Answers true: the node is a literal."
+    ^true ]
+StVariable class >> name: n line: l [
+    "A new variable node for name n, on line l."
+    ^self new setName: n; line: l; yourself ]
+StVariable >> setName: n [
+    "Sets the variable's name."
+    name := n ]
+StVariable >> name [
+    "The variable's name, a String."
+    ^name ]
+StVariable >> isVariable [
+    "Answers true: the node is a variable."
+    ^true ]
+StVariable >> isSuper [
+    "Whether the variable is super."
+    ^name = 'super' ]
+StAssign class >> name: n value: v line: l [
+    "A new assignment node of value v to the variable named n, on line l."
+    ^self new setName: n value: v; line: l; yourself ]
+StAssign >> setName: n value: v [
+    "Sets the assigned variable's name and the value's node."
+    name := n. value := v ]
+StAssign >> name [
+    "The name of the assigned variable."
+    ^name ]
+StAssign >> value [
+    "The node of the assigned expression."
+    ^value ]
+StAssign >> isAssign [
+    "Answers true: the node is an assignment."
+    ^true ]
+StSend class >> receiver: r selector: s arguments: a line: l [
+    "A new send node: receiver r, selector s, arguments a, on line l."
+    ^self new setReceiver: r selector: s arguments: a; line: l; yourself ]
+StSend >> setReceiver: r selector: s arguments: a [
+    "Sets the receiver, selector and arguments."
+    receiver := r. selector := s. arguments := a ]
+StSend >> receiver [
+    "The node of the receiver."
+    ^receiver ]
+StSend >> selector [
+    "The selector, a String."
+    ^selector ]
+StSend >> arguments [
+    "The argument nodes, an Array."
+    ^arguments ]
+StSend >> isSend [
+    "Answers true: the node is a send."
+    ^true ]
+StSend >> isSuperSend [
+    "Whether the send is to super."
+    ^receiver isVariable and: [receiver isSuper] ]
+StCascade class >> receiver: r messages: m [
+    "A new cascade node: receiver r and messages m, an Array of {selector.
+     arguments}."
+    ^self new setReceiver: r messages: m ]
+StCascade >> setReceiver: r messages: m [
+    "Sets the receiver and the messages."
+    receiver := r. messages := m ]
+StCascade >> receiver [
+    "The node of the cascade's receiver."
+    ^receiver ]
+StCascade >> messages [
+    "The messages, an Array of {selector. argument nodes}."
+    ^messages ]
+StBlock class >> arguments: a temps: t statements: s [
+    "A new block node with argument names a, temp names t and statement nodes
+     s."
+    ^self new setArguments: a temps: t statements: s ]
+StBlock >> setArguments: a temps: t statements: s [
+    "Sets the arguments, temps and statements."
+    arguments := a. temps := t. statements := s ]
+StBlock >> arguments [
+    "The names of the block's arguments."
+    ^arguments ]
+StBlock >> temps [
+    "The names of the block's temps."
+    ^temps ]
+StBlock >> statements [
+    "The block's statement nodes."
+    ^statements ]
+StBlock >> isBlock [
+    "Answers true: the node is a block."
+    ^true ]
+StBlock >> isBlock: n [
+    "Whether the block takes n arguments."
+    ^arguments size = n ]
+StBrace class >> elements: e [
+    "A new brace array node with element nodes e."
+    ^self new setElements: e ]
+StBrace >> setElements: e [
+    "Sets the element nodes."
+    elements := e ]
+StBrace >> elements [
+    "The element nodes."
+    ^elements ]
+StReturn class >> expr: e [
+    "A new ^ node returning expression e."
+    ^self new setExpr: e ]
+StReturn >> setExpr: e [
+    "Sets the returned expression's node."
+    expr := e ]
+StReturn >> expr [
+    "The node of the returned expression."
+    ^expr ]
+StReturn >> isReturn [
+    "Answers true: the node is a ^ statement."
+    ^true ]
 StMethod class >> selector: s arguments: a temps: t primitive: p statements: st line: l [
+    "A new method node: selector s, argument names a, temp names t, primitive
+     number p (0 for none), statements st, on line l."
     ^self new setSelector: s arguments: a temps: t primitive: p statements: st; line: l; yourself ]
 StMethod >> setSelector: s arguments: a temps: t primitive: p statements: st [
+    "Sets the selector, arguments, temps, primitive number and statements."
     selector := s. arguments := a. temps := t. primitive := p. statements := st ]
-StMethod >> selector [ ^selector ]
-StMethod >> arguments [ ^arguments ]
-StMethod >> temps [ ^temps ]
-StMethod >> primitive [ ^primitive ]
-StMethod >> statements [ ^statements ]
+StMethod >> selector [
+    "The method's selector, a String."
+    ^selector ]
+StMethod >> arguments [
+    "The names of the method's arguments."
+    ^arguments ]
+StMethod >> temps [
+    "The names of the method's temps."
+    ^temps ]
+StMethod >> primitive [
+    "The method's primitive number, 0 if it has none."
+    ^primitive ]
+StMethod >> statements [
+    "The method's statement nodes."
+    ^statements ]
 
 "---- the parser -------------------------------------------------------------------"
 
-StParser class >> on: aString [ ^self new setTokens: (StScanner scan: aString) source: aString ]
-StParser >> setTokens: t source: aString [ tokens := t. index := 1. source := aString ]
-StParser >> setTokens: t [ tokens := t. index := 1 ]
-StParser >> peek [ ^tokens at: (index min: tokens size) ]
-StParser >> peek: k [ ^tokens at: (index + k min: tokens size) ]
-StParser >> next [ | t | t := tokens at: index. index := index + 1. ^t ]
-StParser >> error: aString [ ^(CompileError new) line: self peek line; signal: 'line ', self peek line printString, ': ', aString ]
-StParser >> expect: k [ (self peek is: k) ifFalse: [^self error: k, ' expected']. ^self next ]
-StParser >> atBin: op [ ^self peek isBin: op ]
+StParser class >> on: aString [
+    "A parser on aString's tokens. Signals a CompileError if aString does not
+     scan.
+     (StParser on: '3 + 4. 5') doIt statements size >>> 2"
+    ^self new setTokens: (StScanner scan: aString) source: aString ]
+StParser >> setTokens: t source: aString [
+    "Sets the tokens and the source text, and starts at the first token."
+    tokens := t. index := 1. source := aString ]
+StParser >> setTokens: t [
+    "Sets the tokens and starts at the first token, with no source text."
+    tokens := t. index := 1 ]
+StParser >> peek [
+    "The next token, not consumed (the #eof token at the end)."
+    ^tokens at: (index min: tokens size) ]
+StParser >> peek: k [
+    "The token k after the next one, not consumed (the #eof token past the
+     end)."
+    ^tokens at: (index + k min: tokens size) ]
+StParser >> next [
+    "Consumes the next token and answers it."
+    | t | t := tokens at: index. index := index + 1. ^t ]
+StParser >> error: aString [
+    "Signals a CompileError for the next token's line, its text prefixed with
+     the line number."
+    ^(CompileError new) line: self peek line; signal: 'line ', self peek line printString, ': ', aString ]
+StParser >> expect: k [
+    "Consumes the next token and answers it if it is of kind k; signals a
+     CompileError if not."
+    (self peek is: k) ifFalse: [^self error: k, ' expected']. ^self next ]
+StParser >> atBin: op [
+    "Whether the next token is the binary operator op."
+    ^self peek isBin: op ]
 StParser >> items [
-    "The items of a file: {#method. class name. meta. StMethod. source} or {#expr. node. line} or {#vars. names}"
+    "Parses a file's contents into its items, in order: {#method. class name.
+     meta. StMethod. source} for a `Class >> pattern [ body ]` definition,
+     {#expr. node. line} for an expression, {#vars. names} for a | declaration
+     |. What file-in compiles and runs."
     | out cls meta t line e |
     out := OrderedCollection new.
     [self peek is: #eof] whileFalse: [
@@ -256,12 +536,16 @@ StParser >> items [
                         out add: (Array with: #expr with: e with: line)]]].
     ^out ]
 StParser >> isMethodDef [
+    "Whether a method definition starts here: a name, optionally class, then
+     >>."
     | k |
     (self peek is: #ident) ifFalse: [^false].
     k := 1.
     (((self peek: 1) is: #ident) and: [(self peek: 1) value = 'class']) ifTrue: [k := 2].
     ^(self peek: k) isBin: '>>' ]
 StParser >> methodDef [
+    "Parses a method's pattern and its body in brackets, with temps and a
+     primitive pragma in either order; answers an StMethod."
     | line sp temps prim stmts |
     line := self peek line.
     sp := self pattern.
@@ -275,6 +559,8 @@ StParser >> methodDef [
     self expect: #']'.
     ^StMethod selector: (sp at: 1) arguments: (sp at: 2) temps: temps primitive: prim statements: stmts line: line ]
 StParser >> methodSource [
+    "Parses a method's pattern and a body without brackets, up to the end;
+     answers an StMethod."
     | line sp temps prim stmts |
     line := self peek line.
     sp := self pattern.
@@ -286,7 +572,9 @@ StParser >> methodSource [
     stmts := self statements: #eof.
     ^StMethod selector: (sp at: 1) arguments: (sp at: 2) temps: temps primitive: prim statements: stmts line: line ]
 StParser >> methodEither [
-    "A pattern and a body, the body in brackets (as in a file) or not."
+    "Parses a method's pattern and body, the body in brackets (as in a file)
+     or not (as in the browser); answers an StMethod. A body that begins with
+     a block is told from one in brackets by trying methodDef first."
     | start node |
     start := index.
     self pattern.
@@ -298,13 +586,16 @@ StParser >> methodEither [
     index := start.
     ^self methodSource ]
 StParser >> doIt [
-    "Statements, with temporaries first: what the REPL compiles."
+    "Parses statements up to the end, with temps first, as an StMethod with
+     the selector DoIt: what the REPL compiles."
     | temps stmts |
     temps := #().
     ((self atBin: '|') or: [self atBin: '||']) ifTrue: [temps := self temps].
     stmts := self statements: #eof.
     ^StMethod selector: 'DoIt' arguments: #() temps: temps primitive: 0 statements: stmts line: 1 ]
 StParser >> pattern [
+    "Parses a method pattern, unary, binary or keyword; answers {selector.
+     argument names}. Signals a CompileError if there is none."
     | t sel args |
     t := self peek.
     (t is: #ident) ifTrue: [self next. ^Array with: t value with: #()].
@@ -315,6 +606,7 @@ StParser >> pattern [
         ^Array with: sel with: args asArray].
     ^self error: 'method pattern expected' ]
 StParser >> temps [
+    "Parses a temps declaration between bars (|| for none); answers the names."
     | out |
     (self atBin: '||') ifTrue: [self next. ^#()].
     self next.
@@ -324,6 +616,8 @@ StParser >> temps [
     self next.
     ^out asArray ]
 StParser >> pragma [
+    "Parses <primitive: N> and answers N. Signals a CompileError for any other
+     pragma."
     | t n |
     self next.
     t := self expect: #kw.
@@ -333,6 +627,9 @@ StParser >> pragma [
     self next.
     ^n ]
 StParser >> statements: end [
+    "Parses statements separated by periods up to a token of kind end (not
+     consumed); a statement that starts with ^ becomes an StReturn. Answers an
+     Array of nodes."
     | out |
     out := OrderedCollection new.
     [self peek is: end] whileFalse: [
@@ -344,6 +641,7 @@ StParser >> statements: end [
             ifFalse: [(self peek is: end) ifFalse: [^self error: '. or ', end, ' expected']]].
     ^out asArray ]
 StParser >> expression [
+    "Parses an expression: an assignment, or a cascade or a send below it."
     | t |
     t := self peek.
     ((t is: #ident) and: [(self peek: 1) is: #':=']) ifTrue: [
@@ -351,6 +649,9 @@ StParser >> expression [
         ^StAssign name: t value value: self expression line: t line].
     ^self cascade ]
 StParser >> cascade [
+    "Parses a keyword expression and the cascade parts after it, if any;
+     answers the send or an StCascade. Signals a CompileError for a cascade on
+     something that is not a send."
     | e msgs |
     e := self keywordExpr.
     (self peek is: #';') ifFalse: [^e].
@@ -360,6 +661,8 @@ StParser >> cascade [
     [self peek is: #';'] whileTrue: [self next. msgs add: self cascadeMessage].
     ^StCascade receiver: e receiver messages: msgs asArray ]
 StParser >> cascadeMessage [
+    "Parses one message of a cascade after its semicolon; answers {selector.
+     argument nodes}."
     | t sel args |
     t := self peek.
     (t is: #ident) ifTrue: [
@@ -373,6 +676,7 @@ StParser >> cascadeMessage [
         ^Array with: sel with: args asArray].
     ^self error: 'message expected' ]
 StParser >> keywordExpr [
+    "Parses a keyword send, or the binary expression if there is no keyword."
     | r line sel args |
     r := self binaryExpr.
     (self peek is: #kw) ifFalse: [^r].
@@ -381,6 +685,7 @@ StParser >> keywordExpr [
     [self peek is: #kw] whileTrue: [sel := sel, self next value. args add: self binaryExpr].
     ^StSend receiver: r selector: sel arguments: args asArray line: line ]
 StParser >> binaryExpr [
+    "Parses binary sends from left to right over unary expressions."
     | r t |
     r := self unaryExpr.
     [self peek is: #bin] whileTrue: [
@@ -388,6 +693,7 @@ StParser >> binaryExpr [
         r := StSend receiver: r selector: t value arguments: (Array with: self unaryExpr) line: t line].
     ^r ]
 StParser >> unaryExpr [
+    "Parses a primary and the unary sends after it."
     | r t |
     r := self primary.
     [(self peek is: #ident) and: [((self peek: 1) is: #':=') not]] whileTrue: [
@@ -395,6 +701,8 @@ StParser >> unaryExpr [
         r := StSend receiver: r selector: t value arguments: #() line: t line].
     ^r ]
 StParser >> primary [
+    "Parses a primary: a variable, a literal, a parenthesized expression, a
+     block or a brace array. Signals a CompileError if none is there."
     | t k e elems |
     t := self peek.
     k := t kind.
@@ -419,6 +727,8 @@ StParser >> primary [
         ^StBrace elements: elems asArray].
     ^self error: 'expression expected' ]
 StParser >> block [
+    "Parses a block in brackets, its arguments, temps and statements; answers
+     an StBlock."
     | args temps stmts |
     self expect: #'['.
     args := OrderedCollection new.
@@ -442,6 +752,9 @@ StParser >> block [
     self expect: #']'.
     ^StBlock arguments: args asArray temps: temps statements: stmts ]
 StParser >> literalArray [
+    "Parses a literal array's elements after #( up to its ): numbers,
+     characters, strings, symbols, nil true false, bare names and keywords as
+     symbols, nested arrays and byte arrays. Answers an immutable Array."
     | items t k s |
     items := OrderedCollection new.
     [t := self peek.
@@ -468,6 +781,8 @@ StParser >> literalArray [
     self next.
     ^items asArray beImmutable ]
 StParser >> byteArray [
+    "Parses a byte array's elements after #[ up to its ]; answers an immutable
+     ByteArray. Signals a CompileError for an element outside 0 to 255."
     | out v |
     out := OrderedCollection new.
     [self peek is: #int] whileTrue: [
@@ -479,39 +794,97 @@ StParser >> byteArray [
 
 "---- variables and scopes ---------------------------------------------------------"
 
-StVar class >> name: n kind: k scope: s [ ^self new setName: n kind: k scope: s ]
+StVar class >> name: n kind: k scope: s [
+    "A new variable named n, of kind k (#arg #temp or #copied), owned by scope
+     s; not captured, assigned or remote."
+    ^self new setName: n kind: k scope: s ]
 StVar >> setName: n kind: k scope: s [
+    "Sets the name, kind and scope, and clears the flags."
     name := n. kind := k. scope := s. captured := false. assigned := false. remote := false. vidx := -1 ]
-StVar >> name [ ^name ]
-StVar >> kind [ ^kind ]
-StVar >> scope [ ^scope ]
-StVar >> captured [ ^captured ]
-StVar >> assigned [ ^assigned ]
-StVar >> remote [ ^remote ]
-StVar >> vidx [ ^vidx ]
-StVar >> origin [ ^origin ]
-StVar >> origin: v [ origin := v ]
-StVar >> beCaptured [ captured := true ]
-StVar >> beAssigned [ assigned := true ]
-StVar >> beRemote: i [ remote := true. vidx := i ]
+StVar >> name [
+    "The variable's name."
+    ^name ]
+StVar >> kind [
+    "The variable's kind: #arg, #temp or #copied."
+    ^kind ]
+StVar >> scope [
+    "The StScope that owns the variable's slot."
+    ^scope ]
+StVar >> captured [
+    "Whether an inner block uses the variable."
+    ^captured ]
+StVar >> assigned [
+    "Whether the variable is assigned to."
+    ^assigned ]
+StVar >> remote [
+    "Whether the variable lives in its scope's temp vector."
+    ^remote ]
+StVar >> vidx [
+    "The variable's index (0-based) in the temp vector, -1 if it is not
+     remote."
+    ^vidx ]
+StVar >> origin [
+    "For a copied variable, the outer variable it is a copy of."
+    ^origin ]
+StVar >> origin: v [
+    "Sets the outer variable this copy is of."
+    origin := v ]
+StVar >> beCaptured [
+    "Marks the variable as used from an inner block."
+    captured := true ]
+StVar >> beAssigned [
+    "Marks the variable as assigned to."
+    assigned := true ]
+StVar >> beRemote: i [
+    "Puts the variable in the temp vector at index i."
+    remote := true. vidx := i ]
 
-StScope class >> parent: p isBlock: b [ ^self new setParent: p isBlock: b ]
+StScope class >> parent: p isBlock: b [
+    "A new scope inside scope p (nil for a method), a block's if b."
+    ^self new setParent: p isBlock: b ]
 StScope >> setParent: p isBlock: b [
+    "Sets the parent and the kind, with empty variables, literals and code."
     parent := p. isBlock := b.
     args := OrderedCollection new. locals := OrderedCollection new. remotes := OrderedCollection new.
     copied := OrderedCollection new. lits := OrderedCollection new. code := OrderedCollection new ]
-StScope >> args [ ^args ]
-StScope >> locals [ ^locals ]
-StScope >> locals: c [ locals := c ]
-StScope >> remotes [ ^remotes ]
-StScope >> copied [ ^copied ]
-StScope >> vector [ ^vector ]
-StScope >> vector: v [ vector := v ]
-StScope >> lits [ ^lits ]
-StScope >> code [ ^code ]
-StScope >> isBlock [ ^isBlock ]
-StScope >> declareLocal: aName [ | v | v := StVar name: aName kind: #temp scope: self. locals add: v. ^v ]
+StScope >> args [
+    "The argument variables, in order."
+    ^args ]
+StScope >> locals [
+    "The local temp variables (after settle, not those in the temp vector)."
+    ^locals ]
+StScope >> locals: c [
+    "Sets the local temp variables."
+    locals := c ]
+StScope >> remotes [
+    "The variables kept in the temp vector, in order of their index."
+    ^remotes ]
+StScope >> copied [
+    "The variables copied into the block's closure, in order."
+    ^copied ]
+StScope >> vector [
+    "The variable that holds the temp vector, or nil if the scope has none."
+    ^vector ]
+StScope >> vector: v [
+    "Sets the variable that holds the temp vector."
+    vector := v ]
+StScope >> lits [
+    "The literals so far, in order."
+    ^lits ]
+StScope >> code [
+    "The instructions so far: Arrays of an opcode and its operands, and
+     StLabels."
+    ^code ]
+StScope >> isBlock [
+    "Whether the scope is a block's."
+    ^isBlock ]
+StScope >> declareLocal: aName [
+    "Adds a temp variable named aName (nil for a hidden one, as a to:do:
+     limit) and answers it."
+    | v | v := StVar name: aName kind: #temp scope: self. locals add: v. ^v ]
 StScope >> capture: v [
+    "The variable in this block's copied values that copies outer variable v,
+     added if it is not there yet."
     | c |
     copied do: [:x | x origin == v ifTrue: [^x]].
     c := StVar name: v name kind: #copied scope: self.
@@ -519,7 +892,9 @@ StScope >> capture: v [
     copied add: c.
     ^c ]
 StScope >> lit: v [
-    "The index (0-based) of literal v; equal numbers, strings, symbols, characters and globals are shared."
+    "The index (0-based) of literal v in this scope, added if needed; equal
+     numbers, strings, symbols and characters, and identical globals, are
+     shared. Signals a CompileError for more than 256 literals."
     | shared |
     shared := v isInteger or: [v isString or: [v isCharacter or: [v class == Association]]].
     shared ifTrue: [
@@ -529,30 +904,62 @@ StScope >> lit: v [
     lits size > 256 ifTrue: [^CompileError new signal: 'too many literals'].
     ^lits size - 1 ]
 
-StLex class >> parent: p real: r [ ^self new setParent: p real: r ]
-StLex >> setParent: p real: r [ parent := p. real := r. names := Dictionary new ]
-StLex >> real [ ^real ]
-StLex >> names [ ^names ]
+StLex class >> parent: p real: r [
+    "A new lexical level inside p (nil at the method), whose names live in
+     scope r."
+    ^self new setParent: p real: r ]
+StLex >> setParent: p real: r [
+    "Sets the parent level and the real scope, with no names yet."
+    parent := p. real := r. names := Dictionary new ]
+StLex >> real [
+    "The StScope whose slots this level's names live in."
+    ^real ]
+StLex >> names [
+    "The Dictionary of this level's names to their StVars."
+    ^names ]
 StLex >> lookup: aName [
+    "The StVar named aName at this level or an enclosing one, or nil (an
+     instance variable or a global)."
     | s |
     s := self.
     [s == nil] whileFalse: [(s names includesKey: aName) ifTrue: [^s names at: aName]. s := s parent].
     ^nil ]
-StLex >> parent [ ^parent ]
-StLex >> declare: aName as: v [ names at: aName put: v ]
+StLex >> parent [
+    "The enclosing lexical level, or nil."
+    ^parent ]
+StLex >> declare: aName as: v [
+    "Declares aName at this level as variable v."
+    names at: aName put: v ]
 
-StLabel >> pos [ ^pos ]
-StLabel >> pos: n [ pos := n ]
+StLabel >> pos [
+    "The label's byte offset in the code, once assembled."
+    ^pos ]
+StLabel >> pos: n [
+    "Sets the label's byte offset."
+    pos := n ]
 
 "---- the compiler -------------------------------------------------------------"
 
-Compiler class >> evaluate: aString [ ^self evaluate: aString for: nil ]
+Compiler class >> evaluate: aString [
+    "Compiles aString as a doIt with nil as the receiver, runs it and answers
+     its value.
+     Compiler evaluate: '3 + 4' >>> 7"
+    ^self evaluate: aString for: nil ]
 Compiler class >> evaluate: aString for: anObject [
+    "Compiles aString as a doIt in anObject's class, runs it with anObject as
+     self and answers the value of its last statement.
+     Compiler evaluate: 'self + 1' for: 41 >>> 42"
     | m |
     m := self new compileDoIt: aString for: anObject class.
     ^anObject executeMethod: m ]
-Object >> executeMethod: aMethod [ <primitive: 112> ^self error: 'not a method without arguments' ]
+Object >> executeMethod: aMethod [
+    "Runs aMethod, a method without arguments, with the receiver as self and
+     answers its value. A VM primitive (112); signals an Error if aMethod is
+     not such a method."
+    <primitive: 112> ^self error: 'not a method without arguments' ]
 Compiler >> compileDoIt: aString for: aClass [
+    "Compiles aString as a doIt method for aClass: temps and statements, the
+     last statement returned. Answers the CompiledMethod, not installed."
     | node stmts |
     node := (StParser on: aString) doIt.
     stmts := node statements.
@@ -562,20 +969,33 @@ Compiler >> compileDoIt: aString for: aClass [
     node setSelector: 'DoIt' arguments: #() temps: node temps primitive: 0 statements: stmts.
     ^self compileMethod: node in: aClass ]
 Compiler >> compile: aString in: aClass [
-    "Compile a method (its pattern and body, the body in brackets or not) and install it."
+    "Compiles a method (its pattern and body, the body in brackets or not) for
+     aClass, installs it in aClass's method dictionary, notes its source for
+     the browser (MethodSource) and answers it."
     | m |
     m := self compileSource: aString in: aClass.
     aClass addSelector: m selector asSymbol withMethod: m.
     MethodSource note: aString class: aClass selector: m selector.
     ^m ]
 Compiler >> compileSource: aString in: aClass [
+    "Compiles a method's source for aClass and answers the CompiledMethod, not
+     installed."
     ^self compileMethod: (StParser on: aString) methodEither in: aClass ]
 Compiler >> compileMethod: aNode in: aClass [
+    "Compiles the StMethod aNode for aClass, its instance variables known;
+     answers the CompiledMethod."
     ivars := aClass allInstVarNames asArray.
     methodClass := aClass.
     ^self compile: aNode ]
-Compiler >> error: aString [ ^CompileError new signal: aString ]
+Compiler >> error: aString [
+    "Signals a CompileError with aString."
+    ^CompileError new signal: aString ]
 Compiler >> compile: m [
+    "Compiles StMethod m: declares its arguments and temps, runs pass 1 (scope
+     analysis) and pass 2 (code), ending with returnSelf if the last statement
+     does not return, adds the selector and the method class as the last
+     literals and assembles it. Signals a CompileError for over 15 arguments
+     or a name declared twice."
     | scope lex |
     m arguments size > 15 ifTrue: [^self error: 'too many arguments'].
     analysis := IdentityDictionary new.
@@ -606,8 +1026,15 @@ Compiler >> compile: m [
     ^self assemble: scope nargs: m arguments size primitive: m primitive isBlock: false ]
 
 "pass 1"
-Compiler >> anStatements: stmts in: lex [ stmts do: [:s | self an: s in: lex] ]
+Compiler >> anStatements: stmts in: lex [
+    "Pass 1 (scope analysis) over statements stmts at lexical level lex."
+    stmts do: [:s | self an: s in: lex] ]
 Compiler >> an: n in: lex [
+    "Pass 1 (scope analysis) over node n at level lex: marks variables used or
+     assigned from an inner block as captured and assigned, makes scopes for
+     real blocks and levels for blocks compiled in line, and a hidden limit
+     temp for to:do:. Signals a CompileError for an assignment to a
+     pseudo-variable or an argument."
     | v inl inlNodes |
     n isLiteral ifTrue: [^self].
     n isVariable ifTrue: [
@@ -654,6 +1081,9 @@ Compiler >> an: n in: lex [
         ^self].
     ^self error: 'unknown node' ]
 Compiler >> anInlined: b in: lex loopVar: assignedArgs [
+    "Pass 1 over a block compiled in line: its arguments and temps become
+     temps of the enclosing scope (the arguments marked assigned when
+     assignedArgs, as a loop variable is), in a new lexical level."
     | inner v |
     inner := StLex parent: lex real: lex real.
     b arguments do: [:a |
@@ -664,6 +1094,9 @@ Compiler >> anInlined: b in: lex loopVar: assignedArgs [
     analysis at: b put: inner.
     self anStatements: b statements in: inner ]
 Compiler >> anBlock: b in: lex [
+    "Pass 1 over a real block: a new StScope with its arguments and temps, and
+     its statements analysed in it. Signals a CompileError for over 15 block
+     arguments."
     | sc inner v |
     sc := StScope parent: lex real isBlock: true.
     scopes add: sc.
@@ -677,6 +1110,9 @@ Compiler >> anBlock: b in: lex [
     analysis at: b put: inner.
     self anStatements: b statements in: inner ]
 Compiler >> settle [
+    "Ends pass 1: in each scope a temp that is both captured and assigned
+     moves into the temp vector, and a scope with any gets the variable that
+     holds the vector."
     | keep |
     scopes do: [:sc |
         keep := OrderedCollection new.
@@ -687,7 +1123,11 @@ Compiler >> settle [
         sc locals: keep.
         sc remotes isEmpty ifFalse: [sc vector: (StVar name: '<vector>' kind: #temp scope: sc)]] ]
 Compiler >> inlinedArgs: n [
-    "Which parts of send n are blocks compiled in line: {{node. nargs}...}, or nil."
+    "Which parts of send n are blocks compiled in line: an Array of {block
+     node. number of arguments}, or nil if the send is a real send. ifTrue:
+     and the like, and: or:, whileTrue: whileFalse: repeat, to:do: (to:by:do:
+     with a literal non-zero step), and ifNil: and the like, each only with
+     literal blocks of the right arity; never for super."
     | s a r |
     s := n selector. a := n arguments. r := n receiver.
     n isSuperSend ifTrue: [^nil].
@@ -721,22 +1161,42 @@ Compiler >> inlinedArgs: n [
             ifTrue: [Array with: (Array with: (a at: 1) with: (a at: 1) arguments size) with: (Array with: (a at: 2) with: 0)]
             ifFalse: [nil]].
     ^nil ]
-Compiler >> isBlock: n args: k [ ^n isBlock and: [n arguments size = k] ]
+Compiler >> isBlock: n args: k [
+    "Whether node n is a literal block of k arguments."
+    ^n isBlock and: [n arguments size = k] ]
 
 "pass 2"
 Compiler >> begin: scope [
+    "Starts a scope's code: if it has a temp vector, emits pushNewVector (38)
+     of its size and popStoreTemp (24) into the vector's temp."
     scope vector == nil ifFalse: [
         self emit: scope op: 38 with: scope remotes size.
         self emit: scope op: 24 with: scope vector] ]
-Compiler >> emit: scope op: op [ scope code add: (Array with: op) ]
-Compiler >> emit: scope op: op with: a [ scope code add: (Array with: op with: a) ]
-Compiler >> emit: scope op: op with: a with: b [ scope code add: (Array with: op with: a with: b) ]
-Compiler >> emit: scope label: l [ scope code add: l ]
+Compiler >> emit: scope op: op [
+    "Appends instruction op, without operands, to scope's code."
+    scope code add: (Array with: op) ]
+Compiler >> emit: scope op: op with: a [
+    "Appends instruction op with operand a (a number, an StVar or an StLabel)
+     to scope's code."
+    scope code add: (Array with: op with: a) ]
+Compiler >> emit: scope op: op with: a with: b [
+    "Appends instruction op with operands a and b to scope's code."
+    scope code add: (Array with: op with: a with: b) ]
+Compiler >> emit: scope label: l [
+    "Places label l here in scope's code."
+    scope code add: l ]
 Compiler >> genEffect: n in: lex [
+    "Pass 2: the code for node n as a statement whose value is not used: an
+     assignment ends with a pop-and-store, anything else with pop (6)."
     n isAssign
         ifTrue: [self genValue: n value in: lex. self genStore: n name in: lex pop: true]
         ifFalse: [self genValue: n in: lex. self emit: lex real op: 6] ]
 Compiler >> genValue: n in: lex [
+    "Pass 2: the code that pushes node n's value. Literals, variables,
+     assignments, brace arrays (pushArray, 30), cascades (dup 5 and pop 6
+     around each message but the last), blocks, sends compiled in line and
+     real sends. Signals a CompileError for a ^ inside an expression and for a
+     brace array over 255 elements."
     | sc sup last |
     sc := lex real.
     n isLiteral ifTrue: [^self genLiteral: n value in: sc].
@@ -765,16 +1225,23 @@ Compiler >> genValue: n in: lex [
     n isReturn ifTrue: [^self error: '^ inside an expression'].
     ^self error: 'unknown node' ]
 Compiler >> genLiteral: v in: sc [
+    "Pass 2: pushes literal v: pushNil, pushTrue or pushFalse (1 2 3),
+     pushInt8 (26) for -128 to 127, otherwise pushLit (18) of its index."
     v == nil ifTrue: [^self emit: sc op: 1].
     v == true ifTrue: [^self emit: sc op: 2].
     v == false ifTrue: [^self emit: sc op: 3].
     (v isInteger and: [v between: -128 and: 127]) ifTrue: [^self emit: sc op: 26 with: (v bitAnd: 255)].
     self emit: sc op: 18 with: (sc lit: (self literal: v)) ]
 Compiler >> literal: v [
-    "Literal strings, arrays and byte arrays cannot be changed."
+    "The literal to store for v: a copy made immutable for a String that is
+     not a Symbol, so that literal strings cannot be changed; v itself
+     otherwise."
     (v isString and: [v isSymbol not]) ifTrue: [^v copy beImmutable].
     ^v ]
 Compiler >> specialIndexOf: sel nargs: n [
+    "The index k (0-based) of sel among the special selectors of sendSpecial,
+     or nil if it is not one or does not take n arguments.
+     (Compiler new specialIndexOf: '+' nargs: 1) >>> 0"
     | i |
     i := #(#+ #- #< #> #<= #>= #= #~= #* #/ #\\ #// #bitAnd: #bitOr: #bitShift: #== #class #at: #at:put:
            #size #value #value: #isNil #notNil #new #new: #~~) indexOf: sel asSymbol.
@@ -782,12 +1249,19 @@ Compiler >> specialIndexOf: sel nargs: n [
     sel asSymbol numArgs = n ifFalse: [^nil].
     ^i - 1 ]
 Compiler >> genSend: sel nargs: n in: sc super: sup [
+    "Pass 2: emits a send of sel with n arguments: superSend (33) for super,
+     sendSpecial (34) for a special selector, send (32) otherwise, with the
+     selector's literal index and n."
     | k |
     sup ifTrue: [^self emit: sc op: 33 with: (sc lit: sel asSymbol) with: n].
     k := self specialIndexOf: sel nargs: n.
     k == nil ifFalse: [^self emit: sc op: 34 with: k].
     self emit: sc op: 32 with: (sc lit: sel asSymbol) with: n ]
 Compiler >> genLoadName: name line: line in: lex [
+    "Pass 2: pushes the variable named name: a pseudo-variable, a temp or
+     argument (genLoadVar:in:), an instance variable (pushInst, 16), or a
+     global's association (pushLitVar, 19). Signals a CompileError for
+     thisContext."
     | sc v |
     sc := lex real.
     (name = 'self' or: [name = 'super']) ifTrue: [^self emit: sc op: 0].
@@ -800,12 +1274,17 @@ Compiler >> genLoadName: name line: line in: lex [
     (ivars includes: name) ifTrue: [^self emit: sc op: 16 with: (ivars indexOf: name) - 1].
     self emit: sc op: 19 with: (sc lit: (self globalNamed: name)) ]
 Compiler >> globalNamed: name [
+    "The association of the global named name in Smalltalk; a global not
+     defined yet is declared with nil."
     | sym |
     sym := name asSymbol.
     ^Smalltalk associationAt: sym ifAbsent: [
         Smalltalk at: sym put: nil.
         Smalltalk associationAt: sym ifAbsent: [nil]] ]
 Compiler >> genLoadVar: v in: sc [
+    "Pass 2: pushes variable v in scope sc: pushTemp (17), or pushTempInVector
+     (27) for a remote one; from an outer scope through a copied value,
+     captured in sc as needed."
     v scope == sc ifTrue: [
         ^v remote
             ifTrue: [self emit: sc op: 27 with: v vidx with: sc vector]
@@ -813,6 +1292,9 @@ Compiler >> genLoadVar: v in: sc [
     v remote ifTrue: [^self emit: sc op: 27 with: v vidx with: (sc capture: v scope vector)].
     self emit: sc op: 17 with: (sc capture: v) ]
 Compiler >> genStore: name in: lex pop: pop [
+    "Pass 2: stores the top into the variable named name: a temp
+     (genStoreVar:in:pop:), an instance variable (storeInst 20, popStoreInst
+     23) or a global (storeLitVar 22, popStoreLitVar 25); popping it if pop."
     | sc v |
     sc := lex real.
     v := lex lookup: name.
@@ -820,6 +1302,10 @@ Compiler >> genStore: name in: lex pop: pop [
     (ivars includes: name) ifTrue: [^self emit: sc op: (pop ifTrue: [23] ifFalse: [20]) with: (ivars indexOf: name) - 1].
     self emit: sc op: (pop ifTrue: [25] ifFalse: [22]) with: (sc lit: (self globalNamed: name)) ]
 Compiler >> genStoreVar: v in: sc pop: pop [
+    "Pass 2: stores the top into variable v in scope sc: storeTemp or
+     popStoreTemp (21 24), or for a remote variable storeTempInVector or
+     popStoreTempInVector (28 29). Signals a CompileError (internal) for a
+     store into a copied variable, which settle rules out."
     v scope == sc ifTrue: [
         ^v remote
             ifTrue: [self emit: sc op: (pop ifTrue: [29] ifFalse: [28]) with: v vidx with: sc vector]
@@ -827,6 +1313,10 @@ Compiler >> genStoreVar: v in: sc pop: pop [
     v remote ifTrue: [^self emit: sc op: (pop ifTrue: [29] ifFalse: [28]) with: v vidx with: (sc capture: v scope vector)].
     ^self error: 'internal: a store into a copied variable' ]
 Compiler >> genBlock: b in: lex [
+    "Pass 2 for a real block: compiles it into its own CompiledBlock (the last
+     statement's value returned with blockReturn, 9; an empty block answers
+     nil), then in the outer scope pushes its copied values and emits
+     pushClosure (31) with the block's literal index and their count."
     | inner sc code outer |
     inner := analysis at: b.
     sc := inner real.
@@ -845,6 +1335,8 @@ Compiler >> genBlock: b in: lex [
     sc copied do: [:c | self genLoadVar: c origin in: outer].
     self emit: outer op: 31 with: (outer lit: code) with: sc copied size ]
 Compiler >> genInlinedValue: b in: lex [
+    "Pass 2: the code of an in-line block's statements, leaving its value
+     pushed (nil for an empty block)."
     | inner sc |
     inner := analysis at: b.
     sc := lex real.
@@ -857,6 +1349,8 @@ Compiler >> genInlinedValue: b in: lex [
                     ifTrue: [self genValue: st in: inner]
                     ifFalse: [self genEffect: st in: inner]]] ]
 Compiler >> genInlinedEffect: b in: lex [
+    "Pass 2: the code of an in-line block's statements, leaving nothing
+     pushed."
     | inner sc |
     inner := analysis at: b.
     sc := lex real.
@@ -864,8 +1358,16 @@ Compiler >> genInlinedEffect: b in: lex [
         st isReturn
             ifTrue: [self genValue: st expr in: inner. self emit: sc op: 7]
             ifFalse: [self genEffect: st in: inner]] ]
-Compiler >> inlinedArg: b [ ^(analysis at: b) names at: b arguments first ]
+Compiler >> inlinedArg: b [
+    "The variable of an in-line block's first argument (a loop variable or the
+     ifNotNil: value)."
+    ^(analysis at: b) names at: b arguments first ]
 Compiler >> genInline: n in: lex [
+    "Pass 2 for a send compiled in line (ifTrue: and the like, and: or:, the
+     while loops, repeat, to:do:, ifNil: and the like): jumps (35 36 37) and
+     labels in place of the send, the loops and to:do: answering nil; to:do:
+     compares with <= (or >= for a negative step) and adds the step with
+     sendSpecial. Signals a CompileError (internal) for another selector."
     | sc s a l1 l2 lim blk i step nilb valb |
     sc := lex real.
     s := n selector. a := n arguments.
@@ -961,16 +1463,24 @@ Compiler >> genInline: n in: lex [
         ^self].
     ^self error: 'internal: inline ', s ]
 Compiler >> genNonNilArg: b in: sc [
+    "Pass 2: for an in-line ifNotNil: block, stores the receiver's value (on
+     the stack) into the block's argument, or pops it if the block takes none."
     b arguments isEmpty
         ifTrue: [self emit: sc op: 6]
         ifFalse: [self genStoreVar: (self inlinedArg: b) in: sc pop: true] ]
 
 "assembly"
 Compiler >> opLength: op [
+    "The length in bytes of bytecode op with its operands: 1 below 16, 3 for
+     27 28 29 31 32 33 35 36 37, 2 for the rest.
+     (Compiler new opLength: 32) >>> 3"
     op < 16 ifTrue: [^1].
     (#(27 28 29 31 32 33 35 36 37) includes: op) ifTrue: [^3].
     ^2 ]
 Compiler >> stackEffect: ins [
+    "How much instruction ins changes the operand stack's depth: +1 for a
+     push, -1 for a pop, a store-and-pop or a conditional jump, and for
+     arrays, closures and sends what they take and push."
     | op |
     op := ins at: 1.
     (#(0 1 2 3 5 16 17 18 19 26 27 38) includes: op) ifTrue: [^1].
@@ -981,6 +1491,12 @@ Compiler >> stackEffect: ins [
     op = 34 ifTrue: [^0 - (#(1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 2 0 0 1 0 0 0 1 1) at: (ins at: 2) + 1)].
     ^0 ]
 Compiler >> assemble: sc nargs: nargs primitive: prim isBlock: isBlock [
+    "Assembly: turns scope sc's instructions into bytes (temps numbered args,
+     copied, locals then the vector; labels resolved to 16-bit jump offsets),
+     works out the maximum stack depth, and answers a new CompiledMethod or
+     CompiledBlock with its header (nargs, temps, literals, primitive, copied,
+     the block bit, the depth), literals and bytes. Signals a CompileError for
+     over 255 temps, a jump too long or a stack over 255 deep."
     | temps index pos bytes depth maxd op x off ntemps header m nlits |
     temps := OrderedCollection new.
     temps addAll: sc args; addAll: sc copied; addAll: sc locals.

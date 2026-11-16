@@ -364,6 +364,12 @@ was built from.
 - The site: `doc/manual/gen/genstratalk.py` makes stratalk/ (the prose is
   `doc/manual/web/stratalk.html`; the playground `site/stratalk/stratalk.js`
   boots StrataOS and types `stratalk -j`); the play page has a preset.
+  The descriptions on it are the kernel's comments: a class's comment is
+  the one right after its definition line, a method's the first thing in
+  its body; a comment line `EXPR >>> RESULT` is an example, and
+  `lang/stratalk/tests/doc.sh` (test `stratalk-doc`) checks every one under
+  StrataOS. `genstratalk.py --check` (test `web-stratalk`) fails if a class
+  or a method has none. `OSServers.st`'s come from `os/spec` (`osgen.py`).
 - Capability registers: the heap is c6 (an extra arena). A Window keeps
   ws's endpoint in c4 while open (pipe's; given back on close); a LOOKUP
   moves the heap to c7 for the call and then gets the clock back.

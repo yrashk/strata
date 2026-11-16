@@ -330,4 +330,82 @@
     send("(File named: '/stratalk/examples/" + name + ".st') fileIn\n");
     if (!touch()) term.focus({ preventScroll: true });
   });
+
+  // ------------------------------------------------------------ the methods
+  // The filter (../docs.js) shows the classes whose text has every word typed;
+  // in a class shown for its methods' text, only those methods stay. A link
+  // to a method opens it.
+  const filter = $("filter");
+  function methods() {
+    const words = filter ? filter.value.trim().toLowerCase().split(/\s+/).filter(Boolean) : [];
+    for (const cls of document.querySelectorAll("article.cls")) {
+      const own = (cls.dataset.name + " " + cls.querySelector(".word-d").textContent).toLowerCase();
+      const all = !words.length || words.every((w) => own.includes(w));
+      for (const m of cls.querySelectorAll("details.meth")) m.hidden = !all && !words.every((w) => m.dataset.k.includes(w));
+    }
+  }
+  function openTarget() {
+    const t = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (t && t.matches("details.meth")) { methods(); t.hidden = false; t.open = true; t.scrollIntoView(); }
+  }
+  if (filter) filter.addEventListener("input", () => setTimeout(methods));
+  addEventListener("hashchange", () => setTimeout(openTarget));
+  openTarget();
+
+  // ---------------------------------------------------- the class hierarchy
+  // A floating panel (#ct, made by genstratalk.py): a tree from Object.
+  // Typing in its field marks the classes whose name has the text and opens
+  // their branches; Enter or a click goes to the class's entry (and closes
+  // the panel on a phone); + and − change its size.
+  const ct = $("ct"), ctOpen = $("ct-open"), ctQ = $("ct-q");
+  if (ct && ctOpen) {
+    const links = [...ct.querySelectorAll(".ct-tree a")];
+    let zoom = 13;
+    const phone = () => matchMedia("(max-width: 640px)").matches;
+    const show = (on) => {
+      ct.hidden = !on;
+      ctOpen.setAttribute("aria-expanded", on);
+      if (on) {
+        const here = decodeURIComponent(location.hash.slice(3)).toLowerCase();
+        for (const a of links) a.classList.toggle("here", a.dataset.c === here);
+        const h = links.find((a) => a.classList.contains("here"));
+        if (h) { for (let d = h.closest("details"); d; d = d.parentElement.closest("details")) d.open = true; h.scrollIntoView({ block: "center" }); }
+        if (!touch()) ctQ.focus();
+      }
+    };
+    const find = () => {
+      const q = ctQ.value.trim().toLowerCase();
+      let first = null;
+      for (const a of links) {
+        const hit = q !== "" && a.dataset.c.includes(q);
+        a.classList.toggle("hit", hit);
+        if (!hit) continue;
+        for (let d = a.parentElement.closest("details"); d; d = d.parentElement.closest("details")) d.open = true;
+        if (!first || (a.dataset.c === q && first.dataset.c !== q)) first = a;   // an exact name first
+      }
+      if (first) first.scrollIntoView({ block: "nearest" });
+      return first;
+    };
+    ctOpen.addEventListener("click", () => show(ct.hidden));
+    $("ct-x").addEventListener("click", () => { show(false); ctOpen.focus(); });
+    ctQ.addEventListener("input", find);
+    ctQ.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { const a = find(); if (a) { e.preventDefault(); a.click(); } }
+      else if (e.key === "Escape") { if (ctQ.value) { ctQ.value = ""; find(); } else show(false); }
+    });
+    ct.addEventListener("click", (e) => {
+      const z = e.target.closest("[data-z]");
+      if (z) { zoom = Math.min(20, Math.max(9, zoom + 2 * Number(z.dataset.z))); ct.querySelector(".ct-body").style.fontSize = zoom + "px"; return; }
+      if (e.target.closest("[data-ct=all]")) { for (const d of ct.querySelectorAll("details")) d.open = true; return; }
+      const a = e.target.closest(".ct-tree a");
+      if (a) {
+        // a link in a summary would also fold its branch: only follow it
+        e.preventDefault();
+        location.hash = a.getAttribute("href");
+        for (const l of links) l.classList.toggle("here", l === a);
+        if (phone()) show(false);
+      }
+    });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !ct.hidden && document.activeElement !== ctQ) show(false); });
+  }
 })();
