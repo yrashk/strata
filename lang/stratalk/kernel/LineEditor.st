@@ -36,7 +36,7 @@ LineEditor >> readLine: aPrompt [
         v = 9 ifTrue: [self complete].
         v = 21 ifTrue: [self replaceLine: ''].
         v = 27 ifTrue: [self escape].
-        v >= 32 ifTrue: [line := line, (String with: c). self out: (String with: c)]].
+        (v >= 32 and: [v ~= 127]) ifTrue: [line := line, (String with: c). self out: (String with: c)]].
     self out: (String with: Character cr).
     self raw: false.
     (line notEmpty and: [history isEmpty or: [history last ~= line]]) ifTrue: [history add: line].
