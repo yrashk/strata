@@ -439,9 +439,9 @@ greater length.
   atomic. What a dispatcher publishes (slot states, the running pid, the
   runnable count, free pool slots) it writes only when it differs from what
   it wrote last (a copy in its D-LS); the switch and trap timing counters
-  only when the core goes idle. In `os/demo.txt` this took the KST's
-  atomics from 554,000 to 88,000 and the session's far-bus cycles down by
-  19%.
+  only when the core goes idle. In `os/demo.txt` (12 cores) this took the
+  KST's atomics from 612,000 to 126,000 and the session's far-bus cycles
+  down by 20%.
 - **Servers are processes** (user mode, scheduled like any other, each a
   server of one core; up to four servers per core, below):
   - `proc` (pid 1) — the process server: spawning (loading images through

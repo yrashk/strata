@@ -442,6 +442,10 @@ when it changed (the timing counters only when the core goes idle).
 | T2 bus cycles | 4.05 M | 0.78 M |
 | All far-bus cycles | 17.04 M | 13.81 M (-19%) |
 
+Measured again on the main of 2026-11-16 (Local Store windows, resident
+threads, console rings): KST atomics 612,033 -> 126,293 (-79%), far-bus
+cycles 16.95 M -> 13.61 M (-20%).
+
 The session's output is the same except for figures that depend on
 timing (switch counts, the virtual clock, `ps` catching `proc` blocked
 rather than still running while it waits for the kernel's reply).
