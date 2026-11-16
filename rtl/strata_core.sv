@@ -45,7 +45,9 @@
 // LS_1P = 1 (off by default) keeps both Local Stores in one single-port
 // memory (strata_ram1: the I-LS in its low words, the D-LS above), one
 // access per cycle. A beat arriving from the far bus (tget, tgetx) is
-// written at once and the core gives way for that cycle (ls_wait: the
+// written at once and the core gives way for that cycle; a store's data
+// goes to the memory from a register, one cycle after the store, before
+// anything of the core reads it (ls_wait, ls_blk: the
 // fetch, a load, a store or a tag-table access waits, the read-ahead is
 // skipped); the unit holds a beat from far memory back for a cycle when
 // the core's registers say it is about to use the memory, never two cycles
@@ -318,6 +320,18 @@ module strata_core
   logic [63:0] ia_q2, da_q2, tu_q2, ls1_q;
   logic        ls_wait, ls_gnt, ls_denied, ls_want, tu_get_beat, tu_put_want, ra_go, ia_f0;
   logic        put_ref_q;          // a tput's read was refused last cycle
+  // LS_1P: the core's writes (stores, linst) go to the memory a cycle
+  // later, from registers (sb_*), so that the store's data, which comes
+  // from the execute logic, does not have to reach every macro in the
+  // cycle it is computed. The write waiting there goes first (after a
+  // beat from the bus); until it is in the memory the core reads nothing
+  // (ls_blk), so a load or fetch never sees the memory without it, and the
+  // unit's reads wait as well. A following write is taken when the
+  // register is free or being emptied (wr_ok).
+  logic        sb_v, sb_drain, ls_blk, wr_ok, da_rd;
+  logic [7:0]  sb_we;
+  logic [12:0] sb_a;
+  logic [63:0] sb_d;
   strata_ram #(.WORDS(LS_1P ? 2 : ILS_WORDS), .INIT(LS_1P ? "" : ILS_INIT)) u_ils (
     .clk,
     .a_en(ia_en && !LS_1P), .a_we(8'h00), .a_addr(ia_addr[(LS_1P ? 1 : IAW)-1:0]), .a_wdata(64'b0), .a_rdata(ia_q2),
@@ -339,25 +353,30 @@ module strata_core
   assign tu_dls_rdata = LS_1P ? ls1_q : tu_q2;
   // the core gives way to a beat from the bus; the unit's reads give way to
   // the fetch and the data access, and the read-ahead to them (ra_go)
-  assign ls_wait = LS_1P && tu_get_beat;
+  assign ls_wait  = LS_1P && tu_get_beat;
+  assign sb_drain = sb_v && !ls_wait && !rl_v;
+  assign ls_blk   = ls_wait || sb_v;
+  assign wr_ok    = !sb_v || sb_drain;
+  assign da_rd    = da_en && da_we == 0;
   // the core is about to use the memory, as far as registers tell (the
   // unit holds a beat from far memory back for it: strata_tu)
-  assign ls_want = LS_1P && (state == S_F0 || (state == S_EX && (d.kind == K_LOAD || d.kind == K_STORE)) ||
-                             (state == S_LT && !lt_ph) || state == S_LW ||
+  assign ls_want = LS_1P && (state == S_F0 || (state == S_EX && d.kind == K_LOAD) ||
+                             (state == S_LT && !lt_ph) || sb_v ||
                              (STREAM && (state == S_F1 || (st_exec && need1))));
-  assign ls_gnt  = !LS_1P || !(ia_en || da_en);
+  assign ls_gnt  = !LS_1P || !(ia_en || da_rd || sb_v);
 
   if (LS_1P) begin : g_1p
     localparam int MW = ILS_WORDS + DLS_WORDS;
     localparam int MA = $clog2(MW);
     logic          m_en;
     logic [7:0]    m_we;
-    logic [MA-1:0] m_addr, m_ia, m_da, m_ua, m_ra, m_xa;
+    logic [MA-1:0] m_addr, m_ia, m_da, m_ua, m_ra, m_xa, m_sa;
     logic [63:0]   m_wdata;
     assign m_ia = MA'(ia_addr[IAW-1:0]);
     assign m_da = MA'(ILS_WORDS) + MA'(da_addr[DAW-1:0]);
     assign m_ua = MA'(ILS_WORDS) + MA'(tu_dls_addr[DAW-1:0]);
     assign m_xa = MA'(tu_ils_addr[IAW-1:0]);
+    assign m_sa = MA'(ILS_WORDS) + MA'(sb_a[DAW-1:0]);
     assign m_ra = rl_d ? MA'(ILS_WORDS) + MA'(rl_a[DAW-1:0]) : MA'(rl_a[IAW-1:0]);
     always_comb begin
       m_en    = 1;
@@ -376,10 +395,12 @@ module strata_core
       end else if (tu_dls_en && tu_dls_we != 0) begin    // a tget beat
         m_we    = tu_dls_we;
         m_addr  = m_ua;
-      end else if (da_en) begin                          // the core's data access
-        m_we    = da_we;
+      end else if (sb_v) begin                           // the core's write of the cycle before
+        m_we    = sb_we;
+        m_addr  = m_sa;
+        m_wdata = sb_d;
+      end else if (da_rd) begin                          // the core's data read
         m_addr  = m_da;
-        m_wdata = da_wdata;
       end else if (ia_en) begin                          // the fetch, the read-ahead
       end else if (tu_dls_en) begin                      // a tput's read (ls_gnt)
         m_addr  = m_ua;
@@ -643,7 +664,7 @@ module strata_core
     .iss_space(xcap.space), .iss_far(xcap.base + rb[FW-1:0]), .iss_len(LSW'(rc)), .iss_ready(tu_iss_ready),
     .iss_hz(tu_iss_hz),
     .tag_busy, .idle(tu_idle), .mem_idle(tu_mem_idle), .put_idle(tu_put_idle), .cc_busy(tu_cc_busy), .quiet(tu_quiet),
-    .getx_busy(tu_getx_busy), .get_beat(tu_get_beat), .put_want(tu_put_want), .ls_gnt, .ls_want, .ls_used(LS_1P && (ia_en || da_en)), .ls_denied,
+    .getx_busy(tu_getx_busy), .get_beat(tu_get_beat), .put_want(tu_put_want), .ls_gnt, .ls_want, .ls_used(LS_1P && (ia_en || da_rd || sb_drain)), .ls_denied,
     .hz_addr, .hz_len, .hz_rd_stall, .hz_wr_stall, .hz_pc(LSW'(ipc)), .hz_fetch_stall,
     .dls_en(tu_dls_en), .dls_we(tu_dls_we), .dls_addr(tu_dls_addr), .dls_wdata(tu_dls_wdata),
     .dls_rdata(tu_dls_rdata),
@@ -907,17 +928,18 @@ module strata_core
       da_addr  = ca[15:3];
       da_wdata = nv;
     end
-    // one memory (LS_1P): everything waits for a beat from the bus, and the
-    // read-ahead also for the core's own data access
-    // (a waiting tput read goes before the read of the second word ahead,
-    // and before that of the next word when it was refused last cycle)
-    ra_go = ra_any && !(LS_1P && (da_en || (tu_put_want && (!(need1 || state == S_F1) || put_ref_q)))) && !ls_wait;
-    ls_denied = ls_wait && (ia_en || da_en || ra_any);
-    if (ls_wait) begin
-      ia_en = 0;
+    // one memory (LS_1P): a write only needs the write register (wr_ok); a
+    // read or a fetch needs the memory, which a beat from the bus or the
+    // waiting write has first. The read-ahead also gives way to the core's
+    // own data read, to a waiting tput read when it is the read of the
+    // second word ahead, and to one that was refused last cycle
+    ls_denied = ls_wait && (ia_en || (da_en && da_we == 0) || ra_any);
+    if (LS_1P && da_we != 0 ? !wr_ok : ls_blk) begin
       da_en = 0;
       da_we = '0;
     end
+    if (ls_blk) ia_en = 0;
+    ra_go = ra_any && !(LS_1P && ((da_en && da_we == 0) || (tu_put_want && (!(need1 || state == S_F1) || put_ref_q)))) && !ls_blk;
     ia_f0 = ia_en;
     if (ra_go) begin                                     // (never in F0)
       ia_en   = 1;
@@ -1076,6 +1098,7 @@ module strata_core
     fb_nxt_v      <= 0;
     fb_nx2_v      <= 0;
     put_ref_q     <= 0;
+    sb_v          <= 0;
     ra_infl       <= 0;
     ra_two        <= 0;
     state         <= S_RST;
@@ -1116,6 +1139,15 @@ module strata_core
       ra_infl <= ra_go;
       ra_two  <= RA2 && state != S_F1 && !need1;
       put_ref_q <= LS_1P && tu_put_want && !ls_gnt;
+      // LS_1P: the write register empties into the memory and takes the
+      // write of this cycle (da_en is low when it could not: wr_ok)
+      if (sb_drain) sb_v <= 0;
+      if (LS_1P && da_en && da_we != 0) begin
+        sb_v  <= 1;
+        sb_we <= da_we;
+        sb_a  <= da_addr;
+        sb_d  <= da_wdata;
+      end
       if (ra_infl && ra_two) begin
         fb_nx2   <= ia_rdata;
         fb_nx2_v <= 1;
@@ -1147,7 +1179,7 @@ module strata_core
           else if (tu_cc_busy) stall();                  // a core-control write takes effect first
           else if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end
           else if (pc[1:0] != 0 || !pc_in || !if_ok) trap(C_IFAULT, pc);
-          else if (hz_fetch_stall || ls_wait) stall();
+          else if (hz_fetch_stall || ls_blk) stall();
           else state <= S_F1;
         end
         S_F1: begin
@@ -1185,14 +1217,14 @@ module strata_core
             K_LOAD: begin
               if (!mok) trap(C_LSFAULT, maddr);
               else if (hz_rd_stall) pending(maddr);
-              else if (ls_wait) stall();                 // (LS_1P: the memory is the unit's this cycle)
+              else if (ls_blk) stall();                  // (LS_1P: a beat or the waiting write has the memory)
               else state <= S_LD;
             end
             K_STORE: begin
               if (!mok) trap(C_LSFAULT, maddr);
               else if (hz_wr_stall) pending(maddr);
-              else if (ls_wait) stall();
-              else retire(pc4);                       // the write happened this cycle
+              else if (!wr_ok) stall();                  // (LS_1P: the write register is not free)
+              else retire(pc4);                       // the write happened this cycle (LS_1P: is in the register)
             end
 
             K_BRANCH: retire(br_taken ? pc_br : pc4);
@@ -1576,7 +1608,7 @@ module strata_core
         end
         S_LT: begin
           if (!lt_ph) begin
-            if (!ls_wait) lt_ph <= 1;                    // the read was issued; data next cycle
+            if (!ls_blk) lt_ph <= 1;                     // the read was issued; data next cycle
           end
           else begin
             lt_ph <= 0;
@@ -1601,7 +1633,7 @@ module strata_core
           end
         end
         S_LW: begin
-          if (ls_wait) ;                                 // (LS_1P: not this cycle)
+          if (!wr_ok) ;                                  // (LS_1P: not this cycle)
           else if (lt_ph) lt_ph <= 0;                    // the victim's tag is written this cycle
           else retire(pc4);                           // and the counter this one
         end

@@ -151,9 +151,15 @@ Not verified:
   yet, which matters only with `LS_1P`. `make test` runs the examples,
   the conformance suite and the StrataOS session on such an RTL
   (`ls1p-*`). The ASIC flow has it as an option
-  (`ASIC_LS1P=1`, and `ASIC_SRAM=ocd1024` for a 1024 x 8 macro): prepared
-  and synthesized on the host, 19.9 mm² of stores and a 53.5 mm² die by
-  the floorplan, not placed or routed (`asic/README.md`). One core alone in generic gates: 4% more
+  (`ASIC_LS1P=1`, and `ASIC_SRAM=ocd1024` for a 1024 x 8 macro): with
+  the 512 x 8 macro it is placed and routed (3.3 V cells: 23.9 MHz typical,
+  0 DRC violations, the critical path into the memory's data input;
+  `asic/results/gf180mcu-1-mcu7t3v3-1p/`; a second run with a write
+  register in front of the memory came out at 20.5 MHz for reasons of the
+  flow, not of the register: its timing cannot compare two RTL versions
+  yet, see `asic/README.md`); with the 1024 x 8 macro only
+  prepared: 19.9 mm² of stores and a 53.5 mm² die by the floorplan
+  (`asic/README.md`). One core alone in generic gates: 4% more
   gates, 98 more flip-flops, no new deepest path; not placed and routed
   (`research/smart-memory/REPORT.md`, section 9).
 - The overlay map's two searches (`xm_hit`, `xm_inslot` in
@@ -336,7 +342,8 @@ the program); the debugger takes a server's symbols from `build/sys/` first
 
 `lang/stratalk/` is a Smalltalk for StrataOS: `stratalk` at the shell (a
 REPL with Tab completion), `stratalk FILE.st`, `stratalk -w` (a workspace
-window in `ws`), `stratalk -b` (a class browser). `lang/stratalk/README.md`
+window in `ws`, its code coloured as the site colours it), `stratalk -b` (a
+class browser whose lists filter as you type). `lang/stratalk/README.md`
 has the design and the formats; `doc/stratalk-proposal.md` the proposal it
 was built from.
 - The VM is `vm*.s` (Strata assembly, 22 KiB of I-LS, 38 KiB of D-LS: the

@@ -145,10 +145,13 @@ VMStats >> names [
        'far writes (bytes)' 'method cache misses' 'lookup cache misses' 'scavenges' 'promoted (bytes)'
        'remembered' 'full collections' 'nursery (bytes)' 'far heap (bytes)' 'freed (bytes)') ]
 VMStats >> at: aString [
-    "Answers the counter named aString, one of names; signals
-     SubscriptOutOfBounds for another name.
+    "Answers the counter named aString, one of names; signals NotFound for
+     another name.
      (Smalltalk vm at: 'sends') isInteger >>> true"
-    ^values at: (self names indexOf: aString) ]
+    | i |
+    i := self names indexOf: aString.
+    i = 0 ifTrue: [^NotFound new signal: 'no VM counter named ' , aString printString].
+    ^values at: i ]
 VMStats >> printOn: aStream [
     "Writes each counter on aStream, its name, ': ' and its value, one a line."
     self names doWithIndex: [:n :i |
@@ -166,7 +169,7 @@ Stratalk class >> start [
      none, the interactive REPL; -e and an expression, prints its value; -,
      the REPL on standard input without a prompt; -w the Workspace; -b the
      ClassBrowser; else files in the named file, with the other arguments in
-     the global Arguments."
+     the global Arguments (quitting with 1 if an unhandled error ended it)."
     | args |
     Smalltalk at: #Transcript put: (StdioStream handle: 1).
     args := Smalltalk arguments.
@@ -180,7 +183,10 @@ Stratalk class >> start [
     args first = '-' ifTrue: [^self repl].
     args first = '-w' ifTrue: [Workspace open. ^Smalltalk quit: 0].
     args first = '-b' ifTrue: [ClassBrowser open. ^Smalltalk quit: 0].
-    ^self fileIn: args first arguments: (args copyFrom: 2 to: args size) ]
+    self fileIn: args first arguments: (args copyFrom: 2 to: args size).
+    "back here only when an unhandled error ended the file-in"
+    Transcript flush.
+    ^Smalltalk quit: 1 ]
 Stratalk class >> banner [
     "Writes the version and how to leave to the Transcript, as the
      interactive REPL starts."
@@ -216,7 +222,7 @@ Stratalk class >> evaluateAndPrint: aString [
 Stratalk class >> fileIn: aName arguments: anArray [
     "Files in the source file aName, with anArray in the global Arguments,
      then quits with 0. An unhandled error comes back to this frame and ends
-     the file-in."
+     the file-in (start then quits with 1)."
     replFrame := Frame current.
     Smalltalk at: #Arguments put: anArray.
     (File named: aName) fileIn.

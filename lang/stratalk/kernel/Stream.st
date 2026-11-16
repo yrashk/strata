@@ -64,10 +64,17 @@ Stream >> do: aBlock [
      | s n | s := ReadStream on: #(1 2 3). n := 0. s do: [:e | n := n + e]. n >>> 6"
     [self atEnd] whileFalse: [aBlock value: self next] ]
 Stream >> next: n [
-    "Answers a String of the next n elements, or of those left if fewer. The
-     elements must be characters.
-     (ReadStream on: 'hi') next: 5 >>> 'hi'"
-    | out | out := WriteStream on: (String new: n). n timesRepeat: [self atEnd ifFalse: [out nextPut: self next]]. ^out contents ]
+    "Answers a collection of the next n elements, or of those left if
+     fewer: of the species of what is streamed over (a String for a
+     stream of characters).
+     (ReadStream on: #(1 2 3)) next: 2 >>> #(1 2)"
+    | out | out := WriteStream on: (self contentsSpecies new: n). n timesRepeat: [self atEnd ifFalse: [out nextPut: self next]]. ^out contents ]
+Stream >> contentsSpecies [
+    "The class of what next: answers: String here."
+    ^String ]
+PositionableStream >> contentsSpecies [
+    "The species of the collection streamed over."
+    ^collection species ]
 Stream >> print: anObject [
     "Writes anObject's printString (printOn:) on the receiver.
      | w | w := WriteStream on: String new. w print: 'a'. w contents >>> '''a'''"
@@ -212,10 +219,10 @@ WriteStream >> truncate [
      | w | w := WriteStream on: String new. w nextPutAll: 'abc'. w truncate. w contents >>> ''"
     readLimit := 0. position := 0 ]
 WriteStream >> setToEnd [
-    "Moves the position to the end of the collection, its whole size: after
-     with:, past its elements. After writing it moves past the unused room of
-     the grown collection too, not to the end of what was written."
-    position := readLimit := collection size ]
+    "Moves the position to the end of what the stream holds: after with:,
+     past the collection's elements; after writing, past what was written.
+     | w | w := WriteStream on: String new. w nextPutAll: 'abc'; position: 0; setToEnd. w position >>> 3"
+    position := readLimit := readLimit max: position ]
 WriteStream >> nextPut: anObject [
     "Writes anObject at the position, growing the collection if it is full,
      and answers anObject.

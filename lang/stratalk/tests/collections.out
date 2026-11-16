@@ -63,3 +63,17 @@ $h
 3
 4@5
 true
+OrderedCollection (1 2 3)
+OrderedCollection (11 22)
+0
+'abc'
+0
+3
+#(1 2)
+true
+true
+false
+false
+true
+true
+'at: 1 put: 2'

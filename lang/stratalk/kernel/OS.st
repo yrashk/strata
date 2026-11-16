@@ -124,6 +124,19 @@ OSServer >> connect [
     lookup == nil ifTrue: [^self].
     r := Smalltalk osLookup: lookup into: register.
     r < 0 ifTrue: [^Error new signal: 'no server named ', lookup] ]
+OSServer class >> ownServerOf: n [
+    "The name of the server every process is born with in register n (1..4).
+     OSServer ownServerOf: 4 >>> 'pipe'"
+    ^#('proc' 'fs' 'tty' 'pipe') at: n ]
+SystemDictionary >> lentRegisters [
+    "Answers a Dictionary: register -> (the OSServer holding it -> the name
+     of its server), for the registers 1..4 given to another server than
+     their own (a Window's ws), while they are."
+    ^self at: #LentRegisters ifAbsent: [self at: #LentRegisters put: Dictionary new] ]
+SystemDictionary >> lend: n to: anOSServer name: aString [
+    "Notes that register n holds anOSServer's server, named aString, until
+     lentRegisters forgets it."
+    self lentRegisters at: n put: anOSServer -> aString ]
 OSServer >> disconnect [
     "After a message to a server looked up into register 2, gives that
      register back to fs (Server restoreFs)."
@@ -132,13 +145,19 @@ OSServer >> send: op handle: h length: n mode: m data: bytes [
     "Sends one message (op, h, n, m and the data bytes, or nil) and answers
      an OSReply of the result, the reply's handle, length and mode and its
      data, undecoded (no spec). n nil means the data's size. Connects
-     first and disconnects after, for a server reached by name."
-    | reply r words |
+     first and disconnects after, for a server reached by name. When the
+     register is lent to another server (a Window's ws), the register's
+     own server is put back for the message, and the other one after it."
+    | reply r words holder |
     reply := ByteArray new: 1024.
+    holder := Smalltalk lentRegisters at: register ifAbsent: [nil].
+    (holder notNil and: [holder key == self]) ifTrue: [holder := nil].
+    (holder notNil and: [lookup == nil]) ifTrue: [Smalltalk osLookup: (OSServer ownServerOf: register) into: register].
     self connect.
     r := Smalltalk osSend: register op: op handle: h length: n mode: m server: index data: bytes reply: reply.
     words := Smalltalk osReply.
     self disconnect.
+    holder == nil ifFalse: [Smalltalk osLookup: holder value into: register].
     ^OSReply new setResult: r handle: (words at: 1) length: (words at: 2) mode: (words at: 3) data: reply ]
 OSServer >> op: num named: aString args: args request: reqSpec reply: repSpec [
     "Sends op num and answers its OSReply, which decodes by repSpec. The
@@ -592,14 +611,19 @@ Db >> keysAndValuesDo: aBlock [
      key := recs last key. mode := 1] repeat ]
 Db >> records: r [
     "Answers the records of a DBSCAN reply r as key -> value Associations
-     of Strings, as many as its result says. Each record is {u16 key
-     length, u16 value length, u32 0, the key, the value}, the key and the
-     value each padded to 8 bytes."
-    | out off |
+     of Strings: as many as its result says, of those that came whole (the
+     server fills up to 4032 bytes; a reply's data here is 1024 at most:
+     keysAndValuesDo: asks again after the last key answered). Each record
+     is {u16 key length, u16 value length, u32 0, the key, the value}, the
+     key and the value each padded to 8 bytes."
+    | out off limit |
     out := OrderedCollection new.
     off := 0.
+    limit := r length min: r data size.
     r result timesRepeat: [ | kl vl k v |
+        off + 8 > limit ifTrue: [^out].
         kl := r u16At: off. vl := r u16At: off + 2.
+        off + 8 + (kl + 7 // 8 * 8) + (vl + 7 // 8 * 8) > limit ifTrue: [^out].
         k := r stringAt: off + 8 size: kl.
         v := r stringAt: off + 8 + (kl + 7 // 8 * 8) size: vl.
         out add: k -> v.

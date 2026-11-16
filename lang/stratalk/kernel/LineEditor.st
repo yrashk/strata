@@ -76,10 +76,13 @@ LineEditor >> replaceLine: aString [
 LineEditor >> escape [
     "Handles what follows an escape key: ESC [ A, the up arrow, shows the
      line typed before the one shown; ESC [ B, the down arrow, the one after
-     (an empty line past the last). Other sequences are dropped."
+     (an empty line past the last). Other sequences are dropped whole,
+     their numbers and their last character too (ESC [ 3 ~, ESC [ 1 ; 5 C).
+     Keys are read as they come, so a sequence cut between two reads is
+     whole here."
     | c |
     (c := self nextKey) = $[ ifFalse: [^self].
-    c := self nextKey.
+    [(c := self nextKey) notNil and: [c isDigit or: [c = $;]]] whileTrue.
     c = $A ifTrue: [
         index > 1 ifTrue: [index := index - 1. self replaceLine: (history at: index)]].
     c = $B ifTrue: [
@@ -96,12 +99,14 @@ LineEditor >> wordBefore [
 LineEditor >> receiverBefore: aWord [
     "Answers an object of the class the selector aWord being typed is sent
      to, when the line shows it plainly (nothing is run): '' after a string,
-     #sym after a symbol, the integer after a number, the global after a
+     #sym after a symbol, the integer after a number, $a after a
+     character, the global after a
      global's name, #nil (for nil) or true after those words. nil if unknown."
     | head i tok |
     head := (line copyFrom: 1 to: line size - aWord size) trimSeparators.
     head isEmpty ifTrue: [^nil].
     (head last = $') ifTrue: [^'' ].
+    (head size >= 2 and: [(head at: head size - 1) = $$]) ifTrue: [^$a].
     i := head size.
     [i > 0 and: [(head at: i) isAlphaNumeric or: [(head at: i) = $_ or: [(head at: i) = $#]]]] whileTrue: [i := i - 1].
     (i > 0 and: [(head at: i) = $-]) ifTrue: [i := i - 1].
@@ -109,7 +114,6 @@ LineEditor >> receiverBefore: aWord [
     tok isEmpty ifTrue: [^nil].
     tok first = $# ifTrue: [^#sym].
     (tok first isDigit or: [tok first = $-]) ifTrue: [^tok asInteger].
-    (tok first = $$) ifTrue: [^$a].
     tok first isUppercase ifTrue: [^Smalltalk at: tok asSymbol ifAbsent: [nil]].
     tok = 'nil' ifTrue: [^#nil].
     (tok = 'true' or: [tok = 'false']) ifTrue: [^true].

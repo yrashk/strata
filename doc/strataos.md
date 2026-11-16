@@ -606,6 +606,10 @@ and **the parts of its Local Stores it uses**. On a switch the dispatcher:
    permissions; a device capability: base, length and permissions, cut
    from the device root again on switch-in, indistinguishable from the
    original) or put into a slot of the core's save-table pool (2.1).
+   Each comes back as it was at switch-out, and only that: c7 holds the
+   clock only while the program leaves it there. A c7 that was lent or
+   overwritten comes back as it was left (empty, or the other
+   capability); the kernel puts the clock back only on CLOCK;
    **c8..c15 are a thread's own only while it is not
    switched out** (the dispatcher borrows c8 and c9 during a trap and
    gives them back); they do not survive a switch;
@@ -892,6 +896,15 @@ the result filled in.
   could send in between, and the attachment would ride with its message.)
   A linear capability left in c6 while a call is out makes the reply's
   attachment undeliverable: keep c6 free.
+- **c7 is the clock: do not keep or lend other capabilities there.** The
+  kernel puts the clock in c7 when a program starts and on CLOCK, never
+  by itself afterwards (a switch restores what the register held). Lend
+  from another register (c0, or a piece split into c6). A program that
+  lends c7 anyway, or receives a reply's second capability there, calls
+  CLOCK (`sys_clock`) before it reads the time again: `sys_now` reads
+  through c7 and an empty c7 is a `capinv` fault. (Such a program may seem
+  to work when it is alone on its core and fault when it shares one: do
+  not rely on what c7 holds after a call.)
 - **Supervisor calls** (a0 = function; timeouts in ticks, -1 = none;
   result in a0, -2 = interrupted, -8 = timed out):
 

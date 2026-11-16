@@ -27,6 +27,7 @@ GATE = {
 FO4 = 5.0
 
 START_CLASSES = [
+    ("one-memory read data", r"^g_1p\.u_ls1\.mem"),
     ("D-LS read data", r"^u_dls\.mem"),
     ("I-LS read data", r"^u_ils\.mem"),
     ("save table read", r"^ctab"),
@@ -43,6 +44,9 @@ START_CLASSES = [
     ("inputs", r"^IN:"),
 ]
 END_CLASSES = [
+    ("one memory: address", r"^g_1p\.u_ls1\.mem:(RD_ADDR|WR_ADDR)"),
+    ("one memory: write data", r"^g_1p\.u_ls1\.mem:WR_DATA"),
+    ("one memory: enables", r"^g_1p\.u_ls1\.mem:"),
     ("D-LS port A addr/data/we", r"^u_dls\.mem:(RD_ADDR|RD_EN|WR_ADDR|WR_DATA|WR_EN):A"),
     ("D-LS port B (unit)", r"^u_dls\.mem:"),
     ("I-LS port A addr", r"^u_ils\.mem:(RD_ADDR|RD_EN):A"),

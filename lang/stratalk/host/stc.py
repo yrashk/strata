@@ -175,6 +175,8 @@ def scan(src):
                 base = v; k = j + 1
                 while k < n and (src[k].isdigit() or 'A' <= src[k] <= 'Z'): k += 1
                 if k == j + 1: err('digits expected after the radix')
+                if not 2 <= base <= 36: err('a radix is 2 to 36')
+                if any(int(d, 36) >= base for d in src[j + 1:k]): err('a digit too big for the radix')
                 v = int(src[j + 1:k], base); j = k
             elif j + 1 < n and src[j] == '.' and src[j + 1].isdigit():
                 err('floating point numbers are not supported')
@@ -1046,6 +1048,7 @@ class Compiler:
         if maxd > 255: raise CompileError('expression too deep')
         ntemps = len(temps) - nargs
         lits = sc.lits
+        if len(lits) > 255: raise CompileError('too many literals')   # the header's 8 bits
         return Code(nargs, ntemps, len(sc.copied), prim, is_block, maxd, lits, bytes(out), sel)
 
 

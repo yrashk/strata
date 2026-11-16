@@ -37,3 +37,9 @@ true
 3
 'not boolean'
 5
+'#+ takes 1 argument(s), not 0'
+'#negated takes 0 argument(s), not 1'
+true
+15
+3
+'no VM counter named ''nonsense'''

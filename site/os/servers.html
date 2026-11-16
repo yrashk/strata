@@ -2328,7 +2328,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 <a href="#ws-46"><span class="n">46</span><code>TITLE</code><span>Change a window&#x27;s title</span></a>
 </div>
 <article class="op" id="ws-40">
-<h4><span class="n">40</span><a class="opname" href="../code/#os/ws/ws.s:1101"><code>CREATE</code></a><span class="sum">Open a window</span></h4>
+<h4><span class="n">40</span><a class="opname" href="../code/#os/ws/ws.s:1109"><code>CREATE</code></a><span class="sum">Open a window</span></h4>
 <p>The new window takes the focus, and the tiling changes (a window shown alone is tiled again). With mode bit 0 the server SIGNALs the client&#x27;s process while events wait and no EVENT is waiting, at most every 200 ms (the window is drawn as a terminal&#x27;s).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2347,7 +2347,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-41">
-<h4><span class="n">41</span><a class="opname" href="../code/#os/ws/ws.s:1189"><code>DAMAGE</code></a><span class="sum">Copy a band of pixels into the window, or redraw part of it</span></h4>
+<h4><span class="n">41</span><a class="opname" href="../code/#os/ws/ws.s:1197"><code>DAMAGE</code></a><span class="sum">Copy a band of pixels into the window, or redraw part of it</span></h4>
 <p>With a band: its w x h pixels, from the band&#x27;s offset 0 with rows <code>stride</code> bytes apart, are copied to (x, y) of the surface, and that rectangle is redrawn on the screen. A rectangle that does not fit the surface (a band drawn for the size before a resize) is ignored, with 0. Without a band the rectangle is only redrawn.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2368,7 +2368,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-42">
-<h4><span class="n">42</span><a class="opname" href="../code/#os/ws/ws.s:1260"><code>TEXT</code></a><span class="sum">Draw text into the window</span></h4>
+<h4><span class="n">42</span><a class="opname" href="../code/#os/ws/ws.s:1268"><code>TEXT</code></a><span class="sum">Draw text into the window</span></h4>
 <p>In the 8 x 16 body font, at most 160 characters (the rest is cut).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2388,7 +2388,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-43">
-<h4><span class="n">43</span><a class="opname" href="../code/#os/ws/ws.s:1291"><code>FILL</code></a><span class="sum">Fill a rectangle of the window with a colour</span></h4>
+<h4><span class="n">43</span><a class="opname" href="../code/#os/ws/ws.s:1299"><code>FILL</code></a><span class="sum">Fill a rectangle of the window with a colour</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the window id</td></tr>
@@ -2406,7 +2406,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-44">
-<h4><span class="n">44</span><a class="opname" href="../code/#os/ws/ws.s:1311"><code>EVENT</code></a><span class="sum">Wait for the window&#x27;s next event</span></h4>
+<h4><span class="n">44</span><a class="opname" href="../code/#os/ws/ws.s:1319"><code>EVENT</code></a><span class="sum">Wait for the window&#x27;s next event</span></h4>
 <p>Events queue per window, 8 at most: keys that follow each other share an event (up to 8 bytes); a second resize is not queued (the one queued carries the latest size); a move after a move replaces it; with the queue full an event is dropped, but a close replaces the last one. Kinds: 1 key (the focused window), 2 resize (draw again at the new size), 3 close (Alt+Q: the process is killed 400 ms later), 4 focus in, 5 focus out, 6 pointer, 7 wheel. Pointer events go to the window under the pointer: presses and releases, moves while a button is held, and the wheel. One EVENT waits per window.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2429,7 +2429,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-45">
-<h4><span class="n">45</span><a class="opname" href="../code/#os/ws/ws.s:1347"><code>DESTROY</code></a><span class="sum">Close a window</span></h4>
+<h4><span class="n">45</span><a class="opname" href="../code/#os/ws/ws.s:1355"><code>DESTROY</code></a><span class="sum">Close a window</span></h4>
 <p>Answered first; the other windows close ranks, and an EVENT waiting on the window gets −1.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2443,7 +2443,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-46">
-<h4><span class="n">46</span><a class="opname" href="../code/#os/ws/ws.s:1055"><code>TITLE</code></a><span class="sum">Change a window&#x27;s title</span></h4>
+<h4><span class="n">46</span><a class="opname" href="../code/#os/ws/ws.s:1063"><code>TITLE</code></a><span class="sum">Change a window&#x27;s title</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the window id</td></tr>

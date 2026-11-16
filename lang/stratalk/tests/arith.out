@@ -74,3 +74,9 @@ $Z
 255
 18446744073709551623
 0
+'-005'
+0
+'an empty Interval has no last element'
+'the step of an Interval cannot be 0'
+'a step of 0 never ends'
+4611686018427387904

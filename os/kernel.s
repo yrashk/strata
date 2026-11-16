@@ -96,6 +96,8 @@
 ; Switches and bytes moved are counted per process (ps shows them).
 ; A thread owns c0..c7 across switches; c8..c15 stay its own only while it is
 ; not switched out (the dispatcher borrows c8, c9 and gives them back).
+; A switch gives back what each register held: c7 is the clock only while the
+; program leaves it there (it gets it at start and on CLOCK, never otherwise).
 ; Trap-and-emulate: user-mode ctake, cpoll and tany (bit 16) trap (priv); the
 ; dispatcher performs them on the process's queue of gifts from its other
 ; threads, blocking the thread (and running another) while nothing is there.
