@@ -35,7 +35,7 @@ article.cls .word-h .sup a:hover { color: var(--amber); }
   margin: 6px 0 8px; padding: 6px 12px; max-width: 900px; background: rgba(5, 8, 15, 0.55);
   font: 13px/1.5 var(--mono); overflow-x: auto;
 }
-.st-ex code { font-size: 1em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.st-ex code { min-width: 0; font-size: 1em; white-space: pre-wrap; overflow-wrap: anywhere; }
 .st-ex .e { color: var(--text); }
 .st-ex .to { color: var(--cyan); }
 .st-ex .r { color: var(--s-num); }
@@ -46,7 +46,7 @@ details.meth > summary {
 details.meth > summary::-webkit-details-marker { display: none; }
 details.meth > summary::before { content: "▸"; color: var(--cyan); flex: none; transition: transform .15s; }
 details.meth[open] > summary::before { transform: rotate(90deg); }
-details.meth > summary code { flex: none; font-size: 13px; color: #fff; }
+details.meth > summary code { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: 13px; color: #fff; }
 details.meth > summary span {
   min-width: 0; font-size: 14px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
