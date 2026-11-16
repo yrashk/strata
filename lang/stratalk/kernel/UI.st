@@ -14,12 +14,13 @@
  list tells what was selected (a class's selectors, a method's source)
  once, after them."
 
-Object subclass: #UIApp slots: 'window panes focus done status pending batch stale chosen'.
+Object subclass: #UIApp slots: 'window panes focus done status pending batch stale chosen cutFull'.
 "A tool in a Window of ws: panes of character cells, the one with the
  focus taking the keys, a status line at the bottom, and an event loop.
  window is the Window, panes the Panes in Tab order, focus the pane with
  the focus, done true once the loop should end, status the status line's
- text, pending the start of an escape sequence an event cut short, batch
+ text, pending the start of an escape sequence an event cut short,
+ cutFull true when the event that cut it was full (8 bytes), batch
  true while the keys of several events are handled together, stale true
  when the window is to be drawn after them, chosen the lists whose
  selection changed meanwhile. A subclass lays its panes out (layout) and
@@ -179,7 +180,8 @@ UIApp >> handle: e [
     e isResize ifTrue: [panes := OrderedCollection new. self layout. focus := panes first. self drawAll].
     e isKey ifTrue: [
         ks := e keys.
-        [(more := window pollEvent) notNil and: [more isKey]] whileTrue: [ks := ks , more keys].
+        cutFull := e width >= 8.
+        [(more := window pollEvent) notNil and: [more isKey]] whileTrue: [ks := ks , more keys. cutFull := more width >= 8].
         self batch: [self keys: ks].
         more == nil ifFalse: [self handle: more]].
     (e isPointer and: [e buttons ~= 0]) ifTrue: [self click: e x // Window cellWidth row: e y // Window cellHeight] ]
@@ -246,13 +248,15 @@ UIApp >> escape: s [
         c = $D ifTrue: [#left] ifFalse: [c = $H ifTrue: [#home] ifFalse: [c = $F ifTrue: [#end] ifFalse: [#none]]]]]]).
     ^true ]
 UIApp >> flushPending [
-    "No more came: an ESC alone was the Esc key; a sequence begun (ESC [ ...)
-     lost its rest (ws dropped it, its queue full) and is dropped: taking it
-     for Esc would close a tool while an arrow is held."
+    "No more came: an ESC alone was the Esc key, unless it ended a full event
+     (8 bytes: ws cut a sequence there, and dropped the rest, its queue
+     full); a sequence begun (ESC [ ...) lost its rest the same way. Both
+     are dropped: taking them for Esc would close a tool while an arrow is
+     held."
     | p |
     p := pending.
     pending := nil.
-    p size = 1 ifTrue: [self key: (Character value: 27)] ]
+    (p size = 1 and: [cutFull ~~ true]) ifTrue: [self key: (Character value: 27)] ]
 UIApp >> key: c [
     "Handles the character c: Tab moves the focus to the next pane, Ctrl-Q
      quits, Esc quits where quitsOnEscape; otherwise command: may take it,
