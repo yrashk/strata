@@ -58,11 +58,13 @@ Transcript showln: (Point x: 1 y: 2) + (Point x: 3 y: 4) printString.</code></pr
   <li><code>stratalk -e EXPR</code> prints one result; <code>stratalk -</code> reads expressions from
     a pipe; <code>stratalk FILE.st</code> files a program in.</li>
   <li><code>stratalk -j</code>: with the JIT on.</li>
-  <li>In the window server: <code>stratalk -w</code> opens a workspace (<kbd>Ctrl-P</kbd> prints
-    the current line's value, <kbd>Ctrl-D</kbd> does it, <kbd>Ctrl-O</kbd> inspects it,
-    <kbd>Ctrl-B</kbd> browses), <code>stratalk -b</code> a class browser (the classes, their
-    selectors, a method's source, which <kbd>Ctrl-S</kbd> compiles), and <code>anObject inspect</code>
-    an inspector.</li>
+  <li>In the window server: <code>stratalk -w</code> opens a workspace, its code in the colours of
+    this page (<kbd>Ctrl-P</kbd> prints the current line's value, <kbd>Ctrl-D</kbd> does it,
+    <kbd>Ctrl-O</kbd> inspects it, <kbd>Ctrl-B</kbd> browses), <code>stratalk -b</code> a class
+    browser (the classes, their selectors, a method's source, which <kbd>Ctrl-S</kbd> compiles;
+    typing in a list narrows it to what holds the text, <kbd>Backspace</kbd> takes a character
+    back, <kbd>Esc</kbd> or <kbd>Ctrl-U</kbd> clears it; <kbd>Ctrl-T</kbd> the class side), and
+    <code>anObject inspect</code> an inspector.</li>
   <li>The examples are on the disk under <code>/stratalk/examples</code>; the kernel's sources under
     <code>/stratalk</code>.</li>
 </ul>

@@ -36,3 +36,9 @@ Acc
 2
 #('n' 'm')
 Acc
+'line 1: a digit too big for the radix'
+'line 1: a radix is 2 to 36'
+260
+'too many literals'
+692
+true

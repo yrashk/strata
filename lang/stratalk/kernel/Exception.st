@@ -228,21 +228,29 @@ Exception >> pass [
     outer := self searchFrom: (Frame sender: handlerFrame).
     ^self resume: outer ]
 Exception >> outer [
-    "As pass here: the outer handler's resumption value resumes the signal,
-     rather than coming back to this handler.
-     [[1/0] on: ZeroDivide do: [:e | e outer]] on: ZeroDivide do: [:e | 9] >>> 9"
-    ^self pass ]
+    "Hands the exception to the next handler out, as pass does; but if that
+     one resumes it (resumable exceptions), outer answers the value, here in
+     this handler, rather than the signal.
+     [[Warning signal. 1] on: Warning do: [:e | e outer + 10]] on: Warning do: [:e | e resume: 5] >>> 15"
+    | savedSignal savedHandler |
+    self isResumable ifFalse: [^self pass].
+    savedSignal := signalFrame. savedHandler := handlerFrame.
+    ^[signalFrame := Frame current.
+      self searchFrom: (Frame sender: savedHandler)]
+        ensure: [signalFrame := savedSignal. handlerFrame := savedHandler] ]
 Exception >> signalerContext [
     "The frame of the signal, as signalFrame (there are no context objects)."
     ^signalFrame ]
 Exception >> retryUsing: aBlock [
-    "Unwinds to the handler's on:do:, then makes it answer aBlock's value;
-     aBlock runs without the handler around it.
+    "Unwinds to the handler's on:do:, then makes it answer aBlock's value,
+     aBlock running in place of its receiver block: with the same handler
+     around it.
      [1/0] on: ZeroDivide do: [:e | e retryUsing: [7]] >>> 7"
-    | f |
+    | f v |
     f := handlerFrame.
     Frame unwindTo: f from: (Frame sender: Frame current).
-    Frame return: aBlock value to: f ]
+    v := aBlock on: (Frame arg: 1 of: f) do: (Frame arg: 2 of: f).
+    Frame return: v to: f ]
 Exception >> defaultAction [
     "What happens when no handler takes the exception; its value is what
      signal answers. Here nothing: nil.

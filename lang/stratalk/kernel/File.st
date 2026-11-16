@@ -107,14 +107,15 @@ File >> append: aString [
 File >> write: aString mode: m [
     "Opens the file in mode m (1 write, 2 append), writes aString in parts
      of at most 1000 characters (fs WRITE) and closes it, even on an error;
-     answers aString. What WRITE answers is not checked. Signals a FileError
-     if the file cannot be opened."
+     answers aString. Signals a FileError if the file cannot be opened or a
+     WRITE fails or writes less than it was given."
     | h i n |
     h := self open: m.
     i := 1.
     [[i <= aString size] whileTrue: [
         n := (aString size - i + 1) min: 1000.
-        File primWrite: h from: (aString copyFrom: i to: i + n - 1) count: n.
+        (File primWrite: h from: (aString copyFrom: i to: i + n - 1) count: n) = n
+            ifFalse: [^FileError new signal: 'cannot write ' , self name].
         i := i + n]] ensure: [File primClose: h].
     ^aString ]
 File >> fileIn [

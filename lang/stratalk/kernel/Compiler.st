@@ -216,7 +216,8 @@ StScanner >> scanWord [
 StScanner >> scanNumber [
     "Scans an integer literal: decimal, with an optional minus sign, or radix
      (16r1F, the digits uppercase). Signals a CompileError for a radix without
-     digits and for a floating point number."
+     digits, a radix outside 2 to 36, a digit too big for the radix (2r9),
+     and for a floating point number."
     | s neg i j v base k |
     s := pos.
     neg := (source at: pos) = $-.
@@ -229,8 +230,11 @@ StScanner >> scanNumber [
             base := v. k := j + 1.
             [k <= source size and: [(source at: k) isDigit or: [(source at: k) isUppercase]]] whileTrue: [k := k + 1].
             k = (j + 1) ifTrue: [^self error: 'digits expected after the radix'].
+            (base between: 2 and: 36) ifFalse: [^self error: 'a radix is 2 to 36'].
             v := 0.
-            j + 1 to: k - 1 do: [:m | v := v * base + (source at: m) digitValue].
+            j + 1 to: k - 1 do: [:m |
+                (source at: m) digitValue >= base ifTrue: [^self error: 'a digit too big for the radix'].
+                v := v * base + (source at: m) digitValue].
             j := k]
         ifFalse: [
             ((self peekAt: j) = $. and: [self isDigit: (self peekAt: j + 1)])
@@ -894,14 +898,16 @@ StScope >> capture: v [
 StScope >> lit: v [
     "The index (0-based) of literal v in this scope, added if needed; equal
      numbers, strings, symbols and characters, and identical globals, are
-     shared. Signals a CompileError for more than 256 literals."
+     shared. Signals a CompileError for more than 255 literals (the
+     header's count has 8 bits; assemble: checks again with the selector
+     and the class added)."
     | shared |
     shared := v isInteger or: [v isString or: [v isCharacter or: [v class == Association]]].
     shared ifTrue: [
         lits doWithIndex: [:x :i | (x class == v class and: [v class == Association ifTrue: [x == v] ifFalse: [x = v]])
             ifTrue: [^i - 1]]].
     lits add: v.
-    lits size > 256 ifTrue: [^CompileError new signal: 'too many literals'].
+    lits size > 255 ifTrue: [^CompileError new signal: 'too many literals'].
     ^lits size - 1 ]
 
 StLex class >> parent: p real: r [
@@ -1531,10 +1537,15 @@ Compiler >> assemble: sc nargs: nargs primitive: prim isBlock: isBlock [
     maxd > 255 ifTrue: [^self error: 'expression too deep'].
     ntemps := temps size - nargs.
     nlits := sc lits size.
+    nlits > 255 ifTrue: [^CompileError new signal: 'too many literals'].
     header := nargs + (ntemps bitShift: 8) + (nlits bitShift: 16) + (prim bitShift: 24)
         + (sc copied size bitShift: 36) + ((isBlock ifTrue: [1] ifFalse: [0]) bitShift: 44) + (maxd bitShift: 45).
     bytes := bytes contents.
     m := (isBlock ifTrue: [CompiledBlock] ifFalse: [CompiledMethod]) header: header numBytes: bytes size.
     sc lits doWithIndex: [:l :i | m literalAt: i put: l].
     1 to: bytes size do: [:i | m byteAt: i put: (bytes at: i)].
+    "A method runs from a copy in the method cache, which the scavenger does
+     not see: its literals must be far before it runs (a scavenge moves the
+     near ones out, and the method's slots with them)."
+    (sc lits anySatisfy: [:l | l isNear]) ifTrue: [Smalltalk scavenge].
     ^m ]

@@ -36,3 +36,9 @@ Compiler evaluate: '(OrderedCollection new) add: 1; add: 2; yourself'
 Acc2 instSize
 Acc2 allInstVarNames asArray
 Object subclass: #Acc slots: 'n'
+[Compiler evaluate: '2r9'] on: Error do: [:e | e messageText]
+[Compiler evaluate: '37r1'] on: Error do: [:e | e messageText]
+Compiler evaluate: '16rFF + 2r101'
+[Compiler evaluate: ((1 to: 300) inject: '' into: [:s :i | s , '''x' , i printString , ''' size + ']) , '0'] on: Error do: [:e | e messageText]
+Compiler evaluate: ((1 to: 200) inject: '' into: [:s :i | s , '''x' , i printString , ''' size + ']) , '0'
+Jit stats beginsWith: 'compiled '

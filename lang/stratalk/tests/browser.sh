@@ -7,7 +7,10 @@
 # SequenceableCollection), Esc (the filter cleared, the class still
 # selected, the list whole); in the selectors "zzz", Ctrl-U, "do:" (the
 # selector do:); Esc in the classes, with no filter, closes the browser.
-# The REPL that opened it prints what was selected.
+# The REPL that opened it prints what was selected. Then the REPL's line
+# editor on the console: the up arrow brings the line back; Delete and
+# Ctrl+arrows (ESC [ 3 ~, ESC [ 1 ; 5 C) are dropped whole, nothing of
+# them typed into the line.
 set -u
 here=$(cd "$(dirname "$0")/../../.." && pwd)
 b="$here/${BUILD:-build}"
@@ -37,6 +40,8 @@ typed() {                               # typed TEXT: a key at a time
   printf "\t\t$W\033$W$W$W"
   printf "Smalltalk quit\r$W$W$W${AQ}"
   printf 'cat out.txt\n'
+  printf 'stratalk\n1 + 1\r\033[A\033[3~\033[1;5C\r\033[1;5Dx := 6 * 7\rSmalltalk quit\r'
+  printf 'echo ==editor done\n'
   printf 'halt\n'
 } > "$tmp/in.txt"
 cp "$b/disk.img" "$tmp/d.img"
@@ -51,5 +56,10 @@ a = raw.index('strata$ cat out.txt\n') + len('strata$ cat out.txt\n')
 out = raw[a:raw.index('strata$', a)]
 if "#('SequenceableCollection' '' true 'do:')" not in out:
     print('out.txt:\n' + out); sys.exit(1)
+b = raw.index('strata$ stratalk\n')
+ed = raw[b:raw.index('==editor done', b)]
+res = [l.split('st> ')[-1] for l in ed.split('\n') if l.startswith('st> ') or not l.startswith(('strata', 'Stratalk'))]
+if res.count('2') != 2 or '42' not in res or 'Error' in ed or '~' in ed:
+    print('the line editor:\n' + ed); sys.exit(1)
 PY
 echo "stratalk-browser: ok    the arrows through the lists; the typeahead"
