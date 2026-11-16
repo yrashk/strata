@@ -1,0 +1,133 @@
+<!--
+  The prose of the website's Stratalk section (stratalk/), written for the
+  web from lang/stratalk/README.md. doc/manual/gen/genstratalk.py puts it in
+  front of the class reference and the examples, which it generates from
+  lang/stratalk/kernel/ and lang/stratalk/examples/. Placeholders:
+  {{classes}} {{methods}} {{examples}} {{ops}}. The playground is
+  stratalk-play.html.
+-->
+<header class="doc-head">
+  <p class="kicker">Stratalk · lang/stratalk/</p>
+  <h1>Stratalk</h1>
+  <p class="doc-meta"><span>{{classes}} classes</span><span>{{methods}} methods</span><span>{{ops}} StrataOS messages as methods</span><span>generated from the sources</span></p>
+  <p class="doc-desc">A Smalltalk for Strata, running under StrataOS, whose object memory follows the
+    machine: a core computes only on its Local Stores, and everything else is reached with explicit
+    transfers. New objects are made in a nursery in the core's data store and the survivors are
+    written out to far memory in one transfer; far objects are read through a software cache; frames
+    page out to a far stack when recursion goes deep; native code compiled by a JIT written in
+    Stratalk is paged into the instruction store on demand. The playground runs StrataOS with the
+    real <code>stratalk</code> in the WebAssembly emulator: press <b>Try</b> on an example.</p>
+</header>
+
+<section class="chap" id="intro" data-unfiltered>
+<h2><span class="num">Overview</span>What it is</h2>
+<p>Smalltalk-80 with Pharo's syntax, class library and exceptions: classes and metaclasses, blocks
+  that are full closures with non-local return, <code>on:do:</code>, <code>ensure:</code>,
+  <code>resume:</code>, <code>retry</code>, <code>pass</code>, SmallIntegers of 63 bits that grow
+  into large integers, strings, symbols, collections and streams. Programs are files of class
+  definitions, methods and statements, edited with <code>vi</code> and run with
+  <code>stratalk FILE.st</code>; the image is a cache built from the kernel's own files, never the
+  only copy of anything.</p>
+
+<pre class="lst"><code data-session>strata$ stratalk
+Stratalk 0.1: type an expression; "Smalltalk quit" or an end of input to leave
+st> 3 + 4
+7
+st> 100 factorial printString size
+158
+st> (1 to: 10) inject: 0 into: [:a :b | a + b]
+55
+st> [10 / 0] on: ZeroDivide do: [:e | e messageText]
+'division by zero'
+st> Proc ps
+OrderedCollection (2 dev (core 2, blocked) 4 blk (core 2, blocked) ...)</code></pre>
+
+<p>A file:</p>
+<pre class="lst"><code>Object subclass: #Point slots: 'x y'.
+Point class >> x: ax y: ay [ ^self new setX: ax y: ay ]
+Point >> setX: ax y: ay [ x := ax. y := ay ]
+Point >> + p [ ^Point x: x + p x y: y + p y ]
+Transcript showln: (Point x: 1 y: 2) + (Point x: 3 y: 4) printString.</code></pre>
+
+<h3 id="run">Running it</h3>
+<ul>
+  <li><code>stratalk</code>: the REPL. What you type is shown as you type it; <kbd>Tab</kbd>
+    completes a class or global name after a capital letter and a selector otherwise (the
+    receiver's, when the line shows it: <code>3 fac</code><kbd>Tab</kbd>), and lists the choices
+    when there are several; the arrows go back through the lines typed.</li>
+  <li><code>stratalk -e EXPR</code> prints one result; <code>stratalk -</code> reads expressions from
+    a pipe; <code>stratalk FILE.st</code> files a program in.</li>
+  <li><code>stratalk -j</code>: with the JIT on.</li>
+  <li>In the window server: <code>stratalk -w</code> opens a workspace (<kbd>Ctrl-P</kbd> prints
+    the current line's value, <kbd>Ctrl-D</kbd> does it, <kbd>Ctrl-O</kbd> inspects it,
+    <kbd>Ctrl-B</kbd> browses), <code>stratalk -b</code> a class browser (the classes, their
+    selectors, a method's source, which <kbd>Ctrl-S</kbd> compiles), and <code>anObject inspect</code>
+    an inspector.</li>
+  <li>The examples are on the disk under <code>/stratalk/examples</code>; the kernel's sources under
+    <code>/stratalk</code>.</li>
+</ul>
+</section>
+
+<section class="chap" id="memory" data-unfiltered>
+<h2><span class="num">The VM</span>Near and far objects</h2>
+<p>The virtual machine is a bytecode interpreter in Strata assembly: about 22&nbsp;KiB of the
+  program's 32&nbsp;KiB of instruction store, 38&nbsp;KiB of its 40&nbsp;KiB of data store. The
+  interpreter keeps its instruction pointer, frame, receiver, nursery and caches in registers for
+  the whole run.</p>
+<ul>
+  <li><b>Where an object lives shows in its reference.</b> Low bits <code>010</code>: a <em>near</em>
+    object, in the D-LS; <code>000</code>: a <em>far</em> object, an offset in the far heap (an extra
+    arena from <code>proc</code>); bit 0: a SmallInteger; <code>100</code>: a Character.</li>
+  <li><b>New objects are near</b>: bumped in an 8&nbsp;KiB nursery. Most die there and never cost a
+    transfer.</li>
+  <li><b>Promotion is the write-out.</b> When the nursery is full the scavenger marks what the
+    stack and the remembered far slots reach, gives each survivor its far address, points every
+    reference at it, slides the survivors together and copies them out <b>in one
+    <code>tput</code></b>.</li>
+  <li><b>Far objects are read through a software cache</b> of 64-byte lines on the hardware's
+    <code>ltag</code>/<code>linst</code>. Every far store goes through it and out: write-through, a
+    transfer per store. A near reference stored into a far object is remembered.</li>
+  <li><b>The full collector</b> marks the far heap and sweeps it by streaming its headers through the
+    cache; dead runs become free chunks, allocated first fit. Nothing moves.</li>
+  <li><b>Methods run from a method cache</b> in the D-LS, each copied in with one
+    <code>tget</code>; a send looks in a (class, selector) cache, then walks the method dictionaries in
+    far memory.</li>
+  <li><b>The stack pages.</b> Frames live on the program's 8&nbsp;KiB stack and are named by logical
+    addresses. When an activation would not fit, the frames above the current one go out to a far
+    stack in one transfer (after a scavenge, so nothing near goes out); returning into them brings
+    them back. Recursion goes about 15,000 frames deep before <code>StackOverflow</code>.</li>
+</ul>
+<p><code>Smalltalk vm</code> shows the figures: sends, far cache misses, bytes read and written, scavenges,
+  bytes promoted, full collections.</p>
+</section>
+
+<section class="chap" id="jit" data-unfiltered>
+<h2><span class="num">Native code</span>The JIT</h2>
+<p>A method activated 200 times is offered to the JIT, which is Stratalk code: it translates the
+  bytecodes template by template into Strata code that keeps the interpreter's frames and registers,
+  with the operands as constants and no dispatch. Temps, literals, jumps, <code>==</code> and the
+  SmallInteger cases of arithmetic and comparisons are done in place; sends, returns and allocation
+  call the resident VM.</p>
+<ul>
+  <li><b>Code is paged, as memory is.</b> Each compiled method gets a 1&nbsp;KiB code unit in the
+    program's arena; StrataOS pages units into the instruction store on a miss.</li>
+  <li><b>Returns are far links.</b> A send from native code records the far address to come back to;
+    the return uses <code>xret</code>, which pages the caller's unit back in if it was evicted
+    meanwhile.</li>
+</ul>
+</section>
+
+<section class="chap" id="os" data-unfiltered>
+<h2><span class="num">StrataOS</span>Every server, as classes</h2>
+<p>A process talks to StrataOS by messages to servers. <code>OSServers.st</code> is generated from the
+  servers' specifications (<code>os/spec/*.toml</code>): a class per server (<code>ProcServer</code>,
+  <code>FsServer</code>, <code>DbServer</code>, <code>WsServer</code>, ...) and two methods per
+  operation, one without arguments and one that takes a Dictionary of the request's fields by their
+  spec names. The reply decodes its data by the spec. Friendlier faces sit on top:</p>
+<pre class="lst"><code>Proc ps                          "the processes"
+ProcServer default info fields   "cores, memory, context switches"
+Fs statfs                        "#(blocks used files)"
+(Db tree: 'mine/notes') at: 'k' put: 'v'; at: 'k'
+(File named: '/doc/motd') contents
+(Window open: 'demo') text: 'hello' column: 2 row: 1 color: 16rFFFFFF background: 0</code></pre>
+</section>

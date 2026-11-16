@@ -85,6 +85,7 @@ t cc-boot      mid  build-main "emu os" "tools/test-cc-boot.sh $OS"
 #      gives them; the vectors on the host's reference interpreter
 t stratalk       mid  build-main "emu os lang/stratalk" 'lang/stratalk/tests/run.sh'
 t stratalk-jit   mid  build-main "emu os lang/stratalk" 'lang/stratalk/tests/run.sh -j'
+t stratalk-examples mid build-main "emu os lang/stratalk" 'lang/stratalk/tests/examples.sh && lang/stratalk/tests/examples.sh -h'
 t stratalk-check mid  build-main "lang/stratalk os/spec" 'python3 lang/stratalk/host/stratalk.py check $B/stratalk/stratalk.image lang/stratalk/kernel/LOAD && python3 lang/stratalk/host/osgen.py --check lang/stratalk/kernel/OSServers.st'
 t stratalk-host  mid  build-main "lang/stratalk" 'lang/stratalk/tests/run.sh -h'
 # ---- Stralog, the Prolog (lang/prolog): scripted sessions under StrataOS

@@ -195,6 +195,8 @@ ArrayedCollection class >> with: a with: b [ ^(self new: 2) at: 1 put: a; at: 2 
 ArrayedCollection class >> with: a with: b with: c [ ^(self new: 3) at: 1 put: a; at: 2 put: b; at: 3 put: c; yourself ]
 ArrayedCollection class >> with: a with: b with: c with: d [
     ^(self new: 4) at: 1 put: a; at: 2 put: b; at: 3 put: c; at: 4 put: d; yourself ]
+ArrayedCollection class >> with: a with: b with: c with: d with: e [
+    ^(self new: 5) at: 1 put: a; at: 2 put: b; at: 3 put: c; at: 4 put: d; at: 5 put: e; yourself ]
 ArrayedCollection class >> withAll: aCollection [
     | a i | a := self new: aCollection size. i := 0.
     aCollection do: [:e | a at: (i := i + 1) put: e].

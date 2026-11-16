@@ -66,6 +66,13 @@ const PRESETS = {
     type: "cc /src/hi.c && hi\n",
     about: "StrataOS with its C compiler: the page types cc /src/hi.c && hi at the shell's first prompt, which compiles the program on the machine and runs it. Then try cat /src/hi.c, cc -o calc /src/calc.c, cc /src/math.c, cc /src/asm.c, or write a program with vi. cc is written in C and compiles itself; cc0, the compiler in assembly that it was bootstrapped from, is on the disk too, with the source in /src/cc.c.",
   },
+  stratalk: {
+    files: ["bootrom.stx", "disk.img"],
+    args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
+    fitScreen: true,
+    type: "stratalk -j\n",
+    about: "Stratalk, a Smalltalk for Strata, under StrataOS (the page types stratalk -j at the shell's first prompt: the REPL, with the JIT on). Type an expression and Enter: 3 + 4, 100 factorial, (1 to: 10) collect: [:i | i * i], Proc ps, Smalltalk vm. Tab completes names and selectors; the arrows recall lines. (File named: '/stratalk/examples/queens.st') fileIn runs an example; Smalltalk quit leaves. In the window server (ws), stratalk -w opens a workspace and stratalk -b a class browser.",
+  },
   wdoom: {
     files: ["bootrom.stx", "disk-wdoom.img"],
     args: ["-c", "12", "-d", "disk-wdoom.img", "bootrom.stx"],
