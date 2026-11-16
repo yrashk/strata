@@ -1005,7 +1005,8 @@ class VM:
                 with open(b, 'wb') as fp: fp.write(h.mem[:h.used])
                 return rcvr
             if p == 109: return si(int(time.monotonic() * 1000))
-            if 120 <= p <= 126: return self.prim_file(p, rcvr, args)
+            if p == 116: return self.prim_ossend(args)
+            if p == 119: return self.new_array([si(self.reply_words[0]), si(self.reply_words[1]), si(self.reply_words[2])])
             return None
         except (IndexError, TypeError) as e:
             return None
@@ -1148,6 +1149,53 @@ class VM:
             f = self.find_frame(s)
             return si(s if f is not None and not f.flags & FL_BLOCK else 0)
         return None
+
+    reply_words = (0, 0, 0)
+
+    def prim_ossend(self, args):
+        """Smalltalk osSend: on the host: fs's file messages (register 2) on
+        host files; anything else answers -4 (no such server)."""
+        h = self.h
+        reg, op, handle, length, mode, server, data, reply = args
+        reg, op, handle, mode = si_val(reg), si_val(op), si_val(handle), si_val(mode)
+        bdata = h.bytes_of(data) if data else b''
+        n = si_val(length) if length & 1 else len(bdata)
+        if not hasattr(self, 'files'): self.files = {}
+        out = b''
+        self.reply_words = (0, 0, 0)
+        if reg != 2: return si(-4)
+        if op == 3:
+            name = bdata.decode()
+            try: fp = open(name, ['rb', 'wb', 'ab'][mode])
+            except OSError: return si(-4)
+            k = 1
+            while k in self.files: k += 1
+            self.files[k] = fp
+            r = k
+        elif op == 1:
+            fp = self.files.get(handle)
+            if fp is None: return si(-1)
+            out = fp.read(min(n, 1024)); r = len(out)
+        elif op == 2:
+            fp = self.files.get(handle)
+            if fp is None: return si(-1)
+            fp.write(bdata); r = len(bdata)
+        elif op == 4:
+            fp = self.files.pop(handle, None)
+            if fp: fp.close()
+            r = 0
+        elif op == 27:
+            try: r = os.path.getsize(bdata.decode())
+            except OSError: r = -4
+        elif op == 11:
+            try: os.unlink(bdata.decode()); r = 0
+            except OSError: r = -4
+        else:
+            return si(-1)
+        if reply and out:
+            h.mem[reply + 8:reply + 8 + len(out)] = out
+        self.reply_words = (handle, len(out), mode)
+        return si(r)
 
     def prim_file(self, p, rcvr, args):
         h = self.h
