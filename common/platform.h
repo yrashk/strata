@@ -18,7 +18,12 @@
  *   0x3000  timer           0x3000 NOW (ticks since power-on, 1 tick = 1 us),
  *                           0x3008 FREQ (1000000), 0x3010 DEADLINE (read/
  *                           write, absolute ticks), 0x3018 WAIT (a read
- *                           completes once NOW >= DEADLINE, returning NOW)
+ *                           completes once NOW >= DEADLINE, returning NOW),
+ *                           0x3020 EPOCH (read-only: the host's wall-clock
+ *                           time when NOW was 0, in microseconds since
+ *                           1970-01-01 00:00 UTC; 0 = not known), 0x3028
+ *                           ZONE (read-only, signed: the host's local time
+ *                           minus UTC, in seconds)
  *   0x4000  framebuffer     0x4000 PRESENT (write: show the framebuffer
  *           controller      region), 0x4008 VSYNC (a read completes at the
  *                           next 60 Hz refresh, every 16667 ticks, returning
@@ -49,6 +54,14 @@
  *                           is dropped), 0x4308 RATE (read / write: samples
  *                           per second), 0x4310 STATUS (read: u32 samples
  *                           queued, u32 samples dropped)
+ *   0x4400  written-page    one bit per 4 KiB
+ *           map             page of T3, set by every write to the page (a
+ *                           transfer, a far atomic, the block device's DMA);
+ *                           all set at power-on. 0x4400 + 8 n: the 64 pages of
+ *                           T3's 256 KiB granule n (bit i: page 64 n + i); a
+ *                           read gives them, a write clears the bits written
+ *                           as 1. Lets a kernel zero only the pages written
+ *                           since it last zeroed them
  *
  * Device registers are 8 bytes, little endian, at 8-byte-aligned ports; a
  * transfer moves one byte per beat to consecutive ports. A register is
@@ -99,7 +112,9 @@
 #define TMR_FREQ 0x08u
 #define TMR_DEADLINE 0x10u
 #define TMR_WAIT 0x18u
-#define TMR_WINDOW 0x20u
+#define TMR_EPOCH 0x20u     /* wall-clock microseconds since 1970 (UTC) at NOW = 0; 0: not known */
+#define TMR_ZONE 0x28u      /* local time minus UTC, seconds (signed) */
+#define TMR_WINDOW 0x30u
 #define TMR_HZ 1000000u     /* ticks per second */
 #define DEV_FBCTL 0x4000u
 #define FBC_PRESENT 0x00u
@@ -131,6 +146,10 @@ enum { PTR_MOVE = 1, PTR_BUTTON, PTR_WHEEL, PTR_ENTER, PTR_LEAVE }; /* event kin
 #define SND_MIN_RATE 8000u
 #define SND_MAX_RATE 48000u
 
+#define DEV_PMAP 0x4400u    /* the written-page map: a word per 256 KiB granule of T3, a bit per 4 KiB page */
+#define PMAP_PAGE 4096u     /* platform info: the page size */
+#define PMAP_WINDOW (T3_BYTES / PMAP_PAGE / 8u) /* 2 KiB */
+
 #define FB_BASE 0x3000000u
 #define FB_SIZE 0x1000000u
 #define FB_DEF_WIDTH 1280u
@@ -150,8 +169,9 @@ enum { PTR_MOVE = 1, PTR_BUTTON, PTR_WHEEL, PTR_ENTER, PTR_LEAVE }; /* event kin
 #define PT_POINTER 7
 #define PT_NET 8
 #define PT_SOUND 9
+#define PT_PMAP 10
 
-#define PLAT_ENTRIES 9
+#define PLAT_ENTRIES 10
 #define PLAT_LEN (32 + 32 * PLAT_ENTRIES)
 #define PLAT_LEN_MAX (PLAT_LEN + 32) /* with the sound device's entry (plat_add_sound) */
 #define BLK_IDENT_LEN 64
@@ -243,22 +263,35 @@ static inline void plat_build_fb(uint8_t *buf, int ncores, uint64_t disk_blocks,
   plat_entry(e + 6 * 32, PT_TIMER, 0, 4, 0xffff, DEV_TIMER, TMR_WINDOW, TMR_HZ);
   plat_entry(e + 7 * 32, PT_POINTER, 0, 4, 0xffff, DEV_POINTER, PTR_WINDOW, PTR_CAPS);
   plat_entry(e + 8 * 32, PT_NET, 0, 4, 0xffff, DEV_NET, NET_WINDOW, NET_MTU); /* info: the MTU */
+  plat_entry(e + 9 * 32, PT_PMAP, 0, 4, 0xffff, DEV_PMAP, PMAP_WINDOW, PMAP_PAGE); /* info: the page size */
   uint32_t sum = 0;
   for (int i = 0; i < PLAT_LEN; i++) sum += buf[i];
   plat_put(buf + 16, sum, 4);
 }
 
-/* Adds the sound device's entry to a table built by plat_build_fb in buf[PLAT_LEN_MAX]
- * (a machine that has the device: the table is one entry longer) -> its length. */
-static inline unsigned plat_add_sound(uint8_t *buf) {
-  plat_entry(buf + PLAT_LEN, PT_SOUND, 0, 4, 0xffff, DEV_SOUND, SND_WINDOW, SND_QLEN); /* info: the queue's length */
-  plat_put(buf + 8, PLAT_ENTRIES + 1, 2);
-  plat_put(buf + 12, PLAT_LEN_MAX, 4);
+/* The header of a table of len bytes (its entry count, length and checksum) -> len. */
+static inline unsigned plat_finish(uint8_t *buf, unsigned len) {
+  plat_put(buf + 8, (len - 32) / 32, 2);
+  plat_put(buf + 12, len, 4);
   plat_put(buf + 16, 0, 4);
   uint32_t sum = 0;
-  for (unsigned i = 0; i < PLAT_LEN_MAX; i++) sum += buf[i];
+  for (unsigned i = 0; i < len; i++) sum += buf[i];
   plat_put(buf + 16, sum, 4);
-  return PLAT_LEN_MAX;
+  return len;
+}
+
+/* Adds the sound device's entry to a table of len bytes in buf[PLAT_LEN_MAX] (a machine
+ * that has the device) -> the table's new length. */
+static inline unsigned plat_add_sound(uint8_t *buf, unsigned len) {
+  plat_entry(buf + len, PT_SOUND, 0, 4, 0xffff, DEV_SOUND, SND_WINDOW, SND_QLEN); /* info: the queue's length */
+  return plat_finish(buf, len + 32);
+}
+
+/* Drops the written-page map's entry, the last of a table built by plat_build_fb (a
+ * machine without it: strata-emu --no-pmap) -> the table's new length. */
+static inline unsigned plat_drop_pmap(uint8_t *buf) {
+  memset(buf + PLAT_LEN - 32, 0, 32);
+  return plat_finish(buf, PLAT_LEN - 32);
 }
 
 /* Fills buf[PLAT_LEN] with the default framebuffer geometry and save table. */

@@ -46,6 +46,26 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .status.stopped { color: var(--amber); box-shadow: inset 3px 0 0 var(--amber); }
 .about { margin: 14px 0 0; color: var(--dim); font-size: 15px; min-height: 1.6em; }
+/* what is running (play.js showAbout): a line, things to type, its keys */
+.about-line { margin: 0; color: var(--text); opacity: 0.9; }
+.about-link { color: var(--cyan); white-space: nowrap; margin-left: 4px; }
+.about-rtl { margin: 6px 0 0; color: var(--amber); font-size: 14px; }
+.tries { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 10px; }
+.tries > span { font: 12px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); margin-right: 2px; }
+.try {
+  font: 13.5px var(--mono); color: var(--cyan); background: rgba(77, 225, 255, 0.06);
+  border: 1px solid rgba(77, 225, 255, 0.28); padding: 4px 10px; cursor: pointer; min-width: 0; overflow-wrap: anywhere; text-align: left;
+}
+.try:hover, .try:focus-visible { background: rgba(77, 225, 255, 0.14); border-color: var(--cyan); outline: none; }
+.keys { margin-top: 10px; }
+.keys summary { cursor: pointer; font: 12px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); width: max-content; }
+.keys summary:hover { color: var(--text); }
+.keys ul { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+           gap: 6px 28px; margin: 10px 0 0; padding: 0; }
+.keys li { display: flex; gap: 10px; align-items: baseline; font-size: 14px; color: var(--text); opacity: 0.88; }
+.keys kbd { flex: none; min-width: 7.5em; font: 12.5px var(--mono); color: var(--amber); }
+.netnote { font-size: 13.5px; margin-top: 10px; }
+.jitnote { color: var(--amber); }
 
 .panel {
   margin-top: 18px; background: rgba(5, 8, 15, 0.94);
@@ -67,6 +87,12 @@ button:disabled { opacity: 0.4; cursor: default; }
    chosen scale (1x, 2x) is wider than the panel. */
 .screen { scroll-margin-top: 66px; }  /* below the sticky nav */
 .screen-box { overflow-x: auto; background: #000; }
+/* a long press on a touch screen is the guest's (a held button), not the
+   browser's: no text selection or its tint, no callout, no tap highlight */
+.screen-box, .screen-box canvas {
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+}
 .screen-box canvas {
   display: block; background: #000; outline: none;
   image-rendering: crisp-edges; image-rendering: pixelated;

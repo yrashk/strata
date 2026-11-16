@@ -1,0 +1,17 @@
+# The kernel's files, in the order the image is built from them.
+Object.st
+Number.st
+Collection.st
+Stream.st
+Block.st
+Exception.st
+System.st
+Compiler.st
+LineEditor.st
+File.st
+OS.st
+OSServers.st
+Window.st
+UI.st
+Jit.st
+Init.st

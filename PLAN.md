@@ -220,6 +220,7 @@ of the Makefile.
     - [x] Alt+Enter new `term`;
     - [x] Alt+Q close the focused window;
     - [x] Alt+arrows and Alt+1..4 focus;
+    - [x] Alt+F the focused window full screen, Alt+Z the only tile; again: the tiling as it was;
     - [x] Alt+P or Alt+Space command palette (`launch ›`, with completion);
     - [x] ESC Q quit;
     - [x] Ctrl-C → SIGNAL the focused process.

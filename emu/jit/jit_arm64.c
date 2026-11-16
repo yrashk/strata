@@ -82,6 +82,7 @@ static uint32_t LDPpost(int a, int b, int n, int off) { return 0xA8C00000u | (ui
 static uint32_t Bto(int32_t off) { return 0x14000000u | ((uint32_t)(off >> 2) & 0x3ffffff); }
 static uint32_t Bcond(int32_t off, int c) { return 0x54000000u | ((uint32_t)(off >> 2) & 0x7ffff) << 5 | c; }
 static uint32_t CBZ(int t, int32_t off) { return 0xB4000000u | ((uint32_t)(off >> 2) & 0x7ffff) << 5 | t; }
+static uint32_t CBNZ(int t, int32_t off) { return 0xB5000000u | ((uint32_t)(off >> 2) & 0x7ffff) << 5 | t; }
 static uint32_t TBZ(int t, int bit, int32_t off) {
   return 0x36000000u | (uint32_t)(bit >> 5) << 31 | (uint32_t)(bit & 31) << 19 | ((uint32_t)(off >> 2) & 0x3fff) << 5 | t;
 }
@@ -353,6 +354,15 @@ static void insn(uint32_t ir, uint64_t pc, unsigned idx) {
     }
     emit(ANDSi | enc | ar << 5 | 31);
     to_stub(Bcond(0, C_NE), SK_INTERP, pc, idx); /* the interpreter traps */
+    /* relocated by its window: + drel[addr >> unit]; outside them it lands beyond the D-LS */
+    emit(UBFM(S2, ar, __builtin_ctzll(L.dls_size) - 6, 63));
+    emit(ADDlsl(S2, CTX, S2, 3));
+    emit(LDRui(S2, S2, L.drel));
+    emit(ADDr(S0, ar, S2));
+    ar = S0;
+    bitmask(~(L.dls_size - 1), &enc);
+    emit(ANDSi | enc | ar << 5 | 31);
+    to_stub(Bcond(0, C_NE), SK_INTERP, pc, idx);
     if (store) {
       static const uint32_t sop[4] = {STRB, STRH, STRW, STRX};
       emit(LSr(sop[lg], src(rd, S1), DLS, ar));
@@ -426,6 +436,8 @@ void *jit_be_block(JitBuf *b, uint64_t pc, const uint32_t *ir, int n, int tail) 
   nstubs = 0;
   uint32_t *entry = cur();
   to_stub(TBZ(BUD, 63, 0), SK_LIMIT, pc, 0); /* the quantum is used up */
+  emit(LDRui(S0, CTX, L.irel + 8 * (pc / (L.ils_size / 64)))); /* outside the code window, or relocated */
+  to_stub(CBNZ(S0, 0), SK_INTERP, pc, 0);
   for (int i = 0; i < n; i++) insn(ir[i], pc + 4ull * (unsigned)i, (unsigned)i);
   unsigned last = ir[n - 1] >> 26;
   if (last != OP_JAL && last != OP_JALR)

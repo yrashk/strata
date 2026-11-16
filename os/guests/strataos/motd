@@ -1,0 +1,4 @@
+StrataOS 0.1, running as a guest of StrataOS on its own cores.
+
+Its disk is a RAM disk inside the guest's memory: what is written to it is
+gone when the guest stops. Ctrl-] gives the console back to the host.

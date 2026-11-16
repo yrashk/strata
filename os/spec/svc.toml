@@ -1,0 +1,228 @@
+# svc: the supervisor calls of the worker dispatcher, os/kernel.s (format: os/spec/README.md)
+
+[server]
+key = "svc"
+title = "svc"
+role = "calls to the core's dispatcher"
+reached = "the svc instruction, function in a0"
+core = "every worker core"
+sources = ["os/kernel.s"]
+dispatch = { file = "os/kernel.s", first = "^wt_svc:", last = "^\\s*li\\s+a0,\\s*-1\\s*;\\s*unknown" }
+calls = "svc"
+note = """A program puts the function in a0 and its arguments in a1..a5, and runs `svc`. The \
+dispatcher of its core answers: the result comes back in a0 (an unknown function gives −1), \
+and some calls also set a1 or a capability register. Timeouts are in ticks of 1 µs; −1 means \
+none, and 0 times out at the next look. A call that blocks lets the core run its other threads."""
+
+[[op]]
+num = 1
+name = "WAIT_REPLY"
+summary = "Wait for a reply, for an awaited capability, or sleep"
+note = """The caller has just sent its buffer (c5) with `csend`. The dispatcher rings the destination's \
+doorbell and blocks the caller until the buffer comes back, or until a capability with the awaited \
+base arrives. With a3 = −1 nothing is awaited: the call is a sleep that only the timeout or an \
+interrupt ends. A capability that arrives for a register holding a live linear one is dropped."""
+
+[op.request]
+regs = { a1 = "the core whose doorbell to ring (the destination of the message just sent); −1, 0 or the caller's own core: none", a2 = "the timeout in ticks, −1 none", a3 = "the base of the capability awaited: 0 the caller's own buffer, −1 nothing (a sleep)", a4 = "the register (0..7) an awaited capability other than the buffer arrives in; 0 means c5" }
+
+[op.reply]
+result = "0: the buffer is back in c5 (with the reply), or the awaited capability is in the register a4 names"
+attachments = { c5 = "the message buffer, with the reply", c6 = "the first capability the server sent with the reply", c7 = "the second one (it replaces the clock: CLOCK gets it back)" }
+
+[op.errors]
+"-2" = "interrupted: a sleep (a3 = −1) ended by notification bit 0, which the call clears"
+"-8" = "timed out"
+
+[[op]]
+num = 2
+name = "RECEIVE"
+summary = "Wait for a request, or for a transfer tag to go idle"
+note = """For the core's server (the dispatcher does not check who calls it). Requests are queued in the dispatcher (16 at most) in the order they came. The token \
+names the sender and goes back with REPLY. The dispatcher stamps the sender's pid into the \
+request's header word 40. When a request comes, whatever c6 and c7 held is dropped."""
+
+[op.request]
+regs = { a1 = "a mask of transfer tags (bits 0..15) to wait for as well", a2 = "the timeout in ticks, −1 none" }
+
+[op.reply]
+result = "a token: the sender's core | the sender's pid << 8"
+attachments = { c6 = "the request (a 4 KiB message buffer)", c7 = "the capability its sender attached, or nothing" }
+regs = { a1 = "with a0 = −1: the tags of a1's mask that are idle" }
+
+[op.errors]
+"-1" = "no request: a1 holds the idle tags. With a1 = 0 it is spurious (a queued request died): call again"
+"-8" = "timed out"
+
+[[op]]
+num = 3
+name = "REPLY"
+summary = "Give the request in c6 back to its sender, with capabilities"
+note = """The capabilities are sent in this order: c4 (a2 bit 2), c7 (bit 0), the minted endpoint \
+(bit 1), and then the buffer in c6; the sender gets the first two in its c6 and c7. An empty \
+register is skipped. A request from a guest's core gets the buffer alone. If the sender died \
+meanwhile, c6 is cleared and the result is 0 all the same."""
+
+[op.request]
+regs = { a1 = "the token RECEIVE gave (its low 8 bits: the sender's core)", a2 = "bit 0: send c7 first; bit 1: mint a send-only, copyable endpoint for core a3 and send it (only a process created with the privileged flag; for others the bit is ignored); bit 2: send c4 first", a3 = "with a2 bit 1: the core (or the block device's node, the number of cores) the endpoint names" }
+attachment = "c4 and c7 as a2 says, then the buffer in c6"
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "the token names no core"
+
+[[op]]
+num = 4
+name = "YIELD"
+summary = "Let the core's other runnable threads run first"
+
+[op.request]
+
+[op.reply]
+result = "0"
+
+[[op]]
+num = 5
+name = "EXIT"
+summary = "End the calling thread, and the process with its last thread"
+note = """The process ends when all its threads have. The status the system core reports to proc \
+(EXITED) is thread 0's: the code's low 32 bits. A `halt` instruction exits the same way, with the \
+code in a0. A fault or a kill on one thread ends every thread of the process."""
+
+[op.request]
+regs = { a1 = "the exit code (low 32 bits)" }
+
+[op.reply]
+result = "does not return"
+
+[[op]]
+num = 6
+name = "NOTIFY_WAIT"
+summary = "Wait for a notification"
+note = "Notifications are bits the system core ORs into a process's thread 0 when proc sends it NOTIFY (proc sets bit 0 for an interrupt). The call returns them all and clears them."
+
+[op.request]
+regs = { a2 = "the timeout in ticks, −1 none" }
+
+[op.reply]
+result = "the notification bits"
+
+[op.errors]
+"-8" = "timed out"
+
+[[op]]
+num = 7
+name = "SET_MIRROR"
+summary = "Reload the program's code from a copy in its arena"
+note = """From now on a switch-in reloads the code from this copy instead of the image (a program \
+that writes code, like a JIT, keeps the copy up to date). The code cache starts after the copy; \
+its layout changes, so it is emptied and the overlay map cleared. A copy that does not lie inside \
+the program's memory (c0) is not loaded."""
+
+[op.request]
+regs = { a1 = "the arena offset of the copy of the I-LS program range (0x8000 up)", a2 = "its length in bytes: at most 0x8000 is used, rounded up to whole words; 0: no copy" }
+
+[op.reply]
+result = "0"
+regs = { a1 = "NXMAP: the entries of the overlay map (the program may clear them itself with `xunmap` after changing a unit's far copy)" }
+
+[[op]]
+num = 8
+name = "PARK"
+summary = "Hand the request in c6 to the dispatcher to answer later"
+note = "The request leaves c6. UNPARK gives it back with its sender, so it can be answered with REPLY. 16 requests can be parked at once."
+
+[op.request]
+attachment = "c6, the request"
+
+[op.reply]
+result = "the park id (0..15)"
+
+[op.errors]
+"-1" = "no room: every park slot is used, or the core's save table is full. The request stays in c6"
+
+[[op]]
+num = 9
+name = "UNPARK"
+summary = "Take a parked request back into c6"
+
+[op.request]
+regs = { a1 = "the park id" }
+
+[op.reply]
+result = "0"
+attachments = { c6 = "the request" }
+
+[op.errors]
+"-1" = "no such park id, or the request died while it was parked (its slot is free again)"
+
+[[op]]
+num = 10
+name = "CLOCK"
+summary = "Put the clock capability in c7 again"
+note = "Whatever c7 holds is dropped. The clock is the read-only capability for the timer's NOW and FREQ registers that every process starts with."
+
+[op.request]
+
+[op.reply]
+result = "0"
+attachments = { c7 = "the clock" }
+
+[[op]]
+num = 11
+name = "SET_SCRATCH"
+summary = "Name a D-LS range that switches neither save nor restore"
+note = "The range is narrowed to whole words inside it; one that leaves nothing means none. Its contents are undefined after the thread is switched out and in again."
+
+[op.request]
+regs = { a1 = "the D-LS start", a2 = "the length in bytes; 0: none" }
+
+[op.reply]
+result = "0"
+
+[[op]]
+num = 12
+name = "SEND"
+summary = "Send the buffer (c5) and an attachment, then wait as WAIT_REPLY"
+note = """The dispatcher sends the attachment and then the buffer through the endpoint, with nothing \
+else of this core in between, so the attachment rides with its own message. It then rings the \
+doorbell and waits as WAIT_REPLY does with a2..a4. A send to the core's own server first empties \
+the inbox (the call is run again later if the caller still has a message queued there)."""
+
+[op.request]
+regs = { a1 = "the register (0..7, not 5) holding a send endpoint to a core", a2 = "the timeout in ticks, −1 none", a3 = "as WAIT_REPLY: the base awaited (0 the own buffer)", a4 = "as WAIT_REPLY: the register an awaited capability arrives in", a5 = "the attachment's register (0..7, not 5 nor a1); −1 none" }
+attachment = "the register a5 names (it leaves the register unless it is copyable)"
+
+[op.reply]
+result = "as WAIT_REPLY: 0, the buffer back in c5"
+attachments = { c5 = "the message buffer, with the reply", c6 = "the first capability sent with the reply", c7 = "the second one" }
+
+[op.errors]
+"-1" = "nothing sent: c5 is empty, a register number is out of range, a1 holds no send endpoint to a core, or the attachment's register is empty"
+"-2" = "as WAIT_REPLY: with a3 = −1, a sleep ended by notification bit 0"
+"-8" = "timed out"
+
+[[op]]
+num = 13
+name = "UNITS"
+summary = "The thread's code-unit paging counts"
+
+[op.request]
+
+[op.reply]
+result = "the code units the dispatcher has paged in for this thread so far"
+regs = { a1 = "the slots of its code cache that hold a unit now" }
+
+[[op]]
+num = 14
+name = "PAGE"
+summary = "Page in the code unit of a miss the program's own trap handler got"
+note = "For a program with its own trap handler, which gets its code-unit misses. The dispatcher pages the unit in as for its own miss and resumes the caller at once."
+
+[op.request]
+regs = { a1 = "the missed far address (`utval` of the miss)", a2 = "the pc of the miss (`uepc`)" }
+
+[op.reply]
+result = "0 paged in; 1 it cannot be (a fault after all)"

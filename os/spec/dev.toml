@@ -1,0 +1,194 @@
+# dev: the messages of os/servers/dev.s (format: os/spec/README.md)
+
+[server]
+key = "dev"
+title = "dev"
+role = "the device manager"
+does = "the device manager: holds the device root, describes the platform, hands out device capabilities (the disk to `blk`, the console to `tty`, the framebuffer to `ws`), halts the machine"
+reached = "LOOKUP \"dev\""
+start = "kernel"
+pid = 2
+place = { core = 2, index = 0, alone = "no" }
+holds = "the device root (c7); the kernel's endpoint (c3), for HALT and FBLEND"
+sources = ["os/servers/dev.s"]
+dispatch = { file = "os/servers/dev.s", first = ";\\s*dispatch", last = "^\\s*li\\s+a0,\\s*-1\\s*;\\s*unknown" }
+calls = "message"
+note = """pid 2, made by the kernel at boot. It reads the platform table once at start and hands out \
+device capabilities cut from the device root: a window is a copy of the root split down to one \
+device's ports (device capabilities are copyable). The framebuffer memory is the kernel's: dev asks \
+the kernel for it (FBLEND) and passes it on. Only GRANT_FB and GETNET check who asks; the other \
+operations answer any program."""
+
+[[op]]
+num = 21
+name = "GETPTR"
+summary = "A window on the pointer's ports"
+note = "For `tty`, which reads the pointer's events and hands them to `ws`. Not checked: any program that asks gets it."
+
+[op.request]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "a device capability for the pointer's ports (0x4100..0x410F)" }
+
+[op.errors]
+"-1" = "the machine has no pointer (no platform entry of type 7)"
+
+[[op]]
+num = 22
+name = "GETSND"
+summary = "A window on the sound device's ports"
+note = "For any program that asks: the samples of all holders join the device's one queue in the order they arrive."
+
+[op.request]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "a device capability for the sound device's ports (0x4300..0x4317)" }
+
+[op.errors]
+"-1" = "the machine has no sound device (no platform entry of type 9)"
+
+[[op]]
+num = 23
+name = "DEVS"
+summary = "The platform table's entries"
+note = """The entries as the device's platform table gives them, without its 32-byte header. The \
+types: 1 memory, 2 console, 3 platform table, 4 block device, 5 framebuffer, 6 timer, 7 pointer, \
+8 network interface, 9 sound (only on a machine that has it). `info`: console 1 output | 2 input; \
+platform table 1; block device its capacity in blocks; framebuffer width | height << 16 | \
+stride << 32 | format << 48 (1 = XRGB8888); timer ticks per second (1000000); pointer buttons \
+(bits 0..7) | wheels << 8 (0x0307); network interface the MTU (1500); sound the samples its queue \
+holds (16384)."""
+
+[op.request]
+
+[op.reply]
+result = "the number of entries (32 bytes each)"
+data = [
+  { repeat = "per entry", fields = [
+    { type = "u16", name = "type" },
+    { type = "u16", name = "index", note = "0 for the first device of its type" },
+    { type = "u16", name = "space", note = "2 T2, 3 T3, 4 device space" },
+    { type = "u16", name = "node", note = "the node to `cgive` to (the block device's), 0xffff none" },
+    { type = "u64", name = "info", note = "by type: see above" },
+    { type = "u64", name = "base", note = "its first address in its space" },
+    { type = "u64", name = "size", note = "its bytes" },
+  ] },
+]
+
+[[op]]
+num = 24
+name = "HALT"
+summary = "Stop the machine"
+note = "dev asks the kernel (HALT), which stops every core; there is no reply. Not checked: any program that asks stops the machine."
+
+[op.request]
+
+[op.reply]
+result = "none: the machine stops"
+
+[op.errors]
+"-1" = "the kernel answered after all (it does not)"
+
+[[op]]
+num = 26
+name = "GRANT_FB"
+summary = "The framebuffer memory and the controller's ports"
+from = "the process registered as \"ws\""
+note = """dev asks `proc` who holds the name "ws" (WHOIS) and compares that pid with the sender's, \
+then asks the kernel for the memory (FBLEND for that pid): every older capability to it is revoked \
+and the caller holds it until it ends, when the kernel revokes it again. There is no operation to \
+give it back. If the caller dies while dev waits, there is no reply."""
+
+[op.request]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "the framebuffer memory (the whole 16 MiB window at 0x3000000 in T3)", c7 = "a device capability for the framebuffer controller's ports (0x4000..0x400F)" }
+
+[op.errors]
+"-5" = "the caller is not the process registered as \"ws\" (or no process is)"
+"-7" = "a live process holds the framebuffer, or the kernel has no room to park the request"
+"-1" = "the machine has no framebuffer, or the kernel does not know the caller's pid"
+
+[[op]]
+num = 30
+name = "GETDISK"
+summary = "The block device's ports and an endpoint to its node"
+from = "blk (dev does not check: any program that asks gets them)"
+note = "blk sits on dev's core and asks twice, mode 1 then 2: an answer to dev's own core carries one capability, as a core's inbox holds two gifts from each sender (the attachment and the buffer)."
+
+[op.request]
+mode = "0 both, 1 the window alone, 2 the endpoint alone (in c6)"
+
+[op.reply]
+result = "0"
+attachments = { c6 = "a device capability for the block device's ports (its platform entry's base and size: 0x2000..0x22FF); in a guest StrataOS the RAM disk, memory (the kernel's GDISK)", c7 = "a send-only endpoint to the block device's node (its entry's node), for its buffers; none in a guest" }
+
+[op.errors]
+"-1" = "the machine has no block device (no platform entry of type 4)"
+
+[[op]]
+num = 31
+name = "GETCON"
+summary = "The console's ports"
+from = "tty (dev does not check: any program that asks gets them)"
+
+[op.request]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "a device capability for the console's ports (0x0000..0x00FF); in a guest StrataOS an endpoint to the host's tty (the kernel's GCON)" }
+
+[[op]]
+num = 46
+name = "RINGS"
+summary = "The console rings in T2"
+from = "tty, at its start (the kernel gives them once: a later caller gets −1)"
+note = "dev asks the kernel (RINGS, op 14) while the request waits, and lends what comes back."
+
+[op.request]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "the console rings: an atomic segment in T2 (the kernel's RINGS)" }
+
+[op.errors]
+"-1" = "T2 has no rings, or they were given already"
+"-7" = "the kernel has no room to keep the request while it asks"
+
+[[op]]
+num = 59
+name = "GETNET"
+summary = "The network interface's ports"
+from = "the process registered as \"net\""
+note = "dev asks `proc` who holds the name \"net\" (WHOIS) and compares that pid with the sender's."
+
+[op.request]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "a device capability for the network interface's ports (0x4200..0x421F)" }
+
+[op.errors]
+"-5" = "the caller is not the process registered as \"net\" (or no process is)"
+"-1" = "the machine has no network interface (no platform entry of type 8)"
+
+[[op]]
+num = 67
+name = "TIME"
+summary = "The wall clock: the timer's EPOCH and ZONE"
+note = """A program adds its clock's NOW (c7, which covers only NOW and FREQ) to EPOCH: it asks dev \
+once (`sys_time` keeps the record), not at every reading."""
+
+[op.request]
+
+[op.reply]
+result = "1: one 32-byte record"
+data = [
+  { type = "u64", name = "EPOCH", note = "the wall-clock time when NOW was 0, in microseconds since 1970-01-01 00:00 UTC; 0 = not known" },
+  { type = "s64", name = "ZONE", note = "local time minus UTC, in seconds" },
+  { type = "u64", name = "0" },
+  { type = "u64", name = "0" },
+]

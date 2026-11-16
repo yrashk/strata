@@ -47,6 +47,7 @@ _start:
         .word 0x32535953                ; "SYS2": a StrataOS 0.1 program
 main:
         call  sys_init                  ; (handles: none needed)
+        call  sys_server                ; (c6 holds requests: no console ring)
         la    a0, loop                  ; a fault on a dead request returns to the loop
         call  srv_guard                 ; ...
 loop:

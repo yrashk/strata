@@ -8,8 +8,7 @@
 ; times, so a file the path already names (sys_stat) is left alone. Anything
 ; else is opened for appending and closed (sys_open mode 2): a new file is
 ; created empty, and an existing file that lacks the path's tags gets them
-; with its contents kept (it is rewritten, so at most 128 KiB; `tag` does
-; the same for any size). "touch: cannot create FILE" (exit code 1): a bad
+; with its contents kept. "touch: cannot create FILE" (exit code 1): a bad
 ; name, an excluding path ("/a/-b/f"), no room.
 
         .data                           ; data Local Store

@@ -1,0 +1,158 @@
+probe                bits  arrives     then    total   (FO4)
+d                     166     34.3    200.9    200.9
+ra                     64     37.5    163.7    199.6
+rb                     64     37.5    116.3    152.2
+rc                     64     36.3     56.5     92.9
+cap_a                  81     39.8    161.7    200.9
+cd_cap                 81      7.2     83.1     90.1
+ka                     81     44.8     76.3    119.3
+kd                     81     37.7     79.3    115.2
+g_a                    17     54.7     65.1    119.3
+g_d                    17     47.6     68.8    115.2
+live_a                  1     64.6     54.7    119.3
+live_cd                 1     54.3     60.9    115.2
+xc_key                 63     65.5    135.9    200.9
+xm_inslot               1    221.9     26.7    248.7
+xm_li                   4    224.7     68.1    290.2
+xm_lk_off              17    253.9     55.5    289.8
+xm_lk_far              27    270.9     25.3    286.7
+xm_i                    4    148.1     54.1    200.9
+alu_y                  64     95.0     57.2    152.2
+br_taken                1     89.9     15.5    105.4
+maddr                  64     95.0     57.2    152.2
+mok                     1    100.7     19.7    120.4
+mload                  64    108.1      4.2    112.3
+xm_hit                  1    145.1     31.9    176.9
+xm_target              64    188.6     17.6    200.5
+xm_link                28    271.2     26.7    271.2
+xf_fault                3     83.7     21.3    105.1
+amo_fault               3     73.4     21.5     94.9
+csr_rv                 64     19.3      9.0     28.3
+pc_br                  64     49.5     11.3     56.1
+pc4                    17     16.1    289.0    289.0
+give_valid              1    105.5      0.0    105.5
+tu_iss_valid            1     85.8      0.0     85.8
+held                    1      7.2     35.5     42.7
+hz_rd_stall             1    133.3     18.9    152.2
+
+137358 gates, 25292 end points; delays in FO4 (tau / 5), fanout capped at 6
+   FO4 gates  from                     to                           worst end point
+ 290.2   273  overlay map              integer registers x          x[31][22]
+ 289.0   272  pc                       integer registers x          x[31][22]
+ 285.4   271  CSRs, tag lookup         integer registers x          x[31][22]
+ 284.9   270  other: ia_addr           integer registers x          x[31][22]
+ 200.9   179  other: d                 pc                           pc[59]
+ 198.9   179  ir (instruction)         pc                           pc[59]
+ 189.9   171  other: cd_i              pc                           pc[59]
+ 185.7   169  other: d                 other: ia_addr               ia_addr[10]
+ 183.6   169  ir (instruction)         other: ia_addr               ia_addr[10]
+ 176.9   162  other: d                 integer registers x          x[3][0]
+ 174.9   162  ir (instruction)         integer registers x          x[3][0]
+ 174.7   161  other: cd_i              other: ia_addr               ia_addr[10]
+ 172.1   160  integer registers x      pc                           pc[59]
+ 168.3   155  capability registers     pc                           pc[59]
+ 165.9   154  other: cd_i              integer registers x          x[3][0]
+ 163.0   146  other: d                 CSRs, tag lookup             u_tval[13]
+ 160.9   146  ir (instruction)         CSRs, tag lookup             u_tval[13]
+ 160.8   148  other: d                 state / phase                spp_user
+ 158.7   148  ir (instruction)         state / phase                spp_user
+ 156.9   145  other: d                 other: inbox_priv            inbox_priv
+ 156.8   150  integer registers x      other: ia_addr               ia_addr[10]
+ 154.8   145  ir (instruction)         other: inbox_priv            inbox_priv
+ 153.0   145  capability registers     other: ia_addr               ia_addr[10]
+ 152.0   138  other: cd_i              CSRs, tag lookup             u_tval[13]
+ 150.4   101  other: d                 D-LS port B (unit)           u_dls.mem:WR_EN:B
+ 149.8   140  other: cd_i              state / phase                spp_user
+ 149.3   101  ir (instruction)         D-LS port B (unit)           u_dls.mem:WR_EN:B
+ 148.1   101  other: d                 D-LS port A addr/data/we     u_dls.mem:RD_ADDR:A
+ 148.1   143  integer registers x      integer registers x          x[3][0]
+ 147.1   101  ir (instruction)         D-LS port A addr/data/we     u_dls.mem:RD_ADDR:A
+ 145.9   137  other: cd_i              other: inbox_priv            inbox_priv
+ 144.3   138  capability registers     integer registers x          x[3][0]
+ 141.7   135  CSRs, tag lookup         pc                           pc[59]
+ 140.4    93  other: cd_i              D-LS port B (unit)           u_dls.mem:WR_EN:B
+ 139.8    79  other: d                 other: mul_p                 mul_p[125]
+ 138.7    79  ir (instruction)         other: mul_p                 mul_p[125]
+ 138.1    93  other: cd_i              D-LS port A addr/data/we     u_dls.mem:RD_ADDR:A
+ 137.8   137  overlay map              pc                           pc[59]
+ 134.1   127  integer registers x      CSRs, tag lookup             u_tval[13]
+ 131.9   129  integer registers x      state / phase                spp_user
+ 130.3   122  capability registers     CSRs, tag lookup             u_tval[13]
+ 129.8    71  other: cd_i              other: mul_p                 mul_p[125]
+ 129.8    92  other: d                 capability registers         caps[2][0]
+ 128.7    92  ir (instruction)         capability registers         caps[2][0]
+ 128.1   124  capability registers     state / phase                spp_user
+ 128.0   126  integer registers x      other: inbox_priv            inbox_priv
+ 126.5   125  CSRs, tag lookup         other: ia_addr               ia_addr[10]
+ 124.2   121  capability registers     other: inbox_priv            inbox_priv
+ 122.9    83  integer registers x      D-LS port B (unit)           u_dls.mem:WR_EN:B
+ 122.5   127  overlay map              other: ia_addr               ia_addr[10]
+ 120.6    83  integer registers x      D-LS port A addr/data/we     u_dls.mem:RD_ADDR:A
+ 119.8    84  other: cd_i              capability registers         caps[2][0]
+ 119.1    64  state / phase            other: mul_p                 mul_p[125]
+ 112.3    61  integer registers x      other: mul_p                 mul_p[125]
+ 110.0    59  mul / div                other: mul_p                 mul_p[125]
+ 108.9    76  D-LS read data           integer registers x          x[31][62]
+ 105.5    73  other: d                 outputs                      OUT:give_valid
+ 104.5    73  ir (instruction)         outputs                      OUT:give_valid
+ 103.8   102  CSRs, tag lookup         CSRs, tag lookup             u_tval[13]
+ 102.3    74  integer registers x      capability registers         caps[2][0]
+
+worst path by start class:
+ 290.2   273  overlay map              -> integer registers x
+ 289.0   272  pc                       -> integer registers x
+ 285.4   271  CSRs, tag lookup         -> integer registers x
+ 284.9   270  other: ia_addr           -> integer registers x
+ 200.9   179  other: d                 -> pc
+ 198.9   179  ir (instruction)         -> pc
+ 189.9   171  other: cd_i              -> pc
+ 172.1   160  integer registers x      -> pc
+ 168.3   155  capability registers     -> pc
+ 119.1    64  state / phase            -> other: mul_p
+ 110.0    59  mul / div                -> other: mul_p
+ 108.9    76  D-LS read data           -> integer registers x
+  83.3    82  save table read          -> capability registers
+  79.3    80  granule table            -> capability registers
+  58.3    44  other: ca                -> other: ia_addr
+  55.5    58  other: inbox_priv        -> capability registers
+  48.5    31  other: mul_p             -> other: mul_p
+  45.5    51  inputs                   -> capability registers
+  43.6    41  Transfer Unit            -> CSRs, tag lookup
+  35.8    27  other: $abc$692871$flatten\u_tu -> D-LS port B (unit)
+  32.3    26  other: tag_busy          -> integer registers x
+  23.0    15  other: mul_done_lo       -> integer registers x
+  23.0    15  other: mul_done          -> integer registers x
+  21.8    14  other: div_done          -> integer registers x
+   4.2     4  other: div_busy          -> mul / div
+   2.5     3  I-LS read data           -> other: d
+
+worst path by end class:
+ 290.2   273  integer registers x          <- overlay map
+ 200.9   179  pc                           <- other: d
+ 185.7   169  other: ia_addr               <- other: d
+ 163.0   146  CSRs, tag lookup             <- other: d
+ 160.8   148  state / phase                <- other: d
+ 156.9   145  other: inbox_priv            <- other: d
+ 150.4   101  D-LS port B (unit)           <- other: d
+ 148.1   101  D-LS port A addr/data/we     <- other: d
+ 139.8    79  other: mul_p                 <- other: d
+ 129.8    92  capability registers         <- other: d
+ 105.5    73  outputs                      <- other: d
+  98.8    80  overlay map                  <- other: d
+  98.6    75  Transfer Unit                <- other: d
+  91.1    71  other: tag_busy              <- other: d
+  78.1    58  save table                   <- other: d
+  66.7    49  mul / div                    <- other: d
+  51.8    41  other: div_done              <- other: d
+  50.3    39  other: div_busy              <- other: d
+  35.3    27  I-LS port B (unit)           <- Transfer Unit
+  32.0    29  I-LS port A addr             <- other: ia_addr
+  29.0    23  other: mul_done_lo           <- other: d
+  29.0    23  other: mul_done              <- other: d
+  17.2    14  other: d                     <- Transfer Unit
+  17.2    14  other: cd_i                  <- Transfer Unit
+  17.2    14  ir (instruction)             <- Transfer Unit
+  16.0    12  other: $abc$692871$flatten\u_tu <- Transfer Unit
+  13.8    10  other: gt3                   <- inputs
+   7.9     5  other: ca                    <- state / phase
+   4.4     2  other: gt2                   <- inputs

@@ -76,8 +76,8 @@ grep HTTP/ < r13
 echo GET /~ps HTTP/1.0 | nc 127.0.0.1 80 > r11
 grep "<h2>" < r11
 echo GET /src/sh.s HTTP/1.0 | nc 127.0.0.1 80 | wc
-cat sh.s | wc
-rm index.html
+cat /src/sh.s | wc
+rm /www/index.html
 echo GET / HTTP/1.0 | nc 127.0.0.1 80 > r12
 grep title < r12
 rm r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15
@@ -107,7 +107,7 @@ else
 fi
 
 # ---- 2: two machines, two connections at once -------------------------------------------------
-pa=$((20000 + $$ % 20000)); pb=$((pa + 1))
+pa=$((25000 + $$ % 2500 * 2)); pb=$((pa + 1))   # (a range of its own: test-net.sh runs at the same time)
 cat >"$tmp/inA.txt" <<'EOF'
 net 10.0.0.1 &
 httpd

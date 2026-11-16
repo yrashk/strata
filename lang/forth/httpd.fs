@@ -29,14 +29,32 @@ inline-limit @  4 inline-limit !                \ code space is scarce: call eve
 0 value http-count                              \ requests to answer before stopping (0: no end): argument 2
 
 \ ---- files: messages to the file server (endpoint register 2) --------------------------
+3 constant op-open    27 constant op-stat       \ the file server's requests (os/spec/fs.toml;
+40 constant op-query  41 constant op-tags2      \ READ and CLOSE as net.fs has them)
 : fs ( handle len mode op -- result ) 2 (msg) ;  \ a request to fs
-: fs-size ( path u -- size|err ) tuck >msg 0 swap 0 27 fs ; \ STAT; -4 no such file
-: fs-open ( path u -- id|err ) tuck >msg 0 swap 0 3 fs ; \ OPEN for reading
+: fs-path ( path u op -- r ) >r tuck >msg 0 swap 0 r> fs ; \ a request about a path
+: fs-size ( path u -- size|err ) op-stat fs-path ; \ -4 no such file
+: fs-open ( path u -- id|err ) op-open fs-path ; \ for reading
 : fs-read ( addr u id -- n ) 2 msg-read ;        \ READ: at most 1 KiB, 0 at the end
-: fs-close ( id -- ) 0 0 4 fs drop ;            \ CLOSE
-create dir-buf 126 32 * allot                   \ a DIR answer: {name[24], u64 size} per file
-: fs-dir ( path u -- n|err )                     \ DIR: the files a tag path names -> dir-buf
-  tuck >msg 0 swap 0 10 fs  dup 0> if dir-buf 64 2 pick 32 * 5 tget then ;
+: fs-close ( id -- ) 0 0 op-close fs drop ;
+\ QUERY answers a directory's files, and TAGS2 every tag, as records of their own lengths: a
+\ cell of u16 record bytes, u16 name length, u32 id (a tag's) or tags (a file's); a cell (a
+\ file's size); the name. QUERY's data start with u64 n and n u32 tag ids (the path's), and a
+\ record without a name is a deeper directory's file; its header's mode word (at 24) is a
+\ bit per subdirectory (the tags with ids below 64).
+create dir-buf 4032 allot                       \ the first part of an answer
+variable dir-facets                             \ QUERY's subdirectories
+create dir-hdr 64 allot
+: rec-next ( rec -- rec' ) dup @ $ffff and + ;
+: rec-name ( rec -- a u ) dup 16 + swap @ 16 rshift $ffff and ;
+: rec-id ( rec -- u ) @ 32 rshift ;
+: rec-num ( rec -- u ) 8 + @ ;
+: first-file ( -- rec ) dir-buf dup @ 4 * cell+ aligned + ;
+: answer> ( n -- n ) dup 0> if dir-buf 64 4032 5 tget then ; \ its data, if there are any, into dir-buf
+: fs-dir ( path u -- n|err )                     \ QUERY: the first part of a directory's files
+  op-query fs-path
+  dir-hdr 0 64 5 tget 32 twait  dir-hdr 24 + @ dir-facets !  answer> ;
+: fs-tags ( -- n ) 0 0 >msg 0 0 0 op-tags2 fs 0 max  dir-buf 64 4032 5 tget ; \ TAGS2: every tag
 
 \ ---- the connection: buffered output -------------------------------------------------
 variable conn                                   \ the socket being answered
@@ -120,9 +138,9 @@ variable file  variable #file                   \ the file being sent and its si
   send-flush begin obuf /mbuf file @ fs-read dup 0> while #obuf ! send-flush repeat drop ;
 : serve-file ( name u size -- )                 \ 200 and the file
   #file !  2dup fs-open dup file !  0< if 2drop s" 404 Not Found" error-page exit then
-  dir-buf /mbuf file @ fs-read 0 max >r         ( name u ) ( R: bytes in dir-buf )
-  dir-buf r@ content-type  #file @ s" 200 OK" respond
-  head? 0= if dir-buf r@ send send-rest then  rdrop file @ fs-close ;
+  dir-buf /mbuf file @ fs-read 0 max  dup >r    \ the first KiB, which the type depends on
+  dir-buf swap content-type  #file @ s" 200 OK" respond
+  head? 0= if dir-buf r@ send send-rest then  rdrop  file @ fs-close ;
 
 \ ---- generated pages: a listing ------------------------------------------------------------
 \ A page's length goes into the headers, so it is made twice: once to count
@@ -138,14 +156,22 @@ defer out ( a u -- )                            \ where a generated page goes
 : out-dir ( -- )                                \ the listing's path, ending in '/'
   path 2@ out  path 2@ + 1- c@ [char] / <> if s" /" out then ;
 variable #files                                 \ the files in dir-buf
-: list-page ( -- )                              \ the listing, in HTML, to OUT
+: file-item ( rec -- )                          \ a file: a link, and its size
+  dup rec-name  s" <li><a href='" out out-dir 2dup out s" '>" out out s" </a> " out
+  rec-num <# #s #> out s" </li>" out out-nl ;
+: dir-item ( rec -- )                           \ a subdirectory: a link to its listing
+  rec-name  s" <li><a href='" out out-dir 2dup out s" /'>" out out s" /</a></li>" out out-nl ;
+: subdir? ( rec -- f ) rec-id dup 64 < if dir-facets @ swap rshift 1 and else drop false then ;
+: list-files ( -- )                             \ (a record with a name: a file of this directory)
+  first-file #files @ 0 ?do  dup rec-name nip if dup file-item then  rec-next  loop drop ;
+: list-dirs ( -- )                              \ every tag whose bit is set
+  dir-facets @ 0= if exit then
+  dir-buf fs-tags 0 ?do  dup subdir? if dup dir-item then  rec-next  loop drop ;
+: list-page ( -- )                              \ the listing, in HTML, to OUT; QUERY each pass, as
+  path 2@ fs-dir 0 max #files !                 \ list-dirs reads TAGS2 over the files in dir-buf
   s" <html><head><title>" out path 2@ out s" </title></head><body><h1>" out
   path 2@ out s" </h1><ul>" out out-nl
-  #files @ 0 ?do  dir-buf i 32 * +  dup 24 zcount  ( record name u )
-    s" <li><a href='" out out-dir 2dup out s" '>" out out s" </a> " out
-    24 + @ <# #s #> out s" </li>" out out-nl
-  loop  s" </ul></body></html>" out out-nl ;
-: serve-listing ( n -- ) #files !  ['] list-page serve-page ; \ the n files in dir-buf
+  list-files list-dirs  s" </ul></body></html>" out out-nl ;
 
 \ ---- the answer to a request --------------------------------------------------------------
 create pbuf 256 allot                           \ room for PATH followed by index.html
@@ -160,7 +186,7 @@ create pbuf 256 allot                           \ room for PATH followed by inde
     s" /httpd-ps.fs" s" ps-page" ['] (tool) catch \ loaded for the request and forgotten after
     if 2drop 2drop s" 500 Internal Server Error" error-page then exit then
   path 2@ s" /~/" str= if s" /" path 2! then     \ /~/: every file, as on the assembly httpd
-  path 2@ fs-dir dup 0< if drop s" 404 Not Found" error-page exit then  serve-listing ;
+  path 2@ fs-dir 0< if s" 404 Not Found" error-page exit then  ['] list-page serve-page ;
 : answer ( -- )                                 \ the request on conn
   0 #obuf !  0 #body !  read-request parse-request
   bad-request? if s" 400 Bad Request" error-page exit then
@@ -187,7 +213,7 @@ create pbuf 256 allot                           \ room for PATH followed by inde
 \ length) and interprets it; this file reads the words after its own name.
 \ (They are interpreted too when the server is done: two numbers, pushed.)
 : arg ( n -- a u )                              \ the n-th word after the file's name (empty: none)
-  >r 32 kvar dup @ swap cell+ @  r> 1+ 0 ?do bl split 2drop loop  bl split 2swap 2drop ;
+  >r 32 kvar 2@ swap  r> 1+ 0 ?do bl split 2drop loop  bl split 2swap 2drop ;
 : number-arg ( default n -- x ) arg dup if number? if nip then else 2drop then ;
 http-port 1 number-arg to http-port
 http-count 2 number-arg to http-count

@@ -1,0 +1,59 @@
+strata$ stralog
+Stralog 0.1
+?- open(notes, write, S), writeq(S, fact(1, 'two words', [3])), write(S, '.'), nl(S), write(S, 'fact(2, x, []).'), nl(S), close(S).
+S = '$stream'(2).
+?- open(notes, read, S), read(S, A), read(S, B), read(S, C), close(S).
+S = '$stream'(2), A = fact(1,'two words',[3]), B = fact(2,x,[]), C = end_of_file.
+?- open(notes, append, S), format("~w~n", [ignored]), write(S, 'fact(3, y, z).'), nl(S), close(S).
+ignored
+S = '$stream'(2).
+?- [notes], findall(N-X, fact(N, X, _), L).
+L = [1-'two words',2-x,3-y].
+?- open(nosuch, read, S).
+Error: existence_error(source_sink,nosuch)
+?- op(700, xfx, ===>), op(200, xfy, ^^).
+true.
+?- X = (a ===> b ^^ c ^^ d), writeq(X), nl, X =.. L.
+a===>b^^c^^d
+X = (a===>b^^c^^d), L = [(===>),a,b^^c^^d].
+?- op(0, xfy, ^^), catch(term_to_atom(T, '1^^2'), error(E, _), true).
+E = syntax_error('operator expected').
+?- current_op(P, T, mod).
+P = 400, T = yfx 
+.
+?- writeq(f(1+2*3, (1+2)*3, -(1), 1-(-1), 2-(3-4), a=b, [a|b], 'hello world', [])), nl.
+f(1+2*3,(1+2)*3,- 1,1- -1,2-(3-4),a=b,[a|b],'hello world',[])
+true.
+?- X = "text", atom_codes(A, X), atom_length(A, N).
+X = [116,101,120,116], A = text, N = 4.
+?- [calc], calc("2 * (3 + 4) - 5", V), parse("1+2*3", T).
+V = 9, T = 1+2*3.
+?- [roman], roman(1987, R), arabic('MMXXVI', N).
+R = 'MCMLXXXVII', N = 2026.
+?- phrase(("ab", [C]), `abc`, Rest).
+C = 99, Rest = [].
+?- [user].
+foo(1).
+foo(2) :- true.
+
+true.
+?- findall(X, foo(X), L).
+L = [1,2].
+?- read(T).
+term(read, 42).
+T = term(read,42).
+?- get_char(C), get_char(D).
+xy
+C = x, D = y.
+?- statistics.
+calls: 140970
+heap: 3592 of 241664 bytes used; window: 194 spills, 22 slides, 795712 bytes moved
+garbage collections: 5, 648272 bytes given back
+trail: 16 bytes used; window: 0 spills, 0 slides, 0 bytes moved
+choicepoints: 4 frames; window: 0 spills, 0 slides, 0 bytes moved
+far cache: 155554 misses, 5962 write-backs (64-byte lines)
+atoms: 17184 bytes, clauses: 97632 bytes, findall: 0 bytes
+true.
+?- halt.
+strata$ halt
+StrataOS: all cores halted

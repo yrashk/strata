@@ -61,6 +61,8 @@ static bool dbg_tt_due;            /* recording starts again at the next round's
 static void tt_restart(void); /* debug_tt.c */
 static const char *tt_off_why(void);
 static void tt_clear(void);
+static void msg_rewind(uint64_t tick); /* debug_msg.c */
+static bool dbg_in_fast;           /* inside dbg_fast_round(): dbg_tick is the round's first tick */
 static bool dbg_fastok;            /* a plain continue may run machine_round() (JIT, fast loop) */
 static bool dbg_trapped;           /* a trap was taken in this slot */
 static int dbg_trap_cause;
@@ -391,8 +393,10 @@ static void pre_decode(Core *c, Pre *p) {
   p->user = c->user;
   if (any_capwatch()) memcpy(p->caps, c->caps, sizeof p->caps);
   if ((c->pc & 3) || c->pc >= ils_size) return;
+  uint64_t ipa = c->pc + (uint64_t)c->irel[c->pc / (ils_size / 64)]; /* (relocated by the code window) */
+  if (ipa >= ils_size) return;
   uint32_t ir;
-  memcpy(&ir, c->ils + c->pc, 4);
+  memcpy(&ir, c->ils + ipa, 4);
   p->ir = ir;
   unsigned op = ir >> 26, rd = (ir >> 21) & 31, rs1 = (ir >> 16) & 31, rs2 = (ir >> 11) & 31;
   unsigned funct = ir & 0x7ff;
@@ -448,6 +452,15 @@ static void pre_decode(Core *c, Pre *p) {
   }
   case OP_SYS: p->kind = DK_SYS; p->fn = ir & 0xffff; break;
   }
+  /* the Local Store bytes it touches, where they are: a user-mode address
+   * relocated by its window (one outside them traps; left as it is) */
+  if ((p->kind == DK_LOAD || p->kind == DK_STORE) && p->addr < dls_size) {
+    uint64_t pa = p->addr + (uint64_t)c->drel[p->addr / (dls_size / 64)];
+    if (pa < dls_size) p->addr = pa;
+  } else if ((p->kind == DK_XFER || p->kind == DK_LTAG || p->kind == DK_LINST) && p->len) {
+    uint64_t lim = p->kind == DK_XFER && p->sub == XF_GETX ? ils_size : dls_size, a = p->addr;
+    if (a <= lim && p->len <= lim - a && win_range(c, p->kind == DK_XFER && p->sub == XF_GETX, &a, p->len)) p->addr = a;
+  }
 }
 
 /* the capability-operation bit of a decoded instruction (0: none) */
@@ -478,7 +491,8 @@ static int pre_capop(const Pre *p) {
   return 0;
 }
 
-static const char *cur_prog(const Core *c) { return os_aware && c->user ? os_name_of(os_cur_pid(c->id)) : NULL; }
+/* the program core c runs, as its map is named (a server built to sys/: sys/NAME) */
+static const char *cur_prog(const Core *c) { return os_aware && c->user ? os_map_name(os_cur_pid(c->id)) : NULL; }
 
 /* Breakpoints in front of core c's instruction. */
 static void pre_hits(Core *c, const Pre *p) {
@@ -520,8 +534,10 @@ static void pre_hits(Core *c, const Pre *p) {
 static int stall_reason(const Core *c, uint64_t *detail) {
   *detail = 0;
   if ((c->pc & 3) || c->pc >= ils_size) return SR_OTHER;
+  uint64_t ipa = c->pc + (uint64_t)c->irel[c->pc / (ils_size / 64)];
+  if (ipa >= ils_size) return SR_OTHER;
   uint32_t ir;
-  memcpy(&ir, c->ils + c->pc, 4);
+  memcpy(&ir, c->ils + ipa, 4);
   unsigned op = ir >> 26, rs1 = (ir >> 16) & 31, rs2 = (ir >> 11) & 31, funct = ir & 0x7ff;
   uint64_t busy = tag_busy(c);
   switch (op) {
@@ -532,6 +548,7 @@ static int stall_reason(const Core *c, uint64_t *detail) {
   case OP_XFER: {
     uint64_t ls = c->x[(ir >> 14) & 31], len = c->x[ir & 31];
     unsigned sub = (ir >> 23) & 7, tg = (ir >> 19) & 15;
+    if (sub != XF_GETX && len && ls <= dls_size && len <= dls_size - ls) win_range((Core *)c, false, &ls, len);
     if (sub != XF_GETX && len)
       for (int i = 0; i < NPEND; i++)
         if (c->pend[i].on && ls < c->pend[i].ls + c->pend[i].len && c->pend[i].ls < ls + len) { *detail = (uint64_t)c->pend[i].tag; return SR_XPEND; }
@@ -957,7 +974,9 @@ static int dbg_fast_round(void) {
   host_ptr_script_run(mach_steps);
   host_poll();
   net_host_poll();
+  dbg_in_fast = true;
   int r = machine_round();
+  dbg_in_fast = false;
   dbg_tick += (uint64_t)ncores;
   if (dbg_tick > dbg_frontier) dbg_frontier = dbg_tick;
   pend_diff();
@@ -1055,6 +1074,8 @@ static const char *port_name(uint64_t port) {
   case DEV_CONSOLE + CON_RELEASE: return "console release";
   case DEV_TIMER + TMR_NOW: return "timer NOW";
   case DEV_TIMER + TMR_FREQ: return "timer FREQ";
+  case DEV_TIMER + TMR_EPOCH: return "timer EPOCH";
+  case DEV_TIMER + TMR_ZONE: return "timer ZONE";
   case DEV_TIMER + TMR_DEADLINE: return "timer DEADLINE";
   case DEV_TIMER + TMR_WAIT: return "timer WAIT";
   case DEV_FBCTL + FBC_PRESENT: return "fb PRESENT";
@@ -1151,9 +1172,8 @@ static void jw_core_brief(JW *w, const Core *c) {
     int g = os_guest_of(c->id);
     if (g) jw_int(w, "guest", g); /* a guest OS's core (-1: taken, no guest record) */
   }
-  if (!c->halted && (c->pc & 3) == 0 && c->pc < ils_size) {
-    uint32_t ir;
-    memcpy(&ir, c->ils + c->pc, 4);
+  uint32_t ir;
+  if (!c->halted && fetch_ir(c, &ir)) {
     char d[160];
     disasm(c, ir, c->pc, d, sizeof d);
     jw_str(w, "insn", d);
@@ -1333,6 +1353,133 @@ static void tags_json(JW *w, int i) {
     jw_oend(w);
   }
   jw_aend(w);
+}
+
+/* ------------------------------------------------------------ what changed in the stores */
+
+/* `changes`: every core's Local Stores and T2, compared in CH_BLK-byte
+ * blocks with a copy taken at the request before. A block that differs is
+ * copied again and gets the version of this request; a front-end passes
+ * the version it has seen (`since`) and gets the blocks changed after it,
+ * so that each client keeps its own place. Nothing runs between requests:
+ * a running machine pays only for the comparison, at the rate a front-end
+ * asks. */
+#define CH_BLK 64
+#define CH_UNITS 64 /* the usage map: a store in 64 pieces */
+#define CH_T2 (MAXCORES * 2)
+typedef struct {
+  uint8_t *copy;
+  uint32_t *ver;  /* per block: the version that last saw it change */
+  uint8_t *nz;    /* per block: holds a byte that is not zero */
+  uint64_t size;
+} ChStore;
+static ChStore ch_st[MAXCORES * 2 + 1];
+static uint32_t ch_version;
+
+/* store k: core k/2's D-LS (even) or I-LS (odd), or T2 (CH_T2) */
+static uint8_t *ch_mem(int k, uint64_t *size) {
+  if (k == CH_T2) { *size = T2_BYTES; return t2; }
+  Core *c = &cores[k / 2];
+  *size = k & 1 ? ils_size : dls_size;
+  return k & 1 ? c->ils : c->dls;
+}
+static const char *ch_name(int k) { return k == CH_T2 ? "t2" : k & 1 ? "ils" : "dls"; }
+
+static void ch_scan(void) {
+  uint32_t v = ch_version + 1;
+  bool any = false;
+  for (int k = 0; k <= CH_T2; k++) {
+    if (k < CH_T2 && k / 2 >= ncores) continue;
+    uint64_t size;
+    const uint8_t *m = ch_mem(k, &size);
+    ChStore *s = &ch_st[k];
+    if (!s->copy) {
+      s->copy = calloc(size, 1);
+      s->ver = calloc(size / CH_BLK, sizeof *s->ver);
+      s->nz = calloc(size / CH_BLK, 1);
+      s->size = size;
+    }
+    for (uint64_t b = 0; b < size / CH_BLK; b++) {
+      const uint8_t *p = m + b * CH_BLK;
+      uint8_t *q = s->copy + b * CH_BLK;
+      if (!memcmp(p, q, CH_BLK)) continue;
+      memcpy(q, p, CH_BLK);
+      s->ver[b] = v;
+      bool nz = false;
+      for (int i = 0; i < CH_BLK && !nz; i++) nz = p[i] != 0;
+      s->nz[b] = nz;
+      any = true;
+    }
+  }
+  if (any) ch_version = v;
+}
+
+/* the name of a range's first byte: the program's data (D-LS), code (I-LS), cluster labels (T2) */
+static void ch_sym(int k, uint64_t a, char *s, size_t n) {
+  s[0] = 0;
+  if (k == CH_T2) {
+    const MSym *m = map_sym_at(map_scope(os_aware ? SC_KERNEL : SC_IMAGE), MS_CLUSTER, a);
+    if (m && a - m->addr <= 4096) snprintf(s, n, a == m->addr ? "%s" : "%s+%llu", m->name, (unsigned long long)(a - m->addr));
+  } else if (k & 1) sym_code(&cores[k / 2], a, s, n);
+  else sym_data(&cores[k / 2], a, s, n);
+}
+
+static void changes_json(JW *w, const JVal *rq, char *err, size_t ne) {
+  uint32_t since = (uint32_t)json_u64(json_get(rq, "since"), 0);
+  const JVal *cj = json_get(rq, "core");
+  int only = cj ? (int)json_int(cj, -1) : -1;
+  if (cj && (only < 0 || only >= ncores)) { snprintf(err, ne, "no core %d", only); return; }
+  const char *sp = json_str(json_get(rq, "space"), NULL);
+  if (sp && strcmp(sp, "dls") && strcmp(sp, "ils") && strcmp(sp, "t2")) { snprintf(err, ne, "unknown space %s (dls, ils, t2)", sp); return; }
+  bool hex = json_bool(json_get(rq, "hex"), false);
+  uint64_t budget = json_u64(json_get(rq, "max"), 16384);
+  ch_scan();
+  jw_uint(w, "version", ch_version);
+  jw_int(w, "blk", CH_BLK);
+  jw_position(w);
+  bool truncated = false;
+  jw_arr(w, "stores");
+  for (int k = 0; k <= CH_T2; k++) {
+    if (k < CH_T2 && (k / 2 >= ncores || (only >= 0 && k / 2 != only))) continue;
+    if (sp && strcmp(sp, ch_name(k))) continue;
+    ChStore *s = &ch_st[k];
+    uint64_t nb = s->size / CH_BLK, per = nb >= CH_UNITS ? nb / CH_UNITS : 1, used = 0;
+    jw_obj(w, NULL);
+    if (k != CH_T2) jw_int(w, "core", k / 2);
+    jw_str(w, "space", ch_name(k));
+    jw_uint(w, "size", s->size);
+    for (uint64_t b = 0; b < nb; b++) used += s->nz[b];
+    jw_uint(w, "used", used * CH_BLK);
+    jw_uint(w, "unit", per * CH_BLK);
+    jw_arr(w, "units"); /* per unit: its blocks in use */
+    for (uint64_t u = 0; u * per < nb; u++) {
+      int n = 0;
+      for (uint64_t b = u * per; b < (u + 1) * per && b < nb; b++) n += s->nz[b];
+      jw_int(w, NULL, n);
+    }
+    jw_aend(w);
+    jw_arr(w, "ranges"); /* the runs of blocks changed after `since` */
+    for (uint64_t b = 0; b < nb;) {
+      if (s->ver[b] <= since) { b++; continue; }
+      uint64_t e = b;
+      while (e < nb && s->ver[e] > since) e++;
+      uint64_t a = b * CH_BLK, n = (e - b) * CH_BLK;
+      jw_obj(w, NULL);
+      jw_hex(w, "addr", a);
+      jw_hex(w, "len", n);
+      char sym[96];
+      ch_sym(k, a, sym, sizeof sym);
+      if (sym[0]) jw_str(w, "sym", sym);
+      if (hex && n <= budget) { jw_hexbytes(w, "hex", s->copy + a, n); budget -= n; }
+      else if (hex) truncated = true;
+      jw_oend(w);
+      b = e;
+    }
+    jw_aend(w);
+    jw_oend(w);
+  }
+  jw_aend(w);
+  if (truncated) jw_bool(w, "truncated", true);
 }
 
 static const char *pend_waits(const Pending *p, char *buf, size_t n) {
@@ -1522,6 +1669,8 @@ static void source_json(JW *w, const char *file, int from, int n, char *err, siz
 
 
 /* Handles one request (a JSON object) and writes its answer into `w`. */
+#include "debug_msg.c" /* StrataOS's messages */
+
 static void dbg_request(const char *line, size_t len, JW *w) {
   char err[256] = "";
   JVal *rq = json_parse(line, len);
@@ -1555,6 +1704,7 @@ static void dbg_request(const char *line, size_t len, JW *w) {
     jw_bool(w, "virtual", virtual_time);
     jw_bool(w, "timetravel", dbg_tt);
     jw_bool(w, "os", os_aware);
+    jw_bool(w, "msgs", msg_on);
     jw_str(w, "state", dbg_state == ST_RUNNING ? "running" : dbg_state == ST_DONE ? "done" : "stopped");
     jw_arr(w, "maps");
     for (int i = 0; i < nmaps; i++) {
@@ -1838,6 +1988,9 @@ static void dbg_request(const char *line, size_t len, JW *w) {
       jw_hex(w, "corebase", c->corebase);
       jw_hex(w, "corecount", c->corecount);
       jw_hex(w, "xslot", c->xslot);
+      jw_hex(w, "wdata", c->wcsr[0]);
+      jw_hex(w, "wstack", c->wcsr[1]);
+      jw_hex(w, "wcode", c->wcsr[2]);
       jw_bool(w, "ipend", c->ipend);
       jw_oend(w);
       jw_bool(w, "halted", c->halted);
@@ -1917,6 +2070,8 @@ static void dbg_request(const char *line, size_t len, JW *w) {
       jw_oend(w);
     }
     jw_aend(w);
+  } else if (!strcmp(cmd, "changes")) {
+    changes_json(w, rq, err, sizeof err);
   } else if (!strcmp(cmd, "pending")) {
     jw_arr(w, "reads");
     for (int i = 0; i < ncores; i++)
@@ -2144,6 +2299,19 @@ static void dbg_request(const char *line, size_t len, JW *w) {
   } else if (!strcmp(cmd, "backtrace")) {
     int ci = req_core(rq, err, sizeof err);
     if (ci >= 0) backtrace_json(w, &cores[ci]);
+  } else if (!strcmp(cmd, "msgs") || !strcmp(cmd, "msg") || !strcmp(cmd, "msgstats")) {
+    if (!msg_on) snprintf(err, sizeof err, "no messages: StrataOS awareness (--os) is off");
+    else if (!strcmp(cmd, "msgs")) msgs_json(w, rq);
+    else if (!strcmp(cmd, "msgstats")) msgstats_json(w, rq);
+    else {
+      Msg *m = msg_get(json_u64(json_get(rq, "seq"), ~0ull));
+      if (m) msg_fill(m);
+      if (!m) snprintf(err, sizeof err, "no message %llu (kept: %llu..%llu)", (unsigned long long)json_u64(json_get(rq, "seq"), 0),
+                       (unsigned long long)msg_lo, (unsigned long long)(msg_seq ? msg_seq - 1 : 0));
+      else {
+        msg_json(w, "msg", m, true);
+      }
+    }
   } else if (!strcmp(cmd, "processes")) {
     if (!os_aware) snprintf(err, sizeof err, "needs StrataOS awareness (--os DIR)");
     else {
@@ -2275,6 +2443,7 @@ static void dbg_setup(const char *img, const char *in_path, const char *disk_pat
     if (!map_load(path, SC_KERNEL, NULL)) fprintf(stderr, "strata-emu: --os: no %s (StrataOS awareness is off)\n", path);
     else os_aware = true;
   }
+  msg_init();
   for (int i = 0; i < MAXCORES; i++) dbg_pid_prev[i] = -1, dbg_bphold[i] = ~0ull;
   /* the capabilities the cores start with */
   for (int i = 0; i < ncores; i++)

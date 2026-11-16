@@ -12,7 +12,7 @@
 <link rel="icon" href="../favicon.ico" sizes="32x32">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../apple-touch-icon.png">
-<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="../style.css?v=__BUILD__">
 <link rel="stylesheet" href="play.css?v=__BUILD__">
 </head>
 <body>
@@ -21,10 +21,18 @@
   <a class="mark" href="../">STRATA</a>
   <div class="links">
     <a href="../#idea">Idea</a>
-    <a href="../#os">StrataOS</a>
     <a href="../arch/">Architecture</a>
     <a href="../isa/">Instructions</a>
-    <a href="../forth/">Forth</a>
+    <a href="../os/">OS</a>
+    <div class="menu">
+      <span class="menu-btn" tabindex="0" aria-haspopup="true">Languages</span>
+      <div class="drop">
+        <a href="../forth/">Forth</a>
+        <a href="../stratalk/">Stratalk</a>
+        <a href="../stralog/">Stralog</a>
+        <a href="../c/">C</a>
+      </div>
+    </div>
     <a href="../hardware/">Hardware</a>
     <a href="./" aria-current="page">Play</a>
     <a href="../debug/">Debug</a>
@@ -33,6 +41,7 @@
     <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
   </div>
 </nav>
+<script src="../nav.js?v=__BUILD__" defer></script>
 
 <main class="play">
   <header class="play-head">
@@ -47,6 +56,12 @@
     <button class="preset" data-preset="os">Boot StrataOS</button>
     <button class="preset" data-preset="osws">Boot with Window Server</button>
     <button class="preset" data-preset="wdoom">wdoom: a shooter in a window</button>
+    <button class="preset" data-preset="kira">Princess Kira: games for a child</button>
+    <button class="preset" data-preset="plat">Plat: plan a town</button>
+    <button class="preset" data-preset="nav">nav: a file navigator</button>
+    <button class="preset" data-preset="cc">C compiler</button>
+    <button class="preset" data-preset="stratalk">Stratalk</button>
+    <button class="preset" data-preset="stralog">Stralog: a Prolog</button>
     <button class="preset" data-preset="ws">Window server demo</button>
     <button class="preset" data-preset="gfx">gfx: 8-core Mandelbrot</button>
     <button class="preset" data-preset="forth">Forth</button>
@@ -79,8 +94,9 @@
     </div>
     <div id="status" class="status" aria-live="polite">idle · pick something to run</div>
   </div>
-  <p id="about" class="about"></p>
-  <p id="netnote" class="about"></p>
+  <p id="jitnote" class="about jitnote" hidden></p>
+  <div id="about" class="about"></div>
+  <p id="netnote" class="about netnote" hidden></p>
 
   <section id="screen-panel" class="panel screen collapsed" aria-label="Framebuffer">
     <div class="tag"><span>▸ SCREEN</span><em id="geom">no framebuffer output yet</em>
@@ -109,6 +125,7 @@
       <button data-send="\x03" title="Ctrl-C">^C</button>
       <button data-alt="\n" class="tk-wide" title="Alt+Enter">New terminal</button>
       <button data-alt="p" class="tk-wide" title="Alt+P">Launch</button>
+      <button data-alt="f" title="Alt+F">Full</button>
       <button data-alt="?" title="Alt+?">Keys</button>
       <textarea id="tkin" class="tk-in" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Keyboard input for the screen"></textarea>
     </div>
@@ -125,11 +142,14 @@
       <li>The emulator runs in a Web Worker, continuously; this page only paints the screen and
         passes your keys along. The timer is real time, so a 10&nbsp;ms preemption tick in StrataOS is
         10&nbsp;ms of your wall clock, and the screen's VSYNC is 60&nbsp;Hz.</li>
-      <li>With <b>JIT</b> on (the default; <code>?jit=0</code> turns it off), hot Strata code is
+      <li>With <b>JIT</b> on (the default, except on iPhones; <code>?jit=0</code> turns it off,
+        <code>?jit=1</code> on), hot Strata code is
         translated to WebAssembly while it runs: loops and the functions they call become one
         WebAssembly function, compiled by your browser and called through the emulator's function
         table. Expect a few thousand MIPS (millions of Strata instructions per second); the status line shows
-        the rate.</li>
+        the rate. On iPhone and iPad it keeps fewer translations, since Safari there closes the page
+        once compiled WebAssembly fills its pool; if the page is closed while the JIT runs, on any device,
+        it starts with the JIT off on that browser from then on, until you tick <b>JIT</b> again.</li>
       <li>With JIT off you get the reference interpreter with its exact one-instruction-per-core
         interleaving (a predecoded fast loop keeps it at hundreds of MIPS on plain code).</li>
       <li><b>Machine: RTL simulator</b> (<code>?machine=rtl</code>) runs the same program on the
@@ -185,6 +205,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 <script src="strata-emu.js?v=__BUILD__"></script>
+<script src="jit.js?v=__BUILD__"></script>
 <script src="play.js?v=__BUILD__"></script>
 </body>
 </html>

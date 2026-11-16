@@ -12,18 +12,32 @@
 //                           waiting ones with 0), STATE
 //   0x4200  network         TX (write: one transfer = one IPv4 packet), RX
 //           interface       (read: waits for a packet), STATUS, CANCEL
+//   0x4400  written-page    a word per 256 KiB granule of T3, a bit per 4 KiB
+//           map             page: set by every write to the page (strata_top
+//                           sees them on the bus: pm_set, pm_page), all set at
+//                           reset; a read gives a word (latched at byte 0), a
+//                           write clears the bits written as 1 (at byte 7)
 //
 // Device transfers move single bytes. A stream port ignores the byte index; a
 // ROM or register reads byte `addr + i`. A register is latched when its byte
 // 0 is read and a written value takes effect when its byte 7 is written.
 // Reads that have nothing to give yet (console input with no byte, the break
 // port, WAIT before the deadline, VSYNC before the next refresh, EVENT with
-// no event queued) answer
-// `retry` before any byte, so the bus is not held while waiting; the Transfer
-// Unit asks again later.
+// no event queued, RX with no packet) answer `retry` before any byte, so the
+// bus is not held while waiting. The device remembers, per core, which of
+// these reads has been tried and waits, and raises that core's `wake` line
+// while one of them would now complete if tried again (its byte, Ctrl-C,
+// release, deadline, refresh, event or packet is there); the core's
+// Transfer Unit keeps a read that was answered retry off the bus until
+// then. `wake` is a hint, registered: a woken read that finds the thing
+// taken by another core is answered retry again and waits again. In
+// simulation, console input that has not been fetched from the host is
+// looked for every HOST_POLL cycles while a console read waits.
 //
 // Timer: NOW counts microseconds, from the clock (CLK_MHZ cycles per tick)
 // or, in simulation, from the host (sim_time_us, unless it returns -1).
+// EPOCH and ZONE are the host's wall clock at NOW = 0 and its time zone
+// in simulation (sim_epoch_us, sim_zone_s, read at reset); 0 otherwise.
 // VSYNC completes once the refresh counter (one every FRAME_TICKS ticks)
 // has moved past the value it had at the requesting core's first attempt;
 // the bus tells us which master asks (`master`: core i's Transfer Unit is
@@ -64,6 +78,7 @@ module strata_dev
   import strata_pkg::*;
 #(
   parameter int    NCORES      = 4,
+  parameter int    T3_W        = T3_WORDS,   // system memory's size (the written-page map covers it)
   parameter int    DISK_WORDS  = 2097152,    // 16 MiB
   parameter string DISK_INIT   = "",
   parameter string PLAT_INIT   = "",
@@ -105,10 +120,15 @@ module strata_dev
   input  logic [7:0]  in_from,               // the core that gives it
   output logic        in_ready,
   input  logic [NCORES-1:0] core_clr,        // these cores are being reset: forget their waiting reads
+  output logic [NCORES-1:0] wake,            // a read of this core that waits would complete now
   output logic        give_valid,
   output logic [7:0]  give_dst,
   output cap_t        give_cap,
   input  logic        give_ack,
+
+  // T3 writes, for the written-page map: page pm_page was written
+  input  logic        pm_set,
+  input  logic [31:0] pm_page,
 
   // console on FPGA
   output logic        uart_txd,
@@ -119,6 +139,7 @@ module strata_dev
   localparam int CMDQ = 4;
   localparam int CQD  = 4;
   localparam int DAW  = $clog2(DISK_WORDS);
+  localparam int HOST_POLL = 256;             // (simulation) cycles between looks for console input
 
   // ================================================================ ROMs
   logic [7:0] plat [PLAT_LEN];
@@ -204,9 +225,11 @@ module strata_dev
   logic [63:0] lat_now, lat_dl, lat_wait, lat_vs;  // values latched at byte 0
   logic [63:0] frame, next_frame;   // refreshes so far; the tick of the next one
   logic [NCORES-1:0]       vs_armed; // a core's VSYNC read has been tried
+  logic [NCORES-1:0]       tw_wait;  // a core's WAIT read has been tried and waits
   logic [NCORES-1:0][63:0] vs_from;  // ... and the refresh count it waits to pass
   logic        is_wait, is_vsync, wait_ok, vsync_ok, tmr_hit;
   logic [63:0] tmr_val;
+  logic [63:0] epoch, zone;         // EPOCH and ZONE: from the host in simulation; 0 (not known) otherwise
 
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -227,6 +250,17 @@ module strata_dev
 `else
   assign now = vnow;
 `endif
+`ifdef SIMULATION
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      epoch <= sim_epoch_us();
+      zone  <= sim_zone_s();
+    end
+  end
+`else
+  assign epoch = '0;
+  assign zone  = '0;
+`endif
 
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -237,6 +271,16 @@ module strata_dev
       next_frame <= next_frame + 64'(FRAME_TICKS);
     end
   end
+
+  // written-page map: PMW words (at least one), a bit per 4 KiB page of T3
+  localparam int PMW = T3_W / 32768 > 0 ? T3_W / 32768 : 1;
+  localparam int PMB = PMW > 1 ? $clog2(PMW) : 1;
+  logic [63:0]    pmap [PMW];
+  logic [63:0]    lat_pm, pm_wbuf;   // the word latched by a read; the bytes of a write
+  logic           pm_hit;
+  logic [PMB-1:0] pm_ri;
+  assign pm_hit = ra >= DEV_PMAP && ra < DEV_PMAP + 64'(8 * PMW);
+  assign pm_ri  = PMB'(((ra - DEV_PMAP) >> 3) & 64'(PMW - 1));
 
   logic        is_con_in, is_cq, is_brk, rom_hit;
   logic        rx_brk, rx_ok;   // the received byte is a Ctrl-C / is ordinary input
@@ -287,11 +331,13 @@ module strata_dev
   end
   // timer registers other than WAIT: byte 0 reads the live value, the rest the latch
   always_comb begin
-    tmr_hit = ra >= DEV_TIMER && ra < DEV_TIMER + 64'h20;
-    case (ra[4:3])
-      2'd0:    tmr_val = ra[2:0] == 0 ? now : lat_now;
-      2'd1:    tmr_val = 64'(TMR_HZ);
-      2'd2:    tmr_val = ra[2:0] == 0 ? deadline : lat_dl;
+    tmr_hit = ra >= DEV_TIMER && ra < DEV_TIMER + 64'h30;
+    case (ra[5:3])
+      3'd0:    tmr_val = ra[2:0] == 0 ? now : lat_now;
+      3'd1:    tmr_val = 64'(TMR_HZ);
+      3'd2:    tmr_val = ra[2:0] == 0 ? deadline : lat_dl;
+      3'd4:    tmr_val = epoch;
+      3'd5:    tmr_val = zone;
       default: tmr_val = '0;                         // WAIT other than at the start of a transfer
     endcase
   end
@@ -424,6 +470,9 @@ module strata_dev
         end else if (tmr_hit) begin
           rvalid = 1;
           rdata  = {56'b0, tmr_val[8*ra[2:0] +: 8]};
+        end else if (pm_hit) begin                   // byte 0 reads the live word, the rest the latch
+          rvalid = 1;
+          rdata  = {56'b0, ra[2:0] == 0 ? pmap[pm_ri][7:0] : lat_pm[8*ra[2:0] +: 8]};
         end else if (is_con_in) begin
           if (in_rel_me) begin                       // released: zeros, no input taken
             rvalid = 1;
@@ -570,11 +619,35 @@ module strata_dev
   // timer and VSYNC state: latches, DEADLINE writes, armed VSYNC reads
   logic [63:0] wa;          // byte address of the current write beat
   assign wa = t_port + 64'(t_idx);
+
+  // the written-page map: set by T3 writes, read and cleared through its words. A
+  // T3 write and a device write never share a cycle (one transaction at a time).
+  logic           pm_wh;
+  logic [PMB-1:0] pm_wi, pm_si;
+  assign pm_wh = ts == T_RUN && t_we && wvalid && wa >= DEV_PMAP && wa < DEV_PMAP + 64'(8 * PMW);
+  assign pm_wi = PMB'(((wa - DEV_PMAP) >> 3) & 64'(PMW - 1));
+  assign pm_si = PMB'((pm_page >> 6) & 32'(PMW - 1));
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      for (int i = 0; i < PMW; i++) pmap[i] <= '1;   // power-on: every page may hold anything
+    end else begin
+      if (ts == T_RUN && !t_we && rvalid && pm_hit && ra[2:0] == 0) lat_pm <= pmap[pm_ri];
+      if (pm_set) pmap[pm_si][pm_page[5:0]] <= 1'b1;
+      else if (pm_wh) begin
+        pm_wbuf[8*wa[2:0] +: 8] <= wdata[7:0];
+        if (wa[2:0] == 3'd7) pmap[pm_wi] <= pmap[pm_wi] & ~{wdata[7:0], pm_wbuf[55:0]};
+      end
+    end
+  end
   always_ff @(posedge clk) begin
     if (rst) begin
       deadline <= '0;
       vs_armed <= '0;
+      tw_wait  <= '0;
     end else if (ts == T_RUN) begin
+      if (!t_we && is_wait && t_idx == 0)
+        for (int c = 0; c < NCORES; c++)
+          if (int'(t_core) == c) tw_wait[c] <= retry;  // tried: waits, or completes now
       if (!t_we && rvalid) begin
         if (is_wait && t_idx == 0) lat_wait <= now;
         else if (is_vsync && t_idx == 0) lat_vs <= frame;
@@ -597,16 +670,37 @@ module strata_dev
       end
     end
     if (!rst)
-      for (int c = 0; c < NCORES; c++) if (core_clr[c]) vs_armed[c] <= 0;
+      for (int c = 0; c < NCORES; c++) if (core_clr[c]) begin
+        vs_armed[c] <= 0;
+        tw_wait[c]  <= 0;
+      end
   end
+
+  // wake: per core, a read that waits would complete if tried now. The
+  // host's pointer events and RX packets are seen through STATE and STATUS
+  // (their queued counts), which are refreshed every cycle.
+  logic [NCORES-1:0] ready;
+  always_comb
+    for (int c = 0; c < NCORES; c++)
+      ready[c] = (brk_wait[c] && (brk_rel[c] || brk_cnt != 0)) ||
+                 (in_wait[c]  && (in_rel[c] || rx_ok)) ||
+                 (tw_wait[c]  && wait_ok) ||
+                 (vs_armed[c] && frame > vs_from[c]) ||
+                 (ptr_wait[c] && (ptr_rel[c] || ptr_have || ptr_st[55:40] != 0)) ||
+                 (net_wait[c] && (net_rel[c] || (net_open ? int'(net_core) == c : net_st[23:16] != 0)));
+  always_ff @(posedge clk) wake <= rst ? '0 : ready;
 
 `ifdef SIMULATION
   // console input from the harness: one byte at a time, fetched while a read
-  // of the input port is being tried (the harness answers -1: nothing yet)
+  // of the input port is being tried, and every HOST_POLL cycles while one
+  // waits (the harness answers -1: nothing yet)
+  logic [$clog2(HOST_POLL)-1:0] poll_cnt;
+  always_ff @(posedge clk) poll_cnt <= rst ? '0 : poll_cnt + 1;
   always_ff @(posedge clk) begin
     if (rst) sim_have <= 0;
     else if (con_rx_pop) sim_have <= 0;
-    else if (!sim_have && ts == T_RUN && is_con_in && !t_we && !in_rel_me) begin
+    else if (!sim_have && ((ts == T_RUN && is_con_in && !t_we && !in_rel_me) ||
+                           (poll_cnt == 0 && (in_wait & ~in_rel) != 0))) begin
       int c;
       c = sim_getc();
       if (c >= 0) begin
@@ -676,6 +770,9 @@ module strata_dev
   always_ff @(posedge clk) begin
     if (disk_rd) dq <= disk[da];
     if (disk_wr) disk[da] <= m_rdata;
+`ifdef SIMULATION
+    if (disk_wr) disk_write(int'(da), longint'(m_rdata)); // the harness keeps the disk (-w)
+`endif
   end
 
   assign m_req      = gs == G_WREQ || gs == G_RREQ;

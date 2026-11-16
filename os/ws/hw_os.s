@@ -31,6 +31,7 @@
 ;       -5 the screen is larger than 4 MiB
 ;   hw_present()             PRESENT: "this frame is complete"
 ;   hw_clock(), hw_now()     the clock back into c7; NOW in microseconds
+;   hw_wall(a0 = NOW) -> a0  local wall-clock microseconds (dev's TIME at hw_init)
 ;   hw_key_arm()             send the keyboard buffer (c2) to tty as a READ
 ;   hw_key_take() -> a0      the answer in c6 -> hw_kb, c2; a0 = bytes or < 0,
 ;                            a1 = pointer events (at hw_kb + 96)
@@ -64,6 +65,7 @@ OP_GRANTFB = 26                         ; dev: the framebuffer
 OP_REGISTER = 29                        ; proc: become a named server
 OP_SCHED  = 30                          ; proc: slice and switch rates
 OP_CORES  = 31                          ; proc: what the cores do
+OP_TIME   = 67                          ; dev: the wall clock (EPOCH, ZONE)
 HW_PT_FB  = 5                           ; platform table entry type: framebuffer
 HW_FBCAP  = 0                           ; the framebuffer window's register
 HW_SCRMAX = 0x400000                    ; the screen's share of the window: 4 MiB
@@ -77,6 +79,8 @@ os_buf:   .space OS_BUFSZ               ; staging for message data
 os_arg:   .space 40                     ; `ws PROGRAM`: the program the first window runs
 hw_kb:    .space 160                    ; the keyboard's answer: header, 32 key bytes, 8 pointer events
 hw_reg:   .dword 0                      ; a device register (PRESENT / NOW)
+hw_epoch: .dword 0                      ; the timer's EPOCH (dev's TIME; 0: not known)
+hw_zone:  .dword 0                      ; ... and ZONE
 os_pid:   .dword 0                      ; our pid
 os_hd:    .space 24                     ; our handles 0..2 (descriptors, for children)
 rq_tok:   .dword 0                      ; reply token of the request being served
@@ -377,6 +381,21 @@ hi_a4:  ld    t1, 0(t0)                 ; our pid
         call  os_msg                    ; c6 = dev's endpoint
         li    t0, -1                    ; (no device manager)
         bnez  a0, hi_fail               ; ...
+        li    a0, 6                     ; TIME: the wall clock (EPOCH, ZONE)
+        li    a1, OP_TIME               ; ...
+        li    a2, 0                     ; ...
+        call  os_call                   ; a0 = 1: one record
+        li    t0, 1                     ; (anything else: the time since boot)
+        bne   a0, t0, hi_devs           ; ...
+        li    a0, 32                    ; ...
+        call  os_get                    ; -> os_buf
+        la    t0, os_buf                ; ...
+        ld    t1, 0(t0)                 ; EPOCH
+        ld    t2, 8(t0)                 ; ZONE
+        la    t0, hw_epoch              ; ...
+        sd    t1, 0(t0)                 ; ...
+        sd    t2, 8(t0)                 ; ...
+hi_devs:
         li    a0, 6                     ; DEVS: the platform table's entries
         li    a1, OP_DEVS               ; ...
         li    a2, 0                     ; ...
@@ -460,6 +479,18 @@ hw_now:                                 ; routine entry
         twait 1 << 13                   ; (a PRESENT may still be reading hw_reg)
         tget  tg13, t0, c7, zero, t1    ; read it
         ld    a0, 0(t0)                 ; (waits for it)
+        ret                             ; done
+
+; hw_wall(a0 = NOW) -> a0 = local wall-clock microseconds (the time since
+; boot if the machine does not know the time)
+hw_wall:                                ; routine entry
+        la    t0, hw_epoch              ; EPOCH ...
+        ld    t1, 0(t0)                 ; ...
+        add   a0, a0, t1                ; ... + NOW
+        ld    t1, 8(t0)                 ; + ZONE
+        li    t2, 1000000               ; ...
+        mul   t1, t1, t2                ; ...
+        add   a0, a0, t1                ; ...
         ret                             ; done
 
 ; hw_key_arm(): the keyboard buffer (in c2) goes to tty as a READ. It is

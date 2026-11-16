@@ -42,7 +42,29 @@ save-table instructions; LD, receive load data; LG, LT and LW, the set-entry com
 tag-table walk of \insn{ltag}/\insn{linst}; DV, multiplication (four partial products of a
 $32\times32$ multiplier, one per cycle) and iterative division (one quotient bit per cycle); AM, a far
 atomic in flight. Each Local Store is a true dual-port RAM: port A belongs to the core and port B to
-its TU. The integer registers are LUT-RAM with one write port and three asynchronous read ports (every
+its TU.
+
+Sequential code does not pay F0 and F1. An I-LS word holds two instructions and port A of the I-LS
+is idle outside F0, so the core keeps the word F1 read and reads the following word while it
+executes. An instruction that retires to the next address and finds its successor in one of the two
+words goes straight to EX with it. A transfer of control (a taken branch, a jump, \insn{xcall},
+\insn{xret}, \insn{eret}, a trap), every transfer instruction and a pending stop or reset request
+go through F0 and F1, so the fetch stall of an in-flight \insn{tgetx} and the wait for a
+core-control write are decided there, as they would be without this; nothing is read ahead while a
+\insn{tgetx} is queued. No instruction's result depends on it (the \texttt{STREAM} parameter of
+the core turns it off).
+
+With the parameter \texttt{LS\_1P} (off by default) a core's two Local Stores are one single-port
+memory, the I-LS in its low words and the D-LS above, with one access per cycle. A beat that arrives
+from the far bus for a \insn{tget} or \insn{tgetx} is written at once and the core gives way for that
+cycle: a fetch, a load, a store or a tag-table access waits and the read-ahead is skipped. The TU
+holds a beat from far memory back for one cycle, never two running, when the core's state says it is
+about to use the memory (the far bus has a ready for read beats that only this lowers), so a core and
+a burst take turns. Otherwise the
+fetch and the data access have the memory when they want it; a \insn{tput}'s read of the D-LS and the
+read-ahead of the next word take the cycles they leave, in turns; and the core then reads a second
+word ahead in what is left, because with one memory the read-ahead is often a cycle late. A core-control reset then writes the two stores'
+words in alternate cycles. Again no instruction's result depends on it. The integer registers are LUT-RAM with one write port and three asynchronous read ports (every
 result is written through the one port at the end of its cycle); the capability registers, the
 overlay map, the mode bits and the banked trap CSRs are flip-flops. A pending stop
 request is checked in F0 and in EX, so a user-mode core takes it at the next instruction boundary
@@ -84,21 +106,23 @@ $\mathit{ttag} + \mathit{set}\times(\mathit{ways}+1)\times 8$ in 64 bits (it is 
 value) by shift-and-add in the first cycle of LG and check it in the second. The decoder is purely
 combinational and flags undefined encodings.
 
-Table~\ref{tab:cycles} gives the cycles an instruction takes when nothing stalls it.
+Table~\ref{tab:cycles} gives the cycles an instruction takes when nothing stalls it: fetched through
+F0 and F1 (after a transfer of control or a transfer instruction), and in sequence.
 
 \begin{table}[htbp]
 \centering\small
 \caption{Cycles per instruction, without stalls}\label{tab:cycles}
-\begin{tabular}{@{}l r@{}}
+\begin{tabular}{@{}l r r@{}}
 \toprule
-\textbf{Instructions} & \textbf{Cycles}\\\midrule
-most (ALU, branches, stores, capability, CSR, transfer issue) & 3\\
-loads & 4\\
-\insn{csave}, \insn{crestore}, \insn{csavex}, \insn{crestorex} & 4\\
-\insn{mul} & 6\\
-\insn{mulhu} & 7\\
-division and remainder & about 68\\
-\insn{ltag}, \insn{linst} & $5 + 2k$ (\insn{ltag}: $k$ tag words read) or 9 (\insn{linst})\\
+\textbf{Instructions} & \textbf{Fetched} & \textbf{In sequence}\\\midrule
+most (ALU, branches, stores, capability, CSR, transfer issue) & 3 & 1\\
+loads & 4 & 2\\
+\insn{csave}, \insn{crestore}, \insn{csavex}, \insn{crestorex} & 4 & 2\\
+\insn{mul} & 6 & 4\\
+\insn{mulhu} & 7 & 5\\
+division and remainder & about 68 & about 66\\
+\insn{ltag} ($k$ tag words read) & $5 + 2k$ & $3 + 2k$\\
+\insn{linst} & 9 & 7\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -126,8 +150,19 @@ each core's transfers in order at the target and makes atomics trivially lineari
 has a fixed start-up latency per burst (by default 20 cycles for T3 and 4 for T2) and then delivers one
 beat per cycle; an atomic is a read-modify-write of one word. A device with nothing to deliver yet
 (console input with no byte pending, the break port, WAIT before the deadline, VSYNC before the next
-refresh) answers \emph{retry} before any data, so a pending device read does not hold the bus: the TU
-tries it again later, and the rest of the machine runs meanwhile.
+refresh, EVENT with no event, RX with no packet) answers \emph{retry} before any data, so a pending
+device read does not hold the bus, and the rest of the machine runs meanwhile. The TU then
+\emph{parks} the read: it does not ask for the bus for it again until device space raises the core's
+\emph{wake} line. Device space keeps, per core and per port, whether a read has been tried and waits,
+and raises a core's wake line (registered, one cycle later) while one of its waiting reads would
+complete if tried now: a byte or a Ctrl-C has arrived, the release or cancel port has been written, NOW
+has reached DEADLINE, a refresh has passed, an event or a packet is queued. A wake unparks every parked
+read of that core; each is tried once more, and one that finds nothing (another core took the byte,
+DEADLINE was moved) is answered \emph{retry} and parked again. A parked read that has not moved a byte
+is rotated behind the core's other queued transfers, which go on in the meantime (a command whose
+D-LS range overlaps it is not issued while it waits, invariant I1). So a read that waits, such as the
+break read that is pending for the whole life of a terminal, costs one bus transaction per attempt
+that can succeed instead of one every few cycles, and bus occupancy measures transfers, not polling.
 
 \subsection{Revocation granules and core control}
 The granule table (a 16-bit generation and a head bit for each of the 256 granules of T3 and the one of
@@ -152,8 +187,8 @@ writes with bit~0 set.
 \subsection{Devices}
 Device space contains the UART console, the platform table ROM, block device 0, the timer and the
 framebuffer controller. A read of the console break port answers \emph{retry} until a Ctrl-C is counted
-or the release port is written while it waits, so a pending break read occupies its tag but never the
-bus. The device keeps one waiting bit and one released bit per core, so that one write to the release
+or the release port is written while it waits, so a pending break read occupies its tag but, parked
+until one of those happens, never the bus. The device keeps one waiting bit and one released bit per core, so that one write to the release
 port completes the break reads of all cores. The timer is a 64-bit counter of clock cycles divided by
 the parameter \texttt{CLK\_MHZ}; in simulation the harness can supply host time instead. NOW and
 DEADLINE are latched at byte 0 of a read and DEADLINE is committed at byte 7 of a write. The

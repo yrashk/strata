@@ -406,7 +406,7 @@ static int dbg_main(bool hold) {
     }
     if (dbg_state == ST_RUNNING) {
       host_poll_input();
-      wait = dbg_run(20);
+      wait = dbg_run(5); /* (a request waits at most this long while the machine runs) */
       if (host_quit) dbg_quit = true;
     } else host_pump();
     if (host_quit) dbg_quit = true; /* the window was closed (or SIGINT / SIGTERM through SDL) */

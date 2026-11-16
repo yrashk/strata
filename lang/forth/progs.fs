@@ -31,11 +31,14 @@
   parse-name 2dup pk-want 2@ pk-base str= if 2drop pk-port 2! exit then
   s" sys.fs" str= if pk-sys 2! else 2drop then ;
 \ {{INDEX}}
+: no-such-port ( -- )                           \ "NAME: no such file", and nothing left behind
+  pk-want 2@ swap 33 kvar 2!  0 7 kvar !  (release) -309 throw ;
+: name-errors ( -- )                            \ errors name the port (KVAR 29: the name slot)
+  pk-want 2@ pk-base 31 min  29 kvar @  2dup + 0 swap c!  swap move ;
+: +base ( base off u -- base far u ) >r over + r> ;
 : pk-done ( size -- foff u sfoff su )           \ the port's text and sys.fs's in far memory
-  aligned 40 kvar @ swap -                      \ (the pack starts where INCLUDED put it: the next file
-  pk-port 2@ dup 0= if                          \ goes after it)
-    2drop drop  pk-want 2@ swap 33 kvar 2!  0 7 kvar !  (release) -309 throw then \ "NAME: no such file"
-  >r over + r>  rot pk-sys 2@ >r + r>
-  pk-want 2@ pk-base 31 min 29 kvar @ 2dup + 0 swap c! swap move ; \ errors name the port
+  aligned 40 kvar @ swap -                      \ the pack's start (INCLUDED put it last: the next file goes after it)
+  pk-port 2@ dup 0= if 2drop drop no-such-port then
+  +base  rot pk-sys 2@ +base  rot drop  name-errors ;
 {{SIZE}} pk-done (release) [defined] sys.fs [if] 2drop [else] evaluate-far [then]
 evaluate-far  7 kvar 16 + @ 7 kvar 8 + !        \ the port; then the pack's text ends here

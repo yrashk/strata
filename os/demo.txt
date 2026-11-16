@@ -1,13 +1,13 @@
 help
 ls
-cat about
-cat wc.s | wc
+cat /doc/about
+cat /src/wc.s | wc
 seq 30 | grep 2 | wc
 seq 12 > nums
 wc < nums
 echo one more line >> nums
 cat nums | wc
-cat motd | grep pipe | upper
+cat /doc/motd | grep pipe | upper
 sched 1ms
 -c 6 spin 12 a > sa &
 -c 6 spin 12 b > sb &
@@ -23,7 +23,7 @@ wait
 -n 2 hello
 -n 2 mandel
 units
-as < hello.s > hi
+as < /src/demo/hello.s > hi
 -n 2 hi
 hexdump 0
 devs

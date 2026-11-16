@@ -36,7 +36,7 @@ run() { # $1 = script, $2 = out
 
 # ---- benign guest: console, visibility, stop/reclaim ------------------------
 cp "$2" "$tmp/d1.img"
-printf 'guest -d gdemo 2 8\ncores\nguest stop 240\ncores\ncat motd\nhalt\n' >"$tmp/in1.txt"
+printf 'guest -d gdemo 2 8\ncores\nguest stop 240\ncores\ncat /doc/motd\nhalt\n' >"$tmp/in1.txt"
 "$b/strata-emu" -c "$n" -T virtual -g none -m 2000000000 -d "$tmp/d1.img" -i "$tmp/in1.txt" "$1" >"$tmp/o1" 2>/dev/null
 ban=$(grep -c 'second OS is live on its own cores' "$tmp/o1")
 gflag=$(grep -c ', guest;' "$tmp/o1")          # a core shown as a guest's while it runs
@@ -53,7 +53,7 @@ fi
 
 # ---- hostile guest: every out-of-grant attack refused, StrataOS unharmed -----
 cp "$2" "$tmp/d2.img"
-printf 'guest -d ghostile 2 8\nps\nguest stop 240\nps\n-c 6 hello\n-c 7 hello\ncat motd\nhalt\n' >"$tmp/in2.txt"
+printf 'guest -d ghostile 2 8\nps\nguest stop 240\nps\n-c 6 hello\n-c 7 hello\ncat /doc/motd\nhalt\n' >"$tmp/in2.txt"
 "$b/strata-emu" -c "$n" -T virtual -g none -m 2000000000 -d "$tmp/d2.img" -i "$tmp/in2.txt" "$1" >"$tmp/o2" 2>/dev/null
 holds=$(grep -c 'isolation holds' "$tmp/o2")
 failed=$(grep -c 'ISOLATION FAILED' "$tmp/o2")
@@ -75,7 +75,7 @@ cp "$2" "$tmp/d3.img"
   printf ": sq ( n -- n*n ) dup * ;  7 1 ' sq 1 spawn  1 await .\n"
   cat "$here/lang/forth/demos/multicore.fs"
   printf '50 ms cores .\n\035cores\nguest attach 240\n3 4 * .\nbye\n'
-  printf 'guest stop 240\ncores\n-c 6 hello\n-c 7 hello\ncat motd\nhalt\n'
+  printf 'guest stop 240\ncores\n-c 6 hello\n-c 7 hello\ncat /doc/motd\nhalt\n'
 } >"$tmp/in3.txt"
 "$b/strata-emu" -c "$n" -T virtual -g none -m 4000000000 -d "$tmp/d3.img" -i "$tmp/in3.txt" "$1" >"$tmp/o3" 2>/dev/null
 ban=$(grep -c '^Strata Forth 0.1 (native code, 2 cores, a StrataOS guest' "$tmp/o3")

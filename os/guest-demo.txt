@@ -6,11 +6,11 @@ cores
 -c 6 hello
 guest -d ghostile 2 8
 ps
-cat motd
+cat /doc/motd
 guest stop 240
 cores
 -c 7 hello
-cat motd | wc
+cat /doc/motd | wc
 guest forth 2 8
 2 3 + .
 : sq ( n -- n*n ) dup * ;  7 1 ' sq 1 spawn  1 await .

@@ -9,6 +9,13 @@ D-LS, or T2) is 16 rows x 8 columns of 512 x 8 macros, named
 <store>.g_r[ROW].g_b[BYTE].u_m; a core's save table is 11 256 x 8 macros
 side by side, <core>.u_ctab.g_b[BYTE].u_m.
 
+ASIC_LS1P=1 (asic/run.sh): a core's two stores are one single-port memory,
+<core>.g_1p.u_ls1, of 32 rows of 512 x 8 macros or, with ASIC_SRAM=ocd1024,
+16 rows of the 1024 x 8 macro of gf180mcu_ocd_ip_sram. Its first half of
+the rows is the block on the left of the logic strip and its second half
+the block on the right, so with the 512 x 8 macro the floorplan is the one
+of two stores.
+
 Floorplan, in micrometres. A core is a tile: its I-LS block on the left, a
 strip for its logic in the middle (the save table's macros at its foot), its
 D-LS block on the right. One core is one tile. Several cores: tiles in rows
@@ -58,9 +65,21 @@ def row_y(rr, rows, mh):
     return y, "N" if upper else "FS"
 
 
-SW = COLS * (MW + GX)        # a store block
-SH = rows_h(ROWS, MH)
-LW = float(os.environ.get("ASIC_STRIP_UM", "3000"))  # a core's logic strip
+# the Local Store blocks left and right of a core's logic strip: a 64 KiB
+# store each, or (ASIC_LS1P) half of the one 128 KiB memory each
+ls1p = os.environ.get("ASIC_LS1P", "0") == "1"
+sram_kind = os.environ.get("ASIC_SRAM", "fd512")
+if sram_kind == "ocd1024":
+    # gf180mcu_ocd_ip_sram's LEF: SIZE 301.300 BY 515.810, the pins on the bottom edge too
+    LS_MACRO, LMW, LMH, LROWS = "gf180mcu_ocd_ip_sram__sram1024x8m8wm1", 301.30, 515.81, ROWS // 2
+else:
+    LS_MACRO, LMW, LMH, LROWS = MACRO, MW, MH, ROWS
+SW = COLS * (LMW + GX)       # a store block
+SH = rows_h(LROWS, LMH)
+# a core's logic strip: 3 mm wide beside blocks of 16 rows of 512 x 8 macros,
+# and the same area beside lower blocks (the cells need the room, not the
+# width: 22% placement density, see PL_TARGET_DENSITY_PCT)
+LW = float(os.environ.get("ASIC_STRIP_UM", str(round(3000 * rows_h(ROWS, MH) / SH))))
 M = 120.0                    # die margin (pins, the PDN ring)
 
 names = [l.strip() for l in open(macro_list) if l.strip()]
@@ -76,21 +95,34 @@ for n in names:
         sys.exit(f"unexpected macro instance name {n}")
 
 
-def place_store(cells, x0, y0, rows=ROWS, cols=COLS, flip_cols=False):
-    """A store's macros as a grid at (x0, y0); row 0 at the top. With more
-    than ROWS rows of one store wanted as fewer, taller grids are folded
+def place_store(cells, x0, y0, rows=ROWS, cols=COLS, flip_cols=False, mw=MW, mh=MH):
+    """A store's macros (mw x mh each) as a grid at (x0, y0); row 0 at the
+    top. A store with more than `rows` rows is folded into further columns
     (T2 below the cores is 8 rows of 16)."""
     lines = []
     for r, b, n in sorted(cells):
-        rr, cc = r, b
-        if rows != ROWS:                 # fold: row r -> (r % rows, b + COLS * (r // rows))
-            rr, cc = r % rows, b + COLS * (r // rows)
+        rr, cc = r % rows, b + COLS * (r // rows)
         if flip_cols:
             cc = cols - 1 - cc
-        x = x0 + cc * (MW + GX) + GX / 2
-        dy, o = row_y(rr, rows, MH)
+        x = x0 + cc * (mw + GX) + GX / 2
+        dy, o = row_y(rr, rows, mh)
         lines.append(f"{n} {x:.2f} {y0 + dy:.2f} {o}")
     return lines
+
+
+def place_core(p, x0, y0):
+    """A core's tile at (x0, y0): its stores left and right of the strip, the
+    save table at the strip's foot. p: the core's instance path ("" for one)."""
+    pre = p + "." if p else ""
+    if ls1p:
+        cells = stores[pre + "g_1p.u_ls1"]
+        left = [c for c in cells if c[0] < LROWS]
+        right = [(r - LROWS, b, n) for r, b, n in cells if r >= LROWS]
+    else:
+        left, right = stores[pre + "u_ils"], stores[pre + "u_dls"]
+    return (place_store(left, x0, y0, rows=LROWS, mw=LMW, mh=LMH) +
+            place_store(right, x0 + SW + LW, y0, rows=LROWS, flip_cols=True, mw=LMW, mh=LMH) +
+            place_ctab(ctabs[p], x0 + SW, y0))
 
 
 def place_ctab(cells, x0, y0, per_row=3):
@@ -111,9 +143,7 @@ placement = []
 tile_w, tile_h = 2 * SW + LW, SH
 if ncores == 1:
     die_w, die_h = tile_w + 2 * M, tile_h + 2 * M
-    placement += place_store(stores["u_ils"], M, M)
-    placement += place_store(stores["u_dls"], M + SW + LW, M, flip_cols=True)
-    placement += place_ctab(ctabs[""], M + SW, M)
+    placement += place_core("", M, M)
 else:
     per_row = min(ncores, 3)
     nrows = (ncores + per_row - 1) // per_row
@@ -126,9 +156,7 @@ else:
         x0 = M + tc * tile_w
         y0 = M + band_h + (nrows - 1 - tr) * tile_h
         p = f"g_core[{c}].u_core"
-        placement += place_store(stores[f"{p}.u_ils"], x0, y0)
-        placement += place_store(stores[f"{p}.u_dls"], x0 + SW + LW, y0, flip_cols=True)
-        placement += place_ctab(ctabs[p], x0 + SW, y0)
+        placement += place_core(p, x0, y0)
     t2 = [k for k in stores if k.startswith("u_t2")]
     if t2:
         placement += place_store(stores[t2[0]], (die_w - t2_w) / 2, M + 300.0,
@@ -163,7 +191,7 @@ cfg = {
     },
     "DESIGN_NAME": "strata_core" if ncores == 1 else "strata_asic_top",
     "VERILOG_FILES": ["dir::src/strata.v"],
-    "SYNTH_PARAMETERS": [f"NCORES={ncores}"],
+    "SYNTH_PARAMETERS": [f"NCORES={ncores}"] + (["LS_1P=1"] if ls1p else []),
     # ABC: the OpenROAD-flow-scripts area script (strash; dch; map). LibreLane's
     # default "AREA 0" (fx; mfs; resyn2; retime; choice2; amap) ran over 75
     # minutes on one core without finishing.
@@ -204,7 +232,13 @@ cfg = {
             "vh": [f"dir::{mac}.bb.v"],
             "instances": {},
         } for mac in (MACRO, MACRO_CT)
-    },
+    } | ({} if LS_MACRO == MACRO else {
+        # not in the PDK: its views would have to be put in the run's
+        # directory (asic/run.sh stops before LibreLane with this macro)
+        LS_MACRO: {"gds": [f"dir::ocd/{LS_MACRO}.gds"], "lef": [f"dir::ocd/{LS_MACRO}.lef"],
+                   "lib": {"*": [f"dir::ocd/{LS_MACRO}.lib"]}, "vh": [f"dir::{LS_MACRO}.bb.v"],
+                   "instances": {}}
+    }),
     "MACRO_PLACEMENT_CFG": "dir::macro_placement.cfg",
     "PDN_MACRO_CONNECTIONS": [".*u_m VDD VSS VDD VSS"],
     "PDN_CFG": "dir::pdn_cfg.tcl",
@@ -254,4 +288,7 @@ if v3:
     cfg["DEFAULT_CORNER"] = "nom_tt_025C_3v30"
 with open(os.path.join(out, "config.json"), "w") as f:
     json.dump(cfg, f, indent=2)
-print(f"die {die_w / 1000:.3f} x {die_h / 1000:.3f} mm, {len(placement)} macros")
+ls_n = sum(1 for l in placement if ".g_r[" in l and "u_t2" not in l)
+ls_mm2 = ls_n * LMW * LMH / 1e6
+print(f"die {die_w / 1000:.3f} x {die_h / 1000:.3f} mm = {die_w * die_h / 1e6:.1f} mm2, {len(placement)} macros; "
+      f"Local Stores {ls_n} x {LS_MACRO} = {ls_mm2:.1f} mm2; logic strip {LW / 1000:.2f} x {SH / 1000:.2f} mm per core")

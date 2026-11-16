@@ -171,6 +171,7 @@ package strata_pkg;
   localparam logic [15:0] CSR_COREBASE = 16'd15, CSR_CORECOUNT = 16'd16;
   localparam logic [15:0] CSR_STATUS = 16'd18, CSR_UCAUSE = 16'd19, CSR_UEPC = 16'd20, CSR_UTVAL = 16'd21;
   localparam logic [15:0] CSR_UTVEC = 16'd22, CSR_SSCRATCH = 16'd23, CSR_IPEND = 16'd24, CSR_XSLOT = 16'd25;
+  localparam logic [15:0] CSR_WDATA = 16'd26, CSR_WSTACK = 16'd27, CSR_WCODE = 16'd28;
 
   // ---------------------------------------------------------------- causes
   localparam logic [7:0] C_ILLEGAL = 8'd1;   // undefined encoding
@@ -223,11 +224,13 @@ package strata_pkg;
   localparam logic [63:0] DEV_CON_REL = 64'h0018;  // write: completes a pending break read with 0
   localparam logic [63:0] DEV_PLAT    = 64'h1000;  // platform table ROM
   localparam logic [63:0] DEV_BLK0    = 64'h2000;  // block device 0 window
-  localparam logic [63:0] DEV_TIMER   = 64'h3000;  // timer: NOW, FREQ, DEADLINE, WAIT
+  localparam logic [63:0] DEV_TIMER   = 64'h3000;  // timer: NOW, FREQ, DEADLINE, WAIT, EPOCH, ZONE
   localparam logic [63:0] DEV_TMR_NOW = 64'h3000;
   localparam logic [63:0] DEV_TMR_FREQ= 64'h3008;
   localparam logic [63:0] DEV_TMR_DL  = 64'h3010;
   localparam logic [63:0] DEV_TMR_WAIT= 64'h3018;
+  localparam logic [63:0] DEV_TMR_EPOCH = 64'h3020; // read-only: wall clock at NOW = 0 (0: not known)
+  localparam logic [63:0] DEV_TMR_ZONE  = 64'h3028; // read-only: local time minus UTC, seconds
   localparam logic [63:0] DEV_FB_PRESENT = 64'h4000;  // framebuffer controller: PRESENT, VSYNC
   localparam logic [63:0] DEV_FB_VSYNC   = 64'h4008;
   localparam logic [63:0] DEV_PTR_EVENT  = 64'h4100;  // pointer: EVENT (waiting read; a write releases), STATE
@@ -236,8 +239,9 @@ package strata_pkg;
   localparam logic [63:0] DEV_NET_RX     = 64'h4208;  // RX (waits for a packet)
   localparam logic [63:0] DEV_NET_STATUS = 64'h4210;  // STATUS (latched at byte 0)
   localparam logic [63:0] DEV_NET_CANCEL = 64'h4218;  // CANCEL (completes waiting RX reads with zeros)
+  localparam logic [63:0] DEV_PMAP       = 64'h4400;  // written-page map: a word per 256 KiB granule of T3
   localparam logic [63:0] DEV_LEN     = 64'h5000;
-  localparam int          PLAT_LEN    = 320;        // 32 + 32 x 9 entries (common/platform.h)
+  localparam int          PLAT_LEN    = 352;        // 32 + 32 x 10 entries (common/platform.h)
   localparam longint      TMR_HZ      = 1000000;    // timer ticks per second (1 tick = 1 us)
   localparam longint      FRAME_TICKS = 16667;      // one 60 Hz display refresh, in ticks
   localparam int          IDENT_LEN   = 64;
@@ -260,6 +264,8 @@ package strata_pkg;
                                          input longint tval, input int dbl);
   import "DPI-C" function int sim_trace_on();
   import "DPI-C" function longint sim_time_us();    // host microseconds, or -1: count cycles
+  import "DPI-C" function longint sim_epoch_us();   // the timer's EPOCH: host wall clock at NOW = 0
+  import "DPI-C" function longint sim_zone_s();     // the timer's ZONE: host local time minus UTC
   import "DPI-C" function void sim_fb_present();    // PRESENT: the harness reads the framebuffer
   import "DPI-C" function void sim_fb_write(input int widx); // a system-memory word in the framebuffer window was written (live scanout)
   import "DPI-C" function void sim_trace(input int core, input longint pc, input int ir);
