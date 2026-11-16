@@ -183,7 +183,7 @@ static void append(Buf *b, const Buf *s) {
 
 enum {
   W_BLOCK = 0x02, W_LOOP = 0x03, W_IF = 0x04, W_ELSE = 0x05, W_END = 0x0b, W_BR = 0x0c, W_BR_IF = 0x0d,
-  W_BR_TABLE = 0x0e, W_RETURN_CALL_INDIRECT = 0x13, W_LOCAL_GET = 0x20, W_LOCAL_SET = 0x21, W_LOCAL_TEE = 0x22,
+  W_BR_TABLE = 0x0e, W_RETURN = 0x0f, W_RETURN_CALL_INDIRECT = 0x13, W_LOCAL_GET = 0x20, W_LOCAL_SET = 0x21, W_LOCAL_TEE = 0x22,
   W_I32_LOAD = 0x28, W_I64_LOAD = 0x29, W_I32_LOAD16_U = 0x2f, W_I64_LOAD8_S = 0x30, W_I64_LOAD8_U = 0x31,
   W_I64_LOAD16_S = 0x32, W_I64_LOAD16_U = 0x33, W_I64_LOAD32_S = 0x34, W_I64_LOAD32_U = 0x35,
   W_I64_STORE = 0x37, W_I64_STORE8 = 0x3c, W_I64_STORE16 = 0x3d, W_I64_STORE32 = 0x3e,
@@ -240,7 +240,7 @@ static int16_t leader[ILS_WORDS]; /* I-LS word -> block number + 1 while a regio
 static int cur;      /* the block being generated */
 static int nest;     /* ifs and loops open inside it */
 static uint32_t myfn; /* the table slot the region will get */
-static uint32_t a_fn, a_blk, a_dls; /* addresses of the core's fn[], blk[] and D-LS */
+static uint32_t a_fn, a_blk, a_dls, a_core; /* addresses of the core's fn[], blk[], D-LS, and the core */
 
 static bool plain_at(const JCore *j, uint64_t pc, uint32_t *w) {
   if ((pc & 3) || pc >= L.ils_size) return false;
@@ -349,6 +349,16 @@ static void emit_insn(uint32_t ir, uint64_t pc, int i) {
     if (simm) i64c(simm), op(W_I64_ADD);
     ltee(LT0);
     i64c(~(uint64_t)(L.dls_size - (1u << lg))), op(W_I64_AND), i64c(0), op(W_I64_NE);
+    op(W_IF), op(T_VOID);
+    nest++;
+    emit_exit(JX_INTERP, pc, i);
+    nest--;
+    op(W_END);
+    /* relocated by its window: + drel[addr >> unit]; outside them it lands beyond the D-LS */
+    lget(LT0), i64c(__builtin_ctzll(L.dls_size) - 6), op(W_I64_SHR_U), i64c(3), op(W_I64_SHL), op(W_I32_WRAP_I64);
+    mem(W_I64_LOAD, 3, a_core + (uint32_t)L.drel);
+    lget(LT0), op(W_I64_ADD), ltee(LT0);
+    i64c(~(uint64_t)(L.dls_size - 1)), op(W_I64_AND), i64c(0), op(W_I64_NE);
     lget(LT0), lget(LHB), op(W_I64_SUB), lget(LHS), op(W_I64_LT_U); /* a device read in flight */
     op(W_I32_OR);
     op(W_IF), op(T_VOID);
@@ -474,14 +484,17 @@ static void find_blocks(const JCore *j, uint64_t pc0) {
   static uint16_t q[MAXRB];
   int nq = 0, scanned = 0;
   uint32_t w;
+  const uint64_t unit = L.ils_size / 64, u0 = pc0 / unit; /* a region keeps to one unit of the code window */
 #define LEAD(p)                                                                                  \
   do {                                                                                           \
     uint64_t p_ = (p);                                                                           \
-    if (nq < MAXRB && plain_at(j, p_, &w) && !leader[p_ / 4]) leader[p_ / 4] = 1, q[nq++] = (uint16_t)(p_ / 4); \
+    if (nq < MAXRB && p_ / unit == u0 && plain_at(j, p_, &w) && !leader[p_ / 4])                 \
+      leader[p_ / 4] = 1, q[nq++] = (uint16_t)(p_ / 4);                                          \
   } while (0)
   LEAD(pc0);
   for (int h = 0; h < nq && scanned < MAXRI; h++) {
     for (uint64_t p = (uint64_t)q[h] * 4;; p += 4) {
+      if (p / unit != u0) break;                                                  /* the unit's end */
       if (p != (uint64_t)q[h] * 4 && p < L.ils_size && leader[p / 4]) break; /* runs into a block */
       if (!plain_at(j, p, &w)) { LEAD(p + 4); break; } /* after the interpreter's instruction */
       scanned++;
@@ -514,7 +527,7 @@ static void find_blocks(const JCore *j, uint64_t pc0) {
     int n = 0;
     for (;; p += 4) {
       if (n && k + 1 < nq && p == (uint64_t)q[k + 1] * 4) break;
-      if (!plain_at(j, p, &w)) break;
+      if (p / unit != u0 || !plain_at(j, p, &w)) break;
       n++;
       if (is_jump(w)) break;
     }
@@ -572,6 +585,7 @@ static bool translate(JCore *j, uint64_t pc0) {
   a_fn = (uint32_t)(uintptr_t)j->fn;
   a_blk = (uint32_t)(uintptr_t)j->blk;
   a_dls = core + (uint32_t)L.dls;
+  a_core = core;
 
   /* the blocks, inside block $exit / loop $L */
   code.n = 0;
@@ -599,6 +613,10 @@ static bool translate(JCore *j, uint64_t pc0) {
   code = body;
   code.n = 0;
   uleb(&code, 2), uleb(&code, N_I64), put(&code, T_I64), uleb(&code, N_I32), put(&code, T_I32);
+  /* its code must be inside the code window and not relocated (a region
+   * keeps to one 1/64 of the I-LS): else the interpreter fetches */
+  i32c(0), mem(W_I64_LOAD, 3, core + (uint32_t)L.irel + 8 * (uint32_t)(pc0 / (L.ils_size / 64)));
+  i64c(0), op(W_I64_NE), op(W_IF), op(T_VOID), i32c(JX_INTERP), op(W_RETURN), op(W_END);
   for (unsigned r = 1; r < 32; r++)
     if (used >> r & 1) i32c(0), mem(W_I64_LOAD, 3, core + (uint32_t)L.x + 8 * r), lset((int)r);
   i32c(0), mem(W_I64_LOAD, 3, (uint32_t)(uintptr_t)&jw_limit);
@@ -689,6 +707,7 @@ void jit_exec(int id, uint64_t limit) {
   while (*ip < limit) {
     uint64_t pc = *pcp;
     if ((pc & 3) || pc >= L.ils_size) return; /* the interpreter raises the fetch fault */
+    if (((const int64_t *)(j->core + L.irel))[pc / (L.ils_size / 64)]) return; /* or fetches through the code window */
     uint32_t w = (uint32_t)pc / 4, f = j->fn[w];
     if (!f) { /* cold, or not for the JIT: count, and translate at HOT */
       if (j->hot[w] == HOT_NEVER) return;

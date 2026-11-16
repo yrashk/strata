@@ -1,0 +1,29 @@
+# strata_div (formal/props/strata_div.svh).
+#   prove  the invariants, by induction: correct results, 65 cycles at most
+#   ref    against Verilog's / and % for operands that fit in 8 bits, bounded
+#   cover  the properties are not vacuous
+[tasks]
+prove
+ref
+cover
+
+[options]
+prove: mode prove
+prove: depth 2
+ref: mode bmc
+ref: depth 68
+cover: mode cover
+cover: depth 72
+
+[engines]
+prove: smtbmc bitwuzla
+cover: smtbmc bitwuzla
+ref: smtbmc yices
+
+[script]
+read_verilog -formal -sv strata.v
+ref: chparam -set F_DIVREF 1 strata_div
+prep -top strata_div
+
+[files]
+formal/build/strata.v

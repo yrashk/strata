@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StrataOS — messages</title>
+<meta name="description" content="StrataOS messages: a 4 KiB buffer capability lent to a server and given back with the answer. The header, attachments, a request and its reply from core to core, doorbells, parking and what a round trip costs.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css?v=__BUILD__">
+<link rel="stylesheet" href="os.css?v=__BUILD__">
+</head>
+<body>
+
+<nav class="top">
+  <a class="mark" href="../">STRATA</a>
+  <div class="links">
+    <a href="../#idea">Idea</a>
+    <a href="../arch/">Architecture</a>
+    <a href="../isa/">Instructions</a>
+    <a href="./" aria-current="page">OS</a>
+    <div class="menu">
+      <span class="menu-btn" tabindex="0" aria-haspopup="true">Languages</span>
+      <div class="drop">
+        <a href="../forth/">Forth</a>
+        <a href="../stratalk/">Stratalk</a>
+        <a href="../stralog/">Stralog</a>
+        <a href="../c/">C</a>
+      </div>
+    </div>
+    <a href="../hardware/">Hardware</a>
+    <a href="../play/">Play</a>
+    <a href="../debug/">Debug</a>
+    <a href="../code/">Source</a>
+    <a class="pill" href="../Strata-Architecture-Reference-Manual.pdf">Manual&nbsp;PDF</a>
+    <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
+  </div>
+</nav>
+<script src="../nav.js?v=__BUILD__" defer></script>
+
+<main class="os">
+
+<header class="os-hero">
+  <p class="kicker">StrataOS 0.1 · messages</p>
+  <h1>MESSAGES</h1>
+  <p class="lede">A message is not copied anywhere. It is a 4&nbsp;KiB buffer the client owns,
+    lent to a server as a capability and given back with the answer filled in.</p>
+  <ul class="os-pages">
+    <li><a href="./">Overview</a></li>
+    <li><a href="kernel.html">The kernel</a></li>
+    <li><a href="messages.html" aria-current="page">Messages</a></li>
+    <li><a href="servers.html">Servers</a></li>
+    <li><a href="fs.html">The file system</a></li>
+    <li><a href="ws.html">The window server</a></li>
+  </ul>
+</header>
+
+<section id="format" class="section">
+  <h2><span class="num">01</span>The buffer</h2>
+  <p class="intro">Every program owns one message buffer, <code>c5</code>, the last 4&nbsp;KiB of
+    its arena. A request is a 64-byte header and up to 4,032 bytes of data written into it with
+    <code>tput</code>; the reply is the same buffer, read back with <code>tget</code>.</p>
+  <figure class="diagram narrow">
+    <div class="frame">
+<svg viewBox="0 0 700 250" role="img" aria-labelledby="mf-t">
+  <title id="mf-t">The message buffer: a 64-byte header with op, handle, length, mode, result and the sender's pid, then up to 4032 bytes of data.</title>
+  <text class="h" x="10" y="20">THE MESSAGE BUFFER · c5 · 4 KiB</text>
+  <rect class="fillc" x="10" y="34" width="84" height="56"/><text class="t" x="20" y="58">op</text><text class="m" x="20" y="78">0</text>
+  <rect class="fillc" x="94" y="34" width="84" height="56"/><text class="t" x="104" y="58">handle</text><text class="m" x="104" y="78">8</text>
+  <rect class="fillc" x="178" y="34" width="84" height="56"/><text class="t" x="188" y="58">length</text><text class="m" x="188" y="78">16</text>
+  <rect class="fillc" x="262" y="34" width="84" height="56"/><text class="t" x="272" y="58">mode</text><text class="m" x="272" y="78">24</text>
+  <rect class="filla" x="346" y="34" width="84" height="56"/><text class="t" x="356" y="58">result</text><text class="m" x="356" y="78">32</text>
+  <rect class="filla" x="430" y="34" width="84" height="56"/><text class="t" x="440" y="58">pid</text><text class="m" x="440" y="78">40</text>
+  <rect class="filld" x="514" y="34" width="176" height="56"/><text class="s" x="524" y="58">reserved</text><text class="m" x="524" y="78">48–63</text>
+  <rect class="box" x="10" y="100" width="680" height="54"/><text class="t" x="20" y="124">data</text><text class="s" x="66" y="124">at most 4,032 bytes: names, records, text, pixels' coordinates</text><text class="m" x="20" y="144">64</text><text class="m" x="640" y="144">4096</text>
+  <text class="s" x="10" y="186">cyan: the client writes · amber: the server answers in result; the receiving</text>
+  <text class="s" x="10" y="204">core's dispatcher stamps the sender's pid, so a server can trust it</text>
+  <text class="s" x="10" y="230">every field is a 64-bit word, little-endian</text>
+</svg>
+    </div>
+  </figure>
+  <dl class="kv">
+    <dt>op</dt><dd>what to do; the numbers are per server (<a href="servers.html">the catalogue</a>)</dd>
+    <dt>handle</dt><dd>which open file, pipe end, socket or window; for some ops a pid, a port or a cursor</dd>
+    <dt>length</dt><dd>the bytes of data, or a count the op defines</dd>
+    <dt>mode</dt><dd>flags; bit 0 is "do not block" for the reads that would wait</dd>
+    <dt>result</dt><dd>≥ 0 success; −1 failed, −2 interrupted, −3 would block, −4 no such file
+      or program, −5 no free core / not allowed, −6 no memory, −7 busy, −8 timed out</dd>
+    <dt>pid</dt><dd>the sender, written by the receiving core's dispatcher</dd>
+  </dl>
+  <h3>Attachments</h3>
+  <p>A request may carry one more capability: a piece of the arena for <code>fs</code> to load a
+    program into, a band of pixels for the window server. A reply may carry two: an endpoint from
+    LOOKUP, device ports from <code>dev</code>. A request's attachment reaches the server in
+    <code>c7</code>; a reply's arrive in the caller's <code>c6</code> and then <code>c7</code>.
+    A client attaches with svc SEND, which sends the attachment and the buffer with nothing of that
+    core in between: the receiving dispatcher pairs an attachment with the next message from the
+    same core.</p>
+</section>
+
+<section id="roundtrip" class="section">
+  <h2><span class="num">02</span>A round trip</h2>
+  <p class="intro">A program on one core asks a server on another. Each core's dispatcher sorts
+    whatever arrives in its inbox by what it is: a buffer it knows as one of its processes' is a
+    reply, an unknown 4&nbsp;KiB buffer is a request for its server.</p>
+  <figure class="diagram">
+    <div class="frame">
+<svg viewBox="0 0 760 560" role="img" aria-labelledby="rt-t">
+  <title id="rt-t">Sequence of a request and its reply: the client writes the header and sends its buffer through an endpoint; its dispatcher rings the server core's doorbell; the server core's dispatcher takes the buffer, stamps the pid and queues it; the server's RECEIVE returns it; the server answers with REPLY; the buffer goes back, the client core's doorbell rings, and its dispatcher recognises the reply and wakes the client.</title>
+  <defs>
+    <marker id="rt-c" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arrc"/></marker>
+    <marker id="rt-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arra"/></marker>
+  </defs>
+  <text class="h" x="40" y="18">CLIENT CORE</text>
+  <text class="h" x="470" y="18">SERVER CORE</text>
+  <rect class="box hot" x="20" y="28" width="130" height="34"/><text class="t" x="34" y="50">program</text>
+  <rect class="box" x="200" y="28" width="130" height="34"/><text class="t" x="214" y="50">dispatcher</text>
+  <rect class="box" x="430" y="28" width="130" height="34"/><text class="t" x="444" y="50">dispatcher</text>
+  <rect class="box srv" x="610" y="28" width="130" height="34"/><text class="t" x="624" y="50">server</text>
+  <path class="life" d="M85,62 V548 M265,62 V548 M495,62 V548 M675,62 V548"/>
+  <rect class="act" x="659" y="76" width="32" height="40"/><text class="s" x="560" y="96">in RECEIVE,</text><text class="s" x="560" y="112">blocked</text>
+  <rect class="act" x="69" y="76" width="32" height="80"/>
+  <text class="mc" x="108" y="92">tput header</text>
+  <text class="mc" x="108" y="110">csend c5, cE</text>
+  <text class="mc" x="108" y="128">svc WAIT_REPLY</text>
+  <path class="lnc" d="M101,146 H257" marker-end="url(#rt-c)"/><text class="s" x="140" y="166">trap</text>
+  <rect class="acta" x="249" y="140" width="32" height="40"/>
+  <path class="lna" d="M281,160 C380,160 400,190 487,190" marker-end="url(#rt-a)"/>
+  <text class="ma" x="296" y="136">doorbell: a stop in core control</text>
+  <path class="lnd" d="M101,150 C250,150 300,200 487,206"/>
+  <text class="s" x="300" y="238">the buffer, through the inbox</text>
+  <text class="s" x="110" y="196">blocked; the core</text><text class="s" x="110" y="212">runs other threads</text>
+  <rect class="acta" x="479" y="184" width="32" height="60"/>
+  <text class="s" x="520" y="200">a 4 KiB buffer:</text>
+  <text class="s" x="520" y="216">a request. pid stamped,</text>
+  <text class="s" x="520" y="232">queued, server woken</text>
+  <path class="lnc" d="M511,252 H667" marker-end="url(#rt-c)"/>
+  <text class="s" x="530" y="270">token, request in c6</text>
+  <rect class="act" x="659" y="258" width="32" height="104"/>
+  <text class="mc" x="560" y="296">tget header</text>
+  <text class="mc" x="560" y="314">… work …</text>
+  <text class="mc" x="560" y="332">tput result</text>
+  <text class="mc" x="560" y="350">svc REPLY</text>
+  <path class="lnc" d="M659,368 H519" marker-end="url(#rt-c)"/>
+  <rect class="acta" x="479" y="362" width="32" height="40"/>
+  <path class="lna" d="M479,392 C380,392 360,420 273,420" marker-end="url(#rt-a)"/>
+  <text class="ma" x="300" y="384">buffer back + doorbell</text>
+  <rect class="acta" x="249" y="414" width="32" height="56"/>
+  <text class="s" x="110" y="436">its own buffer's</text><text class="s" x="110" y="452">base: the reply</text>
+  <path class="lnc" d="M249,478 H101" marker-end="url(#rt-c)"/>
+  <text class="s" x="140" y="472">eret: a0 = 0</text>
+  <rect class="act" x="69" y="482" width="32" height="44"/>
+  <text class="mc" x="108" y="504">tget header</text>
+  <text class="mc" x="108" y="522">result</text>
+  <text class="s" x="560" y="430">back to RECEIVE</text>
+  <rect class="act" x="659" y="414" width="32" height="40"/>
+</svg>
+    </div>
+    <figcaption>The program's side is <code>sys_msg</code> in
+      <a class="srcpath" href="../code/#os/lib/sys.s">os/lib/sys.s</a>; the server's,
+      <code>srv_recv</code> and <code>srv_reply</code> in
+      <a class="srcpath" href="../code/#os/lib/srv.s">os/lib/srv.s</a>; the sorting of the inbox,
+      the dispatcher in <a class="srcpath" href="../code/#os/kernel.s">os/kernel.s</a>.</figcaption>
+  </figure>
+
+  <h3>How the dispatcher sorts its inbox</h3>
+  <ol class="steps">
+    <li>A piece of the arena of a process being created on this core (its base is in the job
+      record the system core posted): installed in the new thread.</li>
+    <li>A capability whose base is a local process's message buffer: that process's reply.</li>
+    <li>A capability whose base a local process named in WAIT_REPLY: it goes to that process
+      (the window server's keyboard buffer works this way).</li>
+    <li>From a core inside the window of a local multi-threaded process: a gift between its
+      threads, queued for the emulated <code>ctake</code>.</li>
+    <li>Any other 4&nbsp;KiB memory capability: a request for one of the core's servers (up to
+      four; header word 48 = <code>0x53 &lt;&lt; 56 | index</code> names one, anything else the
+      first), queued with the attachment waiting from the same core; its sender's pid is stamped
+      from the buffer's memory. With no such server here, or a full queue, it goes back at once
+      with −1.</li>
+    <li>Anything else: an attachment, which travels with the next message from its core.</li>
+  </ol>
+  <p>Who sent a capability and what memory it is decide everything. A process cannot forge another
+    one's request or reply, because it does not hold the memory that identifies them.</p>
+</section>
+
+<section id="parking" class="section">
+  <h2><span class="num">03</span>Doorbells, parking, dying</h2>
+  <ul class="ticks">
+    <li><b>Doorbells.</b> Without one, a busy destination core would notice the message at its next
+      tick. With one it is a stop request in that core's core-control word, and its dispatcher runs
+      at once.</li>
+    <li><b>Parking.</b> A server that cannot answer yet (a reader of an empty pipe, a WAIT for a
+      child still running, an EVENT with no event) PARKs the request: the kernel keeps the buffer,
+      the server goes on serving others, and UNPARKs it to answer later. The client simply stays
+      blocked in its WAIT_REPLY.</li>
+    <li><b>Waiting on several things.</b> A process blocks in one <code>svc</code> at a time. A
+      client sends a request the server holds until something happens; a server's RECEIVE takes a
+      timeout and a mask of transfer tags. Nothing busy-waits.</li>
+    <li><b>When a client dies</b> while a server works on its request, the request dies with the
+      client's arena: the server's next transfer through it faults, and the server library's guard
+      drops it and returns to the loop.</li>
+    <li><b>When a server ends</b> (the window server is started and stopped by the user), the
+      requests queued or parked at it go back to their senders with −1.</li>
+    <li><b>Forwarding.</b> A server may pass a request on instead of answering it: REPLY with
+      another server's core as the token gives the buffer there, where it is a request like any
+      other, its sender stamped from the buffer: the program, not the server that forwarded it.
+      The forwarding server does not wait. Who answers, and to which core, is the two servers'
+      agreement: <code>fs</code> forwards a program's DBGET, DBSCAN and DBBATCH to
+      <code>db</code> with the program's core in header word 56, and <code>db</code> takes that
+      word only from a request that comes from <code>fs</code>'s core (where nothing else runs,
+      from 8 cores on) and is not <code>fs</code>'s own, and answers the program itself: three
+      messages and no copy, where relaying is four and two copies.</li>
+  </ul>
+</section>
+
+<section id="cost" class="section">
+  <h2><span class="num">04</span>What a round trip costs</h2>
+  <p>The kernel copies nothing: the 4&nbsp;KiB buffer changes hands as a capability, and the only
+    bytes moved are the ones each side transfers itself, the 64-byte header and the data. What a
+    round trip costs is counted in traps and transfers:</p>
+  <div class="tbl"><table>
+    <thead><tr><th>where</th><th>what happens</th></tr></thead>
+    <tbody>
+      <tr><td>client</td><td>a <code>tput</code> of the header (and data), a <code>csend</code>, one <code>svc</code> that sends, rings and blocks</td></tr>
+      <tr><td>server core</td><td>a dispatcher entry on the doorbell; RECEIVE returns; the server's <code>tget</code> of the header, its work, a <code>tput</code> of the result, one <code>svc</code> REPLY that gives the buffer back and rings</td></tr>
+      <tr><td>client core</td><td>a dispatcher entry on the doorbell, which recognises the reply and resumes the client; a <code>tget</code> of the result</td></tr>
+      <tr><td>switches</td><td>none if the server was waiting on its core and the client's core had nothing else to run; otherwise a context switch on that side, priced as on <a href="kernel.html#switch">the kernel page</a></td></tr>
+    </tbody>
+  </table></div>
+  <p>So a request and its reply are four dispatcher entries and two doorbells, plus the
+    switches the cores' other threads cause. In the RTL measurements of the kernel's switch work
+    an average trap, switches included, took about 15,000 cycles; <code>cores</code> shows the
+    current figures per core, and <code>ps</code> each process's switches and kilobytes moved.</p>
+  <p class="refs">In the manual: <a class="pdf" data-pdf="sec:os-msg" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.18.7">Section 18.7, Messages</a> ·
+    <a class="pdf" data-pdf="sec:os-lib" href="../Strata-Architecture-Reference-Manual.pdf#nameddest=section.18.9">Section 18.9, The program library</a></p>
+</section>
+
+</main>
+
+<footer>
+  <div class="bands small" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+  <p>StrataOS 0.1 — <a href="../code/#os/lib/sys.s">os/lib/sys.s</a> ·
+    <a href="../code/#os/lib/srv.s">os/lib/srv.s</a> ·
+    <a href="https://github.com/yrashk/strata/blob/main/doc/strataos.md">the specification</a> ·
+    <a href="../Strata-Architecture-Reference-Manual.pdf">Architecture Reference Manual</a> ·
+    <a href="../">Strata</a></p>
+</footer>
+
+</body>
+</html>

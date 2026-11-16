@@ -37,6 +37,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -246,12 +247,35 @@ static bool ok(JVal *r) {
   return false;
 }
 
-/* After a command that runs the machine: wait for it to stop (Ctrl-C pauses it). */
+static int live_ms; /* while the machine runs: print (or redraw) what changed in the stores every live_ms; 0: off */
+static void live_tick(void);
+static int msgs_live_ms; /* while the machine runs: print StrataOS's messages every msgs_live_ms; 0: off */
+static bool msgs_paused;  /* ... held (msgs pause), shown at msgs resume */
+static void msgs_tick(void);
+static long long now_ms(void) {
+  struct timespec t;
+  clock_gettime(CLOCK_MONOTONIC, &t);
+  return (long long)t.tv_sec * 1000 + t.tv_nsec / 1000000;
+}
+
+/* After a command that runs the machine: wait for it to stop (Ctrl-C pauses
+ * it). With `live`, what changed in the stores meanwhile every live_ms. */
 static void wait_stop(void) {
   json_free(last_stop);
   last_stop = NULL;
   bool paused = false;
+  long long next = now_ms() + live_ms, mnext = now_ms() + msgs_live_ms;
   while (!last_stop) {
+    if (live_ms && now_ms() >= next) {
+      live_tick();
+      next = now_ms() + live_ms;
+      if (last_stop) break;
+    }
+    if (msgs_live_ms && !msgs_paused && now_ms() >= mnext) {
+      msgs_tick();
+      mnext = now_ms() + msgs_live_ms;
+      if (last_stop) break;
+    }
     if (interrupted && !paused) {
       interrupted = 0;
       paused = true;
@@ -265,13 +289,16 @@ static void wait_stop(void) {
       (void)!write(eng_out, w.p, w.n);
       free(w.p);
     }
-    char *l = eng_line(100);
+    long long left = live_ms ? next - now_ms() : 100;
+    if (msgs_live_ms && !msgs_paused && mnext - now_ms() < left) left = mnext - now_ms();
+    char *l = eng_line(left < 0 ? 0 : left > 100 ? 100 : (int)left);
     if (!l) continue;
     JVal *v = json_parse(l, strlen(l));
     free(l);
     if (v && json_get(v, "ev")) on_event(v);
     else json_free(v);
   }
+  if (msgs_live_ms && !msgs_paused) msgs_tick(); /* (what came before the stop) */
   drain_stderr();
 }
 
@@ -345,7 +372,7 @@ static void term_size(void) {
   if (!ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) && ws.ws_col) { term_w = ws.ws_col; term_h = ws.ws_row; }
 }
 
-typedef struct { char l[64][128]; int n; } Col;
+typedef struct { char l[64][320]; int n; } Col;
 static void col_add(Col *c, const char *fmt, ...) {
   if (c->n == 64) return;
   va_list ap;
@@ -354,7 +381,35 @@ static void col_add(Col *c, const char *fmt, ...) {
   va_end(ap);
 }
 
-/* one core's column: disassembly around pc, registers, capabilities, busy tags */
+static JVal *tui_chg; /* the answer to `changes` the view is drawn from */
+/* The engine's `changes` versions this front-end has seen: one for the
+ * `changes` command and the live printout, one for the split screen's marks. */
+static unsigned long long ch_since, tui_since;
+static const char *store_name(const JVal *st);
+static void kib(char *b, size_t n, unsigned long long v);
+static void usage_strip(char *b, int w, const JVal *st, long long blk, bool hot);
+
+/* the usage line of a store of the answer in tui_chg (core -1: T2) */
+static void tui_store(Col *col, int c, const char *space, int w) {
+  const JVal *ss = json_get(tui_chg, "stores");
+  for (const JVal *st = ss ? ss->kid : NULL; st; st = st->next) {
+    if (strcmp(S(st, "space"), space) || (c >= 0 && json_int(json_get(st, "core"), -1) != c)) continue;
+    char used[16], strip[80];
+    kib(used, sizeof used, json_u64(json_get(st, "used"), 0));
+    int sw = w - 13;
+    usage_strip(strip, sw > 64 ? 64 : sw < 8 ? 8 : sw, st, json_int(json_get(tui_chg, "blk"), 64), true);
+    char hot[200];
+    size_t k = 0;
+    for (const char *p = strip; *p && k < sizeof hot - 16; p++) { /* the changed pieces in yellow */
+      if (*p == 'o' || *p == '@') k += (size_t)snprintf(hot + k, sizeof hot - k, "\x1b[33m%c\x1b[0m", *p == 'o' ? '+' : '#');
+      else hot[k++] = *p;
+    }
+    hot[k] = 0;
+    col_add(col, "%-4s %6s [%s]", store_name(st), used, hot);
+  }
+}
+
+/* one core's column: disassembly around pc, registers, capabilities, busy tags, its stores */
 static void tui_core(Col *col, int c, int w, int ndis) {
   JVal *r = req("disasm", "core#", (long long)c, "before#", (long long)(ndis / 3), "n#", (long long)ndis, NULL);
   const JVal *co = core_of(last_stop, c);
@@ -403,6 +458,8 @@ static void tui_core(Col *col, int c, int w, int ndis) {
             (unsigned long long)hexv(json_get(e, "len")), (unsigned long long)json_u64(json_get(e, "issued"), 0), busy ? " BUSY" : "");
   }
   json_free(r);
+  tui_store(col, c, "dls", w);
+  tui_store(col, c, "ils", w);
 }
 
 /* visible width of a string with ANSI escapes */
@@ -437,13 +494,16 @@ static void tui_draw(void) {
   if (first < 0) first = 0;
   static Col cols[16];
   int ndis = term_h > 40 ? 12 : 8;
+  json_free(tui_chg);
+  tui_chg = req("changes", "since#", (long long)tui_since, NULL);
+  tui_since = json_u64(json_get(tui_chg, "version"), tui_since);
   int rows = 0;
   for (int i = 0; i < ncol; i++) {
     cols[i].n = 0;
     tui_core(&cols[i], first + i, colw, ndis);
     if (cols[i].n > rows) rows = cols[i].n;
   }
-  int room = term_h - 4 - (con_ntail ? (con_ntail < 4 ? con_ntail : 4) + 1 : 0);
+  int room = term_h - 5 - (con_ntail ? (con_ntail < 4 ? con_ntail : 4) + 1 : 0);
   if (rows > room) rows = room;
   fputs("\x1b[H\x1b[2J", out);
   for (int r = 0; r < rows; r++) {
@@ -457,6 +517,12 @@ static void tui_draw(void) {
     fprintf(out, "\x1b[2m-- console %.*s\x1b[0m\n", term_w - 12, "------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------");
     for (int i = con_ntail > 4 ? con_ntail - 4 : 0; i < con_ntail; i++) fprintf(out, "%.*s\n", term_w, con_tail[i]);
   }
+  Col t2 = {.n = 0};
+  tui_store(&t2, -1, "t2", term_w > 90 ? 90 : term_w);
+  if (t2.n) { put_cell(t2.l[0], term_w); fputc('\n', out); }
+  if (!last_stop) /* live: the machine runs */
+    fprintf(out, "\x1b[1mrunning\x1b[0m  tick %llu  round %llu  (the stores' changed pieces in yellow)\n",
+            (unsigned long long)json_u64(json_get(tui_chg, "tick"), 0), (unsigned long long)json_u64(json_get(tui_chg, "round"), 0));
   if (last_stop) {
     bool dn = !strcmp(S(last_stop, "ev"), "done");
     fprintf(out, "\x1b[1m%s\x1b[0m  tick %llu  round %llu  core %d of %d%s\n", dn ? S(last_stop, "why") : S(last_stop, "reason"),
@@ -703,6 +769,385 @@ static void info_tags(int c, bool all) {
     const JVal *st = json_get(co, "stall");
     if (st) fprintf(out, "  core %d stalled since round %llu: %s\n", json_int(json_get(co, "core"), 0),
                     (unsigned long long)json_u64(json_get(st, "since"), 0), S(st, "why"));
+  }
+  json_free(r);
+}
+
+/* ------------------------------------------------------------ the stores: what is in use, what changed */
+
+/* (ch_since, tui_since and live_ms: above) */
+
+static const char *store_name(const JVal *st) {
+  const char *sp = S(st, "space");
+  return !strcmp(sp, "dls") ? "D-LS" : !strcmp(sp, "ils") ? "I-LS" : "T2";
+}
+
+static void kib(char *b, size_t n, unsigned long long v) {
+  if (v % 1024) snprintf(b, n, "%.1fK", v / 1024.0);
+  else snprintf(b, n, "%lluK", v / 1024);
+}
+
+/* A store's usage as w characters: how full each piece is (' ' empty, '.',
+ * ':', '+', '#' full); with `hot`, the pieces with a changed range are
+ * capitals of their own: 'o' (or '@' when full). */
+static void usage_strip(char *b, int w, const JVal *st, long long blk, bool hot) {
+  const JVal *u = json_get(st, "units");
+  int nu = 0, cnt[256];
+  for (const JVal *e = u ? u->kid : NULL; e && nu < 256; e = e->next) cnt[nu++] = (int)json_int(e, 0);
+  unsigned long long unit = json_u64(json_get(st, "unit"), 1), size = json_u64(json_get(st, "size"), 1);
+  int per = (int)(unit / (unsigned long long)blk);
+  bool chg[256] = {0};
+  const JVal *rg = json_get(st, "ranges");
+  for (const JVal *e = hot && rg ? rg->kid : NULL; e; e = e->next) {
+    unsigned long long a = hexv(json_get(e, "addr")), n = hexv(json_get(e, "len"));
+    for (unsigned long long x = a / unit; x < (a + n + unit - 1) / unit && x < (unsigned long long)nu; x++) chg[x] = true;
+  }
+  if (w > nu) w = nu;
+  if (w < 1) w = 1;
+  for (int i = 0; i < w; i++) {
+    int lo = i * nu / w, hi = (i + 1) * nu / w, have = 0, all = 0;
+    bool c = false;
+    for (int k = lo; k < hi; k++) { have += cnt[k]; all += per; c |= chg[k]; }
+    int q = !have ? 0 : have * 4 <= all ? 1 : have * 2 <= all ? 2 : have < all ? 3 : 4;
+    b[i] = c ? (q == 4 ? '@' : 'o') : " .:+#"[q];
+  }
+  b[w] = 0;
+  (void)size;
+}
+
+static void info_stores(int only) {
+  JVal *r = only >= 0 ? req("changes", "core#", (long long)only, "since#", (long long)0xffffffff, NULL)
+                      : req("changes", "since#", (long long)0xffffffff, NULL);
+  if (!ok(r)) { json_free(r); return; }
+  long long blk = json_int(json_get(r, "blk"), 64);
+  const JVal *ss = json_get(r, "stores");
+  for (const JVal *st = ss ? ss->kid : NULL; st; st = st->next) {
+    char used[16], size[16], strip[80], who[16] = "";
+    kib(used, sizeof used, json_u64(json_get(st, "used"), 0));
+    kib(size, sizeof size, json_u64(json_get(st, "size"), 0));
+    usage_strip(strip, 64, st, blk, false);
+    if (json_get(st, "core")) snprintf(who, sizeof who, "core %d", (int)json_int(json_get(st, "core"), 0));
+    fprintf(out, "%-7s %-4s %6s of %-5s in use  [%s]\n", who, store_name(st), used, size, strip);
+  }
+  fprintf(out, "(each character is 1/64 of a store: ' ' empty, '.' up to a quarter of it in use, ':' half, '+' most, '#' all)\n");
+  json_free(r);
+}
+
+/* Prints the ranges of an answer to `changes`: each with its first `rows`
+ * lines of 16 bytes, at most `max` ranges. */
+static void print_changes(const JVal *r, int rows, int max) {
+  const JVal *ss = json_get(r, "stores");
+  int shown = 0, more = 0;
+  for (const JVal *st = ss ? ss->kid : NULL; st; st = st->next) {
+    const JVal *rg = json_get(st, "ranges");
+    for (const JVal *e = rg ? rg->kid : NULL; e; e = e->next) {
+      if (shown == max) { more++; continue; }
+      shown++;
+      unsigned long long a = hexv(json_get(e, "addr")), n = hexv(json_get(e, "len"));
+      char who[16] = "";
+      if (json_get(st, "core")) snprintf(who, sizeof who, "core %d ", (int)json_int(json_get(st, "core"), 0));
+      fprintf(out, "%s%s [0x%llx, 0x%llx)", who, store_name(st), a, a + n);
+      if (*S(e, "sym")) fprintf(out, " <%s>", S(e, "sym"));
+      fputc('\n', out);
+      const char *hx = S(e, "hex");
+      size_t hn = strlen(hx) / 2;
+      for (int row = 0; row < rows && (size_t)row * 16 < hn; row++) {
+        fprintf(out, "  0x%-6llx", a + (unsigned long long)row * 16);
+        for (size_t i = (size_t)row * 16; i < hn && i < (size_t)row * 16 + 16; i++) fprintf(out, " %.2s", hx + 2 * i);
+        if (row == rows - 1 && hn > (size_t)(row + 1) * 16) fprintf(out, " ...");
+        fputc('\n', out);
+      }
+    }
+  }
+  if (more) fprintf(out, "... and %d more range(s)\n", more);
+  if (json_bool(json_get(r, "truncated"), false)) fprintf(out, "(more changed than one answer carries: x/N shows the rest)\n");
+}
+
+/* `changes [dls|ils|t2] [core N]`: what changed since the last `changes` (or live printout) */
+static void cmd_changes(char *args) {
+  JW w = {0};
+  jw_reset(&w);
+  jw_obj(&w, NULL);
+  jw_str(&w, "cmd", "changes");
+  jw_uint(&w, "since", ch_since);
+  jw_bool(&w, "hex", true);
+  char *k;
+  while ((k = word(&args))) {
+    if (!strcmp(k, "dls") || !strcmp(k, "ils") || !strcmp(k, "t2")) jw_str(&w, "space", k);
+    else if (!strcmp(k, "core") && (k = word(&args))) jw_int(&w, "core", atoi(k));
+  }
+  jw_oend(&w);
+  JVal *r = request(&w);
+  free(w.p);
+  if (ok(r)) {
+    ch_since = json_u64(json_get(r, "version"), ch_since);
+    const JVal *ss = json_get(r, "stores");
+    bool any = false;
+    for (const JVal *st = ss ? ss->kid : NULL; st && !any; st = st->next) any = json_get(st, "ranges") && json_get(st, "ranges")->kid;
+    if (any) print_changes(r, 4, 64);
+    else fprintf(out, "no change\n");
+  }
+  json_free(r);
+}
+
+/* while the machine runs, every live_ms */
+static void live_tick(void) {
+  if (tui) { tui_draw(); return; }
+  JVal *r = req("changes", "since#", (long long)ch_since, "hex?", 1, NULL);
+  if (json_bool(json_get(r, "ok"), false)) {
+    ch_since = json_u64(json_get(r, "version"), ch_since);
+    const JVal *ss = json_get(r, "stores");
+    bool any = false;
+    for (const JVal *st = ss ? ss->kid : NULL; st && !any; st = st->next) any = json_get(st, "ranges") && json_get(st, "ranges")->kid;
+    if (any) {
+      fprintf(out, "live: tick %llu, round %llu\n", (unsigned long long)json_u64(json_get(r, "tick"), 0),
+              (unsigned long long)json_u64(json_get(r, "round"), 0));
+      print_changes(r, 1, 16);
+      fflush(out);
+    }
+  }
+  json_free(r);
+}
+
+/* ---- StrataOS's messages (the engine's `msgs`, `msg`, `msgstats`) */
+
+/* the filters of the msgs commands, as request fields */
+static char msgs_filt[512]; /* for the live printout: `"server":"fs",...` */
+static unsigned long long msgs_since, msgs_upto; /* the version shown; the messages printed whole (seq) */
+
+/* Parses filters from args into w (from N|NAME, to N|NAME, server NAME, pid|proc N|NAME, op N|NAME,
+ * core N, waiting);
+ * a word that is none of them is returned (NULL: none). */
+static char *msgs_filters(char **args, JW *w) {
+  char *k;
+  while ((k = word(args))) {
+    char *v;
+    if ((!strcmp(k, "from") || !strcmp(k, "to")) && (v = word(args))) {
+      if (isdigit((unsigned char)v[0])) jw_int(w, k, atoi(v));
+      else jw_str(w, k, v);
+    } else if (!strcmp(k, "server") && (v = word(args))) jw_str(w, "server", v);
+    else if ((!strcmp(k, "pid") || !strcmp(k, "proc") || !strcmp(k, "process")) && (v = word(args))) {
+      if (isdigit((unsigned char)v[0])) jw_int(w, "pid", atoi(v));
+      else jw_str(w, "pid", v);
+    } else if (!strcmp(k, "op") && (v = word(args))) {
+      if (isdigit((unsigned char)v[0])) jw_int(w, "op", atoi(v));
+      else jw_str(w, "op", v);
+    } else if (!strcmp(k, "core") && (v = word(args))) jw_int(w, "core", atoi(v));
+    else if (!strcmp(k, "waiting")) jw_bool(w, "waiting", true);
+    else return k;
+  }
+  return NULL;
+}
+
+static void msg_atts(const JVal *a) {
+  for (const JVal *k = a ? a->kid : NULL; k; k = k->next) {
+    char b[160];
+    cap_line(b, sizeof b, k);
+    fprintf(out, "  +%s", b);
+  }
+}
+static void msg_reply_line(const JVal *m, const char *lead) {
+  const JVal *r = json_get(m, "reply");
+  if (!r || r->t != J_OBJ) { fprintf(out, "%s(waiting)\n", lead); return; }
+  fprintf(out, "%s%lld", lead, (long long)json_u64(json_get(r, "result"), 0));
+  if (*S(r, "error")) fprintf(out, " (%s)", S(r, "error"));
+  if (*S(r, "data")) fprintf(out, "  %s", S(r, "data"));
+  msg_atts(json_get(r, "att"));
+  fprintf(out, "  [%s(%d) core %d, %llu ticks, %llu rounds]\n", S(r, "proc"), json_int(json_get(r, "pid"), 0),
+          json_int(json_get(r, "core"), 0), (unsigned long long)json_u64(json_get(r, "rt"), 0),
+          (unsigned long long)json_u64(json_get(r, "rt_rounds"), 0));
+}
+/* who sent or received a message: a process as name(pid), a server by its name, the kernel */
+static void msg_party(char *b, size_t n, const char *name, int pid, const char *kind) {
+  if (!strcmp(kind, "process")) snprintf(b, n, "%s(%d)", name, pid);
+  else snprintf(b, n, "%s", name);
+}
+/* a message: the request on one line, the reply on the next */
+static void msg_line(const JVal *m) {
+  char op[48];
+  if (*S(m, "name")) snprintf(op, sizeof op, "%s %llu", S(m, "name"), (unsigned long long)json_u64(json_get(m, "op"), 0));
+  else snprintf(op, sizeof op, "op %llu", (unsigned long long)json_u64(json_get(m, "op"), 0));
+  char from[40], to[40];
+  msg_party(from, sizeof from, S(m, "fromname"), json_int(json_get(m, "from"), 0), S(m, "fromkind"));
+  msg_party(to, sizeof to, S(m, "toname"), json_int(json_get(m, "to"), 0), S(m, "tokind"));
+  fprintf(out, "#%-6llu t %-10llu core %d->%d  %10s -> %-7s %-12s h %lld len %lld mode %lld", (unsigned long long)json_u64(json_get(m, "seq"), 0),
+          (unsigned long long)json_u64(json_get(m, "tick"), 0), json_int(json_get(m, "core"), 0), json_int(json_get(m, "tocore"), 0),
+          from, to, op, (long long)json_u64(json_get(m, "handle"), 0), (long long)json_u64(json_get(m, "len"), 0),
+          (long long)json_u64(json_get(m, "mode"), 0));
+  if (*S(m, "data")) fprintf(out, "  %s", S(m, "data"));
+  msg_atts(json_get(m, "att"));
+  fputc('\n', out);
+  msg_reply_line(m, "        => ");
+}
+
+/* `msgs [N] [filters]`: the last N messages; `msgs live [on|off|MS] [filters]`;
+ * `msgs pause`, `msgs resume`; `msgs stats [filters]` */
+static void cmd_msgs(char *args) {
+  char copy[1024];
+  snprintf(copy, sizeof copy, "%s", args); /* (word() cuts the words it reads) */
+  char *a = args, *k = word(&a);
+  JW w = {0};
+  jw_reset(&w);
+  jw_obj(&w, NULL);
+  if (k && !strcmp(k, "stats")) {
+    jw_str(&w, "cmd", "msgstats");
+    char *bad = msgs_filters(&a, &w);
+    jw_oend(&w);
+    if (bad) { fprintf(out, "msgs stats: what is %s?\n", bad); free(w.p); return; }
+    JVal *r = request(&w);
+    free(w.p);
+    if (ok(r)) {
+      fprintf(out, "%10s    %-7s %-12s %7s %7s %6s %12s %12s\n", "from", "to", "op", "sent", "replied", "errors", "avg ticks", "max ticks");
+      const JVal *st = json_get(r, "stats");
+      for (const JVal *e = st ? st->kid : NULL; e; e = e->next) {
+        char op[48];
+        snprintf(op, sizeof op, "%s %llu", *S(e, "name") ? S(e, "name") : "op", (unsigned long long)json_u64(json_get(e, "op"), 0));
+        fprintf(out, "%10s -> %-7s %-12s %7llu %7llu %6llu %12llu %12llu\n", S(e, "from"), S(e, "to"), op, (unsigned long long)json_u64(json_get(e, "n"), 0),
+                (unsigned long long)json_u64(json_get(e, "replied"), 0), (unsigned long long)json_u64(json_get(e, "errors"), 0),
+                (unsigned long long)json_u64(json_get(e, "avg_rt"), 0), (unsigned long long)json_u64(json_get(e, "max_rt"), 0));
+      }
+    }
+    json_free(r);
+    return;
+  }
+  if (k && (!strcmp(k, "pause") || !strcmp(k, "resume"))) {
+    msgs_paused = k[0] == 'p';
+    fprintf(out, msgs_paused ? "messages: held (msgs resume shows what came meanwhile)\n" : "messages: shown again\n");
+    if (!msgs_paused && msgs_live_ms) msgs_tick();
+    free(w.p);
+    return;
+  }
+  if (k && !strcmp(k, "live")) {
+    char *v = word(&a);
+    if (v && !strcmp(v, "off")) { msgs_live_ms = 0; fprintf(out, "messages: live off\n"); free(w.p); return; }
+    if (v && isdigit((unsigned char)v[0])) msgs_live_ms = atoi(v);
+    else if (v && !strcmp(v, "on")) msgs_live_ms = 250;
+    else { msgs_live_ms = 250; a = copy; word(&a); } /* (the filters follow `live`) */
+    if (msgs_live_ms <= 0) msgs_live_ms = 250;
+    char *bad = msgs_filters(&a, &w);
+    jw_oend(&w);
+    if (bad) { fprintf(out, "msgs live: what is %s?\n", bad); msgs_live_ms = 0; free(w.p); return; }
+    /* the filters, kept for the printout (the object's members after its '{') */
+    snprintf(msgs_filt, sizeof msgs_filt, "%.*s", w.n > 2 ? (int)(w.n - 2) : 0, w.p + 1);
+    free(w.p);
+    /* from now on: what is there already is not printed again */
+    JVal *r = req("msgs", "max#", (long long)0, NULL);
+    if (ok(r)) { msgs_since = json_u64(json_get(r, "version"), 0); msgs_upto = json_u64(json_get(r, "next"), 0); }
+    json_free(r);
+    msgs_paused = false;
+    fprintf(out, "while the machine runs: StrataOS's messages are shown every %d ms\n", msgs_live_ms);
+    return;
+  }
+  long long n = 20;
+  if (k && isdigit((unsigned char)k[0])) n = atoll(k);
+  else a = copy;
+  jw_str(&w, "cmd", "msgs");
+  jw_int(&w, "max", n);
+  char *bad = msgs_filters(&a, &w);
+  jw_oend(&w);
+  if (bad) { fprintf(out, "msgs: what is %s? (msgs [N] [from N|NAME] [to N|NAME] [pid N|NAME] [op NAME|N] [core N] [waiting])\n", bad); free(w.p); return; }
+  JVal *r = request(&w);
+  free(w.p);
+  if (ok(r)) {
+    const JVal *ms = json_get(r, "msgs");
+    if (!ms || !ms->kid) fprintf(out, "no messages%s\n", json_u64(json_get(r, "next"), 0) ? " that match" : " yet");
+    int shown = 0;
+    for (const JVal *m = ms ? ms->kid : NULL; m; m = m->next, shown++) msg_line(m);
+    fprintf(out, "(%d shown; %llu messages since power-on, from #%llu kept)\n", shown, (unsigned long long)json_u64(json_get(r, "next"), 0),
+            (unsigned long long)json_u64(json_get(r, "first"), 0));
+    if (!json_bool(json_get(r, "names"), true)) fprintf(out, "(the engine has no table of the ops: no names, no decoded data)\n");
+  }
+  json_free(r);
+}
+
+/* the live printout: new messages whole, replies to ones printed before on their own */
+static void msgs_tick(void) {
+  char body[700];
+  snprintf(body, sizeof body, "{\"cmd\":\"msgs\",\"since\":%llu,\"max\":200%s%s}", msgs_since, msgs_filt[0] ? "," : "", msgs_filt);
+  JW w = {0};
+  jw_reset(&w);
+  jw_puts(&w, body);
+  JVal *r = request(&w);
+  free(w.p);
+  if (json_bool(json_get(r, "ok"), false)) {
+    msgs_since = json_u64(json_get(r, "version"), msgs_since);
+    unsigned long long next = json_u64(json_get(r, "next"), 0);
+    if (next < msgs_upto) msgs_upto = next; /* (gone back in time) */
+    if (json_bool(json_get(r, "truncated"), false)) fprintf(out, "messages: (more came than one look shows)\n");
+    const JVal *ms = json_get(r, "msgs");
+    for (const JVal *m = ms ? ms->kid : NULL; m; m = m->next) {
+      unsigned long long s = json_u64(json_get(m, "seq"), 0);
+      if (s >= msgs_upto) msg_line(m);
+      else {
+        char lead[32];
+        snprintf(lead, sizeof lead, "#%-6llu <= ", s);
+        msg_reply_line(m, lead);
+      }
+    }
+    if (next > msgs_upto) msgs_upto = next;
+    fflush(out);
+  }
+  json_free(r);
+}
+
+/* `msg SEQ`: the whole message: header and data in hex, both ways */
+static void hexdump(const char *hx, unsigned long long kept) {
+  size_t n = strlen(hx) / 2;
+  for (size_t row = 0; row * 16 < n; row++) {
+    fprintf(out, "  %04zx ", row * 16);
+    char txt[17] = {0};
+    for (size_t i = row * 16; i < row * 16 + 16; i++) {
+      if (i < n) {
+        unsigned v = 0;
+        sscanf(hx + 2 * i, "%2x", &v);
+        fprintf(out, " %.2s", hx + 2 * i);
+        txt[i - row * 16] = v >= 32 && v < 127 ? (char)v : '.';
+      } else fputs("   ", out);
+      if (i == row * 16 + 7) fputc(' ', out);
+    }
+    fprintf(out, "  %s%s\n", txt, row == 3 && n > 64 ? "   (header: op handle length mode result pid; data from 0x40)" : "");
+  }
+  if (!n && kept) fprintf(out, "  (no longer kept)\n");
+}
+static void cmd_msg(char *args) {
+  char copy[1024];
+  snprintf(copy, sizeof copy, "%s", args); /* (word() cuts the words it reads) */
+  char *a = args, *k = word(&a);
+  args = copy;
+  if (!k) { fprintf(out, "msg SEQ | msg FILTERS (the newest that matches; msgs lists them)\n"); return; }
+  long long seq;
+  if (isdigit((unsigned char)k[0]) || k[0] == '#') seq = strtoll(k[0] == '#' ? k + 1 : k, NULL, 0);
+  else { /* the newest message that matches the filters */
+    JW w = {0};
+    jw_reset(&w);
+    jw_obj(&w, NULL);
+    jw_str(&w, "cmd", "msgs");
+    jw_int(&w, "max", 1);
+    char *bad = msgs_filters(&args, &w);
+    jw_oend(&w);
+    if (bad) { fprintf(out, "msg: what is %s?\n", bad); free(w.p); return; }
+    JVal *l = request(&w);
+    free(w.p);
+    const JVal *ms = json_get(l, "msgs");
+    seq = ms && ms->kid ? (long long)json_u64(json_get(ms->kid, "seq"), 0) : -1;
+    json_free(l);
+    if (seq < 0) { fprintf(out, "no message matches\n"); return; }
+  }
+  JVal *r = req("msg", "seq#", seq, NULL);
+  if (ok(r)) {
+    const JVal *m = json_get(r, "msg");
+    msg_line(m);
+    fprintf(out, "request: buffer t3 %s, %llu data bytes kept, core %d instret %llu round %llu\n", S(m, "buf"),
+            (unsigned long long)json_u64(json_get(m, "bytes"), 0), json_int(json_get(m, "core"), 0),
+            (unsigned long long)json_u64(json_get(m, "instret"), 0), (unsigned long long)json_u64(json_get(m, "round"), 0));
+    hexdump(S(m, "hex"), 1);
+    const JVal *rp = json_get(m, "reply");
+    if (rp && rp->t == J_OBJ) {
+      fprintf(out, "reply: tick %llu, %llu data bytes kept, core %d instret %llu round %llu\n", (unsigned long long)json_u64(json_get(rp, "tick"), 0),
+              (unsigned long long)json_u64(json_get(rp, "bytes"), 0), json_int(json_get(rp, "core"), 0),
+              (unsigned long long)json_u64(json_get(rp, "instret"), 0), (unsigned long long)json_u64(json_get(rp, "round"), 0));
+      hexdump(S(rp, "hex"), 1);
+    }
   }
   json_free(r);
 }
@@ -1038,6 +1483,19 @@ static void help(void) {
         "State\n"
         "  info registers (i r) | caps | ctab | inbox | xmap | tags [all] | pending | cores\n"
         "  info processes | granules | history\n"
+        "  info stores [N|all]     the Local Stores (every core's, or core N's) and T2: how much is in use, where\n"
+        "  changes [dls|ils|t2] [core N]   what changed in them since the last `changes` (or live)\n"
+        "  live [on|off|MS]        while the machine runs: every MS ms (500) what changed in the stores\n"
+        "                          (in the split screen: the view is redrawn, changed pieces in yellow)\n"
+        "StrataOS's messages (each request to the kernel or a server, and its reply)\n"
+        "  msgs [N] [FILTERS]      the last N (20): sender -> receiver, op, header, data; => the reply\n"
+        "                          FILTERS: from N|NAME (the sender: a process, a server, kernel),\n"
+        "                          to NAME|N (the receiver), pid N|NAME (either), op NAME|N, core N, waiting\n"
+        "  msgs live [on|off|MS] [FILTERS]   while the machine runs: messages as they come, replies\n"
+        "                          to earlier ones as `#SEQ <= ...`;  msgs pause, msgs resume\n"
+        "  msgs stats [FILTERS]    per sender, receiver and op: how many, replied, errors, round trips\n"
+        "  msg SEQ | msg FILTERS   one message whole (or the newest that matches): its header and\n"
+        "                          data in hex, both ways\n"
         "  x/N[bhwgsi] [dls:|ils:|t2:|t3:|disk:]ADDR|LOC\n"
         "  disassemble (disas) [LOC] [N],  list [LOC],  backtrace (bt)\n"
         "  log [N]                 the last N events (transfers, traps, gifts, stalls)\n"
@@ -1144,8 +1602,18 @@ static bool command(char *line) {
     else if (!strcmp(what, "pending") || !strcmp(what, "granules") || !strcmp(what, "history")) info_list(what, -1);
     else if (!strncmp(what, "proc", 4)) info_list("processes", -1);
     else if (!strncmp(what, "break", 5) || !strcmp(what, "b") || !strncmp(what, "watch", 5)) info_list("breakpoints", -1);
-    else fprintf(out, "info registers, caps, ctab, inbox, xmap, tags, pending, cores, processes, granules, history, breakpoints\n");
-  } else if (IS("x")) examine(fmt, arg1);
+    else if (!strcmp(what, "stores") || !strcmp(what, "ls")) info_stores(a2 && !strcmp(a2, "all") ? -1 : a2 ? core : -1);
+    else fprintf(out, "info registers, caps, ctab, inbox, xmap, tags, pending, cores, processes, granules, history, breakpoints, stores\n");
+  } else if (IS("changes")) cmd_changes(rest);
+  else if (IS("live")) {
+    if (arg1 && !strcmp(arg1, "off")) live_ms = 0;
+    else if (n > 0) live_ms = (int)n;
+    else if (!arg1 || !strcmp(arg1, "on")) live_ms = 500;
+    if (live_ms) fprintf(out, "while the machine runs: %s every %d ms\n", tui ? "the view is redrawn" : "what changed in the stores is shown", live_ms);
+    else fprintf(out, "live: off\n");
+  } else if (IS("msgs")) cmd_msgs(rest);
+  else if (IS("msg")) cmd_msg(rest);
+  else if (IS("x")) examine(fmt, arg1);
   else if (IS("disassemble") || IS("disas")) {
     char *w = rest, *loc = word(&w), *cnt = word(&w);
     if (loc && isdigit((unsigned char)loc[0]) && !cnt && strlen(loc) < 4) { cnt = loc; loc = NULL; }

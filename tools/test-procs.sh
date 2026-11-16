@@ -7,8 +7,8 @@
 # Part 1, 15 cores, twice in a row:
 #   * starts 4 background shells, each running a script that starts 6
 #     sleeping shells (`sh -c "sleep 30" &`), kills them after 3 s and waits;
-#   * shows the peak in `ps` and `free` while they all live (34 processes:
-#     the 5 servers, the login shell, 4 + 24 shells and ps itself);
+#   * shows the peak in `ps` and `free` while they all live (37 processes:
+#     the 7 servers, the login shell, 4 + 24 shells and ps itself);
 #   * waits until they are gone and checks that every arena came back
 #     (`free` as before, only the servers and the login shell in `ps`).
 #   Every arena is revoked by address when its process ends, then reused by
@@ -16,7 +16,7 @@
 # Part 2, 6 cores (the fewest StrataOS runs on: core 0 and the 5 server
 # cores, so every process shares a core with a server), with the default
 # 256-slot capability save table, twice in a row:
-#   * 4 shells running a script of 8 sleeping shells: the peak in `ps` is 43
+#   * 4 shells running a script of 8 sleeping shells: the peak in `ps` is 45
 #     processes (proc and tty are alone on their cores, the three others
 #     hold 13 or 14 threads each; with a 64-slot table at most 11, and 3
 #     before the save table was a pool); while they live, a pipeline (`seq 30
@@ -25,11 +25,13 @@
 #     core's free save-table slots are back where they were before it;
 #   * then `spin`, stopped by Ctrl-C (-b), and another pipeline.
 # Part 3, 6 cores with a 64-slot save table (-S 64: 11 threads per core),
-# twice: the rounds of part 1 (35 processes, the most that fit), the slots
-# back after each round, and at the peak one more process than fits:
-# `sh -c "sleep 1" &` takes the last place, the next one is refused ("no
-# free core", CREATE's -5) and the machine goes on.
+# twice: the rounds of part 1 with 5 sleepers a shell (33 processes; 35 fit,
+# blk and db among them), the slots back after each round, and at the peak
+# one more process than fits: three `sh -c "sleep 1" &` take the last places,
+# the next one is refused ("no free core", CREATE's -5) and the machine goes
+# on.
 # The emulator runs the interpreter with the virtual timer (deterministic).
+# The three machines run at the same time; their outputs are checked in order.
 #
 #   tools/test-procs.sh build/bootrom.stx build/disk.img     (-v: show the output)
 set -u
@@ -56,7 +58,27 @@ script() { # the script w: N (default 6) sleeping shells, killed after S (3) s
   printf 'halt\n'
 } >"$tmp/in.txt"
 cp "$2" "$tmp/d.img"
-"$b/strata-emu" -c 15 -j -T virtual -g none -m 6000000000 -d "$tmp/d.img" -i "$tmp/in.txt" "$1" >"$tmp/out" 2>&1
+"$b/strata-emu" -c 15 -j -T virtual -g none -m 6000000000 -d "$tmp/d.img" -i "$tmp/in.txt" "$1" >"$tmp/out" 2>&1 &
+image=$1 disk=$2
+# ---- parts 2 and 3: 6 cores ----
+# six NAME TABLE SLEEPERS SECONDS EXTRA BREAK: start the rounds
+six() {
+  name=$1 ctab=$2
+  {
+    script "$3" "$4"
+    printf 'cores\n'
+    for r in 1 2; do
+      printf 'sh w &\nsh w &\nsh w &\nsh w &\nsleep 2\nps\ncores\n%bseq 30 | grep 2 | wc\nwait\nps\ncores\n' "$5"
+    done
+    printf 'spin\nseq 3 | wc\nhalt\n'
+  } >"$tmp/in.$name"
+  cp "$disk" "$tmp/d.$name"
+  "$b/strata-emu" -c 6 -S "$ctab" -j -T virtual -g none -m 5000000000 -b "$6" \
+    -d "$tmp/d.$name" -i "$tmp/in.$name" "$image" >"$tmp/out.$name" 2>&1 &
+}
+six procs-6 256 8 3 '' "${PROCS_BREAK:-3000000000}"
+six procs-6s 64 5 5 'sh -c "sleep 1" &\nsh -c "sleep 1" &\nsh -c "sleep 1" &\nsh -c "sleep 1"\nsleep 4\n' "${PROCS_BREAK64:-3000000000}"
+wait
 [ "$verbose" = 1 ] && cat "$tmp/out"
 # the rows of each `ps` (a line starting with a pid after a PID header), and each `free`
 psrows() {
@@ -74,7 +96,7 @@ halted=$(grep -c 'StrataOS: all cores halted' "$tmp/out")
 ok=1
 [ -n "$p1" ] && [ "$p1" -ge 30 ] || ok=0            # the peak: far more than 14
 [ "${p3:-x}" = "$p1" ] || ok=0                       # the same in the second round
-[ "${p2:-x}" = 7 ] && [ "${p4:-x}" = 7 ] || ok=0     # then the servers, sh and ps only
+[ "${p2:-x}" = 9 ] && [ "${p4:-x}" = 9 ] || ok=0     # then the servers, sh and ps only
 [ -n "$f0" ] && [ "${f1:-x}" = "$f0" ] && [ "${f2:-x}" = "$f0" ] || ok=0 # every arena back
 [ -n "$fm" ] && [ "$fm" = $((f0 - 7 * 1024)) ] || ok=0 # -m 8: 7 MiB more than free's own 1 MiB
 [ "${fp1:-x}" = "${fp2:-y}" ] && [ "$fp1" -lt "$f0" ] || ok=0
@@ -89,21 +111,9 @@ else
   exit 1
 fi
 
-# ---- parts 2 and 3: 6 cores ----
-# six NAME TABLE SLEEPERS SECONDS EXTRA BREAK: run the rounds, check them
-six() {
-  name=$1 ctab=$2
-  {
-    script "$3" "$4"
-    printf 'cores\n'
-    for r in 1 2; do
-      printf 'sh w &\nsh w &\nsh w &\nsh w &\nsleep 2\nps\ncores\n%bseq 30 | grep 2 | wc\nwait\nps\ncores\n' "$5"
-    done
-    printf 'spin\nseq 3 | wc\nhalt\n'
-  } >"$tmp/in.$name"
-  cp "$disk" "$tmp/d.$name"
-  "$b/strata-emu" -c 6 -S "$ctab" -j -T virtual -g none -m 5000000000 -b "$6" \
-    -d "$tmp/d.$name" -i "$tmp/in.$name" "$image" >"$tmp/out.$name" 2>&1
+# read NAME: what a run of six printed
+read6() {
+  name=$1
   [ "$verbose" = 1 ] && cat "$tmp/out.$name"
   psrows "$tmp/out.$name" >"$tmp/ps.$name"
   # each `cores`: the free slots of cores 1..5, on one line
@@ -121,7 +131,7 @@ six() {
 check6() { # NAME PEAK REFUSED: the verdict on a run of six
   ok=1
   [ "${q1:-x}" = "$2" ] && [ "${q3:-x}" = "$q1" ] || ok=0 # the peak, twice
-  [ "${q2:-x}" = 7 ] && [ "${q4:-x}" = 7 ] || ok=0     # then the servers, sh and ps only
+  [ "${q2:-x}" = 9 ] && [ "${q4:-x}" = 9 ] || ok=0     # then the servers, sh and ps only
   [ -n "$s0" ] && [ "${s1:-x}" = "$s0" ] && [ "${s2:-x}" = "$s0" ] || ok=0 # every slot back
   [ -n "$sp1" ] && [ "$sp1" != "$s0" ] || ok=0         # (and they were in use at the peak)
   [ "$pipes" = 2 ] || ok=0                             # the pipeline, at both peaks
@@ -135,13 +145,12 @@ check6() { # NAME PEAK REFUSED: the verdict on a run of six
     exit 1
   fi
 }
-image=$1 disk=$2
-six procs-6 256 8 3 '' "${PROCS_BREAK:-3000000000}"
-check6 procs-6 43 0
+read6 procs-6
+check6 procs-6 45 0
 printf '%-14s OK    6 cores, 256 save-table slots: %s processes at once, twice, a pipeline among them;\n' procs-6 "$q1"
 printf '%-14s       free slots of cores 1-5:%s, at the peak%s; Ctrl-C\n' "" "$s0" "$sp1"
-six procs-6s 64 6 5 'sh -c "sleep 1" &\nsh -c "sleep 1"\nsleep 4\n' "${PROCS_BREAK64:-3000000000}"
-check6 procs-6s 35 2
+read6 procs-6s
+check6 procs-6s 33 2
 printf '%-14s OK    6 cores, 64 save-table slots: %s processes, twice; one more refused (no free core);\n' procs-6s "$q1"
 printf '%-14s       free slots of cores 1-5:%s, at the peak%s; Ctrl-C\n' "" "$s0" "$sp1"
 exit 0

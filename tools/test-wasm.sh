@@ -111,7 +111,7 @@ fi
 # guest reaches as 10.0.2.2
 if [ -x "$b/netrelay" ] && command -v python3 >/dev/null 2>&1 &&
    node -e 'process.exit(typeof WebSocket === "function" ? 0 : 1)' 2>/dev/null; then
-  rp=$((40000 + $$ % 10000)); ep=$((rp + 1))
+  rp=$((40000 + $$ % 5000 * 2)); ep=$((rp + 1))
   "$b/netrelay" -p "$rp" 2>"$tmp/relay.err" &
   pidR=$!
   python3 "$here/tools/net-echo.py" serve "$ep" "$((ep + 1))" &

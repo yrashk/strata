@@ -52,4 +52,8 @@ module strata_mul (
       if (n == 2'd3) begin busy <= 0; done <= 1; end
     end
   end
+
+`ifdef FORMAL
+`include "strata_mul.svh"
+`endif
 endmodule

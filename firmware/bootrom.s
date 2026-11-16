@@ -30,6 +30,7 @@
 ;                               44  u32 far image LBA (0 = none)
 ;                               48  u32 far image blocks
 ;                               52  u32 tag table LBA (used by fs)
+;                               56  u32 directory entries (used by fs; 0 = 128)
 ;
 ; What the OS receives: c0 = system memory [0, 15 MiB), c1 = cluster store,
 ; c2 = console output, c3 = device root, c10/c11 = its own code/data shares,

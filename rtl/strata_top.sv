@@ -15,8 +15,8 @@ module strata_top
   parameter int    NXMAP      = NXMAP_DEF,  // overlay map entries per core (4..16)
   parameter int    DLS_KIB    = LS_DEF_KIB, // each core's D-LS and I-LS in KiB (powers of two, 4..64)
   parameter int    ILS_KIB    = LS_DEF_KIB,
-  parameter bit    LS_1P      = 0,          // each core's Local Stores in one single-port memory (strata_core)
-  parameter bit    STREAM     = 1,          // each core's sequential fetch without F0 / F1 (strata_core)
+  parameter bit    LS_1P      = 1'b0,          // each core's Local Stores in one single-port memory (strata_core)
+  parameter bit    STREAM     = 1'b1,          // each core's sequential fetch without F0 / F1 (strata_core)
   parameter int    T3_W       = T3_WORDS,
   parameter int    T3_LAT     = 20,
   parameter int    T2_W       = T2_WORDS,
@@ -28,7 +28,7 @@ module strata_top
   parameter string PLAT_INIT  = "",
   parameter int    UART_DIV   = 868,
   parameter int    CLK_MHZ    = 100,    // clock frequency: cycles per timer tick (1 us)
-  parameter bit    T3_EXT     = 0       // 1: system memory is outside (the ext_t3 port, e.g. DRAM)
+  parameter bit    T3_EXT     = 1'b0       // 1: system memory is outside (the ext_t3 port, e.g. DRAM)
 )(
   input  logic clk,
   input  logic rst,
@@ -126,6 +126,7 @@ module strata_top
 
   // revocation granules and core control
   logic [NCORES-1:0]          dom_req, dom_done, dom_t2, stop_req, reset_req, reset_flush;
+  logic [NCORES-1:0]          dev_wake;      // a device read of core i that waits may now complete
   logic [NCORES-1:0][1:0]     dom_op;
   logic [NCORES-1:0][GW-1:0]  dom_a, dom_n;
   logic [15:0]                dom_gen;
@@ -133,8 +134,25 @@ module strata_top
   logic [GW-1:0]              gt_idx;
   logic [16:0]                gt_wd;
 
+  // ================================================================ written pages
+  // Every write to T3 crosses the bus: a burst's write beats (pm_a: the beat's
+  // address) and an atomic (at its start). u_dev's written-page map records
+  // their pages.
+  logic        pm_t3, pm_set;
+  logic [63:0] pm_a;
+  logic [31:0] pm_page;
+  always_ff @(posedge clk) begin
+    if (rst) pm_t3 <= 0;
+    else if (|t_start) begin
+      pm_t3 <= t_start[0] && t_we && !t_amo;   // a write burst to T3
+      pm_a  <= t_addr;
+    end else if (pm_t3 && t_wvalid && t_wready[0]) pm_a <= pm_a + 64'd8;
+  end
+  assign pm_set  = (t_start[0] && t_amo) || (pm_t3 && t_wvalid && t_wready[0]);
+  assign pm_page = 32'((t_start[0] ? t_addr : pm_a) >> 12);
+
   assign m_rready[2*NCORES] = 1;       // (the block device's DMA engine always takes its beats)
-  strata_dev #(.NCORES(NCORES), .DISK_WORDS(DISK_WORDS), .DISK_INIT(DISK_INIT),
+  strata_dev #(.NCORES(NCORES), .T3_W(T3_W), .DISK_WORDS(DISK_WORDS), .DISK_INIT(DISK_INIT),
                 .PLAT_INIT(PLAT_INIT), .UART_DIV(UART_DIV), .CLK_MHZ(CLK_MHZ)) u_dev (
     .clk, .rst,
     .start(t_start[2]), .master(t_master), .we(t_we), .addr(t_addr), .beats(t_beats), .wvalid(t_wvalid),
@@ -146,8 +164,10 @@ module strata_top
     .m_done(m_done[2*NCORES]),
     .in_push(dev_in_push), .in_cap(dev_in_cap), .in_from(dev_in_from), .in_ready(dev_in_ready),
     .core_clr(reset_flush),
+    .wake(dev_wake),
     .give_valid(g_valid[NCORES]), .give_dst(g_dst[NCORES]), .give_cap(g_cap[NCORES]),
     .give_ack(g_ack[NCORES]),
+    .pm_set, .pm_page,
     .uart_txd, .uart_rxd
   );
   assign m_amo[2*NCORES]   = 0;
@@ -175,7 +195,7 @@ module strata_top
       .tu_req(m_req[2*i]), .tu_we(m_we[2*i]), .tu_space(m_space[2*i]), .tu_addr(m_addr[2*i]),
       .tu_beats(m_beats[2*i]), .tu_byte(m_byte[2*i]), .tu_wvalid(m_wvalid[2*i]),
       .tu_wdata(m_wdata[2*i]), .tu_gnt(m_gnt[2*i]), .tu_wready(m_wready[2*i]),
-      .tu_rvalid(m_rvalid[2*i]), .tu_rready(m_rready[2*i]), .tu_done(m_done[2*i]), .tu_retry(m_retry[2*i]),
+      .tu_rvalid(m_rvalid[2*i]), .tu_rready(m_rready[2*i]), .tu_done(m_done[2*i]), .tu_retry(m_retry[2*i]), .tu_wake(dev_wake[i]),
       .am_req(m_req[2*i+1]), .am_op(m_op[2*i+1]), .am_space(m_space[2*i+1]),
       .am_addr(m_addr[2*i+1]), .am_wdata(m_wdata[2*i+1]), .am_cmp(m_cmp[2*i+1]),
       .am_gnt(m_gnt[2*i+1]), .am_done(m_done[2*i+1]),
@@ -204,6 +224,11 @@ module strata_top
   //           read on to the end of the unit holding b - 1 (hi), then write
   //           [lo, hi): m + 1, heads at lo, a and b
   // A walk takes one cycle per granule; the core waits in EX meanwhile.
+  // A core that is reset while it waits withdraws its request (w_gone); the
+  // walk still runs to its end, so the table stays consistent, but its done
+  // is not given: with small Local Stores the core can be back, and asking
+  // for another walk, before this one is over, and would take this one's
+  // done (and generation) for its own.
   typedef enum logic [2:0] {W_IDLE, W_BACK, W_READ, W_WRITE, W_TAIL, W_DONE} walk_t;
   localparam int CW = NCORES > 1 ? $clog2(NCORES) : 1;
   logic [16:0]   mt3 [NG3];
@@ -216,6 +241,7 @@ module strata_top
   logic [15:0]   w_m;
   logic [16:0]   w_e;                                 // the entry at w_k
   logic          w_any;
+  logic          w_gone;                              // the requester stopped asking during the walk
   logic [CW-1:0] w_first;
 `ifdef SIMULATION
   initial begin
@@ -231,7 +257,7 @@ module strata_top
     for (int c = NCORES - 1; c >= 0; c--)
       if (dom_req[c]) begin w_any = 1; w_first = CW'(c); end
     dom_done = '0;
-    if (ws == W_DONE) dom_done[w_who] = 1;
+    if (ws == W_DONE && !w_gone && dom_req[w_who]) dom_done[w_who] = 1;
     gt_we  = ws == W_WRITE || (ws == W_TAIL && w_hi < w_end);
     gt_t2  = w_t2;
     gt_idx = ws == W_TAIL ? w_hi : w_k;
@@ -245,9 +271,11 @@ module strata_top
       if (gt_t2) mt2[G2W'(gt_idx)] <= gt_wd;
       else       mt3[G3W'(gt_idx)] <= gt_wd;
     end
+    if (ws != W_IDLE && !dom_req[w_who]) w_gone <= 1;
     if (rst) ws <= W_IDLE;
     else case (ws)
       W_IDLE: if (w_any) begin
+        w_gone <= 0;
         w_who <= w_first;
         w_op  <= dom_op[w_first];
         w_t2  <= dom_t2[w_first];
@@ -422,4 +450,8 @@ module strata_top
         end
     end
   end
+
+`ifdef FORMAL
+`include "strata_top.svh"
+`endif
 endmodule

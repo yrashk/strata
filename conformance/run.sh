@@ -29,8 +29,10 @@
 # EMU_ARGS: emulator flags describing the machine the RTL in $BUILD was built
 # as (e.g. "-L 16,4" for DLS_KIB=16 ILS_KIB=4: make test-ls runs lssize.s so).
 #
-# Every run uses the virtual timer (-T virtual) and no window (-g none).
+# Every run uses the virtual timer (-T virtual) and no window (-g none),
+# and the same wall clock: the timer's EPOCH and ZONE (timer.s checks them).
 set -u
+export STRATA_EPOCH=1763109000,-25200
 here=$(cd "$(dirname "$0")/.." && pwd)
 b="$here/${BUILD:-build}"
 ncores=${NCORES:-8}

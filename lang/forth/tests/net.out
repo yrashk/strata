@@ -1,4 +1,4 @@
-strata$ forth < nettest.fs
+strata$ forth < /forth/nettest.fs
 Strata Forth 0.1 (native code, 1 thread, StrataOS 0.1) N code bytes free, N data bytes free
 \ Strata Forth under StrataOS: the network words, over loopback (no link needed).  ok
 \ Fed to `forth < nettest.fs` by tests/run-os.sh; expected output: tests/net.out.  ok
@@ -29,8 +29,8 @@ cli @ sock-close  srv @ sock-close  ok
 bye strata$ -n 2 forth -e 80 tcp-listen
 *** net: one thread only (start Forth without -n)
 [exit 1]
-[1] strata$ forth httpd.fs 8000 11 > hlog &
-[1] 11
+[1] strata$ forth httpd.fs 8000 12 > hlog &
+[1] 13
 strata$ echo "GET /httptest/note.txt HTTP/1.0" | nc 127.0.0.1 8000
 HTTP/1.0 200 OK
 Server: Strata Forth httpd
@@ -56,6 +56,15 @@ Content-Type: text/html
 <li><a href='/httptest/blob.bin'>blob.bin</a> 12</li>
 <li><a href='/httptest/note.txt'>note.txt</a> 57</li>
 <li><a href='/httptest/page.html'>page.html</a> 117</li>
+</ul></body></html>
+strata$ echo "GET /demo HTTP/1.0" | nc 127.0.0.1 8000
+HTTP/1.0 200 OK
+Server: Strata Forth httpd
+Content-Length: 126
+Content-Type: text/html
+
+<html><head><title>/demo</title></head><body><h1>/demo</h1><ul>
+<li><a href='/demo/src/'>src/</a></li>
 </ul></body></html>
 strata$ echo "HEAD /httptest/ HTTP/1.0" | nc 127.0.0.1 8000
 HTTP/1.0 200 OK
@@ -94,13 +103,14 @@ strata$ echo "GET /~ps HTTP/1.0" | nc 127.0.0.1 8000 | grep doing
 <h1>StrataOS 0.1: what the machine is doing</h1>
 strata$ echo "GET /~ps HTTP/1.0" | nc 127.0.0.1 8000 | grep Processes
 <h2>Processes</h2><table><tr><th>pid</th><th>parent</th><th>state</th><th>core</th><th>threads</th><th>switches</th><th>KiB moved</th><th>name</th></tr>
-[1] done  forth httpd.fs 8000 11 > hlog
+[1] done  forth httpd.fs 8000 12 > hlog
 strata$ wait
 strata$ cat hlog
 httpd: serving the tag file system on port 8000 
 GET /httptest/note.txt 200 57 
 GET /httptest/page.html 200 117 
 GET /httptest 200 262 
+GET /demo 200 126 
 HEAD /httptest/ 200 0 
 GET /httptest/nosuch 404 14 
 DELETE /httptest/note.txt 405 23 

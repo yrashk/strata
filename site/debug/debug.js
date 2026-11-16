@@ -6,7 +6,9 @@
 // /dbg-info; or ?ws=host:port).
 //
 // What the page shows comes from requests: per core `disasm`, `regs`,
-// `caps`; `tags` (the Local Store map), `log` (the transfer timeline),
+// `caps`; `tags` and `changes` (the Local Store map, live while running),
+// `mem` (its bytes), `log` (the transfer timeline), `msgs` / `msg` /
+// `msgstats` (StrataOS's messages, live while running),
 // `provgraph` / `prov` (provenance), `breakpoints`, `status` (the recorded
 // run, for the time slider). Events: `console`, `stopped`, `done`.
 //
@@ -23,8 +25,9 @@ const V = "?v=" + BUILD;
 const ASSETS = "../play/debug/";
 const RUNS = new Set(["continue", "stepi", "next", "finish", "step-round", "until"]);
 // The JIT is for fast continues only (recorded runs step one instruction at
-// a time); off on iPhone and iPad, as on the play page (Safari there kills
-// the page once compiled WebAssembly fills its pool).
+// a time); off on iPhone and iPad (Safari there kills the page once compiled
+// WebAssembly fills its pool; the play page turns it on on iPads, with a
+// budget and a fallback, ../play/jit.js, which this page does not have).
 const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const JIT = IOS ? "-j" : "-J";
 
@@ -147,7 +150,7 @@ term.onData((d) => { term.scrollToBottom(); sendKeys(d); });
 // to the guest's console and pointer device, through the engine.
 const screen = $("screen"), sctx = screen.getContext("2d");
 function paint(m) {
-  if (screen.width !== m.w || screen.height !== m.h) { screen.width = m.w; screen.height = m.h; }
+  if (screen.width !== m.w || screen.height !== m.h) { screen.width = m.w; screen.height = m.h; arrange(); }
   const panel = $("screen-panel");
   if (panel.classList.contains("collapsed")) {
     panel.classList.remove("collapsed");
@@ -168,54 +171,124 @@ function fitScreen() {
 addEventListener("resize", fitScreen);
 
 // Floating windows: a panel taken out of the page's flow, fixed on the
-// screen; its bar moves it, the corner resizes it; where it was is
-// remembered per browser. The button puts it back.
-function floatable(panel, btn, key, onResize, low) {
+// screen; its bar moves it, the corner resizes it. A window that has not
+// been moved goes where arrange() puts it: into the room beside the page's
+// column when the browser window is wide enough for that (the screen on the
+// right, the console on the left if both sides have room; else stacked on
+// the wider side), otherwise over the right edge; it follows the browser
+// window's size. A window moved or resized stays where it was put, as its
+// distance from the nearest edges, so it keeps to that corner at any size;
+// a double click on its bar gives it back to the arrangement. Remembered
+// per browser. The button puts it back into the page.
+const floats = [];
+const FLOAT_MIN = 420, FLOAT_GAP = 12, FLOAT_MAXW = 1280;
+function floatTop() { return (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--navh")) || 64) + FLOAT_GAP; }
+function arrange() {
+  const all = floats.filter((f) => f.on() && f.auto);
+  // (the messages: over the page's lower right, the rest as below)
+  const msg = all.find((f) => f.kind === "msgs"), auto = all.filter((f) => f.kind !== "msgs");
+  if (msg) {
+    const w = Math.min(1200, innerWidth - 48), h = Math.min(720, innerHeight * 0.72);
+    msg.put({ x: innerWidth - w - 24, y: innerHeight - h - 24, w, h });
+  }
+  if (!auto.length) return;
+  const scr = auto.find((f) => f.kind === "screen"), con = auto.find((f) => f.kind === "console");
+  const m = document.querySelector("main.dbg").getBoundingClientRect();
+  const G = FLOAT_GAP, top = floatTop(), H = innerHeight - top - G;
+  const lw = Math.min(FLOAT_MAXW, m.left - 2 * G), rw = Math.min(FLOAT_MAXW, innerWidth - m.right - 2 * G);
+  const lx = Math.max(G, m.left - G - lw), rx = m.right + G;
+  // the screen's height for a width: its frame's shape and the bar
+  const shot = (w) => Math.round((w * screen.height) / Math.max(1, screen.width)) + 34;
+  const column = (x, w, list) => {
+    if (list.length === 1) {
+      const f = list[0];
+      f.put({ x, y: top, w, h: f.kind === "screen" ? Math.min(H, shot(w)) : H });
+    } else { // the screen above, the console below it
+      const sh = Math.min(Math.round(H * 0.62), shot(w));
+      scr.put({ x, y: top, w, h: sh });
+      con.put({ x, y: top + sh + G, w, h: H - sh - G });
+    }
+  };
+  if (scr && con && lw >= FLOAT_MIN && rw >= FLOAT_MIN) { column(rx, rw, [scr]); column(lx, lw, [con]); }
+  else if (Math.max(lw, rw) >= FLOAT_MIN) column(rw >= lw ? rx : lx, Math.max(lw, rw), auto);
+  else { // no room beside the page: over its right edge, the console below the screen
+    const w = Math.min(720, innerWidth * 0.5), x = innerWidth - w - 24;
+    if (scr) scr.put({ x, y: Math.max(90, top), w, h: Math.min(460, innerHeight * 0.55) });
+    if (con) { const h = Math.min(300, innerHeight * 0.35); con.put({ x, y: innerHeight - h - 24, w, h }); }
+  }
+}
+addEventListener("resize", () => requestAnimationFrame(arrange));
+function floatable(panel, btn, key, onResize, kind) {
+  const f = { kind, auto: true, on: () => panel.classList.contains("floating"), last: null };
+  floats.push(f);
   const load = () => { try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (e) { return null; } };
+  // where it is, as the distance from the nearer edge each way
   const save = () => {
     const r = panel.getBoundingClientRect();
-    try { localStorage.setItem(key, JSON.stringify({ on: panel.classList.contains("floating"), x: r.left, y: r.top, w: r.width, h: r.height })); } catch (e) { /* not remembered */ }
+    const st = { on: f.on(), auto: f.auto, w: r.width, h: r.height,
+      ax: r.left + r.width / 2 > innerWidth / 2 ? "r" : "l", ay: r.top + r.height / 2 > innerHeight / 2 ? "b" : "t" };
+    st.dx = st.ax === "r" ? innerWidth - r.right : r.left;
+    st.dy = st.ay === "b" ? innerHeight - r.bottom : r.top;
+    try { localStorage.setItem(key, JSON.stringify(st)); } catch (e) { /* not remembered */ }
   };
-  const clamp = () => {
-    const r = panel.getBoundingClientRect();
-    panel.style.left = Math.max(0, Math.min(r.left, innerWidth - 120)) + "px";
-    panel.style.top = Math.max(0, Math.min(r.top, innerHeight - 40)) + "px";
+  const fromSaved = (st) => {
+    const w = Math.min(st.w, innerWidth), h = Math.min(st.h, innerHeight);
+    const x = st.ax === "r" ? innerWidth - st.dx - w : st.ax === "l" ? st.dx : st.x; // (st.x, st.y: as kept before)
+    const y = st.ay === "b" ? innerHeight - st.dy - h : st.ay === "t" ? st.dy : st.y;
+    return { x, y, w, h };
   };
-  function set(on, at) {
+  f.put = (r) => {
+    const x = Math.max(0, Math.min(r.x, innerWidth - 120)), y = Math.max(0, Math.min(r.y, innerHeight - 40));
+    Object.assign(panel.style, { left: x + "px", top: y + "px", width: r.w + "px", height: r.h + "px" });
+    f.last = { w: panel.offsetWidth, h: panel.offsetHeight };
+    onResize();
+  };
+  function set(on, st) {
     panel.classList.toggle("floating", on);
     btn.classList.toggle("on", on);
     btn.textContent = on ? "⧉ Put back" : "⧉ Float";
     if (on) {
-      const w = Math.min(720, innerWidth * 0.5), h = Math.min(low ? 300 : 460, innerHeight * (low ? 0.35 : 0.55));
-      const r = at || { x: innerWidth - w - 24, y: low ? innerHeight - h - 24 : 90, w, h }; // (the console below the screen)
-      Object.assign(panel.style, { left: r.x + "px", top: r.y + "px", width: r.w + "px", height: r.h + "px" });
-      clamp();
-    } else for (const p of ["left", "top", "width", "height"]) panel.style[p] = "";
-    onResize();
+      f.auto = !st || st.auto !== false;
+      if (f.auto) arrange();
+      else f.put(fromSaved(st));
+    } else { for (const p of ["left", "top", "width", "height"]) panel.style[p] = ""; onResize(); arrange(); }
     save();
   }
-  btn.addEventListener("click", (e) => { e.stopPropagation(); set(!panel.classList.contains("floating"), load()); });
+  btn.addEventListener("click", (e) => { e.stopPropagation(); set(!f.on(), load()); });
   const bar = panel.querySelector(".tag");
+  bar.title = "drag to move; a double click puts it back where the page has room";
   let drag = null;
   bar.addEventListener("pointerdown", (e) => {
-    if (!panel.classList.contains("floating") || e.target.closest("button")) return;
+    if (!f.on() || e.target.closest("button")) return;
     const r = panel.getBoundingClientRect();
-    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
     bar.setPointerCapture(e.pointerId);
   });
   bar.addEventListener("pointermove", (e) => {
     if (!drag) return;
+    drag.moved = true;
     panel.style.left = Math.max(0, Math.min(e.clientX - drag.dx, innerWidth - 120)) + "px";
     panel.style.top = Math.max(0, Math.min(e.clientY - drag.dy, innerHeight - 40)) + "px";
   });
-  bar.addEventListener("pointerup", () => { if (drag) { drag = null; save(); } });
-  new ResizeObserver(() => { if (panel.classList.contains("floating")) { onResize(); save(); } }).observe(panel);
-  addEventListener("resize", () => { if (panel.classList.contains("floating")) clamp(); });
+  bar.addEventListener("pointerup", () => { if (drag) { if (drag.moved) f.auto = false; drag = null; save(); } });
+  bar.addEventListener("dblclick", (e) => { if (!f.on() || e.target.closest("button")) return; f.auto = true; arrange(); save(); });
+  // a size other than the one put: the corner was dragged
+  new ResizeObserver(() => {
+    if (!f.on()) return;
+    onResize();
+    if (f.last && (Math.abs(panel.offsetWidth - f.last.w) > 2 || Math.abs(panel.offsetHeight - f.last.h) > 2)) {
+      f.auto = false;
+      f.last = { w: panel.offsetWidth, h: panel.offsetHeight };
+      save(); // (only what the user did: a size the page made for a smaller window is not remembered)
+    }
+  }).observe(panel);
+  addEventListener("resize", () => { if (f.on() && !f.auto) f.put(fromSaved(load() || {})); });
   const st = load();
   if (st && st.on) set(true, st);
 }
-floatable($("screen-panel"), $("screen-float"), "strata-dbg-float-screen", fitScreen);
-floatable($("con-panel"), $("con-float"), "strata-dbg-float-console", refitTerm, true);
+floatable($("screen-panel"), $("screen-float"), "strata-dbg-float-screen", fitScreen, "screen");
+floatable($("con-panel"), $("con-float"), "strata-dbg-float-console", refitTerm, "console");
+floatable($("msgs-panel"), $("msg-float"), "strata-dbg-float-msgs", () => {}, "msgs");
 // Alt+key as the desktop window sends it (spec 1.4): the xterm modified-key
 // forms, which cannot be typed by hand, so the window server tells Alt+P from
 // Esc and then p by the bytes, not by time. A character is ESC [ 27 ; 3 ;
@@ -340,6 +413,8 @@ async function poll() {
   const s = await conn.request("status");
   if (s.ok) { pos = { tick: s.tick, round: s.round }; hist = s.history || hist; updateTime(); }
   drawTimeline();
+  if (running) await refreshLs();
+  if (running) await refreshMsgs();
   if (running) setStatus(`running… tick ${pos.tick} · round ${pos.round} · ${s.steps || 0} steps`);
 }
 
@@ -358,6 +433,7 @@ async function refreshAll() {
       updateTime();
       drawTimeline();
       await refreshLs();
+      await refreshMsgs();
       await refreshBps();
       await refreshProv();
     } while (again);
@@ -689,6 +765,7 @@ function setDock(on) {
   if (nav) document.documentElement.style.setProperty("--navh", nav.offsetHeight + 8 + "px");
   xlistKey = "";
   drawTimeline();
+  arrange();
 }
 function niceStep(x) {
   const p = Math.pow(10, Math.floor(Math.log10(Math.max(x, 1e-9))));
@@ -784,12 +861,33 @@ $("slider").addEventListener("input", () => { $("slidepos").textContent = `tick 
 $("slider").addEventListener("change", () => doCmd("goto", { tick: +$("slider").value }));
 
 // ---------------------------------------------------------------- the Local Store map
+// Per core a D-LS and an I-LS bar, and one for T2: how full each piece is
+// (the engine's `changes`: usage per 1/64 of a store), the blocks changed
+// since the last look (bright), and recent transfers' ranges. While the
+// machine runs, poll() redraws it with the rest. A click on a bar shows that
+// store's bytes there (`mem`), changed bytes marked.
+let lsSince = 0, lsView = null, lsPrev = null;
 async function refreshLs() {
-  const r = await conn.request("tags");
+  const [r, ch] = await Promise.all([conn.request("tags"), conn.request("changes", { since: lsSince })]);
+  if (ch.ok) lsSince = ch.version;
   const box = $("lsmap");
   // each bar is its own store's size (the platform's: hello's dls / ils; older engines: 64 KiB)
   const dsz = (hello && hello.dls) || 65536, isz = (hello && hello.ils) || 65536;
   const kib = (n) => (n % 1024 ? (n / 1024).toFixed(1) : n / 1024) + "K";
+  const store = (c, sp) => (ch.ok ? ch.stores.find((t) => t.space === sp && (sp === "t2" || t.core === c)) : null);
+  // usage and changes under the transfers
+  const under = (st) => {
+    if (!st) return "";
+    let s = "";
+    const per = st.unit / ch.blk;
+    st.units.forEach((n, u) => {
+      if (n) s += `<b class="use" style="left:${(u / st.units.length) * 100}%;width:${100 / st.units.length}%;opacity:${(0.25 + 0.75 * n / per).toFixed(2)}"></b>`;
+    });
+    for (const g of st.ranges)
+      s += `<b class="hot" style="left:${(Number(hex(g.addr)) / st.size) * 100}%;width:${(Number(hex(g.len)) / st.size) * 100}%" title="changed: ${h(g.addr)}+${Number(hex(g.len))}${g.sym ? " " + esc(g.sym) : ""}"></b>`;
+    return s;
+  };
+  const used = (st) => (st ? `${kib(st.used)} of ${kib(st.size)} in use` : "");
   let html = '<div class="lsscale"><span></span><div>' + [0, 1, 2, 3, 4].map((q) => `<span>${q ? kib((dsz * q) / 4) : 0}</span>`).join("") +
     "</div></div>";
   for (let c = 0; c < ncores; c++) {
@@ -800,7 +898,7 @@ async function refreshLs() {
     }
     const busyTags = r.ok ? (r.cores.find((k) => k.core === c) || { tags: [] }).tags.filter((t) => t.busy && t.op) : [];
     const bar = (ils) => {
-      let s = "";
+      let s = under(store(c, ils ? "ils" : "dls"));
       for (const e of recent) {
         if ((e.op === "tgetx") !== ils) continue;
         s += lsRange(e.ls, e.len, e.op, `tg${e.tag} ${e.op} ${e.port || e.space + " " + e.far} round ${e.round}`, false, ils ? isz : dsz);
@@ -808,10 +906,54 @@ async function refreshLs() {
       if (!ils) for (const t of busyTags) s += lsRange(t.ls, t.len, t.op, `tg${t.tag} ${t.op} ${t.port || t.space} IN FLIGHT since round ${t.issued}`, true, dsz);
       return s;
     };
-    html += `<div class="lsrow"><span>core ${c}</span><div><div class="lsbar" title="D-LS, ${kib(dsz)}">${bar(false)}</div><div class="lsbar ils" title="I-LS, ${kib(isz)}">${bar(true)}</div></div></div>`;
+    html += `<div class="lsrow"><span>core ${c}</span><div><div class="lsbar" data-core="${c}" data-space="dls" title="D-LS, ${kib(dsz)}: ${used(store(c, "dls"))}">${bar(false)}</div>` +
+      `<div class="lsbar ils" data-core="${c}" data-space="ils" title="I-LS, ${kib(isz)}: ${used(store(c, "ils"))}">${bar(true)}</div></div></div>`;
+  }
+  const t2 = store(0, "t2");
+  if (t2) html += `<div class="lsrow"><span>T2</span><div><div class="lsbar t2" data-core="0" data-space="t2" title="T2, ${kib(t2.size)} (its own scale): ${used(t2)}">${under(t2)}</div></div></div>`;
+  box.innerHTML = html;
+  await refreshLsHex();
+}
+$("lsmap").addEventListener("click", (e) => {
+  const b = e.target.closest(".lsbar[data-space]");
+  if (!b) return;
+  const sz = b.dataset.space === "t2" ? 262144 : b.dataset.space === "ils" ? (hello && hello.ils) || 65536 : (hello && hello.dls) || 65536;
+  const r = b.getBoundingClientRect();
+  const a = Math.floor(Math.max(0, Math.min(0.999, (e.clientX - r.left) / r.width)) * sz) & ~255;
+  lsView = { core: +b.dataset.core, space: b.dataset.space, addr: a };
+  lsPrev = null;
+  refreshLsHex();
+});
+// the bytes of the store last clicked, 256 of them; those that changed since the last look marked
+async function refreshLsHex() {
+  const box = $("lshex");
+  if (!lsView) { box.textContent = "click a bar for its bytes"; return; }
+  const v = lsView, m = await conn.request("mem", { space: v.space, core: v.core, addr: v.addr, len: 256 });
+  if (!m.ok) { box.textContent = m.error; return; }
+  const name = v.space === "t2" ? "T2" : `core ${v.core} ${v.space === "dls" ? "D-LS" : "I-LS"}`;
+  const old = lsPrev && lsPrev.key === `${v.core} ${v.space} ${v.addr}` ? lsPrev.hex : null;
+  let html = `<div class="lshead">${name} ${h(v.addr)}${m.sym ? " &lt;" + esc(m.sym) + "&gt;" : ""} <button data-d="-256">◂</button><button data-d="256">▸</button></div>`;
+  for (let row = 0; row < 16; row++) {
+    html += `<div>${(v.addr + row * 16).toString(16).padStart(5, "0")} `;
+    let txt = "";
+    for (let i = row * 16; i < row * 16 + 16; i++) {
+      const b = m.hex.substr(2 * i, 2), chg = old && old.substr(2 * i, 2) !== b;
+      html += chg ? ` <em>${b}</em>` : b === "00" ? ` <u>${b}</u>` : ` ${b}`;
+      const k = parseInt(b, 16);
+      txt += k >= 32 && k < 127 ? String.fromCharCode(k) : ".";
+    }
+    html += `  ${esc(txt)}</div>`;
   }
   box.innerHTML = html;
+  lsPrev = { key: `${v.core} ${v.space} ${v.addr}`, hex: m.hex };
 }
+$("lshex").addEventListener("click", (e) => {
+  const d = e.target.closest("button[data-d]");
+  if (!d || !lsView) return;
+  const sz = lsView.space === "t2" ? 262144 : 65536;
+  lsView.addr = Math.max(0, Math.min(sz - 256, lsView.addr + +d.dataset.d));
+  refreshLsHex();
+});
 function lsRange(ls, len, op, title, busy, size) {
   const a = Number(hex(ls)), n = Math.max(Number(hex(len)), 1);
   const cls = op === "tput" ? "put" : op === "tgetx" ? "getx" : "get";
@@ -997,6 +1139,121 @@ addEventListener("keydown", (e) => {
 });
 
 // ---------------------------------------------------------------- starting
+// ---------------------------------------------------------------- messages
+// StrataOS's messages (the engine's `msgs`): one row per request, its reply
+// beside it, kept here by sequence number. `since` asks only for what is new
+// or newly answered; the filters are the engine's. Pause holds the rows (the
+// engine goes on recording); a click on a row shows it whole (`msg`); Summary
+// shows `msgstats`.
+const MSG_KEEP = 2000;
+let msgSince = 0, msgRows = new Map(), msgSel = -1, msgPaused = false, msgSum = false;
+function msgFilter() {
+  const f = {}, to = $("mf-server").value, fr = $("mf-from").value.trim(), o = $("mf-op").value.trim();
+  if (to) f.to = to;
+  if (fr) f.from = /^\d+$/.test(fr) ? +fr : fr;
+  if (o) f.op = /^\d+$/.test(o) ? +o : o.toUpperCase();
+  if ($("mf-wait").checked) f.waiting = true;
+  return f;
+}
+const MSG_HEAD = "<tr><th>#</th><th>tick</th><th>from (sender)</th><th>to (receiver)</th><th>op</th><th title=\"handle · length · mode\">h · len · mode</th><th>data</th><th>reply</th><th>reply data</th><th>rt</th></tr>";
+function msgReset() { $("msghead").innerHTML = MSG_HEAD; msgSince = 0; msgRows = new Map(); msgSel = -1; $("msglist").textContent = ""; $("msghex").textContent = ""; }
+async function refreshMsgs() {
+  if (!hello || !hello.msgs || msgPaused || !conn) return;
+  if (msgSum) return refreshMsgSum();
+  const r = await conn.request("msgs", Object.assign({ since: msgSince, max: 500 }, msgFilter()));
+  if (!r.ok) return;
+  if (r.truncated) msgRows = new Map(); // (more than one answer: start from the newest)
+  msgSince = r.version;
+  for (const k of msgRows.keys()) if (k >= r.next) msgRows.delete(k); // (gone back in time)
+  for (const m of r.msgs) msgRows.set(m.seq, m);
+  while (msgRows.size > MSG_KEEP) msgRows.delete(msgRows.keys().next().value);
+  drawMsgs(r);
+}
+// a process as name(pid); a server by its name (bold); the kernel
+const who = (name, pid, kind) => (kind === "name" ? esc(name) : kind === "process" ? esc(name) + `<span class="d">(${pid})</span>` :
+  `<span class="${kind === "kernel" ? "kern" : "srv"}">${esc(name)}</span>`);
+function drawMsgs(r) {
+  const box = $("msgbox"), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+  const rows = [...msgRows.values()].sort((a, b) => a.seq - b.seq);
+  let html = "";
+  for (const m of rows) {
+    const p = m.reply;
+    const att = (a) => (a ? a.map((k) => ` +${k.space} ${h(k.base)}+${h(k.len)}`).join("") : "");
+    const res = !p ? '<td class="wait">waiting</td><td></td><td></td>' :
+      `<td class="${p.result < 0 ? "err" : "k"}" title="${esc(p.error || "")}">${p.result}${p.error ? " " + esc(p.error) : ""}</td>` +
+      `<td title="${esc((p.data || "") + att(p.att))}">${esc(p.data || "")}${esc(att(p.att))}</td><td class="rn" title="${p.rt_rounds} rounds">${p.rt}</td>`;
+    html += `<tr data-seq="${m.seq}"${m.seq === msgSel ? ' class="sel"' : ""}><td class="d">${m.seq}</td><td class="d rn">${m.tick}</td>` +
+      `<td class="who">${who(m.fromname, m.from, m.fromkind)} <span class="d">c${m.fromcore}</span></td><td class="who">→ ${who(m.toname, m.to, m.tokind)} <span class="d">c${m.tocore}</span></td>` +
+      `<td><span class="opn">${esc(m.name || "op")}</span> <span class="d">${m.op}</span></td><td class="d">${m.handle} · ${m.len} · ${m.mode > 0xffff ? h(m.mode) : m.mode}</td>` +
+      `<td title="${esc((m.data || "") + att(m.att))}">${esc(m.data || "")}${esc(att(m.att))}</td>${res}</tr>`;
+  }
+  $("msglist").innerHTML = html;
+  $("msginfo").textContent = `${r.next} messages since power-on${msgPaused ? " · paused" : ""}; a click shows one whole`;
+  if (atEnd) box.scrollTop = box.scrollHeight;
+}
+async function refreshMsgSum() {
+  const r = await conn.request("msgstats", msgFilter());
+  if (!r.ok) return;
+  $("msghead").innerHTML = "<tr><th>from (sender)</th><th>to (receiver)</th><th>op</th><th>sent</th><th>replied</th><th>errors</th><th>average round trip (ticks)</th><th>longest</th></tr>";
+  $("msglist").innerHTML = r.stats.map((s) => `<tr><td class="who">${who(s.from, 0, s.fromkind === "process" ? "name" : s.fromkind)}</td>` +
+    `<td class="who">→ ${who(s.to, 0, s.to === "kernel" ? "kernel" : "server")}</td><td><span class="opn">${esc(s.name || "op")}</span> <span class="d">${s.op}</span></td>` +
+    `<td class="rn">${s.n}</td><td class="rn">${s.replied}</td><td class="rn ${s.errors ? "err" : "d"}">${s.errors}</td>` +
+    `<td class="rn">${s.avg_rt}</td><td class="rn d">${s.max_rt}</td></tr>`).join("");
+  $("msginfo").textContent = `summary of the ${r.next - r.first} messages kept`;
+}
+function hexLines(hx, label) {
+  let s = `<b>${label}</b>\n`;
+  for (let o = 0; o < hx.length / 2; o += 16) {
+    let txt = "";
+    s += `  ${o.toString(16).padStart(4, "0")} `;
+    for (let i = o; i < o + 16; i++) {
+      const b = hx.substr(2 * i, 2);
+      s += b ? " " + b : "   ";
+      if (i === o + 7) s += " ";
+      const k = parseInt(b, 16);
+      if (b) txt += k >= 32 && k < 127 ? String.fromCharCode(k) : ".";
+    }
+    s += "  " + esc(txt) + (o === 48 ? "   ← header: op handle length mode result pid; data from 0x40" : "") + "\n";
+  }
+  return s;
+}
+async function showMsg(seq) {
+  msgSel = seq;
+  for (const tr of $("msglist").querySelectorAll("tr")) tr.classList.toggle("sel", +tr.dataset.seq === seq);
+  const r = await conn.request("msg", { seq });
+  if (!r.ok) { $("msghex").textContent = r.error; return; }
+  const m = r.msg, p = m.reply;
+  const caps = (a) => (a || []).map((k) => `  attached: ${k.space} ${h(k.base)}+${h(k.len)} ${k.perms}${k.id ? " #" + k.id : ""}\n`).join("");
+  const party = (name, pid, kind) => (kind === "process" ? `${esc(name)}(${pid})` : kind === "kernel" ? "the kernel" : `the server ${esc(name)}`);
+  let s = `#${m.seq}  ${party(m.fromname, m.from, m.fromkind)} on core ${m.fromcore} → ${party(m.toname, m.to, m.tokind)} on core ${m.tocore}: ${esc(m.name || "op")} ${m.op}` +
+    `  handle ${m.handle} length ${m.len} mode ${m.mode}  buffer t3 ${m.buf}\n  tick ${m.tick} · round ${m.round} · ${esc(m.data || "")}\n` + caps(m.att);
+  s += hexLines(m.hex || "", `request (${m.bytes} data bytes)`);
+  if (p) {
+    s += `\nreply ${p.result}${p.error ? " (" + esc(p.error) + ")" : ""} from ${esc(p.proc)}(${p.pid}) on core ${p.core} · tick ${p.tick} · ${p.rt} ticks, ${p.rt_rounds} rounds later  ${esc(p.data || "")}\n` + caps(p.att);
+    s += hexLines(p.hex || "", `reply (${p.bytes} data bytes)`);
+  } else s += "\nno reply yet\n";
+  $("msghex").innerHTML = s;
+}
+$("msglist").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-seq]");
+  if (tr) showMsg(+tr.dataset.seq);
+});
+$("msgfilt").addEventListener("input", () => { msgReset(); refreshMsgs(); });
+$("msgfilt").addEventListener("submit", (e) => e.preventDefault());
+$("msg-pause").addEventListener("click", () => {
+  msgPaused = !msgPaused;
+  $("msg-pause").classList.toggle("on", msgPaused);
+  $("msg-pause").textContent = msgPaused ? "▶ Resume" : "❚❚ Pause";
+  if (!msgPaused) refreshMsgs();
+  else $("msginfo").textContent += " · paused";
+});
+$("msg-sum").addEventListener("click", () => {
+  msgSum = !msgSum;
+  $("msg-sum").classList.toggle("on", msgSum);
+  msgReset();
+  refreshMsgs();
+});
+
 async function fetchBytes(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error("cannot fetch " + url);
@@ -1017,6 +1274,7 @@ async function loadOs() {
   const files = await Promise.all([
     get("/os/bootrom.stx", "../play/images/bootrom.stx"), get("/disk.img", "../play/images/disk.img"),
     get("/os/bootrom.map", ASSETS + "os/bootrom.map"), get("/os/kernel.map", ASSETS + "os/kernel.map"),
+    get("/os/msgops.txt", ASSETS + "os/msgops.txt").catch(() => ({ path: "/os/msgops.txt", data: new ArrayBuffer(0) })),
     ...progs.map((n) => get("/os/prog/" + n + ".map", ASSETS + "os/prog/" + n + ".map"))]);
   const c = new WorkerConn();
   c.onEvent = onEvent;
@@ -1063,6 +1321,7 @@ async function connectWs(url) {
 function reset() {
   hello = null; ncores = 0; cur = 0; running = false; done = false; stopEv = null;
   evs = []; evNext = 0; hist = null; prevX = []; lastX = [];
+  msgReset();
   term.reset(); $("chain").textContent = ""; $("prov").textContent = "";
   $("screen-panel").classList.add("collapsed"); $("geom").textContent = "opens when the program draws";
   clearInterval(poller); poller = 0;
@@ -1073,6 +1332,7 @@ async function connected() {
   hello = await conn.request("hello");
   ncores = hello.ncores;
   $("osrun-wrap").hidden = $("osstop-wrap").hidden = !hello.os;
+  $("msgs-panel").hidden = !hello.msgs;
   const cs = await conn.request("cores");
   stopEv = { ev: hello.state === "done" ? "done" : "stopped", reason: hello.state === "running" ? "running" : "at the start", tick: cs.tick, round: cs.round, cores: cs.cores };
   if (hello.state === "done") { // (an engine whose machine stopped before this page connected)

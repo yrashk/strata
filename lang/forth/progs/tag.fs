@@ -9,28 +9,29 @@
 [defined] sys.fs 0= [if] include /sys.fs [then]
 
 variable mode                                   \ 0 tag, 1 untag, 2 retag
-2variable file  2variable given  variable #old
-create tagb 64 32 * allot                       \ retag: the file's tags before
+2variable file  2variable tags                  \ the arguments (the tags as written)
+create tbuf 520 allot  variable #tbuf           \ the tags' names, each followed by a zero
+: tbuf-end ( -- a ) tbuf #tbuf @ + ;
+: +name ( a u -- ) tbuf-end swap dup #tbuf +! move  0 tbuf-end c!  1 #tbuf +! ;
 : tag-use ( -- ) s" usage: tag FILE TAG... / untag FILE TAG... / retag FILE [TAG...]" usage ;
-: no-file ( -- ) s" tag: no such file: " +e file 2@ +e e! 1 stop ;
-: old-tag ( i -- a u ) 32 * tagb + 16 zlen ;
-: among? ( a u -- f )                           \ is the tag one of those given?
-  2>r given 2@ begin arg dup while 2r@ str= if 2drop 2r> 2drop true exit then repeat
-  2drop 2drop 2r> 2drop false ;
-: tag-main ( a u -- )
-  arg dup 0= if tag-use then file 2!  2dup given 2!
-  mode @ 2 = if file 2@ tagb tags-of dup 0< if drop no-file then #old !
-  else 2dup arg nip nip nip 0= if tag-use then then
-  begin arg dup while                           ( rest u tag u2 )
-    file 2@ 2over mode @ 1 = if 13 else 12 then fs-2path dup 0< if
-      -4 = if no-file then  s" tag: cannot tag " +e file 2@ +e s"  with " +e 2dup +e e! 1 status !
-    else drop then 2drop
-  repeat 2drop 2drop
-  mode @ 2 = if #old @ 0 ?do i old-tag among? 0= if file 2@ i old-tag 13 fs-2path drop then loop then ;
+: tag-arg ( a u -- rest u' word u2 ) arg dup 0= if tag-use then ;
+: no-tags? ( a u -- f ) arg nip nip nip 0= ;
+: request ( -- op ) mode @ 1 = if op-untag else op-tag then ;
+: tag-fail ( err -- )
+  -4 = if s" tag: no such file: " +e file 2@ +e
+  else s" tag: cannot tag " +e file 2@ +e s"  with " +e tags 2@ +e then  e! 1 status ! ;
+: tag-main ( a u -- )                           \ all the tags in one request: the file moves once, into the
+  0 #tbuf !  tag-arg file 2!                    \ directory of its tags and these (untag: without these;
+  mode @ 2 = if s" /" +name                     \ retag: of exactly these: a first name "/" empties the set)
+  else 2dup no-tags? if tag-use then then
+  bl skip 2dup tags 2!
+  begin arg dup while +name repeat 2drop 2drop
+  file 2@ tbuf #tbuf @ request fs-2path  dup 0< if tag-fail else drop then ;
 : by-name ( a u -- )                            \ the mode from the name started by
   last/ 2dup s" untag.fs" str= if 2drop 1 mode ! exit then
   s" retag.fs" str= if 2 mode ! else 0 mode ! then ;
-32 kvar cell+ @ [if] 32 kvar 2@ swap arg 2drop arg by-name 2drop [then]
-: untag ( "args" -- ) 1 mode ! 0 parse bl skip ['] tag-main run 0 mode ! ;
-: retag ( "args" -- ) 2 mode ! 0 parse bl skip ['] tag-main run 0 mode ! ;
+cmdline nip [if] cmdline arg 2drop arg by-name 2drop [then]
+: with-mode ( n "args" -- ) mode !  0 parse bl skip ['] tag-main run  0 mode ! ;
+: untag ( "args" -- ) 1 with-mode ;
+: retag ( "args" -- ) 2 with-mode ;
 ' tag-main main: tag

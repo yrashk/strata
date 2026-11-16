@@ -1,0 +1,8 @@
+-m 4 stralog -g iso(1,8) /stralog/iso/iso_run
+-m 4 stralog -g iso(9,16) /stralog/iso/iso_run
+-m 4 stralog -g iso(17,24) /stralog/iso/iso_run
+-m 4 stralog -g iso(25,32) /stralog/iso/iso_run
+-m 4 stralog -g iso(33,40) /stralog/iso/iso_run
+-m 4 stralog -g iso(41,48) /stralog/iso/iso_run
+-m 4 stralog -g iso(49,56) /stralog/iso/iso_run
+halt

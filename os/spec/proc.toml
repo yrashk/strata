@@ -1,0 +1,403 @@
+# proc: the messages of os/servers/proc.s (format: os/spec/README.md)
+
+[server]
+key = "proc"
+title = "proc"
+role = "processes and names"
+does = "the process server: spawning, the process tree, exit statuses, WAIT and KILL, interrupts, the name registry. It is the endpoint every process is born with, and it holds the kernel's endpoint"
+reached = "c1 of every process"
+start = "kernel"
+pid = 1
+place = { core = 1, index = 0, alone = "yes" }
+holds = "the kernel's endpoint (c1); endpoints to fs, tty and pipe; may mint endpoints in a REPLY"
+sources = ["os/servers/proc.s"]
+dispatch = { file = "os/servers/proc.s", first = "^lp_proc:", last = "^\\s*li\\s+a0,\\s*-1\\s*;\\s*unknown" }
+calls = "message"
+note = """pid 1, made first by the kernel. It is the only process that asks the kernel to create and \
+destroy processes. It keeps the process tree (64 records), exit statuses, interrupt flags and the \
+name registry (8 names: proc, dev, fs, tty and pipe take five; blk (pid 4) and db (pid 5), made by the \
+kernel, are in the table but not the registry). At start it spawns tty, pipe and \
+the login shell (`/bin/sh -l`, started again whenever it ends). Pids are 4..239, given round robin; \
+240..255 are guest ids. A request that needs the kernel or another server waits parked in the \
+kernel meanwhile. From the kernel (sender pid 0) proc takes only op 7, EXITED."""
+
+[[op]]
+num = 5
+name = "SPAWN"
+summary = "Start a program"
+note = """The program is the command's first word (1..24 bytes): a path, or a name looked for in the \
+caller's current directory, then in `/bin`, then in `/sys`; when it is found in `/bin` or `/sys` \
+that path becomes the command's first word. proc gets an arena from the kernel (MEMORY), writes the \
+start-up block into it (pid, parent, the three descriptors, the command), has fs load the image \
+(LOADIMG), tells fs the child starts in the caller's tag path (CWD mode 2), sends DUPS to fs, tty \
+and pipe for the handles passed, and asks the kernel to CREATE the process. The caller is the \
+child's parent. A command whose first word is exactly `ws` is made the server of the lowest empty \
+core, a busy one (CREATE flag bit 14: its clients, `term`, are placed on other cores); exactly `net`, the server of the lowest empty core and alone on it (proc keeps the endpoint \
+CREATE gives it, parked in the kernel, to send it CANCEL and CLEANUP; with no room to park it, \
+that net is stopped again and SPAWN answers −7). Both stay ordinary \
+children (WAIT, KILL and Ctrl-C work) and may REGISTER. A bare-metal image (no "SYS2" marker) runs \
+as N threads, one on each of N contiguous cores without a server (N = 1 if the thread count is 0); a file as its handle 0 is copied \
+into its arena first (fs READALL to 0x80000, a0 = its length), and a file as its handle 1 gets its \
+output at exit (0xC0000, as many bytes as the exit code, at most 64 KiB; the status becomes 0)."""
+
+[op.request]
+length = "the command's bytes (at most 440 are used)"
+mode = """bit 0: the child gets no endpoints at all (c1..c4 empty: not even proc's), a sandbox; \
+bit 1: pin the first thread to core `(mode >> 8) & 255` (not core 0); bits 16..23: the arena's \
+size in MiB (0: 1 MiB)"""
+data = [
+  { type = "u64", name = "thread count", note = "0: one time-shared thread; N (1..6): N threads, one on each of N contiguous cores without a server (other processes may share them)" },
+  { type = "u64", name = "descriptor of the child's handle 0", note = "server register << 32 | the server's id (2 fs, 3 tty, 4 pipe); -1 none" },
+  { type = "u64", name = "descriptor of the child's handle 1", note = "the same" },
+  { type = "u64", name = "descriptor of the child's handle 2", note = "the same" },
+  { type = "bytes", name = "the command", note = "\"prog args\": the program, then its arguments; `sys_spawn` adds a 0 byte, which proc does not need" },
+]
+
+[op.reply]
+result = "the child's pid (4..239)"
+
+[op.errors]
+"-4" = "no such program, or the first word is empty or longer than 24 bytes"
+"-5" = "no room: more than 6 threads, no run of N cores without a server that each take one more thread, the pinned core is 0 or has no room, or no empty core for `ws` or `net`"
+"-6" = "no memory or no arena slot for the arena, or no free pid or process record"
+"-1" = "the file is not a program the kernel can run, or it is larger than 128 KiB"
+"-7" = "the kernel has no room to park the request"
+
+[[op]]
+num = 6
+name = "WAIT"
+summary = "Wait for a child to end"
+note = """A finished child's record is freed when its status is read. The status is bits 0..31 the \
+exit code, bit 62 killed, bit 63 faulted (the cause in bits 0..7): read the result as unsigned \
+when bit 63 can be set. A child whose parent ended has no parent; its status is discarded. A \
+pending interrupt (SIGNAL to a process that catches them) is consumed by the next WAIT that finds a \
+matching child still running, with or without mode bit 0."""
+
+[op.request]
+handle = "the child's pid; 0: any child"
+mode = "bit 0: do not block"
+
+[op.reply]
+result = "the child's exit status"
+data = [{ type = "u64", name = "the child's pid" }]
+
+[op.errors]
+"-1" = "no such child of the caller"
+"-2" = "an interrupt was pending, or came while waiting"
+"-3" = "the child is still running, with mode bit 0"
+"-7" = "a WAIT of the caller is already waiting, or the kernel has no room to park the request"
+
+[[op]]
+num = 7
+name = "KILL"
+summary = "Stop a process"
+note = """proc asks the kernel to DESTROY it: its arena is revoked, and the kernel's EXITED gives it \
+status bit 62. Any process may kill any other but proc, dev, fs, blk and db (pids 1..5)."""
+
+[op.request]
+handle = "the pid"
+
+[op.reply]
+result = "0: stopped, or it had already ended"
+
+[op.errors]
+"-1" = "pid 0..3, no such process, or the kernel no longer knows it (it has ended and its EXITED is not handled yet)"
+"-7" = "the kernel has no room to park the request"
+
+[[op]]
+num = 9
+name = "PS"
+summary = "The processes"
+note = """One record per process the kernel knows, then one per finished child that proc keeps for \
+its parent's WAIT; 64 records at most. The state: the kernel's, read as 1 running (its core runs \
+it now), 2 ready (or loading), 3 blocked, 4 ended. A finished child's record has its first core, \
+its parent and its name, and 0 for the rest."""
+
+[op.request]
+
+[op.reply]
+result = "the number of records (32 bytes each)"
+data = [
+  { repeat = "per process", fields = [
+    { type = "u8", name = "pid" },
+    { type = "u8", name = "state", note = "1 running, 2 ready, 3 blocked, 4 ended (a zombie)" },
+    { type = "u8", name = "core", note = "its first core" },
+    { type = "u8", name = "parent", note = "0 none" },
+    { type = "u8", name = "flags", note = "2: a server" },
+    { type = "u8", name = "threads", note = "the kernel's thread count" },
+    { type = "u16", name = "0" },
+    { type = "u32", name = "switches", note = "context switches of it" },
+    { type = "u32", name = "KiB moved", note = "by those switches" },
+    { type = "u64", name = "name", note = "the program's name after its last \"/\", its first 8 bytes, zero-padded" },
+    { type = "u64", name = "0" },
+  ] },
+]
+
+[op.errors]
+"-7" = "the kernel has no room to park the request"
+
+[[op]]
+num = 16
+name = "INFO"
+summary = "A summary of the system"
+
+[op.request]
+
+[op.reply]
+result = "0"
+data = [
+  { type = "u64", name = "cores" },
+  { type = "u64", name = "free heap", note = "bytes of the arena pool not in use" },
+  { type = "u64", name = "total heap", note = "bytes of the arena pool" },
+  { type = "u64", name = "processes", note = "the kernel's" },
+  { type = "u64", name = "kernel unit loads", note = "times the kernel paged a code unit in, since boot" },
+  { type = "u64", name = "context switches", note = "on all cores, since boot" },
+  { type = "u64", name = "KiB moved", note = "by those switches" },
+  { type = "u64", name = "0" },
+]
+
+[op.errors]
+"-7" = "the kernel has no room to park the request"
+
+[[op]]
+num = 17
+name = "SIGNAL"
+summary = "Interrupt a process (Ctrl-C)"
+note = """A process that catches interrupts (CATCH 1) is interrupted: its WAIT at proc is answered −2 \
+(or the interrupt is kept for its next WAIT), proc sends CANCEL for it to tty, pipe and net \
+(their waiting requests answer −2), and the kernel notifies it (bit 0: a sleep ends). Any other process is \
+killed as by KILL, except a server that proc started at boot (tty, pipe) and pids 1..5."""
+
+[op.request]
+handle = "the pid"
+
+[op.reply]
+result = "0: interrupted, killed, or it had already ended"
+
+[op.errors]
+"-1" = "no such process, or it may not be killed (pids 1..5, tty, pipe) and does not catch interrupts, or the kernel no longer knows it"
+"-7" = "the kernel has no room to park the request"
+
+[[op]]
+num = 22
+name = "CATCH"
+summary = "Catch interrupts, or be killed by them"
+
+[op.request]
+handle = "not 0: catch them (SIGNAL interrupts the caller); 0: SIGNAL kills it (the default)"
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "the caller is not in proc's table"
+
+[[op]]
+num = 25
+name = "LOOKUP"
+summary = "An endpoint to a server, by name"
+note = """The registered names: proc, dev, fs, tty, pipe from boot, and what servers REGISTER (`ws`, \
+`net`). The endpoint names the core the name was registered with; `sys_lookup` moves it from c6 \
+to the register the caller asks for."""
+
+[op.request]
+length = "the name's bytes (1..8)"
+data = [{ type = "bytes", name = "the name" }]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "a send-only endpoint to the server's core, minted with the reply" }
+
+[op.errors]
+"-4" = "no such name, or a length of 0 or more than 8"
+
+[[op]]
+num = 29
+name = "REGISTER"
+summary = "Give a name to the caller's core"
+note = """Requests sent to the name reach the caller's core, so it is for a process that is its \
+core's server. The entry leaves the registry when the process ends. A process may hold several \
+names, and register a name it holds again. Mode 1 is for net, at the end of its start: it makes \
+no more calls to proc, which from then on sends it CANCEL and CLEANUP."""
+
+[op.request]
+length = "the name's bytes (1..8)"
+mode = "bit 0: net only: it is ready for CANCEL and CLEANUP"
+data = [{ type = "bytes", name = "the name" }]
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "a length of 0 or more than 8, or the caller is not in proc's table"
+"-5" = "the caller may not register: only a process made its core's server may (tty and pipe, and `ws` and `net` started with SPAWN); not proc, dev or fs, nor any other program. Mode bit 0 from any process but the net whose endpoint proc keeps"
+"-6" = "the registry is full (8 names)"
+"-7" = "another process holds the name"
+
+[[op]]
+num = 30
+name = "SCHED"
+summary = "The time slice and the switch rates; set the slice"
+note = "The rates are since the last SCHED read by any process."
+
+[op.request]
+handle = "0: read; not 0: set"
+length = "set: the new time slice in ticks (100..100000; 1 tick = 1 microsecond)"
+
+[op.reply]
+result = "0"
+data = [
+  { type = "u64", name = "time slice", note = "in ticks, as last set" },
+  { type = "u64", name = "switches per second", note = "all cores" },
+  { type = "u64", name = "KiB moved per second", note = "by those switches" },
+]
+
+[op.errors]
+"-1" = "set: the slice is out of range (the kernel's TUNE)"
+"-7" = "the kernel has no room to park the request"
+
+[[op]]
+num = 31
+name = "CORES"
+summary = "What every core is doing"
+
+[op.request]
+
+[op.reply]
+result = "the number of cores (one 32-byte record each)"
+data = [
+  { repeat = "per core", fields = [
+    { type = "u8", name = "core" },
+    { type = "u8", name = "pid running", note = "0 none" },
+    { type = "u8", name = "runnable", note = "threads ready to run there" },
+    { type = "u8", name = "processes", note = "threads placed there" },
+    { type = "u8", name = "flags", note = "2 a server, 4 alone (solo), 8 a guest's core" },
+    { type = "u8", name = "free save-table slots" },
+    { type = "u16", name = "0" },
+    { type = "u32", name = "switches" },
+    { type = "u32", name = "KiB moved", note = "by those switches" },
+    { type = "u32", name = "cycles per switch", note = "the dispatcher's, from deciding to switch to having issued the restore" },
+    { type = "u32", name = "cycles per trap", note = "trap entry to eret, idle time not counted" },
+    { type = "u64", name = "0" },
+  ] },
+]
+
+[op.errors]
+"-7" = "the kernel has no room to park the request"
+
+[[op]]
+num = 39
+name = "WHOIS"
+summary = "The pid registered under a name"
+note = "dev asks it before GRANT_FB (\"ws\") and GETNET (\"net\")."
+
+[op.request]
+length = "the name's bytes (1..8)"
+data = [{ type = "bytes", name = "the name" }]
+
+[op.reply]
+result = "the pid; 0 for a server started at boot (proc, dev, fs, tty, pipe)"
+
+[op.errors]
+"-4" = "no such name, or a length of 0 or more than 8"
+
+[[op]]
+num = 40
+name = "GUEST"
+summary = "Start a guest OS on whole cores"
+note = """proc gets an arena from the kernel (MEMORY), has fs load the image into its top 256 KiB \
+(LOADIMG; 2 MiB with a pool), and asks the kernel to start the guest (GSTART) on a run of free \
+cores, with tty as its console. Any process may ask."""
+
+[op.request]
+data = [
+  { type = "u64", name = "cores", note = "bits 0..7, 0: 1; bit 16 (guest -p): a pool, for a guest StrataOS (GSTART flags bit 0)" },
+  { type = "u64", name = "arena MiB", note = "less than 2: 2" },
+  { type = "text", name = "the guest image's path", note = "up to 240 bytes; the header's length is not used" },
+]
+
+[op.reply]
+result = "0"
+data = [
+  { type = "u64", name = "guest id", note = "240..243" },
+  { type = "u64", name = "first core" },
+]
+
+[op.errors]
+"-6" = "no memory for the arena"
+"-4" = "no such image (fs LOADIMG)"
+"-1" = "the image is larger than 256 KiB (fs LOADIMG), or the kernel found the arena bad"
+"-5" = "the kernel refused: no run of that many free worker cores, or four guests already"
+"-7" = "the kernel has no room to park the request"
+
+[[op]]
+num = 41
+name = "GUESTSTOP"
+summary = "Stop a guest"
+note = "The kernel revokes the guest's arena and resets its cores, which are StrataOS's again; proc then sends CLEANUP for the guest's id to tty (the console comes back if the guest had it)."
+
+[op.request]
+handle = "the guest id"
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "no such guest"
+"-7" = "the kernel has no room to park the request"
+
+[[op]]
+num = 42
+name = "GUESTS"
+summary = "The guests"
+
+[op.request]
+
+[op.reply]
+result = "the number of guests (32 bytes each)"
+data = [
+  { repeat = "per guest", fields = [
+    { type = "u64", name = "guest id" },
+    { type = "u64", name = "first core | cores << 8" },
+    { type = "u64", name = "arena bytes" },
+    { type = "u64", name = "state", note = "1 live" },
+  ] },
+]
+
+[op.errors]
+"-7" = "the kernel has no room to park the request"
+
+[[op]]
+num = 43
+name = "MORE"
+summary = "An extra arena for the caller"
+note = """Far memory beyond the arena a program is born with (`sys_more`). The kernel keeps it as the \
+caller's (MEMORY mode 1): it is revoked and freed when the caller ends, unless LESS gave it back \
+first. The caller's c6 must be empty."""
+
+[op.request]
+handle = "the bytes wanted (rounded up to whole 256 KiB granules, 1 MiB at least; 0: 1 MiB)"
+
+[op.reply]
+result = "0"
+data = [{ type = "u64", name = "the arena's size in bytes" }]
+attachments = { c6 = "the extra arena, zeroed" }
+
+[op.errors]
+"-6" = "no memory, or every arena slot is in use"
+"-7" = "the kernel has no room to park the request"
+
+[[op]]
+num = 44
+name = "LESS"
+summary = "Give an extra arena back"
+note = "`sys_less`. The kernel revokes it (everything cut from it dies) and frees its memory."
+
+[op.request]
+attachment = "the extra arena, whole, as MORE gave it"
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "no attachment, or not a whole arena the kernel gave out (the capability is dropped all the same)"

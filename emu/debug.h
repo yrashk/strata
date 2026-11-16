@@ -4,7 +4,7 @@
  * `dbg_on`, which only --debug sets: without it the emulator runs exactly
  * as it always has (the same code paths, the fast loop and the JITs), and
  * each hook costs one predictable branch on a path that is not hot (a far
- * write, a trap, a console byte, a disk write).
+ * write, a trap, a console byte, a disk write, a capability given).
  *
  * The engine observes everything else from outside step(): it decodes the
  * instruction a core is about to execute and compares the core before and
@@ -19,5 +19,6 @@ static void dbg_disk_written(uint64_t off, uint64_t len);  /* the block device w
 static void dbg_trap(Core *c, int cause, uint64_t tval);   /* a trap is being taken */
 static void dbg_con_out(uint8_t b);                  /* a console output byte (instead of stdout) */
 static void dbg_core_reset(Core *c);                 /* a core-control reset request restarted core c */
+static void dbg_inbox(const Core *dst, const Cap *k, int from); /* core `from` put k into dst's inbox */
 
 #endif

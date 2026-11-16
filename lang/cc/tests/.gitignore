@@ -1,0 +1,4 @@
+optional/
+out/
+# the expected output of the ladder tests is kept (the top .gitignore has *.out)
+!ladder/**/*.out

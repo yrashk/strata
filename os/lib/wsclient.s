@@ -73,7 +73,8 @@ wc_size:                                ; routine entry
         ret                             ; done
 
 ; wc_open(a0 = title: 8 bytes, NUL-padded; a1 = flags: bit 0 = the server
-; interrupts us (SIGNAL) when events wait and we are not in wc_event)
+; interrupts us (SIGNAL) when events wait and we are not in wc_event; bit 1
+; = the pointer's moves come with no button held too)
 ; -> a0 = the window's id, or < 0 (-4: no window server)
 wc_open:                                ; routine entry
         addi  sp, sp, -24               ; frame

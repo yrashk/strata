@@ -1,0 +1,44 @@
+Acc
+Acc>>add:
+Acc>>n
+7
+Acc2
+Acc2>>add:
+50
+Acc
+Acc2 class
+true
+true
+false
+Integer>>down
+50
+200
+1000
+'overflow'
+5000
+Object>>twice:
+#(1 2)
+Object>>findFirst:
+3
+Object>>escaper
+'cannot return'
+'compile error'
+'compile error 2'
+#(1 #(2 3) $a 's' #sym #foo:bar: #+ nil true)
+#(2 6 #[1 2])
+260
+7
+30
+OrderedCollection (1 2)
+1
+#n
+Acc
+2
+#('n' 'm')
+Acc
+'line 1: a digit too big for the radix'
+'line 1: a radix is 2 to 36'
+260
+'too many literals'
+692
+true

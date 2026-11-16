@@ -1,0 +1,26 @@
+# strata_top's inboxes and revocation walker (formal/props/strata_top.svh),
+# two cores; the cores, devices, memories and bus are cut out.
+#   prove  all properties, by induction
+#   cover  the properties are not vacuous
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+prove: depth 3
+cover: mode cover
+cover: depth 40
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -formal -sv strata.v
+chparam -set NCORES 2 -set DLS_KIB 4 -set ILS_KIB 4 strata_top
+hierarchy -top strata_top
+cutpoint */t:*strata_core* */t:*strata_dev* */t:*strata_mem* */t:*strata_bus*
+prep
+
+[files]
+formal/build/strata.v

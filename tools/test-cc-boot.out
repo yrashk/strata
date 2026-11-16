@@ -1,0 +1,17 @@
+strata$ cc0 -p -h 0 -o cc1 /src/cc.c; echo status $?
+status 0
+strata$ cc1 -p -h 0 -o c2 /src/cc.c; echo status $?
+status 0
+strata$ c2 -p -h 0 -o c3 /src/cc.c; echo status $?
+status 0
+strata$ cc -o cmp /src/cmp.c
+strata$ cmp c2 c3
+c2 c3: same
+strata$ cmp c2.u c3.u
+c2.u c3.u: same
+strata$ cmp c2 /bin/cc
+c2 /bin/cc: same
+strata$ cmp c2.u /bin/cc.u
+c2.u /bin/cc.u: same
+strata$ halt
+StrataOS: all cores halted

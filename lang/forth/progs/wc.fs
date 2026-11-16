@@ -4,12 +4,16 @@
 \ Lines are read as wc.s reads them (up to 255 bytes each: the rest is not counted).
 [defined] sys.fs 0= [if] include /sys.fs [then]
 
-create ln 256 allot
+255 constant /line
+create ln /line 1+ allot
 variable #l  variable #w  variable #b
+: blank? ( c -- f ) dup bl = swap 9 = or ;      \ a space or a tab
 : words+ ( a u -- )                             \ count the words of a line
-  0 -rot bounds ?do  i c@ dup bl = swap 9 = or if drop 0 else 0= if 1 #w +! then -1 then  loop drop ;
+  false -rot bounds ?do                         ( in-a-word? )
+    i c@ blank? if drop false else 0= if 1 #w +! then true then
+  loop drop ;
 : wc-main ( a u -- )
   2drop 0 #l ! 0 #w ! 0 #b !
-  begin ln 255 in-line dup 0< 0= while  1 #l +!  dup 1+ #b +!  ln swap words+ repeat drop
+  begin ln /line in-line dup 0< 0= while  1 #l +!  dup 1+ #b +!  ln swap words+  repeat drop
   #l @ .u space #w @ .u space #b @ .u cr ;
 ' wc-main main: wc

@@ -150,8 +150,19 @@ each core's transfers in order at the target and makes atomics trivially lineari
 has a fixed start-up latency per burst (by default 20 cycles for T3 and 4 for T2) and then delivers one
 beat per cycle; an atomic is a read-modify-write of one word. A device with nothing to deliver yet
 (console input with no byte pending, the break port, WAIT before the deadline, VSYNC before the next
-refresh) answers \emph{retry} before any data, so a pending device read does not hold the bus: the TU
-tries it again later, and the rest of the machine runs meanwhile.
+refresh, EVENT with no event, RX with no packet) answers \emph{retry} before any data, so a pending
+device read does not hold the bus, and the rest of the machine runs meanwhile. The TU then
+\emph{parks} the read: it does not ask for the bus for it again until device space raises the core's
+\emph{wake} line. Device space keeps, per core and per port, whether a read has been tried and waits,
+and raises a core's wake line (registered, one cycle later) while one of its waiting reads would
+complete if tried now: a byte or a Ctrl-C has arrived, the release or cancel port has been written, NOW
+has reached DEADLINE, a refresh has passed, an event or a packet is queued. A wake unparks every parked
+read of that core; each is tried once more, and one that finds nothing (another core took the byte,
+DEADLINE was moved) is answered \emph{retry} and parked again. A parked read that has not moved a byte
+is rotated behind the core's other queued transfers, which go on in the meantime (a command whose
+D-LS range overlaps it is not issued while it waits, invariant I1). So a read that waits, such as the
+break read that is pending for the whole life of a terminal, costs one bus transaction per attempt
+that can succeed instead of one every few cycles, and bus occupancy measures transfers, not polling.
 
 \subsection{Revocation granules and core control}
 The granule table (a 16-bit generation and a head bit for each of the 256 granules of T3 and the one of
@@ -176,8 +187,8 @@ writes with bit~0 set.
 \subsection{Devices}
 Device space contains the UART console, the platform table ROM, block device 0, the timer and the
 framebuffer controller. A read of the console break port answers \emph{retry} until a Ctrl-C is counted
-or the release port is written while it waits, so a pending break read occupies its tag but never the
-bus. The device keeps one waiting bit and one released bit per core, so that one write to the release
+or the release port is written while it waits, so a pending break read occupies its tag but, parked
+until one of those happens, never the bus. The device keeps one waiting bit and one released bit per core, so that one write to the release
 port completes the break reads of all cores. The timer is a 64-bit counter of clock cycles divided by
 the parameter \texttt{CLK\_MHZ}; in simulation the harness can supply host time instead. NOW and
 DEADLINE are latched at byte 0 of a read and DEADLINE is committed at byte 7 of a write. The

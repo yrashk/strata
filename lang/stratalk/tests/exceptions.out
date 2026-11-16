@@ -1,0 +1,45 @@
+ZeroDivide
+7
+42
+'after'
+'resumed'
+#foo
+#(1 2)
+3
+'nil does not understand #foo'
+'out'
+SubscriptOutOfBounds
+'no key'
+'boom'
+'right'
+'outer'
+'passed'
+'resignalled'
+'outer resumed'
+'set'
+'set2'
+OrderedCollection (1 2)
+OrderedCollection (1 3 2)
+OrderedCollection (1 3 2)
+OrderedCollection (1)
+#(10 OrderedCollection (1 2))
+3
+OrderedCollection (#h #a #b)
+'unwound'
+'wrong arity'
+'outer/inner'
+true
+'Error'
+'store out'
+'literal'
+'literal string'
+'zbc'
+3
+'not boolean'
+5
+'#+ takes 1 argument(s), not 0'
+'#negated takes 0 argument(s), not 1'
+true
+15
+3
+'no VM counter named ''nonsense'''

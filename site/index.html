@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Strata — memory is explicit I/O</title>
-<meta name="description" content="Strata is a prototype 64-bit instruction set where memory is explicit I/O, caches are software, capabilities name everything, and there are no interrupts. With a Verilog implementation, an emulator, StrataOS and a native-code Forth.">
+<meta name="description" content="Strata is a prototype 64-bit instruction set where memory is explicit I/O, caches are software, capabilities name everything, and there are no interrupts. With a Verilog implementation and an emulator that run in the browser, the StrataOS microkernel, and four languages: Forth, Stratalk (a Smalltalk), Stralog (a Prolog) and a self-hosting C compiler.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="icon" href="favicon.ico" sizes="32x32">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=__BUILD__">
 <link rel="stylesheet" href="hl.css?v=__BUILD__">
 </head>
 <body>
@@ -21,11 +21,19 @@
   <div class="links">
     <a href="#idea">Idea</a>
     <a href="#tiers">Tiers</a>
-    <a href="#os">StrataOS</a>
     <a href="#build">Build</a>
     <a href="arch/">Architecture</a>
     <a href="isa/">Instructions</a>
-    <a href="forth/">Forth</a>
+    <a href="os/">OS</a>
+    <div class="menu">
+      <span class="menu-btn" tabindex="0" aria-haspopup="true">Languages</span>
+      <div class="drop">
+        <a href="forth/">Forth</a>
+        <a href="stratalk/">Stratalk</a>
+        <a href="stralog/">Stralog</a>
+        <a href="c/">C</a>
+      </div>
+    </div>
     <a href="hardware/">Hardware</a>
     <a href="play/">Play</a>
     <a href="debug/">Debug</a>
@@ -34,6 +42,7 @@
     <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
   </div>
 </nav>
+<script src="nav.js?v=__BUILD__" defer></script>
 
 <header class="hero">
   <div class="bands" aria-hidden="true">
@@ -42,21 +51,33 @@
   <div class="hero-text">
     <p class="kicker">A prototype 64-bit instruction set architecture</p>
     <h1>STRATA</h1>
-    <p class="lede">Memory is explicit I/O. Every storage tier is visible to software.
-      Capabilities name everything. There are no interrupts.</p>
+    <p class="tagline">Memory is explicit I/O.</p>
+    <p class="lede">Every storage tier is visible to software, capabilities name everything, and
+      there are no interrupts. Its emulator and its RTL both run in your browser, with a microkernel
+      OS, four languages and games on top.</p>
     <div class="cta">
-      <a class="btn" href="play/">Try it in your browser</a>
-      <a class="btn ghost" href="Strata-Architecture-Reference-Manual.pdf">Read the manual</a>
-      <a class="btn ghost" href="https://github.com/yrashk/strata">Source on GitHub</a>
+      <a class="btn" href="play/">Run it in your browser</a>
+      <a class="btn ghost" href="arch/">Read the architecture</a>
+      <a class="btn ghost" href="code/">Browse the source</a>
     </div>
-    <ul class="facts">
-      <li><b>Verilog</b> RTL, synthesizable: <a href="hardware/">20 MHz on an ECP5</a></li>
-      <li><b>C</b> reference emulator</li>
-      <li><b>StrataOS</b> microkernel</li>
-      <li><b>Forth</b> with native code</li>
-      <li><b>Source</b> <a href="code/">browsable, syntax-coloured</a></li>
-      <li><b>Manual</b> <a href="arch/">architecture</a> and <a href="isa/">instructions</a> on the web</li>
-    </ul>
+    <div class="inside" aria-label="What is inside">
+      <a class="tile" href="play/?run=os"><span class="tl">Emulator</span><b>C, with JITs</b><span>runs in your browser</span></a>
+      <a class="tile" href="hardware/"><span class="tl">Hardware</span><b>SystemVerilog RTL</b><span>20&nbsp;MHz on an ECP5</span></a>
+      <a class="tile" href="os/"><span class="tl">OS</span><b>StrataOS</b><span>microkernel, window server</span></a>
+      <a class="tile" href="debug/"><span class="tl">Debugger</span><b>Visual debugger</b><span>cores, transfers, time travel</span></a>
+      <div class="tile langs"><span class="tl">Languages</span>
+        <ul>
+          <li><a href="forth/"><b>Forth</b><span>native code</span></a><a class="run" href="play/?run=forth" title="Run Forth in your browser" aria-label="Run Forth in your browser"></a></li>
+          <li><a href="stratalk/"><b>Stratalk</b><span>a Smalltalk</span></a><a class="run" href="play/?run=stratalk" title="Run Stratalk in your browser" aria-label="Run Stratalk in your browser"></a></li>
+          <li><a href="stralog/"><b>Stralog</b><span>a Prolog</span></a><a class="run" href="play/?run=stralog" title="Run Stralog in your browser" aria-label="Run Stralog in your browser"></a></li>
+          <li><a href="c/"><b>C</b><span>self-hosting C99</span></a><a class="run" href="play/?run=cc" title="Run the C compiler in your browser" aria-label="Run the C compiler in your browser"></a></li>
+        </ul>
+      </div>
+      <div class="tile"><span class="tl">Games</span>
+        <p class="games"><a href="play/?run=wdoom">wdoom</a><a href="play/?run=kira">Princess Kira</a><a href="play/?run=plat">Plat</a></p>
+      </div>
+      <a class="tile" href="Strata-Architecture-Reference-Manual.pdf"><span class="tl">Manual</span><b>Reference manual</b><span>the whole architecture, PDF</span></a>
+    </div>
   </div>
 </header>
 
@@ -133,7 +154,8 @@
 <section id="os" class="section">
   <h2><span class="num">03</span>StrataOS</h2>
   <p class="intro">A microkernel written in Strata assembly, where the explicit machine shows
-    through instead of being hidden.</p>
+    through instead of being hidden.
+    <a href="os/">Its architecture, the kernel, and every server's messages&nbsp;&rarr;</a></p>
   <div class="cards three">
     <article class="card">
       <h3>A kernel that pages itself</h3>
@@ -186,6 +208,39 @@
       <figcaption>The boot splash: strata settling into place.</figcaption>
     </figure>
   </div>
+  <figure class="shot wide">
+    <a href="play/?run=wdoom"><img src="img/wdoom.png" alt="A first-person view of a grey hall with a zombie in front of a pistol's muzzle flash and a status bar underneath, in a window of the StrataOS window server" loading="lazy"></a>
+    <figcaption><code>wdoom</code>: a first-person shooter in Strata assembly, one more client of
+      the window server, with art and sounds from <a href="https://freedoom.github.io/">Freedoom</a>.
+      A core's data store is smaller than one frame, so the picture is drawn in ten slabs of 32
+      columns and every texture column is fetched from far memory.
+      <a href="play/?run=wdoom"><b>Play it in your browser&nbsp;&rarr;</b></a></figcaption>
+  </figure>
+  <figure class="shot wide">
+    <a href="play/?run=kira"><img src="img/kira.png" alt="Four pictures of a children's game in pastel pixel art: a castle hall seen from above with a little princess and a duckling, a garden party with a duck and a bluebird under the word HOORAY, a garden with flowers in patches of soil, and a colouring page of a castle with one part painted purple" loading="lazy"></a>
+    <figcaption><code>kira</code>: Princess Kira, four gentle games for a small child in Strata
+      assembly: find seven animal friends in a castle and garden that are made anew for every
+      game (seen from above, or through Kira's eyes with the raycaster of <code>wdoom</code>),
+      plant a garden, colour a page, play a xylophone. No enemies, no timer, no way to lose.
+      <a href="play/?run=kira"><b>Play it in your browser&nbsp;&rarr;</b></a></figcaption>
+  </figure>
+  <figure class="shot wide">
+    <a href="play/?run=plat"><img src="img/plat.png" alt="A city-building game in bright pixel art: a small town by a river, with the town's yearly paper, the Plat Ledger, open over it: a headline about traffic jams, the residents, jobs, treasury and the mayor's approval" loading="lazy"></a>
+    <figcaption><code>plat</code>: Plat, a city-building game in Strata assembly: new land for
+      every game, roads, power lines and plants, zones for homes, shops and industry that grow
+      while they have power, a road and demand; rail, police, fire, parks, solar power; maps of
+      pollution, crime, traffic and land value; a budget, advisers and a yearly paper; five
+      zoom levels, and the town kept in a file with its population as an attribute.
+      <a href="play/?run=plat"><b>Play it in your browser&nbsp;&rarr;</b></a></figcaption>
+  </figure>
+  <figure class="shot wide">
+    <a href="play/?run=nav"><img src="img/nav.png" alt="A two-panel file navigator in blue and cyan: on the left the results of searching for vi across the whole disk, each file with the directory it is in; on the right a quick view of the selected file, the source of the vi editor" loading="lazy"></a>
+    <figcaption><code>nav</code>: a file navigator in the Norton / Midnight Commander manner for a
+      file system where a directory is the set of its files' tags. Typing anywhere
+      searches the whole disk as you type, through a call the file server answers from its index
+      of names: about fifteen milliseconds to the first results on a disk of ten thousand files.
+      <a href="play/?run=nav"><b>Try it in your browser&nbsp;&rarr;</b></a></figcaption>
+  </figure>
 </section>
 
 <section id="forth" class="section">
@@ -204,7 +259,8 @@
         <li><code>spawn</code> / <code>await</code> across cores</li>
         <li>Locals, quotations, <code>catch</code>/<code>throw</code>, <code>see</code></li>
       </ul>
-      <p><a href="forth/">Every word, with its source, and a playground →</a></p>
+      <p><a href="forth/">Every word, with its source, and a playground →</a><br>
+        <a href="play/?run=forth"><b>Try Forth in your browser&nbsp;&rarr;</b></a></p>
     </div>
     <div class="terminal">
 <pre><code class="language-forth" data-session>: sq ( n -- n*n ) dup * ;  ok
@@ -233,20 +289,135 @@ see sq
   </figure>
 </section>
 
+<section id="stratalk" class="section">
+  <h2><span class="num">05</span>Stratalk, a Smalltalk</h2>
+  <div class="split">
+    <div>
+      <p>A Smalltalk whose object memory follows the machine. New objects are made <b>near</b>, in a
+        nursery in the core's data store; the survivors are written out to far memory in <b>one
+        transfer</b>. Far objects are read through a software cache on <code>ltag</code> /
+        <code>linst</code>, and every far store is a transfer you can count. Frames page out to a far
+        stack when recursion runs deep, and a JIT written in Stratalk compiles hot methods into code
+        units that StrataOS pages into the instruction store.</p>
+      <ul class="ticks">
+        <li>Pharo's syntax, closures with non-local return, ANSI exceptions, large integers</li>
+        <li>A compiler written in Stratalk, checked byte for byte against the bootstrap one</li>
+        <li>A REPL with completion; files; a workspace, class browser and inspector in the window server</li>
+        <li>Every StrataOS server's messages as classes, generated from their specifications</li>
+      </ul>
+      <p><a href="stratalk/">The classes, the examples and a playground →</a></p>
+    </div>
+    <div class="terminal">
+<pre><span class="p">strata$</span> stratalk
+<span class="p">st&gt;</span> 100 factorial printString size
+158
+<span class="p">st&gt;</span> [10 / 0] on: ZeroDivide do: [:e | e messageText]
+'division by zero'
+<span class="p">st&gt;</span> (1 to: 10) inject: 0 into: [:a :b | a + b]
+55
+<span class="p">st&gt;</span> Smalltalk vm at: 'scavenges'
+32</pre>
+    </div>
+  </div>
+  <figure class="shot">
+    <img src="img/stratalk-browser.png" alt="The Stratalk class browser in a window of the StrataOS window server" loading="lazy">
+    <figcaption><code>stratalk -b</code>: the class browser, a client of the window server written in
+      Stratalk; the source comes from the kernel's files on the disk.
+      <a href="play/?run=stratalk"><b>Try Stratalk in your browser&nbsp;&rarr;</b></a></figcaption>
+  </figure>
+</section>
+
+<section id="stralog" class="section">
+  <h2><span class="num">06</span>Stralog, a Prolog</h2>
+  <div class="split">
+    <div>
+      <p>A Prolog in Strata assembly whose terms all live in <b>far memory</b>, reached only by
+        transfers. The data Local Store holds windows onto the tops of the heap, the trail and the
+        choicepoint stack, and a small write-back cache for everything else; the engine slides a
+        window or spills it with an explicit <code>tget</code> or <code>tput</code>, and
+        <code>statistics</code> counts every byte that moved.</p>
+      <ul class="ticks">
+        <li>ISO core Prolog: cut, if-then-else, <code>call/N</code>, <code>catch</code>/<code>throw</code> with ISO error terms</li>
+        <li>Assert and retract, <code>findall</code>, <code>bagof</code>/<code>setof</code>, DCGs, <code>op/3</code></li>
+        <li>584 of 596 ISO conformance vectors pass</li>
+        <li>An engine bigger than the instruction store, in code units StrataOS pages in</li>
+      </ul>
+      <p><a href="stralog/">Every predicate, the examples and a playground →</a><br>
+        <a href="play/?run=stralog"><b>Try Stralog in your browser&nbsp;&rarr;</b></a></p>
+    </div>
+    <div class="terminal">
+<pre><span class="p">strata$</span> -m 8 stralog
+<span class="p">?-</span> append(X, Y, [1, 2]).
+X = [], Y = [1,2] ;
+X = [1], Y = [2] ;
+X = [1,2], Y = [] ;
+false.
+<span class="p">?-</span> [queens].
+true.
+<span class="p">?-</span> count_queens(8, N).
+N = 92.
+<span class="p">?-</span> [family].
+true.
+<span class="p">?-</span> findall(D, ancestor(tom, D), Ds).
+Ds = [bob,liz,ann,pat,jim].
+<span class="p">?-</span> statistics.
+calls: 134488
+heap: 4112 of 6899712 bytes used; window: 485 spills, 1857 slides, 2090432 bytes moved
+garbage collections: 0, 0 bytes given back
+trail: 16 bytes used; window: 1 spills, 1 slides, 512 bytes moved
+choicepoints: 4 frames; window: 0 spills, 0 slides, 0 bytes moved
+far cache: 74618 misses, 5583 write-backs (64-byte lines)
+atoms: 16616 bytes, clauses: 90352 bytes, findall: 0 bytes
+true.</pre>
+    </div>
+  </div>
+</section>
+
+<section id="c" class="section">
+  <h2><span class="num">07</span>C, compiled on the machine</h2>
+  <div class="split">
+    <div>
+      <p><code>cc</code> is a C99 compiler that runs inside StrataOS and writes program images directly: one
+        pass, no assembler, no linker. It is <b>written in C and compiles itself</b>; the first compiler,
+        <code>cc0</code>, is the same language in Strata assembly, and compiling the compiler with itself twice
+        gives the same bytes as the <code>cc</code> on the disk.</p>
+      <ul class="ticks">
+        <li>Both compilers pass 521 tests from the suites of two other C compilers</li>
+        <li><code>asm("...")</code> and intrinsics for what only Strata has: transfers, capabilities</li>
+        <li>106 KiB of compiler in a 32 KiB instruction store: it pages itself</li>
+        <li>The same source builds as a cross compiler on your machine</li>
+      </ul>
+      <p><a href="c/">The bootstrap, the machine from C, the tests →</a><br>
+        <a href="play/?run=cc"><b>Compile C on Strata in your browser&nbsp;&rarr;</b></a></p>
+    </div>
+    <div class="terminal">
+<pre><span class="p">strata$</span> cc /src/hi.c
+<span class="p">strata$</span> hi there
+Hello from C on Strata, there!
+<span class="p">strata$</span> cc0 -p -h 0 -o cc1 /src/cc.c   <span class="c"># assembly compiles the compiler</span>
+<span class="p">strata$</span> cc1 -p -h 0 -o c2 /src/cc.c    <span class="c"># which compiles itself</span>
+<span class="p">strata$</span> cmp c2 /bin/cc
+c2 /bin/cc: same</pre>
+    </div>
+  </div>
+</section>
+
 <section id="play" class="section">
-  <h2><span class="num">05</span>Try it in your browser</h2>
+  <h2><span class="num">08</span>Try it in your browser</h2>
   <div class="card accent">
     <p>The reference emulator, compiled to WebAssembly. Boot StrataOS on 12 cores and type at its
-      shell, watch eight cores draw a Mandelbrot set into the framebuffer, or define words in Forth
-      and see them run as native Strata code — no install.</p>
+      shell, watch eight cores draw a Mandelbrot set into the framebuffer, or play the games. Each language
+      has its own start: <a href="play/?run=forth">Forth</a>, whose words run as native Strata code;
+      <a href="play/?run=stratalk">Stratalk</a>'s REPL; <a href="play/?run=stralog">Stralog</a>'s top level;
+      <a href="play/?run=cc">C</a>, compiled by the compiler on the disk. No install.</p>
     <p class="cta play-cta"><a class="btn" href="play/">Run Strata in your browser</a></p>
   </div>
 </section>
 
 <section id="build" class="section">
-  <h2><span class="num">06</span>Run it</h2>
+  <h2><span class="num">09</span>Run it</h2>
   <p class="intro">Needs a C compiler and Verilator&nbsp;5; SDL2 is optional (for the window). Or read it first:
-    the <a href="code/">source browser</a> has every assembly and Forth program, syntax-coloured.</p>
+    the <a href="code/">source browser</a> has every assembly, Forth and C program, syntax-coloured.</p>
   <div class="cmds">
     <div><code>make</code><span>assembler, emulator and the Verilated RTL</span></div>
     <div><code>make test</code><span>every example and an OS boot on both machines, compared instruction by instruction</span></div>
@@ -264,11 +435,14 @@ see sq
     <a href="Strata-Architecture-Reference-Manual.pdf">Architecture Reference Manual</a> ·
     <a href="arch/">architecture outline</a> ·
     <a href="isa/">instruction set</a> ·
-    <a href="forth/">Strata Forth</a> ·
+    <a href="forth/">Forth</a> ·
+    <a href="stratalk/">Stratalk</a> ·
+    <a href="stralog/">Stralog</a> ·
+    <a href="c/">C</a> ·
     <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
 </footer>
 
-<script src="code/syntax.js"></script>
+<script src="code/syntax.js?v=__BUILD__"></script>
 <script src="hl.js?v=__BUILD__"></script>
 </body>
 </html>

@@ -25,7 +25,10 @@
  *   - the framebuffer: web_paint() converts the rows written since the
  *     last call from XRGB8888 to RGBA and hands them to
  *     Module.webPaint(ptr, y0, rows, width, height); the worker copies
- *     them out and transfers them to the page's canvas.
+ *     them out and transfers them to the page's canvas;
+ *   - the sound device (-a, common/sound.h): web_audio() hands over the
+ *     samples written since the last call; the worker posts them to the
+ *     page, which plays them with WebAudio.
  *
  * With the virtual timer (-T virtual, the tests) an idle machine skips
  * ahead to its next deadline instead of sleeping, like the desktop loop.
@@ -148,6 +151,18 @@ EMSCRIPTEN_KEEPALIVE void web_pointer(int op, int a, int b) {
   }
   pend_service();
 }
+
+/* The sound device: up to `max` samples the guest has written since the last
+ * call (mono, signed 16-bit) -> how many; web_audio_rate: samples per second. */
+EMSCRIPTEN_KEEPALIVE int web_audio(int16_t *dst, int max) {
+  int n = 0;
+  for (; n < max && snd_ring_n; n++, snd_ring_n--) {
+    dst[n] = snd_ring[snd_ring_head];
+    snd_ring_head = (snd_ring_head + 1) & 32767;
+  }
+  return n;
+}
+EMSCRIPTEN_KEEPALIVE int web_audio_rate(void) { return (int)snd_rate; }
 
 /* True once the guest has read the pointer device: the page hides its cursor. */
 EMSCRIPTEN_KEEPALIVE int web_pointer_used(void) { return host_ptr_used; }

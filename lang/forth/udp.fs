@@ -11,23 +11,35 @@
 require net
 inline-limit @  4 inline-limit !                \ code space is scarce: primitives are called
 
+52 constant op-ping   56 constant op-udp        \ the network server's requests (os/spec/net.toml)
+57 constant op-sendto 58 constant op-recvfrom
+
 \ ---- UDP: datagrams ------------------------------------------------------------------
-: udp-open ( port -- sock|err ) 0 0 56 net ;     \ a UDP socket on port (0: any)
+\ SENDTO's data and RECVFROM's reply: u64 address, u64 port, the payload.
+16 constant /udp-head
+/mbuf /udp-head - constant /payload
+: udp-open ( port -- sock|err ) 0 0 op-udp net ; \ a UDP socket on port (0: any)
 : udp-send ( addr u ip port sock -- n )         \ one datagram: the payload bytes sent
-  >r  mbuf 8 + !  mbuf !  /mbuf 16 - min        \ data: u64 address, u64 port, the payload
-  tuck mbuf 16 + swap move  dup 16 + mbuf>  r> swap 16 + 0 57 net ;
+  >r  mbuf 8 + !  mbuf !
+  /payload min  tuck mbuf /udp-head + swap move ( n )
+  /udp-head + dup mbuf>  r> swap 0 op-sendto net ;
+: datagram ( n -- buf ) 0 swap /udp-head + msg@ ; \ the reply's first n payload bytes, into mbuf
 : udp-recv ( addr u sock -- n ip port )         \ the next datagram (waits for one) and its sender
-  swap /mbuf 16 - min 0 58 net  dup 0< if nip 0 0 exit then
-  0 over 16 + msg@ >r  r@ 16 + rot 2 pick move  r@ @ r> 8 + @ ;
+  swap /payload min 0 op-recvfrom net  dup 0< if nip 0 0 exit then
+  tuck datagram  ( n addr buf )  dup /udp-head + rot 3 pick move  dup @ swap 8 + @ ;
 
 \ ---- ICMP ---------------------------------------------------------------------------
-: ping ( ip -- us|err ) 56 0 52 net ;            \ an echo request: the round trip, -8 no answer in 1 s
+: ping ( ip -- us|err ) 56 0 op-ping net ;       \ an echo request: the round trip, -8 no answer in 1 s
 
 \ ---- TCP: the other end of a connection ----------------------------------------------
+\ STAT's data: 64 bytes, then a 32-byte record per socket in use.
+: sock-record ( i -- r ) 32 * 64 + 32 msg@ ;
+: sock-id   ( r -- id )   c@ ;
+: peer-port ( r -- port ) 6 + w@ ;
+: peer-ip   ( r -- ip )   8 + l@ ;
 : sock-peer ( sock -- ip port )                 \ the other end (0 0: not a socket of ours)
-  0 0 0 50 net 0 max                            \ STAT: sockets in use; data: 64 bytes, 32 per socket
-  0 ?do  64 i 32 * + 32 msg@                    ( sock record: u8 id .. u16 port at 6, u32 ip at 8 )
-    2dup c@ = if nip dup 8 + l@ swap 6 + w@ unloop exit then drop
+  0 0 0 op-net-stat net 0 max  0 ?do
+    i sock-record  2dup sock-id = if nip dup peer-ip swap peer-port unloop exit then drop
   loop drop 0 0 ;
 
 \ ---- addresses ----------------------------------------------------------------------
@@ -40,7 +52,7 @@ inline-limit @  4 inline-limit !                \ code space is scarce: primitiv
 : str>ip ( addr u -- ip|-1 )                    \ "a.b.c.d" -> the address, -1 if it is not one
   0 -rot  4 0 do                                ( ip a u )
     [char] . split ip-byte  dup 0< if 2drop 2drop -1 unloop exit then
-    >r rot 8 lshift r> or -rot
+    >r rot 8 lshift r> or -rot                  \ the byte, into ip from the right
   loop  nip if drop -1 then ;
 inline-limit !                                  \ inlining as it was
 create udp.fs                                   \ REQUIRE looks for this name: the file is loaded

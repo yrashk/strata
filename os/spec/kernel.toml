@@ -1,0 +1,353 @@
+# kernel: the system core's endpoint, os/kunits/ops.s and os/kunits/guest.s (format: os/spec/README.md)
+
+[server]
+key = "kernel"
+title = "the system core"
+role = "processes, memory, time"
+reached = "an endpoint only proc holds (and dev, for HALT and FBLEND)"
+core = "core 0"
+sources = ["os/kunits/ops.s", "os/kunits/guest.s", "os/kunits/gmode.s"]
+dispatch = { file = "os/kunits/ops.s", first = "ld\\s+t0,\\s*k_hdr-GPBASE", last = "^\\s*li\\s+a0,\\s*-1\\s*;\\s*unknown" }
+calls = "message"
+note = """Core 0 runs no programs: it answers these requests in its own event loop, with code units it \
+pages in itself. The sender's pid comes from the arena its buffer lies in (proc is pid 1, dev pid 2), \
+and the ops that only one of them may send check it. A capability sent with a request goes just \
+before the message (the arena of CREATE, FREE, GSTART); the capabilities of a reply arrive in the \
+caller's c6. The reply sets only the header's result word. The kernel also sends proc op 7 EXITED \
+when a process ends (described with proc)."""
+
+[[op]]
+num = 1
+name = "CREATE"
+summary = "Start a process in an arena that holds its image"
+note = """proc gets the arena from MEMORY, writes the start-up block at 0x7F000 and has fs load the \
+image at 0xD0000 above the layout base (the base of the arena's top MiB). The kernel reads the \
+image's STX headers, chooses the cores and slots, and starts the threads. A StrataOS program (code \
+word 1 "SYS2") with 0 threads is one thread without a core window; a bare-metal program, or any \
+program with N threads, gets N threads on N contiguous worker cores seen through its core window. \
+A StrataOS program that is not a server also gets its console ring (RINGS) in c6. \
+The image area above the image need not be zeroed (MEMORY mode 2): every section, its header \
+included, must end within the image's length, which the kernel takes from the mode word."""
+
+[op.request]
+attachment = "the arena, whole, as MEMORY gave it (mode 0 or 2)"
+mode = "the image's length: the bytes fs loaded at 0xD0000"
+data = [
+  { type = "u64", name = "pid", note = "new and not 0: proc allocates pids" },
+  { type = "u64", name = "threads", note = "0: one; at most 6" },
+  { type = "u64", name = "flags", note = "2 server, 8 privileged (mints endpoints in REPLY), 16 device capabilities, 32 alone on its core, 64 give the arena to proc at exit, bits 12..13 a server's index on its core (a request names it by header word 48: 0x53 << 56 | index; index 1..3 joins a core that has a server), bit 14 a busy server (fs, db: programs are placed away from its core when another has room); other bits are ignored" },
+  { type = "s64", name = "pin core", note = "−1 any; 0 is refused (−5)" },
+  { type = "u8", name = "c1's core", note = "the core the endpoint in c1 names; 255 none. Only a StrataOS program's thread 0 gets c1..c4" },
+  { type = "u8", name = "c2's core" },
+  { type = "u8", name = "c3's core" },
+  { type = "u8", name = "c4's core" },
+  { type = "u32", name = "0" },
+  { type = "u64", name = "a0", note = "the registers the program starts with" },
+  { type = "u64", name = "a1" },
+  { type = "u64", name = "a2" },
+]
+
+[op.reply]
+result = "0: the process starts"
+data = [{ type = "u64", name = "first core", note = "its (first) core" }]
+attachments = { c6 = "for a server: a send-only endpoint to its core; on failure: the arena, given back" }
+
+[op.errors]
+"-1" = "no arena came with it, it is not a whole arena MEMORY gave out, the pid is 0 or in use, or the image is not a program (bad STX headers, no code, a section that ends beyond the image's length). The arena comes back unless it was missing"
+"-5" = "more than 6 threads, a pin core of 0, or no core with room (a free slot and job record, the server and solo rules, the pinned core and the ones after it)"
+
+[[op]]
+num = 2
+name = "DESTROY"
+summary = "Stop every thread of a process"
+note = """The kernel marks each thread's slot to be killed and wakes its core; the reply does not \
+wait for that. Each dispatcher ends the thread, the system core revokes the arena (whatever it held \
+or lent out dies) and sends proc EXITED with status bit 62 (killed)."""
+
+[op.request]
+handle = "the pid"
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "no such process"
+
+[[op]]
+num = 3
+name = "MEMORY"
+summary = "A fresh, zeroed arena"
+note = """The arena is the first run of free 256 KiB granules that is long enough; its capability \
+is fresh (every older one based there is revoked) and its bytes are zeroed (with the written-page \
+map, only the pages written since they were last zeroed are written). With mode 1 it is an extra \
+arena of the process named by the handle (proc's MORE): that process's until FREE gives it back, \
+and revoked and freed with it when the process ends. With mode 2 it is for CREATE: its image area \
+[0xD0000, 0xF0000) and the gap [0xFC000, 0xFF000) above the layout base are left as they are, and \
+only CREATE or FREE take it."""
+
+[op.request]
+handle = "with mode 1: the pid whose extra arena it is (not checked)"
+length = "the size wanted in bytes: rounded up to whole 256 KiB granules, 1 MiB at least (0: 1 MiB)"
+modes = { "0" = "an arena for the sender, to make a process of (CREATE) or a guest (GSTART)", "1" = "an extra arena of the process the handle names", "2" = "an arena for an image (CREATE), not zeroed where nothing reads; with bit 0 set it is ignored" }
+
+[op.reply]
+result = "0"
+data = [
+  { type = "u64", name = "base", note = "the arena's address" },
+  { type = "u64", name = "size", note = "its bytes" },
+]
+attachments = { c6 = "the arena" }
+
+[op.errors]
+"-6" = "no run of free granules that long, or all 64 arena slots in use"
+
+[[op]]
+num = 4
+name = "STATS"
+summary = "Counts of the machine, every core and every process"
+
+[op.request]
+
+[op.reply]
+result = "the number of processes"
+data = [
+  { type = "u64", name = "cores" },
+  { type = "u64", name = "free memory", note = "bytes of the arena pool not in use" },
+  { type = "u64", name = "total memory", note = "bytes of the arena pool" },
+  { type = "u64", name = "kernel units loaded", note = "code units core 0 has paged in" },
+  { type = "u64", name = "switches", note = "context switches, all cores" },
+  { type = "u64", name = "KiB moved", note = "by switches, all cores" },
+  { type = "u64", name = "processes" },
+  { type = "u64", name = "0" },
+  { repeat = "per core, core 0 first", fields = [
+    { type = "u8", name = "pid running", note = "low 8 bits; 0 none" },
+    { type = "u8", name = "runnable", note = "threads ready to run there" },
+    { type = "u8", name = "processes", note = "threads placed there" },
+    { type = "u8", name = "flags", note = "2 a server, 4 a process alone on it, 8 a guest's, 16 a server of index 1..3, 32 a busy server (CREATE flag bit 14)" },
+    { type = "u32", name = "cycles per switch", note = "the dispatcher's average; 0 before the first" },
+    { type = "u64", name = "switches" },
+    { type = "u64", name = "KiB moved", note = "by switches" },
+    { type = "u32", name = "free save-table slots" },
+    { type = "u32", name = "cycles per trap", note = "the dispatcher's average busy time per entry" },
+  ] },
+  { repeat = "per process", fields = [
+    { type = "u8", name = "pid" },
+    { type = "u8", name = "core", note = "its first core" },
+    { type = "u8", name = "state", note = "thread 0's slot: 1 loading, 2 ready, 3 WAIT_REPLY, 4 RECEIVE, 5 NOTIFY_WAIT, 6 ended, 7 waiting for a gift, 8 in tany" },
+    { type = "u8", name = "flags", note = "1 core window, 2 server, 4 StrataOS program, 8 privileged, 16 device capabilities, 32 alone, 64 arena to proc" },
+    { type = "u32", name = "0" },
+    { type = "u64", name = "threads" },
+    { type = "u64", name = "switches", note = "counted per pid number (mod 256)" },
+    { type = "u64", name = "bytes moved", note = "by switches, per pid number" },
+  ] },
+]
+
+[[op]]
+num = 5
+name = "TUNE"
+summary = "Set the preemption time slice"
+from = "proc only"
+
+[op.request]
+length = "the time slice in ticks (1 µs): 100..100000"
+
+[op.reply]
+result = "0: the slice from the next tick on"
+
+[op.errors]
+"-1" = "not from proc, or the slice is out of range"
+
+[[op]]
+num = 6
+name = "FREE"
+summary = "Give an arena back to the pool"
+note = "The arena is revoked (every capability cut from it dies) and its granules are free again."
+
+[op.request]
+attachment = "the arena, whole: one MEMORY gave out and was not used (mode 0 or 2), one that came with EXITED, or an extra arena (mode 1)"
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "no arena came with it, or it is not a whole arena of those kinds: it is dropped, not given back"
+
+[[op]]
+num = 8
+name = "HALT"
+summary = "Stop every core"
+note = """No reply: the machine stops. The kernel says so on the console, marks the machine as \
+stopping and wakes every worker; each dispatcher stops its threads. When all have (or after a \
+bounded wait) it completes every pending device read (the console's release port, the pointer's \
+EVENT port, the network interface's CANCEL, the timer's DEADLINE 0) and halts. dev sends it; the \
+kernel does not check the sender."""
+
+[op.request]
+
+[op.reply]
+result = "none: the machine halts"
+
+[[op]]
+num = 9
+name = "NOTIFY"
+summary = "Send notification bits to a process"
+note = "The bits are ORed into the notifications of the process's thread 0 and its core is woken. A NOTIFY_WAIT returns them; bit 0 also ends a sleep (WAIT_REPLY with nothing awaited) with −2. proc sends bit 0 for an interrupt."
+
+[op.request]
+handle = "the pid"
+length = "the bits"
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "no such process"
+
+[[op]]
+num = 10
+name = "FBLEND"
+summary = "Lend the framebuffer memory to a process"
+from = "dev only"
+note = """Every older capability of the framebuffer window is revoked and a fresh one comes with the \
+reply. The process the handle names holds it until it ends; then the kernel revokes it again."""
+
+[op.request]
+handle = "the pid of the new holder"
+
+[op.reply]
+result = "0"
+attachments = { c6 = "the framebuffer memory" }
+
+[op.errors]
+"-1" = "not from dev, the machine has no framebuffer, or no such process"
+"-7" = "a live process holds it"
+
+[[op]]
+num = 11
+name = "GSTART"
+summary = "Start a guest: whole worker cores running another system"
+from = "proc only"
+note = """proc gets the arena from MEMORY and loads the guest image at its top. The kernel takes N \
+contiguous empty worker cores out of its own scheduling, writes the guest platform table into the \
+arena, and gives each core the image share, a console endpoint, the clock and core control over the \
+guest's cores; the first core also gets the writable memory below the image. The arena is the \
+guest's from then on: FREE, CREATE and GSTART do not take it, and GSTOP frees it. At most 4 guests \
+run at once; their ids are 240 and up."""
+
+[op.request]
+attachment = "the arena, as MEMORY gave it, with the guest image at its top"
+data = [
+  { type = "u64", name = "cores" },
+  { type = "s64", name = "pin core", note = "the first core; −1 any" },
+  { type = "u64", name = "allowed servers", note = "bit c: the guest may send requests to the server of core c" },
+  { type = "u64", name = "flags", note = "passed to the guest in its platform table; bit 0 (guest -p): a pool, for a guest StrataOS: the arena becomes three revocation units, the guest's memory below GN_LOW (4 MiB, its c0), the pool up to the image, the image region; the guest's core 0 asks core 0 to revoke ranges of the pool (doc/strataos.md, \"StrataOS as a guest\")" },
+  { type = "u64", name = "console core", note = "the tty server's core: its endpoint is the guest's c1" },
+  { type = "u64", name = "image offset", note = "where the image starts in the arena: the guest's memory is below it" },
+]
+
+[op.reply]
+result = "0: the guest runs"
+data = [
+  { type = "u64", name = "first core" },
+  { type = "u64", name = "guest id" },
+]
+attachments = { c6 = "on −5, or on −1 for an arena MEMORY did not give: the arena, given back" }
+
+[op.errors]
+"-1" = "not from proc (an arena it sent is dropped), no arena came with it, or it is not one MEMORY gave out (that one is given back)"
+"-5" = "no run of that many empty worker cores (at the pinned core, if one is given), or 4 guests already run"
+
+[[op]]
+num = 12
+name = "GSTOP"
+summary = "End a guest and take its cores back"
+from = "proc only"
+note = """Each of the guest's cores is reset (it restarts at the boot ROM even in supervisor mode), \
+the arena is revoked (everything the guest held or lent out dies), the cores are made StrataOS \
+workers again, and the arena and the guest's record are freed."""
+
+[op.request]
+handle = "the guest id"
+mode = "bit 0: kill rather than stop. Ignored: the reset does both"
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "not from proc, or no such guest"
+
+[[op]]
+num = 13
+name = "GINFO"
+summary = "The guests that run"
+
+[op.request]
+
+[op.reply]
+result = "the number of guests"
+data = [
+  { type = "u64", name = "count" },
+  { repeat = "per guest", fields = [
+    { type = "u64", name = "id" },
+    { type = "u8", name = "first core" },
+    { type = "u8", name = "cores" },
+    { type = "u16", name = "0" },
+    { type = "u32", name = "0" },
+    { type = "u64", name = "arena bytes" },
+    { type = "u64", name = "state", note = "1: live" },
+  ] },
+]
+
+[[op]]
+num = 14
+name = "RINGS"
+summary = "The console rings in T2, for tty"
+from = "dev only, once"
+note = """The header and the 64 rings that follow the KST in T2 (one per arena slot; 1 KiB each, less \
+on a small T2), cut from the KST's atomic segment and never revoked. dev asks for them when tty \
+asks it at its start, and lends them to tty; every StrataOS program that is not a server gets its \
+own ring in c6 when it is created (CREATE). doc/strataos.md 2.3, "Console rings"."""
+
+[op.request]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "an atomic segment: a 64-byte header (its first word: rings handed out so far), then the 64 rings" }
+
+[op.errors]
+"-1" = "not from dev, T2 has no room for rings, or they were given already"
+
+[[op]]
+num = 15
+name = "GDISK"
+summary = "A guest StrataOS's RAM disk, for fs"
+from = "dev only, in a guest StrataOS, once"
+note = """In a guest StrataOS (doc/strataos.md, "StrataOS as a guest") the disk is a RAM disk: a section \
+of the guest image that the host's loader copied into the guest's memory. The kernel reads its boot \
+objects from it; dev asks for it when fs asks for the disk (GETDISK), and fs then copies its blocks."""
+
+[op.request]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "the RAM disk: writable memory, its length the disk's" }
+
+[op.errors]
+"-1" = "not from dev, not a guest, or given already"
+
+[[op]]
+num = 16
+name = "GCON"
+summary = "An endpoint to the host's tty, for a guest StrataOS's tty"
+from = "dev only, in a guest StrataOS"
+note = """The console of a guest StrataOS is the host's tty: dev asks for this when tty asks for the \
+console (GETCON), and tty passes its programs' READs and WRITEs on through it."""
+
+[op.request]
+
+[op.reply]
+result = "0"
+attachments = { c6 = "an endpoint to the host's tty (read, write, copyable)" }
+
+[op.errors]
+"-1" = "not from dev, or not a guest"

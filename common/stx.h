@@ -97,4 +97,19 @@ static inline uint8_t *stx_disk_load(const char *path, uint64_t *blocks) {
   return d;
 }
 
+/* Writes a disk back as an image: up to its last block that is not all
+ * zeros (stx_disk_load reads the rest as zero again). */
+static inline void stx_disk_save(const char *path, const uint8_t *d, uint64_t blocks) {
+  while (blocks > 1) {
+    const uint8_t *b = d + (blocks - 1) * 512;
+    int zero = 1;
+    for (int i = 0; i < 512 && zero; i++) zero = !b[i];
+    if (!zero) break;
+    blocks--;
+  }
+  FILE *f = fopen(path, "wb");
+  if (!f || fwrite(d, 512, blocks, f) != blocks) { fprintf(stderr, "cannot write disk %s\n", path); exit(2); }
+  fclose(f);
+}
+
 #endif

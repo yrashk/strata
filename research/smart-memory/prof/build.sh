@@ -29,7 +29,7 @@ mkdir -p $out
 # shellcheck disable=SC2086
 verilator --cc --exe --build -j 0 -O3 --x-assign fast --x-initial fast \
   -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-DECLFILENAME \
-  -DSIMULATION -GNCORES=$n -GNXMAP=16 -GDLS_KIB=$dk -GILS_KIB=$ik -GSTREAM=$st -GLS_1P=$sp --top-module strata_top \
+  -DSIMULATION -GNCORES=$n -GNXMAP=16 -GDLS_KIB=$dk -GILS_KIB=$ik -GSTREAM=1\'b$st -GLS_1P=1\'b$sp --top-module strata_top \
   -Mdir $out/obj_dir$sfx -o strata-rtl-prof \
   -CFLAGS "-O2 -std=c++17 -DNCORES=$n -DNXMAP=16 -DDLS_KIB=$dk -DILS_KIB=$ik $sdlc" \
   -LDFLAGS "$sdll" $rtl research/smart-memory/prof/ls_prof.sv sim/main.cpp > $out/build$sfx.log 2>&1 \

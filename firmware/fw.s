@@ -45,10 +45,12 @@
 ;
 ; Platform table layout: see common/platform.h. Entry types:
 ;   1 memory, 2 console, 3 platform table, 4 block device, 5 framebuffer
-;   (PT_FB), 6 timer (PT_TIMER), 7 pointer (PT_POINTER), 8 network (PT_NET).
+;   (PT_FB), 6 timer (PT_TIMER), 7 pointer (PT_POINTER), 8 network (PT_NET),
+;   9 sound (PT_SOUND; only on a machine that has it), 10 written-page map
+;   (PT_PMAP).
 
 FW_DEV_PLAT   = 0x1000                  ; device-space offset of the platform table
-FW_PLAT_MAX   = 512                     ; bytes of D-LS reserved for the table
+FW_PLAT_MAX   = 384                     ; bytes of D-LS reserved for the table (the longest: 11 entries)
 FW_CON_BASE   = 0x0000                  ; console window base
 FW_CON_LEN    = 0x100                   ; console window length
 FW_CON_IN     = 0x8                     ; console input port, relative to its window
@@ -73,7 +75,7 @@ fw_outch:  .space 8                     ; console output byte for fw_putc
 fw_num:    .space 24                    ; digit buffer for number printing
 fw_num_end:                             ; one past the digit buffer
 fw_hex:    .ascii "0123456789abcdef"    ; hex digit table
-fw_tnames: .ascii "?        memory   console  platform block    fb       timer    pointer  net      "
+fw_tnames: .ascii "?        memory   console  platform block    fb       timer    pointer  net      sound    pagemap  "
                                         ; entry type names, 9 characters each, by type number
 fw_s_hdr:  .ascii "platform: "          ; text used by fw_describe
 fw_s_hdr_e:
@@ -244,7 +246,7 @@ fdsc_loop:
         li    a1, 2                     ; two spaces
         call  fw_puts                   ; print
         lhu   t0, 0(s1)                 ; t0 = type
-        sltiu t1, t0, 9                 ; known types are 1..8
+        sltiu t1, t0, 11                ; known types are 1..10
         bnez  t1, fdsc_known            ; keep known types
         li    t0, 0                     ; unknown types print as "?"
 fdsc_known:

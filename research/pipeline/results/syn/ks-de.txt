@@ -1,0 +1,158 @@
+probe                bits  arrives     then    total   (FO4)
+d                     166      0.0    150.1    150.1
+ra                     64      0.0    172.2    172.2
+rb                     64      0.0    112.6    112.6
+rc                     64      0.0     58.7     58.7
+cap_a                  81      0.0    172.2    172.2
+cd_cap                 81      0.0     55.1     55.1
+ka                     81      0.0      0.0      0.0
+kd                     81      0.0      0.0      0.0
+g_a                    17      0.0     40.2     40.2
+g_d                    17      0.0      0.0      0.0
+live_a                  1      0.0     29.4     29.4
+live_cd                 1      0.0     29.4     29.4
+xc_key                 63     25.4    147.2    172.2
+xm_inslot               1    222.3      0.0    222.3
+xm_li                   4    223.3      0.0    223.3
+xm_lk_off              17    247.8      0.0    247.8
+xm_lk_far              27    261.4      0.0    261.4
+xm_i                    4    134.1     40.9    172.2
+alu_y                  64     69.1     53.7    121.6
+br_taken                1     65.9     15.7     81.6
+maddr                  64     69.1     53.7    121.6
+mok                     1     75.4     18.8     94.2
+mload                  64     83.3      0.0     83.3
+xm_hit                  1    130.7     15.6    146.3
+xm_target              64    168.2      8.0    170.7
+xm_link                28    261.7      0.0    261.7
+xf_fault                3     39.1     24.4     63.5
+amo_fault               3     34.2     21.2     55.4
+csr_rv                 64     27.1      0.0     27.1
+pc_br                  64     28.3     14.6     37.7
+pc4                    17     18.1     37.7     40.7
+give_valid              1     68.2      0.0     68.2
+tu_iss_valid            1     41.1     13.2     54.3
+held                    1      7.2     25.7     32.9
+hz_rd_stall             1    104.3     16.8    121.1
+
+79673 gates, 8360 end points; delays in FO4 (tau / 5), fanout capped at 6
+   FO4 gates  from                     to                           worst end point
+ 172.2   154  cut ra                   pc                           pc[56]
+ 172.2   154  cut cap_a                pc                           pc[56]
+ 160.9   151  cut ra                   other: ia_addr               ia_addr[12]
+ 160.9   151  cut cap_a                other: ia_addr               ia_addr[12]
+ 153.1   139  CSRs, tag lookup         pc                           pc[56]
+ 150.1   138  cut d                    pc                           pc[56]
+ 148.1   139  overlay map              pc                           pc[56]
+ 148.1   139  cut am_space             pc                           pc[56]
+ 146.3   141  cut ra                   CSRs, tag lookup             u_tval[0]
+ 146.3   141  cut cap_a                CSRs, tag lookup             u_tval[0]
+ 144.3   142  cut ra                   state / phase                spp_user
+ 144.3   142  cut cap_a                state / phase                spp_user
+ 141.9   136  CSRs, tag lookup         other: ia_addr               ia_addr[12]
+ 139.1   138  cut ra                   other: inbox_priv            inbox_priv
+ 139.1   138  cut cap_a                other: inbox_priv            inbox_priv
+ 138.8   135  cut d                    other: ia_addr               ia_addr[12]
+ 136.8   136  overlay map              other: ia_addr               ia_addr[12]
+ 136.8   136  cut am_space             other: ia_addr               ia_addr[12]
+ 127.3   126  CSRs, tag lookup         CSRs, tag lookup             u_tval[0]
+ 125.3   127  CSRs, tag lookup         state / phase                spp_user
+ 124.2   125  cut d                    CSRs, tag lookup             u_tval[0]
+ 122.2   126  cut d                    state / phase                spp_user
+ 122.2   126  cut am_space             CSRs, tag lookup             u_tval[0]
+ 122.2   126  overlay map              CSRs, tag lookup             u_tval[0]
+ 120.2   127  cut am_space             state / phase                spp_user
+ 120.2   127  overlay map              state / phase                spp_user
+ 120.1    80  cut d                    D-LS port A addr/data/we     u_dls.mem:RD_ADDR:A
+ 120.1    80  cut d                    D-LS port B (unit)           u_dls.mem:WR_ADDR:B
+ 120.0   123  CSRs, tag lookup         other: inbox_priv            inbox_priv
+ 117.6    81  cut d                    other: inbox_priv            inbox_priv
+ 114.9   123  cut am_space             other: inbox_priv            inbox_priv
+ 114.9   123  overlay map              other: inbox_priv            inbox_priv
+ 112.6    79  cut am_wdata             CSRs, tag lookup             s_epc[61]
+ 112.5    77  cut am_wdata             other: ia_addr               ia_addr[6]
+ 111.9    77  cut am_wdata             pc                           pc[2]
+ 111.1    73  cut am_wdata             D-LS port A addr/data/we     u_dls.mem:RD_ADDR:A
+ 111.1    73  cut am_wdata             D-LS port B (unit)           u_dls.mem:WR_ADDR:B
+ 109.3    74  cut am_wdata             state / phase                state[3]
+ 108.6    74  cut am_wdata             other: inbox_priv            inbox_priv
+ 106.5    74  cut ra                   D-LS port A addr/data/we     u_dls.mem:RD_ADDR:A
+ 106.5    74  cut ra                   D-LS port B (unit)           u_dls.mem:WR_ADDR:B
+  68.2    47  cut am_wdata             outputs                      OUT:give_valid
+  68.2    47  CSRs, tag lookup         outputs                      OUT:give_valid
+  64.3    55  state / phase            CSRs, tag lookup             s_epc[61]
+  64.3    53  state / phase            other: ia_addr               ia_addr[6]
+  63.7    53  state / phase            pc                           pc[2]
+  62.8    49  state / phase            D-LS port A addr/data/we     u_dls.mem:RD_ADDR:A
+  62.8    49  state / phase            D-LS port B (unit)           u_dls.mem:WR_ADDR:B
+  61.0    50  state / phase            state / phase                state[3]
+  60.3    50  state / phase            other: inbox_priv            inbox_priv
+  58.7    49  cut am_cmp               other: ia_addr               ia_addr[3]
+  58.5    45  cut am_cmp               CSRs, tag lookup             csr_instret[3]
+  56.5    47  cut am_cmp               pc                           pc[16]
+  55.1    38  cut cd_cap               other: ia_addr               ia_addr[6]
+  54.7    48  other: ca                CSRs, tag lookup             s_epc[61]
+  54.7    46  other: ca                other: ia_addr               ia_addr[6]
+  54.3    34  cut am_wdata             Transfer Unit                u_tu.q_end[3][14]
+  54.1    46  other: ca                pc                           pc[2]
+  53.3    36  cut cd_cap               pc                           pc[2]
+  53.2    42  other: ca                D-LS port A addr/data/we     u_dls.mem:RD_ADDR:A
+
+worst path by start class:
+ 172.2   154  cut ra                   -> pc
+ 172.2   154  cut cap_a                -> pc
+ 153.1   139  CSRs, tag lookup         -> pc
+ 150.1   138  cut d                    -> pc
+ 148.1   139  cut am_space             -> pc
+ 148.1   139  overlay map              -> pc
+ 112.6    79  cut am_wdata             -> CSRs, tag lookup
+  64.3    55  state / phase            -> CSRs, tag lookup
+  58.7    49  cut am_cmp               -> other: ia_addr
+  55.1    38  cut cd_cap               -> other: ia_addr
+  54.7    48  other: ca                -> CSRs, tag lookup
+  49.6    44  cut cd_i                 -> other: ia_addr
+  49.6    44  cut cs_i                 -> other: ia_addr
+  41.9    41  Transfer Unit            -> other: ia_addr
+  40.7    32  pc                       -> CSRs, tag lookup
+  40.7    32  other: ia_addr           -> CSRs, tag lookup
+  40.2    36  cut g_a                  -> other: ia_addr
+  35.8    27  other: $abc$692625$flatten\u_tu -> D-LS port B (unit)
+  34.6    30  other: inbox_priv        -> other: ia_addr
+  29.4    26  cut g_live$func$research/pipeline/build/syn/ks-de/core.v:1661$8161.$result -> other: ia_addr
+  29.4    26  cut live_cd              -> other: ia_addr
+  27.7    26  other: tag_busy          -> other: ia_addr
+  26.3    18  inputs                   -> CSRs, tag lookup
+  25.8    24  save table read          -> other: ia_addr
+  18.7    16  D-LS read data           -> pc
+  18.3    18  ir (instruction)         -> CSRs, tag lookup
+  14.3    12  other: mul_done_lo       -> pc
+  14.3    12  other: mul_done          -> pc
+  13.1    11  other: div_done          -> pc
+   8.9     9  mul / div                -> mul / div
+   4.2     4  other: div_busy          -> mul / div
+   2.5     3  I-LS read data           -> ir (instruction)
+   0.0     0  cut am_op                -> outputs
+
+worst path by end class:
+ 172.2   154  pc                           <- cut ra
+ 160.9   151  other: ia_addr               <- cut ra
+ 146.3   141  CSRs, tag lookup             <- cut ra
+ 144.3   142  state / phase                <- cut ra
+ 139.1   138  other: inbox_priv            <- cut ra
+ 120.1    80  D-LS port A addr/data/we     <- cut d
+ 120.1    80  D-LS port B (unit)           <- cut d
+  68.2    47  outputs                      <- cut am_wdata
+  54.3    34  Transfer Unit                <- cut am_wdata
+  53.0    41  overlay map                  <- cut ra
+  46.8    30  other: tag_busy              <- cut am_wdata
+  35.3    27  I-LS port B (unit)           <- Transfer Unit
+  33.3    27  I-LS port A addr             <- other: ia_addr
+  21.3    15  save table                   <- cut d
+  16.4    13  ir (instruction)             <- Transfer Unit
+  15.8    12  mul / div                    <- state / phase
+  14.7    11  other: div_done              <- state / phase
+  14.3    11  other: $abc$692625$flatten\u_tu <- Transfer Unit
+  14.0    10  other: div_busy              <- state / phase
+  11.8    10  other: mul_done_lo           <- state / phase
+  11.8    10  other: mul_done              <- state / phase
+   7.9     5  other: ca                    <- state / phase

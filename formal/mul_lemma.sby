@@ -1,0 +1,21 @@
+# The schoolbook identity strata_mul's proof rests on (formal/spec/mul_lemma.sv),
+# for 4-bit digits (8 x 8 -> 16 bits; with 6-bit digits no solver here finished in 150 s). Combinational.
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+cover: mode cover
+depth 1
+
+[engines]
+smtbmc bitwuzla
+
+[script]
+read_verilog -formal -sv strata.v
+chparam -set H 4 mul_lemma
+prep -top mul_lemma
+
+[files]
+formal/build/strata.v

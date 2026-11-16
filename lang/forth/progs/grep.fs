@@ -4,14 +4,16 @@
 \ as grep.s reads them (the rest of a longer line is not searched, nor printed).
 [defined] sys.fs 0= [if] include /sys.fs [then]
 
-create ln 256 allot
-create pat 256 allot  variable #pat
+255 constant /line
+create ln /line 1+ allot
+create pat /line 1+ allot  variable #pat
+: at? ( a -- f )                                \ does the pattern start at a? (its first byte first)
+  dup c@ pat c@ = if #pat @ pat #pat @ str= else drop false then ;
 : has? ( a u -- f )                             \ does the line contain the pattern?
   #pat @ 0= if 2drop true exit then
   #pat @ - 1+ dup 1 < if 2drop false exit then  ( a positions )
-  0 ?do  dup i + c@ pat c@ = if dup i + #pat @ pat #pat @ str= if drop true unloop exit then then
-  loop drop false ;
+  0 ?do dup i + at? if drop true unloop exit then loop drop false ;
 : grep-main ( a u -- )
-  255 min dup #pat ! pat swap move
-  begin ln 255 in-line dup 0< 0= while  ln over has? if ln swap type cr else drop then repeat drop ;
+  /line min dup #pat ! pat swap move
+  begin ln /line in-line dup 0< 0= while  ln over has? if ln swap type cr else drop then  repeat drop ;
 ' grep-main main: grep

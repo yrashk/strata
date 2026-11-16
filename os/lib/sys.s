@@ -67,16 +67,18 @@
 ;                sys_sched(0, buf) / sys_sched(1, slice ticks)  (the time slice),
 ;                sys_register(name, len)
 ;   console      sys_conmode(0 cooked / 1 raw), sys_setfg(pid)
-;   files        sys_dir(buf) -> n (32-byte records: name[24], u64 size), sys_unlink,
+;   files        sys_list(buf, path, len, cursor) -> n, cursor (a listing, in parts),
+;                sys_count(path, len) -> n, sys_unlink,
 ;                sys_stat(name, len) -> size, sys_statfs(buf), sys_readblk(n, buf);
 ;                names are paths ("/tag/tag/name": the file must carry the tags;
 ;                one without the leading "/" is under the current tag path),
 ;                sys_cwd(buf) -> len, sys_chdir(path, len, buf) -> len (cd)
-;   tags         sys_query(buf, path, len) -> n (DIR of a tag path), sys_tags(buf,
-;                path or 0, len) -> n (32-byte records: name[16], u64 files, u64
-;                number), sys_tag(name, len, tag, len), sys_untag(name, len, tag, len)
+;   tags         sys_tags2(buf, path or 0, len, cursor) -> n, cursor (every tag, or a
+;                file's), sys_facets() after sys_count or sys_list,
+;                sys_tag(name, len, tag, len), sys_untag(name, len, tag, len)
 ;   devices      sys_devs(buf) -> n, sys_halt, sys_grantfb() (ws only: c6 memory, c7 ports)
-;   time         sys_now -> ticks (1 us), sys_sleep(ticks) -> -8 / -2,
+;   time         sys_now -> ticks (1 us), sys_time -> a0 = us since 1970 (UTC),
+;                a1 = time zone (s), sys_sleep(ticks) -> -8 / -2,
 ;                sys_notify_wait(timeout) -> bits / -8, sys_yield, sys_clock,
 ;                sys_mirror(offset, len) (programs that generate code),
 ;                sys_scratch(start, len) (D-LS not kept across switches)
@@ -100,12 +102,13 @@ OP_WAIT    = 6                          ; proc: wait for a child
 OP_KILL    = 7                          ; proc: kill a process
 OP_PIPE    = 8                          ; pipe: make a pipe
 OP_PS      = 9                          ; proc: list processes
-OP_DIR     = 10                         ; fs: list files
+OP_QUERY   = 40                         ; fs: list files, with a cursor
+OP_TAGS2   = 41                         ; fs: list tags, with a cursor
 OP_UNLINK  = 11                         ; fs: delete a file
 OP_TAG     = 12                         ; fs: give a file a tag
 OP_UNTAG   = 13                         ; fs: take a tag from a file
-OP_TAGS    = 14                         ; fs: list tags (all, or a file's)
 OP_INFO    = 16                         ; proc: system summary
+OP_TIME    = 67                         ; dev: the wall clock (EPOCH, ZONE)
 OP_SIGNAL  = 17                         ; proc: interrupt a process
 OP_SETFG   = 18                         ; tty: the foreground process
 OP_CONMODE = 19                         ; tty: cooked / raw
@@ -145,6 +148,7 @@ SYS_START  = 0x7F000                    ; arena offset of the start-up block (wr
 NHAND      = 8                          ; handles per process
 E_INTR     = -2                         ; "interrupted"
 E_TIMEOUT  = -8                         ; "timed out"
+CON_MODE_RING = 2                       ; WRITE mode bit 1: c6 is free, send a ring with the reply
 
         .data                           ; library state in the program's D-LS
         .align 8                        ; transfer buffers must be 8-byte aligned
@@ -153,6 +157,10 @@ sys_buf:   .space 4096                  ; staging for message data (aligned for 
 sys_start: .space 512                   ; the start-up block: pid, parent, handles, command line
 sys_bufb:  .dword 0                     ; base of our message buffer (what the kernel waits for)
 sys_intrf: .dword 0                     ; an interrupt arrived while we waited (-2 seen)
+con_rb:    .dword 0                     ; the base of our console ring (0: none)
+con_rsz:   .dword 0                     ; its size
+sys_noring: .dword 0                    ; 1: never use a console ring (servers: srv_guard)
+sys_lmode: .dword 0                     ; sys_list's mode word (2: every file, wherever it is)
 sys_htab:  .space NHAND * 16            ; handles: {server register, server id}, register 0 = free
 out_buf:   .space 4096                  ; buffered standard output
 out_len:   .dword 0                     ; bytes waiting in out_buf
@@ -160,6 +168,8 @@ in_buf:    .space 4096                  ; buffered standard input
 in_pos:    .dword 0                     ; next byte to hand out
 in_len:    .dword 0                     ; bytes in in_buf
 in_eof:    .dword 0                     ; standard input has ended
+sys_tbuf:  .space 32                    ; sys_time: dev's TIME record (EPOCH, ZONE)
+sys_tgot:  .dword 0                     ; ... 1 once asked
 sys_num:   .space 24                    ; digits for out_dec / out_hex
 sys_num_end:                            ; one past them
 sys_nl:    .ascii "\n"                  ; a newline
@@ -173,6 +183,11 @@ sys_hexd:  .ascii "0123456789abcdef"    ; hex digits
 
 ; sys_init(): read the start-up block and set up handles 0..2
 sys_init:
+        addi  sp, sp, -8                ; frame (con_got)
+        sd    ra, 0(sp)                 ; ...
+        call  con_got                   ; our console ring, if the kernel gave one (c6)
+        ld    ra, 0(sp)                 ; ...
+        addi  sp, sp, 8                 ; ...
         cbase t0, c5                    ; our message buffer's base:
         la    t1, sys_bufb              ;   the kernel recognises our replies by it
         sd    t0, 0(t1)                 ; ...
@@ -307,6 +322,18 @@ sm_fail:
 ; always attach this way, never with a `csend` of your own before sys_msg.
 ; -1 (nothing sent) if a register is empty or not an endpoint.
 sys_msga:
+        cvalid t0, c6                   ; the console ring in c6 goes first: the reply
+        beqz  t0, sma_hdr               ;   may bring a capability back there, and
+        cperms t0, c6                   ;   callers then look at c6 (con_isring's test)
+        andi  t0, t0, 0xff              ; ...
+        li    t1, 0x18                  ; ...
+        bne   t0, t1, sma_hdr           ; ...
+        cbase t0, c6                    ; ...
+        la    t1, con_rb                ; ...
+        ld    t1, 0(t1)                 ; ...
+        bne   t0, t1, sma_hdr           ; ...
+        cclear c6                       ; ...
+sma_hdr:
         la    t0, sys_hdr               ; build the header
         sd    a1, 0(t0)                 ; op
         sd    a2, 8(t0)                 ; handle
@@ -499,8 +526,12 @@ srd_ret:
         ret                             ; done
 
 ; sys_write(a0 = handle, a1 = address, a2 = length) -> a0 = bytes written, or < 0
+; To the console, the bytes go into the ring tty lent us (in c6) when it is
+; there and has room: no message (con_put). Otherwise a WRITE message, which
+; tty answers only after it has written out what the ring holds, so the
+; order is kept; with c6 free it asks for a ring to come back with the reply.
 sys_write:
-        addi  sp, sp, -48               ; frame
+        addi  sp, sp, -56               ; frame
         sd    ra, 0(sp)                 ; save ra
         sd    a0, 8(sp)                 ; handle
         sd    a1, 16(sp)                ; source
@@ -514,19 +545,41 @@ sw_loop:
         mv    a2, t0                    ; ...
 sw_n:
         sd    a2, 40(sp)                ; this chunk
-        ld    a0, 16(sp)                ; its bytes -> the buffer
-        mv    a1, a2                    ; ...
-        call  sys_put                   ; ...
         ld    a0, 8(sp)                 ; the handle's entry
         call  sys_hent                  ; ...
         beqz  a0, sw_bad                ; not open
+        ld    t0, 0(a0)                 ; the console (tty, register 3)?
+        li    t1, 3                     ; ...
+        bne   t0, t1, sw_msg            ; no
+        ld    a0, 16(sp)                ; yes: through the ring?
+        ld    a1, 40(sp)                ; ...
+        call  con_put                   ; a0 = written, or -1
+        bgez  a0, sw_adv                ; done without a message
+sw_msg:
+        ld    a0, 16(sp)                ; its bytes -> the buffer
+        ld    a1, 40(sp)                ; ...
+        call  sys_put                   ; ...
+        ld    a0, 8(sp)                 ; the handle's entry
+        call  sys_hent                  ; ...
         ld    a2, 8(a0)                 ; server id
         ld    a0, 0(a0)                 ; server register
+        li    a4, 0                     ; mode: a ring wanted?
+        li    t0, 3                     ; (the console only)
+        bne   a0, t0, sw_send           ; ...
+        call  con_want                  ; a4 = CON_MODE_RING or 0 (keeps a0, a2)
+sw_send:
+        sd    a4, 48(sp)                ; (asked: look at c6 after)
         li    a1, OP_WRITE              ; the request
         ld    a3, 40(sp)                ; length
-        li    a4, 0                     ; (no mode)
         call  sys_msg                   ; a0 = written
+        ld    t0, 48(sp)                ; did we ask for a ring?
+        beqz  t0, sw_res                ; no
+        sd    a0, 48(sp)                ; (keep the result)
+        call  con_got                   ; yes: note it if it came
+        ld    a0, 48(sp)                ; ...
+sw_res:
         blez  a0, sw_err                ; nothing written: stop
+sw_adv:
         ld    t0, 16(sp)                ; advance
         add   t0, t0, a0                ; ...
         sd    t0, 16(sp)                ; ...
@@ -548,8 +601,114 @@ sw_done:
         ld    a0, 32(sp)                ; bytes written
 sw_ret:
         ld    ra, 0(sp)                 ; restore ra
-        addi  sp, sp, 48                ; release the frame
+        addi  sp, sp, 56                ; release the frame
         ret                             ; done
+
+; ---- the console ring ------------------------------------------------------------
+; The kernel gives each program its console ring at its start (c6): a piece
+; of T2 that tty reads (chan.s; doc/strataos.md 2.3). It stays in c6 until
+; something replaces it (a reply's attachment, a program's own use of c6: it
+; is copyable, so nothing traps); every use checks that c6 still holds it,
+; and a WRITE by message with c6 free asks tty for it again. tty writes out
+; every ring before it acts on any request, and so before a process's end
+; reaches its parent.
+
+; sys_server(): this process is a server (its c6 holds requests): its
+; console output always goes by message
+sys_server:
+        la    t0, sys_noring            ; ...
+        li    t1, 1                     ; ...
+        sd    t1, 0(t0)                 ; ...
+        ret                             ; ...
+
+; con_isring() -> a0 = 1 if c6 holds our console ring
+con_isring:
+        la    t0, sys_noring            ; (not for servers)
+        ld    t0, 0(t0)                 ; ...
+        bnez  t0, cir_no                ; ...
+        cvalid t0, c6                   ; something there?
+        beqz  t0, cir_no                ; ...
+        cperms t0, c6                   ; an atomic segment (A, D), in T2 or T3
+        andi  t0, t0, 0xff              ; ...
+        li    t1, 0x18                  ; ...
+        bne   t0, t1, cir_no            ; ...
+        clen  t0, c6                    ; its size
+        la    t1, con_rsz               ; ...
+        ld    t1, 0(t1)                 ; ...
+        bne   t0, t1, cir_no            ; ...
+        cbase t0, c6                    ; the one tty gave us
+        la    t1, con_rb                ; ...
+        ld    t1, 0(t1)                 ; ...
+        bne   t0, t1, cir_no            ; ...
+        li    a0, 1                     ; yes
+        ret                             ; ...
+cir_no:
+        li    a0, 0                     ; no
+        ret                             ; ...
+
+; con_put(a0 = source, a1 = length) -> a0 = length written into the ring, or
+; -1 (no ring, or no room now: send a message)
+con_put:
+        addi  sp, sp, -24               ; frame
+        sd    ra, 0(sp)                 ; ...
+        sd    a0, 8(sp)                 ; ...
+        sd    a1, 16(sp)                ; ...
+        call  con_isring                ; the ring?
+        beqz  a0, cpt_no                ; no
+        li    a0, 0                     ; the ring (c6) is the whole segment
+        la    a1, con_rsz               ; ...
+        ld    a1, 0(a1)                 ; ...
+        ld    a2, 8(sp)                 ; ...
+        ld    a3, 16(sp)                ; ...
+        call  chan_put                  ; a0 = written or -1, a1 = SLEEP
+        bltz  a0, cpt_ret               ; no room: a message
+        beqz  a1, cpt_ret               ; tty is awake: it will see it
+        sd    a0, 16(sp)                ; asleep: wake it with an empty WRITE
+        li    a0, 3                     ; ...
+        li    a1, OP_WRITE              ; ...
+        li    a2, 0                     ; (the console)
+        li    a3, 0                     ; nothing
+        li    a4, 0                     ; ...
+        call  sys_msg                   ; (answered once tty has written the ring out)
+        ld    a0, 16(sp)                ; written
+        j     cpt_ret                   ; ...
+cpt_no:
+        li    a0, -1                    ; ...
+cpt_ret:
+        ld    ra, 0(sp)                 ; ...
+        addi  sp, sp, 24                ; ...
+        ret                             ; ...
+
+; con_want() -> a4 = CON_MODE_RING if a ring may come back into c6 (it is
+; free, and this is not a server), else 0; a0..a3 are kept
+con_want:
+        li    a4, 0                     ; ...
+        la    t0, sys_noring            ; ...
+        ld    t0, 0(t0)                 ; ...
+        bnez  t0, cwn_ret               ; ...
+        cvalid t0, c6                   ; ...
+        bnez  t0, cwn_ret               ; ...
+        li    a4, CON_MODE_RING         ; ...
+cwn_ret:
+        ret                             ; ...
+
+; con_got(): at the start (sys_init), and after a WRITE that asked: remember
+; the ring if one is in c6 (an atomic segment: nothing else puts one there)
+con_got:
+        cvalid t0, c6                   ; something there?
+        beqz  t0, cgt_ret               ; ...
+        cperms t0, c6                   ; an atomic segment?
+        andi  t0, t0, 0xff              ; ...
+        li    t1, 0x18                  ; ...
+        bne   t0, t1, cgt_ret           ; ...
+        clen  t0, c6                    ; ...
+        la    t1, con_rsz               ; ...
+        sd    t0, 0(t1)                 ; ...
+        cbase t0, c6                    ; ...
+        la    t1, con_rb                ; ...
+        sd    t0, 0(t1)                 ; ...
+cgt_ret:
+        ret                             ; ...
 
 ; sys_close(a0 = handle) -> a0 = result
 sys_close:
@@ -742,7 +901,7 @@ sys_catch:
         li    a4, 0                     ; ...
         j     sys_msg                   ; (tail call)
 
-; sys_ps(a0 = buffer, at least 32 * 32 bytes) -> a0 = number of 32-byte records
+; sys_ps(a0 = buffer, at least 64 * 32 bytes: proc keeps 64) -> a0 = number of 32-byte records
 sys_ps:
         li    a1, OP_PS                 ; the request
         j     sys_table                 ; shared path
@@ -995,60 +1154,22 @@ sfd_ret:
         addi  sp, sp, 32                ; release the frame
         ret                             ; done
 
-; sys_dir(a0 = buffer, 128 * 32 bytes) -> a0 = files; records: 24 bytes name, u64 size
-sys_dir:
-        mv    a1, a0                    ; destination
-        li    a0, OP_DIR                ; the request
-        li    a2, 32                    ; record size
-        li    a3, 0                     ; ...
-        j     sys_fsdata                ; (tail call)
-
-; sys_query(a0 = buffer, 128 * 32 bytes, a1 = tag path, a2 = its length) ->
-; a0 = files carrying every tag of the path (records as sys_dir), or -4
-sys_query:
-        mv    a3, a2                    ; length
-        mv    a2, a1                    ; the path
-        mv    a1, a0                    ; destination
-        li    a0, OP_DIR                ; the request
-        j     sys_fsq                   ; (tail call)
-
-; sys_tags(a0 = buffer, 64 * 32 bytes, a1 = a file's path, a2 = its length (0:
-; every tag)) -> a0 = tags; records: 16 bytes name, u64 files, u64 tag number
-sys_tags:
-        mv    a3, a2                    ; length
-        mv    a2, a1                    ; the path
-        mv    a1, a0                    ; destination
-        li    a0, OP_TAGS               ; the request
-; sys_fsq(a0 = op, a1 = destination, a2 = path, a3 = length) -> a0 = count;
-; copies count 32-byte records of reply data out
-sys_fsq:
-        addi  sp, sp, -32               ; frame
+; sys_count(a0 = tag path, a1 = its length (0: the current path)) -> a0 = the
+; files carrying every tag of the path, or -4 (no such tag); sys_facets then
+; gives the other tags they carry
+sys_count:
+        addi  sp, sp, -16               ; frame
         sd    ra, 0(sp)                 ; save ra
-        sd    a0, 8(sp)                 ; op
-        sd    a1, 16(sp)                ; destination
-        sd    a3, 24(sp)                ; length
-        mv    a0, a2                    ; the path -> the buffer
-        mv    a1, a3                    ; ...
-        call  sys_put                   ; ...
+        sd    a1, 8(sp)                 ; length
+        call  sys_put                   ; the path -> the buffer
         li    a0, 2                     ; fs
-        ld    a1, 8(sp)                 ; op
+        li    a1, OP_QUERY              ; a listing
         li    a2, 0                     ; ...
-        ld    a3, 24(sp)                ; length
-        li    a4, 0                     ; ...
+        ld    a3, 8(sp)                 ; length
+        li    a4, 1                     ; of no records: the count and the facets
         call  sys_msg                   ; a0 = count
-        blez  a0, sfq_ret               ; nothing
-        sd    a0, 8(sp)                 ; keep it
-        slli  a1, a0, 5                 ; bytes
-        li    t0, SYS_MAX               ; at most one message
-        bleu  a1, t0, sfq_cp            ; ...
-        mv    a1, t0                    ; ...
-sfq_cp:
-        ld    a0, 16(sp)                ; destination
-        call  sys_get                   ; copy
-        ld    a0, 8(sp)                 ; the count
-sfq_ret:
         ld    ra, 0(sp)                 ; restore ra
-        addi  sp, sp, 32                ; release the frame
+        addi  sp, sp, 16                ; release the frame
         ret                             ; done
 
 ; sys_tag(a0 = name, a1 = length, a2 = tag, a3 = its length) -> a0 = 0, -4 no
@@ -1175,6 +1296,37 @@ sys_now:
         ld    a0, 0(t0)                 ; (waits for the read)
         ret                             ; done
 
+; sys_time() -> a0 = the wall clock in microseconds since 1970-01-01 UTC,
+; a1 = the local time zone (local time minus UTC, seconds). The timer's
+; EPOCH (the wall clock when NOW was 0) plus NOW; dev is asked for EPOCH and
+; ZONE at the first call only (which uses c6: call it once at start in a
+; program that keeps something there). A machine that does not know the
+; time (EPOCH 0, or no dev) gives the time since power-on, zone 0.
+sys_time:
+        addi  sp, sp, -16               ; frame
+        sd    ra, 0(sp)                 ; save ra
+        la    t0, sys_tgot              ; asked already?
+        ld    t1, 0(t0)                 ; ...
+        bnez  t1, stm_now               ; yes
+        li    t1, 1                     ; (once, whatever the answer)
+        sd    t1, 0(t0)                 ; ...
+        la    t0, sys_tbuf              ; 0 and 0 unless dev answers
+        sd    zero, 0(t0)               ; ...
+        sd    zero, 8(t0)               ; ...
+        li    a0, OP_TIME               ; the request
+        la    a1, sys_tbuf              ; one 32-byte record
+        li    a2, 0                     ; ...
+        call  sys_dev                   ; ...
+stm_now:
+        call  sys_now                   ; NOW
+        la    t0, sys_tbuf              ; + EPOCH
+        ld    t1, 0(t0)                 ; ...
+        add   a0, a0, t1                ; ...
+        ld    a1, 8(t0)                 ; ZONE
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 16                ; release the frame
+        ret                             ; done
+
 ; sys_sleep(a0 = ticks) -> a0 = -8 when the time is up, -2 if interrupted
 sys_sleep:
         mv    a2, a0                    ; timeout
@@ -1218,6 +1370,31 @@ sys_scratch:
         svc                             ; ...
         ret                             ; done
 
+; sys_more(a0 = bytes) -> a0 = 0 and an extra arena in c6 of at least that
+; many bytes (whole 256 KiB granules, 1 MiB at least; sys_word(0) = its
+; size), -6 no memory: far memory beyond the arena (c0) a program is born
+; with, for as long as it runs (proc MORE). c6 must be empty
+OP_MORE    = 43                         ; proc: an extra arena
+OP_LESS    = 44                         ; proc: give one back
+sys_more:
+        mv    a2, a0                    ; handle = bytes
+        li    a0, 1                     ; proc
+        li    a1, OP_MORE               ; ...
+        li    a3, 0                     ; ...
+        li    a4, 0                     ; ...
+        j     sys_msg                   ; (tail call)
+
+; sys_less(a0 = the register 6 or 7 that holds an extra arena) -> a0 = 0: it
+; is given back (proc LESS)
+sys_less:
+        mv    a5, a0                    ; the attachment
+        li    a0, 1                     ; proc
+        li    a1, OP_LESS               ; ...
+        li    a2, 0                     ; ...
+        li    a3, 0                     ; ...
+        li    a4, 0                     ; ...
+        j     sys_msga                  ; (tail call)
+
 ; sys_clock(): c7 = the clock again (after a reply put something else there)
 sys_clock:
         li    a0, SVC_CLOCK             ; ...
@@ -1251,7 +1428,7 @@ ws_call:
         ld    a2, 16(sp)                ; handle
         ld    a3, 24(sp)                ; length
         li    a4, 0                     ; ...
-        call  sys_msg                   ; a0 = result (CREATE: the surface is in c6)
+        call  sys_msg                   ; a0 = result (CREATE: the window id; its size in the reply's data)
         ld    ra, 0(sp)                 ; restore ra
         addi  sp, sp, 32                ; release the frame
         ret                             ; done
@@ -2028,7 +2205,8 @@ net_setip:
 
 ; net_stat(a0 = buffer of 64 + 32 x 8 bytes) -> a0 = sockets in use; the buffer:
 ; u64 ip, u64 device STATUS, u64 packets in, u64 packets out, u64 packets
-; dropped (bad, or not for us), u64 socket slots, 2 reserved; then 32 bytes
+; dropped (bad, or not for us), u64 socket slots, u64 the two resolvers (0:
+; none); then 32 bytes
 ; per socket: u8 id, u8 state, u8 protocol (6 TCP, 17 UDP), u8 flags, u16
 ; local port, u16 remote port, u32 remote ip, u32 owner pid, u32 bytes
 ; received not yet read, u32 bytes sent not yet acknowledged, u32 peer window,
@@ -2229,9 +2407,9 @@ sys_rename:
         li    a4, OP_RENAME             ; the request
         j     sys_tagop                 ; (the same data as TAG: path, 0, path)
 
-; sys_facets() -> a0 = the facets of the last sys_query: a tag set (bit t =
+; sys_facets() -> a0 = the facets of the last sys_count or sys_list: a tag set (bit t =
 ; tag number t) of every other tag that a listed file carries, the ways to
-; narrow the listing further; sys_tags(buf, 0, 0) gives the numbers' names
+; narrow the listing further; sys_tags2(buf, 0, 0, 0) gives the ids' names
 sys_facets:
         la    t0, sys_hdr               ; the reply's mode word
         ld    a0, 24(t0)                ; ...
@@ -2291,3 +2469,71 @@ scw_ret:
         ld    ra, 0(sp)                 ; restore ra
         addi  sp, sp, 24                ; release the frame
         ret                             ; done
+
+; ---- files: listings without limits (fs QUERY, TAGS2) --------------------------
+
+; sys_list(a0 = buffer (SYS_MAX bytes), a1 = tag path, a2 = its length, a3 =
+; cursor (0 at first)) -> a0 = files in this part (or -4), a1 = the cursor to
+; ask with again (0: that was all). The buffer: u64 n and n u32 ids of the
+; path's own tags (padded to 8 bytes), then per file {u16 record bytes, u16
+; name length, u32 tags, u64 size, the name, the file's tag ids (u32 each)},
+; name and ids each padded to 8 bytes. sys_facets: the facets of this part.
+sys_list:
+        li    a4, OP_QUERY              ; the request
+        li    a5, SYS_MAX               ; ...
+        j     sys_fsl                   ; shared path
+; sys_tags2(a0 = buffer (SYS_MAX bytes), a1 = a file's path, a2 = its length
+; (0: every tag), a3 = cursor (0 at first)) -> a0 = tags in this part, a1 =
+; the cursor to ask with again (0: that was all). The buffer: per tag {u16
+; record bytes, u16 name length, u32 id, u64 files carrying it, the name
+; padded to 8 bytes}.
+sys_tags2:
+        li    a5, SYS_MAX               ; ...
+; sys_tags2n: the same into a smaller buffer of a5 bytes (a multiple of 8):
+; a1 comes back as the data's bytes instead of the cursor, and the records
+; that do not lie whole in them are not there (the count says all the same)
+sys_tags2n:
+        li    a4, OP_TAGS2              ; the request
+sys_fsl:
+        addi  sp, sp, -48               ; frame
+        sd    a5, 40(sp)                ; room
+        sd    ra, 0(sp)                 ; save ra
+        sd    a0, 8(sp)                 ; destination
+        sd    a2, 16(sp)                ; length
+        sd    a3, 24(sp)                ; cursor
+        sd    a4, 32(sp)                ; op
+        mv    a0, a1                    ; the path -> the buffer
+        mv    a1, a2                    ; ...
+        call  sys_put                   ; ...
+        li    a0, 2                     ; fs
+        ld    a1, 32(sp)                ; op
+        ld    a2, 24(sp)                ; cursor
+        ld    a3, 16(sp)                ; length
+        la    a4, sys_lmode             ; (a listing's mode: `sys_lmode`, 0 unless set)
+        ld    a4, 0(a4)                 ; ...
+        call  sys_msg                   ; a0 = count
+        li    a1, 0                     ; (no more after an error)
+        bltz  a0, sfl_ret               ; ...
+        sd    a0, 16(sp)                ; keep it
+        la    t0, sys_hdr               ; the reply's length word: the data's bytes
+        ld    a1, 16(t0)                ; ...
+        ld    t0, 40(sp)                ; (no more than the buffer)
+        bleu  a1, t0, sfl_cp            ; ...
+        mv    a1, t0                    ; ...
+sfl_cp:
+        sd    a1, 24(sp)                ; ...
+        ld    a0, 8(sp)                 ; destination
+        call  sys_get                   ; copy
+        ld    a0, 16(sp)                ; the count
+        la    t0, sys_hdr               ; the reply's handle word: the cursor
+        ld    a1, 8(t0)                 ; ...
+        ld    t0, 40(sp)                ; (a smaller buffer: the bytes instead)
+        li    t1, SYS_MAX               ; ...
+        beq   t0, t1, sfl_ret           ; ...
+        ld    a1, 24(sp)                ; ...
+sfl_ret:
+        ld    ra, 0(sp)                 ; restore ra
+        addi  sp, sp, 48                ; release the frame
+        ret                             ; done
+
+        .include "chan.s"             ; rings of records (the console ring)

@@ -7,6 +7,7 @@ Writes gen-insns-*.tex (one per instruction chapter), gen-opmap.tex (the
 opcode map table) and gen-index.tex (the alphabetical instruction index).
 Semantics follow emu/emu.c, the reference emulator.
 """
+import importlib.util
 import os
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
@@ -227,8 +228,9 @@ LOADS = [("ld", "LD", 8, False, "doubleword"), ("lw", "LW", 4, True, "word, sign
          ("lwu", "LWU", 4, False, "word, zero-extended"), ("lh", "LH", 2, True, "halfword, sign-extended"),
          ("lhu", "LHU", 2, False, "halfword, zero-extended"), ("lb", "LB", 1, True, "byte, sign-extended"),
          ("lbu", "LBU", 1, False, "byte, zero-extended")]
-LS_EXC_L = lambda n: [("lsfault", r"\texttt{addr} $>$ \texttt{DLS\_SIZE} $-$ %d, or \texttt{addr} is not a multiple of %d" % (n, n)
-                       if n > 1 else r"\texttt{addr} $\geq$ \texttt{DLS\_SIZE}", r"\texttt{addr}"),
+LS_WIN = r", or (user mode) outside the Local Store windows (\S\ref{sec:lswin})"
+LS_EXC_L = lambda n: [("lsfault", (r"\texttt{addr} $>$ \texttt{DLS\_SIZE} $-$ %d, or \texttt{addr} is not a multiple of %d" % (n, n)
+                       if n > 1 else r"\texttt{addr} $\geq$ \texttt{DLS\_SIZE}") + LS_WIN, r"\texttt{addr}"),
                       ("pend", r"CCR.PTRAP = 1 and the bytes overlap the D-LS destination of an in-flight "
                                r"\insn{tget} (only in implementations with real transfer latency)", r"\texttt{addr}")]
 LTITLE = dict(ld="Load doubleword", lw="Load word", lwu="Load word unsigned", lh="Load halfword",
@@ -238,8 +240,10 @@ for (mn, opn, n, sgn, what) in LOADS:
     rd = "X[rd] = DLS.Read(addr, 8);" if n == 8 else "X[rd] = %s(DLS.Read(addr, %d), 64);" % (ext, n)
     op = """addr = X[rs1] + SignExtend(imm16, 64);
 if addr > DLS_SIZE - %d or addr MOD %d != 0 then Trap(lsfault, addr); end
-Stall while [addr, addr+%d) overlaps the destination of an in-flight tget;
-%s""" % (n, n, n, rd)
+pa = Window(FALSE, addr, %d);                  // user mode: the D-LS windows
+if pa == FAULT then Trap(lsfault, addr); end
+Stall while [pa, pa+%d) overlaps the destination of an in-flight tget;
+%s""" % (n, n, n, n, rd.replace("(addr", "(pa"))
     ins("ls", mn.upper(), LTITLE[mn],
         L_I(OP[opn]), ["%s rd, imm(rs1)" % mn],
         r"Loads a %s from the data Local Store at \reg{rs1} plus a sign-extended 16-bit offset. "
@@ -254,11 +258,13 @@ for (mn, opn, n, what) in STORES:
     val = "X[rs2]" if n == 8 else "X[rs2]<%d:0>" % (8 * n - 1)
     op = """addr = X[rs1] + SignExtend(imm16, 64);
 if addr > DLS_SIZE - %d or addr MOD %d != 0 then Trap(lsfault, addr); end
-Stall while [addr, addr+%d) overlaps the destination of an in-flight tget
+pa = Window(FALSE, addr, %d);                  // user mode: the D-LS windows
+if pa == FAULT then Trap(lsfault, addr); end
+Stall while [pa, pa+%d) overlaps the destination of an in-flight tget
                        or the source of an in-flight tput;
-DLS.Write(addr, %d, %s);""" % (n, n, n, n, val)
-    exc = [("lsfault", r"\texttt{addr} $>$ \texttt{DLS\_SIZE} $-$ %d, or \texttt{addr} is not a multiple of %d" % (n, n)
-            if n > 1 else r"\texttt{addr} $\geq$ \texttt{DLS\_SIZE}", r"\texttt{addr}"),
+DLS.Write(pa, %d, %s);""" % (n, n, n, n, n, val)
+    exc = [("lsfault", (r"\texttt{addr} $>$ \texttt{DLS\_SIZE} $-$ %d, or \texttt{addr} is not a multiple of %d" % (n, n)
+            if n > 1 else r"\texttt{addr} $\geq$ \texttt{DLS\_SIZE}") + LS_WIN, r"\texttt{addr}"),
            ("pend", r"CCR.PTRAP = 1 and the bytes overlap an in-flight \insn{tget} destination or \insn{tput} source",
             r"\texttt{addr}")]
     ins("ls", mn.upper(), "Store " + what,
@@ -320,7 +326,7 @@ XF_EXC = lambda need, lim, extra="": [
     ("xalign", r"space is not device space and any of \texttt{X[rl]}, \texttt{X[ro]}, \texttt{X[rn]} is not a multiple of 8", r"\texttt{X[ro]}"),
     ("bounds", r"device space: $\texttt{X[ro]} \geq \texttt{C[cs].len}$; any other space: $\texttt{X[ro]} + \texttt{X[rn]} > \texttt{C[cs].len}$",
      r"\texttt{X[ro]}"),
-    ("lsfault", r"$\texttt{X[rl]} + \texttt{X[rn]} > %s$" % lim, r"\texttt{X[rl]}"),
+    ("lsfault", r"$\texttt{X[rl]} + \texttt{X[rn]} > %s$" % lim + LS_WIN, r"\texttt{X[rl]}"),
 ]
 XF_PEND = ("pend", r"CCR.PTRAP is set, \texttt{X[rn]} $\neq$ 0 and the D-LS range overlaps the destination of a "
                    r"device read of this core that is still in flight", r"\texttt{X[rl]}")
@@ -331,6 +337,7 @@ ins("xfer", "TGET", "Transfer get (far to D-LS)", L_X(0), ["tget tag, rl, cs, ro
     r"that would observe it incomplete.",
     """cap = C[cs]; ls = X[rl]; off = X[ro]; n = X[rn];
 CheckTransfer(cap, GET, ls, off, n, DLS_SIZE);      // may trap; nothing has moved yet
+ls = Window(FALSE, ls, n);                          // user mode: relocated by its window
 WaitPendingReads(ls, n);                            // ordered after device reads in flight
 if cap.space == DEV then
     for i = 0 to n-1 do DLS[ls+i] = Device.Read(cap.base + off, i); end  // one byte per beat
@@ -356,6 +363,7 @@ ins("xfer", "TPUT", "Transfer put (D-LS to far)", L_X(1), ["tput tag, rl, cs, ro
     r"(\S\ref{sec:corectl}).",
     """cap = C[cs]; ls = X[rl]; off = X[ro]; n = X[rn];
 CheckTransfer(cap, PUT, ls, off, n, DLS_SIZE);
+ls = Window(FALSE, ls, n);                          // user mode: relocated by its window
 WaitPendingReads(ls, n);                            // ordered after device reads in flight
 if cap.space == DEV then
     for i = 0 to n-1 do Device.Write(cap.base + off, i, DLS[ls+i]); end  // one byte per beat
@@ -390,7 +398,8 @@ for e = 0 to 15 do
         XMAP[e].valid = FALSE;
     end
 end
-ILS[ls .. ls+n-1] = Far.Read(cap.space, cap.base + off, n);
+pls = Window(TRUE, ls, n);                               // user mode: relocated by the code window
+ILS[pls .. pls+n-1] = Far.Read(cap.space, cap.base + off, n);
 MarkBusy(tag) until the transfer completes;""",
     XF_EXC("X", r"\texttt{ILS\_SIZE}", r", or names device or core-control space"),
     notes=r"Instruction fetch from a range an in-flight \insn{tgetx} is filling stalls, so a program may jump "
@@ -981,15 +990,17 @@ ins("sys", "LTAG", "Look up software-cache tag", L_I(OP["LTAG"], imm=[(15, 0, b(
 line = X[rs1] >> lsh;  set = line AND ((1 << lsets) - 1);
 span = (ways + 1) * 8;  eb = TTAG + set * span;  key = (line << 1) OR 1;
 if ways == 0 or eb MOD 8 != 0 or eb > DLS_SIZE - span then Trap(lsfault, eb); end
-ctr = DLS.Read(eb + 8*ways, 8);  victim = if ctr < ways then ctr else 0;
+pe = Window(FALSE, eb, span);                  // user mode: one D-LS window holds the entry
+if pe == FAULT then Trap(lsfault, eb); end
+ctr = DLS.Read(pe + 8*ways, 8);  victim = if ctr < ways then ctr else 0;
 X[rd] = (TDATA + ((set*ways + victim) << lsh)) OR (1 << 63);       // miss
 for w = 0 to ways-1 do
-    if DLS.Read(eb + 8*w, 8) == key then                          // hit
+    if DLS.Read(pe + 8*w, 8) == key then                          // hit
         X[rd] = TDATA + ((set*ways + w) << lsh) + (X[rs1] AND ((1 << lsh) - 1));
         break;
     end
 end""",
-    [("lsfault", r"$\textit{ways} = 0$, or the set's table entry is misaligned or outside the D-LS", r"entry address \texttt{eb}"),
+    [("lsfault", r"$\textit{ways} = 0$, or the set's table entry is misaligned or outside the D-LS" + LS_WIN, r"entry address \texttt{eb}"),
      ("pend", r"CCR.PTRAP = 1 and the set's entry overlaps an in-flight \insn{tget} destination", r"\texttt{eb}")],
     notes=r"The tag table is ordinary D-LS memory that software initialises (zero = invalid). A miss result is "
           r"negative as a signed number, so \insn{bltz} detects it.", fmt="I", opname="LTAG")
@@ -999,8 +1010,8 @@ ins("sys", "LINST", "Install software-cache tag",
     r"Records the line containing far offset \reg{rs1} in the current victim way of its set and advances "
     r"the set's replacement counter, which cycles $0, 1, \ldots, \textit{ways}-1$.",
     """(compute lsh, ways, set, eb, key, victim exactly as LTAG; same lsfault check)
-DLS.Write(eb + 8*victim, 8, key);
-DLS.Write(eb + 8*ways, 8, if victim + 1 == ways then 0 else victim + 1);""",
+DLS.Write(pe + 8*victim, 8, key);
+DLS.Write(pe + 8*ways, 8, if victim + 1 == ways then 0 else victim + 1);""",
     [("lsfault", r"as \insn{ltag}", r"\texttt{eb}"),
      ("pend", r"CCR.PTRAP = 1 and the entry overlaps an in-flight \insn{tget} destination or \insn{tput} source", r"\texttt{eb}")],
     notes=r"\insn{linst} does not check whether the line is already present; call it only after an \insn{ltag} miss.",
@@ -1021,13 +1032,14 @@ if not cap.X then Trap(perm, cs); end
 if UInt(X[roff]) >= cap.len then Trap(bounds, X[roff]); end
 if XSLOT != 0 and (cap.base + X[roff]) MOD (1 << XSLOT) != 0 then Trap(xalign, X[roff]); end
 if X[rils] MOD 4 != 0 or UInt(X[rils]) >= ILS_SIZE then Trap(lsfault, X[rils]); end
+if Window(TRUE, X[rils], 4) == FAULT then Trap(lsfault, X[rils]); end   // user mode: the code window
 XMAP[idx] = (valid: TRUE, space: cap.space, far: cap.base + X[roff], ils: X[rils]);""",
     [("illegal", r"$\field{idx} \geq \textit{NXMAP}$ (always when bit 25 is 1)", "instruction word"),
      ("capinv", r"\texttt{C[cs]} is not live", r"\texttt{cs}"),
      ("perm", r"\texttt{C[cs]} lacks \perm{X}", r"\texttt{cs}"),
      ("bounds", r"$\texttt{X[roff]} \geq \texttt{C[cs].len}$", r"\texttt{X[roff]}"),
      ("xalign", r"$\csr{xslot} = n \neq 0$ and the far address is not a multiple of $2^n$", r"\texttt{X[roff]}"),
-     ("lsfault", r"\texttt{X[rils]} misaligned or $\geq$ \texttt{ILS\_SIZE}", r"\texttt{X[rils]}")],
+     ("lsfault", r"\texttt{X[rils]} misaligned or $\geq$ \texttt{ILS\_SIZE}" + LS_WIN, r"\texttt{X[rils]}")],
     notes=r"Entries are not checked for duplicates; a lookup uses the lowest-numbered matching entry. The map "
           r"is per-core state and is available in user mode. $\textit{NXMAP}$, the number of entries, is a "
           r"property of the platform (4--16, 16 by default; the platform table's header says). The alignment "
@@ -1187,6 +1199,13 @@ def outputs():
         t += "\\texttt{%s} & " % b(r, 3) + " & ".join(cells) + "\\\\[2pt]\n"
     t += "\\bottomrule\n\\end{tabular}\n\\end{table}\n"
     files["gen-opmap.tex"] = t
+    # the StrataOS chapter's op tables and diagrams, from the servers' sources and the
+    # site's drawings (tools/web-os.py, which also makes the site's tables)
+    spec = importlib.util.spec_from_file_location(
+        "web_os", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tools", "web-os.py"))
+    web_os = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(web_os)
+    files.update(web_os.latex_outputs())
     return files
 
 

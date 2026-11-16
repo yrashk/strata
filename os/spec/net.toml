@@ -1,0 +1,313 @@
+# net: the messages of os/servers/net.s (format: os/spec/README.md)
+
+[server]
+key = "net"
+title = "net"
+role = "IPv4, ICMP, UDP, TCP and DNS"
+does = "the network server, started on demand: owns the network interface; IPv4, ICMP echo, UDP, TCP and DNS"
+reached = "LOOKUP \"net\""
+core = "the lowest empty core, alone on it"
+start = "demand"
+holds = "the network interface's ports 0x4200- (c4, from GETNET); the clock (c7)"
+sources = ["os/servers/net.s"]
+dispatch = { file = "os/servers/net.s", first = ";\\s*dispatch", last = "^bad:" }
+calls = "message"
+note = """`net [ADDRESS]` starts it; the first program that needs the network starts one if none \
+runs. Addresses are u32 in a word (a.b.c.d = a << 24 | b << 16 | c << 8 | d; the upper 32 bits \
+of a handle are ignored). 8 sockets in all, TCP or UDP, each with a 1 KiB receive ring and a 1 KiB \
+send buffer; segments of at most 1024 bytes. A socket belongs to the process that made it (ACCEPT: \
+the one that accepted it); a request naming another process's socket, a free one or one closed \
+already gets −1. One request at a time may wait on a socket. proc sends CLEANUP when a process \
+ends (its sockets close, its pings and resolves are dropped) and CANCEL when one that catches \
+interrupts is interrupted (its waiting requests answer −2), once net has said with REGISTER mode 1, \
+at the end of its start, that it makes no more calls to proc."""
+
+[[op]]
+num = 1
+name = "READ"
+summary = "Read from a TCP connection"
+note = "Waits while nothing has arrived and the connection is open. At most 1024 bytes are given at a time; reading reopens a small window to the peer."
+
+[op.request]
+handle = "the socket id"
+length = "the most bytes wanted"
+mode = "bit 0: do not block"
+
+[op.reply]
+result = "the bytes read; 0 once the peer has closed (or the connection has ended) and everything was read"
+data = [{ type = "bytes", name = "the bytes read" }]
+
+[op.errors]
+"-1" = "not the caller's socket, not TCP, a listener, or the connection was reset (or given up) and everything was read"
+"-2" = "the caller was interrupted while it waited (CANCEL: Ctrl-C)"
+"-3" = "nothing to read, with mode bit 0"
+"-7" = "another request is waiting on this socket, or the kernel has no room to hold the request"
+
+[[op]]
+num = 2
+name = "WRITE"
+summary = "Write to a TCP connection"
+note = "Waits while the send buffer is full. Takes what fits, at most 1024 bytes; the library writes the rest."
+
+[op.request]
+handle = "the socket id"
+length = "the bytes"
+mode = "bit 0: do not block"
+data = [{ type = "bytes", name = "the bytes to send" }]
+
+[op.reply]
+result = "the bytes taken (at least 1; 0 for a length of 0)"
+
+[op.errors]
+"-1" = "not the caller's socket, not TCP, not established (nor CLOSE-WAIT), reset, or shut down for sending"
+"-2" = "the caller was interrupted while it waited (CANCEL: Ctrl-C)"
+"-3" = "the send buffer is full, with mode bit 0"
+"-7" = "another request is waiting on this socket, or the kernel has no room to hold the request"
+
+[[op]]
+num = 4
+name = "CLOSE"
+summary = "Close a socket, or stop sending on it"
+note = """Answered at once. TCP: what is still buffered is sent, then FIN, and the connection \
+finishes on its own; a request another thread had waiting on the socket gets −1. A listener's \
+connections not yet accepted are reset. With mode bit 0 only sending stops (TCP): FIN after the \
+data, and the socket stays readable until the peer closes; a UDP socket is left as it is."""
+
+[op.request]
+handle = "the socket id"
+mode = "bit 0: only stop sending (shutdown)"
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "not the caller's socket"
+
+[[op]]
+num = 50
+name = "STAT"
+summary = "The interface, its counters and the sockets in use"
+
+[op.request]
+
+[op.reply]
+result = "the sockets in use (the records that follow)"
+data = [
+  { type = "u64", name = "address", note = "the interface's" },
+  { type = "u64", name = "STATUS", note = "the device's STATUS register" },
+  { type = "u64", name = "packets in" },
+  { type = "u64", name = "packets out" },
+  { type = "u64", name = "packets dropped", note = "bad, not for us, or no room" },
+  { type = "u64", name = "socket slots", note = "8" },
+  { type = "u64", name = "first resolver" },
+  { type = "u64", name = "second resolver", note = "0: none" },
+  { repeat = "per socket in use", fields = [
+    { type = "u8", name = "id" },
+    { type = "u8", name = "state", note = "1 closed, 2 UDP, 3 LISTEN, 4 SYN-SENT, 5 SYN-RECEIVED, 6 ESTABLISHED, 7 FIN-WAIT-1, 8 FIN-WAIT-2, 9 CLOSE-WAIT, 10 CLOSING, 11 LAST-ACK, 12 TIME-WAIT" },
+    { type = "u8", name = "protocol", note = "6 TCP, 17 UDP" },
+    { type = "u8", name = "flags", note = "1 FIN received, 2 closed by its owner, 4 FIN sent, 8 not accepted yet, 16 ACK due, 32 reset, 64 given up, 128 shut down" },
+    { type = "u16", name = "local port" },
+    { type = "u16", name = "remote port" },
+    { type = "u32", name = "remote address" },
+    { type = "u32", name = "owner pid" },
+    { type = "u32", name = "bytes received, not yet read" },
+    { type = "u32", name = "bytes sent, not yet acknowledged" },
+    { type = "u32", name = "the peer's window" },
+    { type = "u32", name = "retransmissions" },
+  ] },
+]
+
+[[op]]
+num = 51
+name = "SETIP"
+summary = "Set the interface's address"
+note = "Any process may set it."
+
+[op.request]
+handle = "the new address"
+
+[op.reply]
+result = "0"
+
+[[op]]
+num = 52
+name = "PING"
+summary = "Send an ICMP echo request and wait for the reply"
+note = "The payload is the bytes 0, 1, 2, ... Up to 4 pings wait at once. A reply counts if it comes from the address pinged with the request's sequence number."
+
+[op.request]
+handle = "the address"
+length = "the payload's bytes (at most 1400)"
+mode = "the timeout in clock ticks (microseconds; 0: one second)"
+
+[op.reply]
+result = "the round trip in ticks"
+
+[op.errors]
+"-1" = "a payload of more than 1400 bytes"
+"-2" = "the caller was interrupted while it waited (CANCEL: Ctrl-C)"
+"-7" = "4 pings are waiting already, or the kernel has no room to hold the request"
+"-8" = "no reply before the timeout"
+
+[[op]]
+num = 53
+name = "CONNECT"
+summary = "Open a TCP connection"
+note = """Waits until the connection is established or fails. The SYN is sent again after \
+250 ms, doubling up to 8 s; after 8 retransmissions it is given up. A failed connection's socket \
+is freed."""
+
+[op.request]
+handle = "the address"
+length = "the port (1..65535)"
+
+[op.reply]
+result = "the socket id, once established"
+
+[op.errors]
+"-1" = "a port outside 1..65535, or the connection was refused (RST)"
+"-2" = "the caller was interrupted while it waited (CANCEL: Ctrl-C)"
+"-6" = "no free socket (one in TIME-WAIT is taken over first)"
+"-7" = "the kernel has no room to hold the request (the socket is freed)"
+"-8" = "no answer"
+
+[[op]]
+num = 54
+name = "LISTEN"
+summary = "Listen for TCP connections on a port"
+note = "Connections are established by net as they arrive, and wait for an ACCEPT."
+
+[op.request]
+handle = "the port (1..65535)"
+
+[op.reply]
+result = "the listening socket's id"
+
+[op.errors]
+"-1" = "a port outside 1..65535"
+"-6" = "no free socket (one in TIME-WAIT is taken over first)"
+"-7" = "something listens on the port already"
+
+[[op]]
+num = 55
+name = "ACCEPT"
+summary = "Take the next established connection of a listener"
+note = "Waits while none is there. The connection belongs to the caller from then on."
+
+[op.request]
+handle = "the listening socket's id"
+mode = "bit 0: do not block"
+
+[op.reply]
+result = "the connection's socket id"
+
+[op.errors]
+"-1" = "not the caller's socket, or not a listener"
+"-2" = "the caller was interrupted while it waited (CANCEL: Ctrl-C)"
+"-3" = "no connection yet, with mode bit 0"
+"-7" = "another request is waiting on this socket, or the kernel has no room to hold the request"
+
+[[op]]
+num = 56
+name = "UDP"
+summary = "Make a UDP socket bound to a port"
+
+[op.request]
+handle = "the port (0: any free one, from 49152 up)"
+
+[op.reply]
+result = "the socket id"
+
+[op.errors]
+"-1" = "a port above 65535"
+"-6" = "no free socket (one in TIME-WAIT is taken over first)"
+"-7" = "a UDP socket is bound to the port already"
+
+[[op]]
+num = 57
+name = "SENDTO"
+summary = "Send a datagram from a UDP socket"
+
+[op.request]
+handle = "the socket id"
+length = "16 + the payload's bytes (the payload at most 1472)"
+data = [
+  { type = "u64", name = "address", note = "the low 32 bits" },
+  { type = "u64", name = "port", note = "the low 16 bits" },
+  { type = "bytes", name = "payload" },
+]
+
+[op.reply]
+result = "the payload's bytes"
+
+[op.errors]
+"-1" = "not the caller's UDP socket, a length under 16, or a payload of more than 1472 bytes"
+
+[[op]]
+num = 58
+name = "RECVFROM"
+summary = "Receive a datagram on a UDP socket"
+note = "Waits while none is queued. Datagrams are queued in the socket's 1 KiB ring with their sender; one that does not fit (with its 8-byte record, more than 1016 bytes in an empty ring) is dropped. What does not fit the length asked for is lost."
+
+[op.request]
+handle = "the socket id"
+length = "the most payload bytes wanted"
+mode = "bit 0: do not block"
+
+[op.reply]
+result = "the payload's bytes given"
+data = [
+  { type = "u64", name = "the sender's address" },
+  { type = "u64", name = "the sender's port" },
+  { type = "bytes", name = "payload" },
+]
+
+[op.errors]
+"-1" = "not the caller's socket, or not UDP"
+"-2" = "the caller was interrupted while it waited (CANCEL: Ctrl-C)"
+"-3" = "no datagram, with mode bit 0"
+"-7" = "another request is waiting on this socket, or the kernel has no room to hold the request"
+
+[[op]]
+num = 60
+name = "RESOLVE"
+summary = "A host name's IPv4 addresses (DNS)"
+note = """The name is taken in lower case, without a final dot. A dotted quad and `localhost` are \
+answered at once; names in the cache (16 entries, for their TTL, at most an hour; names of 64 \
+bytes or more are not kept) too. Otherwise \
+an A query goes over UDP to port 53 of the first resolver; with no answer in a second, to the \
+second, then each once more. CNAME chains are followed (up to 8). Two resolves may wait at once."""
+
+[op.request]
+length = "the name's bytes (1..127)"
+data = [{ type = "bytes", name = "the name" }]
+
+[op.reply]
+result = "the first address"
+data = [
+  { type = "u64", name = "count", note = "1..4" },
+  { type = "u64", name = "address 1" },
+  { type = "u64", name = "address 2" },
+  { type = "u64", name = "address 3" },
+  { type = "u64", name = "address 4", note = "those past the count are not meaningful" },
+  { type = "text", name = "the canonical name", note = "after a query: where CNAMEs led; from the cache, a dotted quad or `localhost`: the name asked for" },
+]
+
+[op.errors]
+"-1" = "an empty name (or only a dot), or one of more than 127 bytes"
+"-4" = "no such name (NXDOMAIN), or no address for it"
+"-7" = "two resolves are waiting already, or the kernel has no room to hold the request"
+"-8" = "no resolver answered in four tries (an answer with an error other than NXDOMAIN counts as none)"
+
+[[op]]
+num = 61
+name = "SETDNS"
+summary = "Set the resolvers"
+note = "With no second resolver every try goes to the first."
+
+[op.request]
+handle = "the first resolver's address"
+length = "the second's (0: none)"
+
+[op.reply]
+result = "0"

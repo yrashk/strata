@@ -8,7 +8,11 @@ Writes OUTDIR/isa/index.html (every instruction, with stable anchors
 platform chapter), OUTDIR/docs.css, OUTDIR/docs.js and the figures the outline
 uses. Pages are published next to the site (site/), whose style.css and
 hl.js they use. It also runs gen/genforth.py: OUTDIR/forth/index.html, the
-Strata Forth words and playground, generated from lang/forth/.
+Strata Forth words and playground, generated from lang/forth/;
+gen/genstratalk.py: OUTDIR/stratalk/index.html, Stratalk's classes, examples
+and playground, from lang/stratalk/; and gen/genstralog.py:
+OUTDIR/stralog/index.html, Stralog's predicates, examples and playground,
+from lang/stralog/.
 
 Nothing is copied by hand. The instruction entries come from the same data
 that gen/geninsns.py turns into the manual's LaTeX (geninsns.INSNS and
@@ -45,14 +49,32 @@ def insn_id(key):
 
 
 # ---------------------------------------------------------------- the page shell
-NAV = [("../#idea", "Idea", None), ("../arch/", "Architecture", "arch"), ("../isa/", "Instructions", "isa"),
-       ("../forth/", "Forth", "forth"), ("../hardware/", "Hardware", None), ("../play/", "Play", None),
+NAV = [("../#idea", "Idea", None), ("../arch/", "Architecture", "arch"), ("../isa/", "Instructions", "isa"), ("../os/", "OS", None),
+       ("Languages", [("../forth/", "Forth", "forth"), ("../stratalk/", "Stratalk", "stratalk"),
+                      ("../stralog/", "Stralog", "stralog"), ("../c/", "C", None)]),
+       ("../hardware/", "Hardware", None), ("../play/", "Play", None),
        ("../debug/", "Debug", None), ("../code/", "Source", None)]
 
 
+def nav_links(here):
+    """The top bar's links; a (title, links) entry is a menu (site/style.css: .menu)."""
+    def a(h, t, k, ind):
+        return '%s<a href="%s"%s>%s</a>' % (ind, h, ' aria-current="page"' if k == here else "", t)
+    out = []
+    for e in NAV:
+        if isinstance(e[1], list):
+            cur = " current" if any(k == here for (_, _, k) in e[1]) else ""
+            out.append('    <div class="menu%s">\n      <span class="menu-btn" tabindex="0" aria-haspopup="true">%s</span>\n'
+                       '      <div class="drop">' % (cur, e[0]))
+            out += [a(h, t, k, "        ") for (h, t, k) in e[1]]
+            out.append("      </div>\n    </div>")
+        else:
+            out.append(a(*e, "    "))
+    return "\n".join(out)
+
+
 def page(here, title, desc, side, main, head="", tail=""):
-    links = "\n".join('    <a href="%s"%s>%s</a>' % (h, ' aria-current="page"' if k == here else "", t)
-                      for (h, t, k) in NAV)
+    links = nav_links(here)
     return """<!doctype html>
 <html lang="en">
 <head>
@@ -66,9 +88,9 @@ def page(here, title, desc, side, main, head="", tail=""):
 <link rel="icon" href="../favicon.ico" sizes="32x32">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../apple-touch-icon.png">
-<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="../style.css?v=__BUILD__">
 <link rel="stylesheet" href="../hl.css?v=__BUILD__">
-<link rel="stylesheet" href="../docs.css">
+<link rel="stylesheet" href="../docs.css?v=__BUILD__">
 %(head)s
 </head>
 <body class="doc-page doc-%(here)s">
@@ -82,6 +104,7 @@ def page(here, title, desc, side, main, head="", tail=""):
     <a class="pill ghost" href="%(repo)s">GitHub</a>
   </div>
 </nav>
+<script src="../nav.js?v=__BUILD__" defer></script>
 
 <div class="doc">
   <aside class="doc-side" id="side">
@@ -92,9 +115,9 @@ def page(here, title, desc, side, main, head="", tail=""):
   </main>
 </div>
 
-<script src="../code/syntax.js"></script>
+<script src="../code/syntax.js?v=__BUILD__"></script>
 <script src="../hl.js?v=__BUILD__"></script>
-<script src="../docs.js"></script>
+<script src="../docs.js?v=__BUILD__"></script>
 %(tail)s
 </body>
 </html>
@@ -492,6 +515,13 @@ def main():
     n, k, t = genforth.write(out, page, link_sources, files)
     print("web-docs: %d Forth words (%d kernel primitives, %d in Forth; %d with an example) -> %s/forth/" % (
         n, k, n - k, t, out))
+    import genstratalk  # noqa: E402  (the Stratalk section: stratalk/, from lang/stratalk/)
+    c = genstratalk.write(out, page, link_sources, files)
+    print("web-docs: Stratalk: %d classes, %d methods, %d examples -> %s/stratalk/" % (
+        c["classes"], c["methods"], c["examples"], out))
+    import genstralog  # noqa: E402  (the Stralog section: stralog/, from lang/stralog/)
+    n, k = genstralog.write(out, page, link_sources, files)
+    print("web-docs: %d Stralog predicates, %d examples -> %s/stralog/" % (n, k, out))
 
 
 if __name__ == "__main__":
