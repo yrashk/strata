@@ -1010,7 +1010,9 @@ static int region_of_label(const char *name) {
   return t < 0 ? -1 : tlabs[t].region;
 }
 
-static int label_pinned(int t) { return gpinned[rgroup[tlabs[t].region]]; }
+/* a label on a section directive's line in .text has no region: no group, resident */
+static int label_group(int t) { return tlabs[t].region < 0 ? -1 : rgroup[tlabs[t].region]; }
+static int label_pinned(int t) { return tlabs[t].region < 0 ? 1 : gpinned[label_group(t)]; }
 static int line_paged(void) { return opt_paged && lreg[cur_li] >= 0 && !gpinned[rgroup[lreg[cur_li]]]; }
 
 static void prescan(void) {
@@ -1020,6 +1022,7 @@ static void prescan(void) {
   /* 1: sections, .text labels, the directives that switch modes off, conflicts */
   int sect = S_TEXT, own_code = -1, own_cache = -1, own_c15 = -1;
   for (int li = 0; li < nlines; li++) {
+    cur_file = lines[li].file; cur_line = lines[li].line; /* (split_ops's messages) */
     snprintf(buf, sizeof buf, "%s", lines[li].text);
     int nl = parse_line(buf, labs, m, sizeof m, &rest);
     lsect[li] = sect;
@@ -1072,6 +1075,7 @@ static void prescan(void) {
   }
   /* 2: functions (call targets) and labels whose address is taken */
   for (int li = 0; li < nlines; li++) {
+    cur_file = lines[li].file; cur_line = lines[li].line;
     snprintf(buf, sizeof buf, "%s", lines[li].text);
     parse_line(buf, labs, m, sizeof m, &rest);
     if (!*m) continue;
@@ -1119,6 +1123,7 @@ static void prescan(void) {
   for (int li = 0; li < nlines; li++) {
     int r = lreg[li];
     if (r < 0) continue;
+    cur_file = lines[li].file; cur_line = lines[li].line;
     snprintf(buf, sizeof buf, "%s", lines[li].text);
     int nl = parse_line(buf, labs, m, sizeof m, &rest);
     for (int k = 0; k < nl; k++) { int t = tl_find(labs[k]); if (t >= 0 && tlabs[t].taken) rpinned[r] = 1; }
@@ -1216,7 +1221,7 @@ static int paged_transfer(int rd, const char *target, int tail) {
   if (!opt_paged || lreg[cur_li] < 0) return 0;
   int t = tl_find(target);
   if (t < 0) return 0;
-  if (tail && (!tlabs[t].func || rgroup[tlabs[t].region] == rgroup[lreg[cur_li]])) return 0; /* a branch */
+  if (tail && (!tlabs[t].func || label_group(t) == rgroup[lreg[cur_li]])) return 0; /* a branch */
   int here_paged = line_paged(), there_pinned = label_pinned(t);
   if (!here_paged && there_pinned) return 0;
   int u;
@@ -1234,7 +1239,7 @@ static int paged_transfer(int rd, const char *target, int tail) {
 static int paged_branch(int op, int a, int b, const char *target) {
   if (!opt_paged || lreg[cur_li] < 0) return 0;
   int t = tl_find(target);
-  if (t < 0 || !tlabs[t].func || rgroup[tlabs[t].region] == rgroup[lreg[cur_li]]) return 0;
+  if (t < 0 || !tlabs[t].func || label_group(t) == rgroup[lreg[cur_li]]) return 0;
   int here_paged = line_paged(), there_pinned = label_pinned(t);
   if (!here_paged && there_pinned) return 0; /* both in .text */
   int inv = op == OP_BEQ ? OP_BNE : op == OP_BNE ? OP_BEQ : op == OP_BLT ? OP_BGE : op == OP_BGE ? OP_BLT
