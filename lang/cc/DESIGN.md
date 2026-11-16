@@ -95,7 +95,7 @@ cc [-o OUT] [-p] [-h KIB] FILE.c ...
 | `t0`..`t5` | expression evaluation; not kept across calls |
 | `t6`, `tp` | code generator scratch (`t6` holds the target of a far call) |
 | `s0` | frame base, only in functions with variadic or stack parameters |
-| `s1`..`s11` | not used by compiled code; kept across calls by the library |
+| `s1`..`s11` | `cc.c`: variables (section 6, "Register variables"); `cc0`: not used; kept across calls by every function |
 | `gp` | the constant 0x10000 |
 | `sp`, `ra` | stack pointer (8-byte aligned), return link |
 
@@ -172,7 +172,8 @@ constant or a variable as an operand becomes an immediate or a single load;
 nothing is emitted for a name until it is used. Evaluation registers are a
 stack (`t0` first), so the live ones are always the lowest. Before a call,
 every live register is stored into a frame slot and its descriptor becomes
-"local" or "saved". That is all the register allocation there is.
+"local" or "saved". That is all the register allocation of temporaries
+there is; variables are below ("Register variables").
 
 **Narrow values.** A register holding an `int` computed by `add`, `sub`,
 `mul`, `sll` or a cast has garbage above bit 31. The descriptor says so
@@ -181,8 +182,9 @@ upper bits matter: before a comparison, a division, a right shift, a
 conversion to a wider type, an index, an argument or a return. A store never
 needs them. Values loaded from memory are clean.
 
-This is the only optimisation, and it comes with the descriptors for free.
-Variables live in memory; there is no register allocation for them.
+It comes with the descriptors for free. In `cc0` variables live in their
+frame slots; `cc.c` keeps its most used scalars in registers ("Register
+variables" below), and the rest in the frame, in the D-LS.
 
 ### Output
 
@@ -323,18 +325,21 @@ path is the test above.
 
 It is the same one-pass design as `cc.s` (section 4), with these changes:
 
-- **A program of its own size.** Its code is 106 KiB in 4 KiB units, more
+- **A program of its own size.** Its code is 107 KiB in 4 KiB units, more
   than an image may hold beside its data, so the units are a second file,
   `cc.u`, which the start-up code of every paged program loads when the
-  image says so (`__uload`). Its tables take 38 of the 40 KiB of data:
+  image says so (`__uload`). Its tables take 39 of the 40 KiB of data:
   symbols (700), types (600), the value stack; everything else is in the
   arena: identifiers and their hash, macros, fixups, parameter types, the
   cases of open `switch` statements, the image being built.
 - **The source is read as the scanner goes**, through a 64 KiB window of
   the arena, so a source file may be larger than the arena has room for
-  (`cc.c` itself is 130 KiB). An array whose length its initialiser gives is
+  (`cc.c` itself is 175 KiB). An array whose length its initialiser gives is
   read twice; the window then keeps the text from where the initialiser
   began.
+- **Variables in registers.** A function's body is read ahead as tokens,
+  which the parser then reads again from the arena; the scalar variables used
+  most, whose address is never taken, live in `s1`..`s11` (below).
 - **Comparisons and narrow results stay lazy.** A comparison is a value
   that has not been made yet (two registers and a condition): a branch uses
   it as it is. The result of 32-bit arithmetic is marked when its upper bits
@@ -352,6 +357,80 @@ It is the same one-pass design as `cc.s` (section 4), with these changes:
 - **Code that is parsed but not compiled** (the arm of a constant condition
   that is not taken, the operand of `sizeof`, a constant expression) leaves
   the value stack entries of live code and the register mask as they were.
+
+### Register variables
+
+`cc.c` keeps a function's most used scalar variables in the callee-saved
+registers `s1`..`s11` instead of its frame. The compiler has one pass and
+no tree, so it cannot see, when it declares a variable, whether the body
+takes its address further on. It reads the body first.
+
+- **Reading ahead.** At the `{` of a function body the scanner reads the
+  whole body as tokens (macros expanded) and records them in the arena,
+  16 bytes a token (token, line, value, and the next character that
+  `peek_ch` would see) and a string's bytes; the parser then takes its
+  tokens from there, and the scanner goes on after the `}`. On the way,
+  every name gets a count of its uses and a weight (a use counts 1, in a
+  loop 4, in a loop in a loop 16, ...), and a mark if a unary `&` comes
+  before it (also through parentheses). Members (after `.` or `->`) and
+  names that are something at file scope (a function, a type, a global)
+  are not counted, except the function's parameters.
+- **The choice.** The names used at least three times or at all in a loop,
+  never by address, are ranked by weight; the first eleven are given `s1`,
+  `s2`, ... A local or a parameter of such a name then lives in its register
+  if its type is an integer or a pointer, it is not `volatile`, and no
+  variable of the same name in an outer block has the register already
+  (variables of one name in sibling blocks share it). A parameter of a
+  variadic or old-style function, of a structure, and every floating
+  variable stay in the frame.
+- **When the body is not read ahead.** A preprocessor directive in it, a
+  `[` inside the parentheses of a parameter list or a type name (whose text
+  `d_suffix` keeps), or a body too long for the source window or for the
+  64 KiB of recorded tokens, send the scanner back to the `{`: the body is
+  read once more from the source, as before, and its variables stay in the
+  frame. A body with `asm` (whose `{name}` operands are memory) or with a
+  name ending in `setjmp` is recorded but keeps its variables in the frame.
+- **The value.** A register variable is an lvalue of its own kind on the
+  value stack. Its register always holds a clean value of its type: a store
+  extends a narrow result first. A read uses the register as the operand,
+  and an operation writes its result to an evaluation register, never back
+  into the variable's. Before the variable changes, an entry on the stack
+  that still reads its register gets a copy. A store of a value just
+  computed changes the register that the last instruction writes, unless a
+  jump lands after it; `x++` copies the old value first, and when its value
+  is not used the copy is taken out again.
+- **Saving them.** The registers a function uses are known when it ends:
+  its code is moved up to make room for their stores after the prologue
+  (fixups move with it, and in the resident model calls to code before it
+  keep their targets), and the epilogue loads them back. A function that
+  uses none is as before.
+- **Peephole.** A load of a doubleword just stored to the same place
+  becomes a move from the register stored, or nothing.
+
+The effect, measured with the emulator (instructions; `instret`):
+
+| | before | after |
+|---|---|---|
+| `cc.c` compiled (code units, same source) | 24,313 instructions | 22,658 (−6.8%) |
+| ... of which loads and stores | 8,611 (5,816 from `sp`) | 5,239 (2,445) |
+| `cc` compiling `cc.c` (same source) | 165.0 M | 145.3 M (−12%) |
+| `cc` compiling itself (5,500 lines then, 5,900 now) | 165.0 M | 156.8 M |
+| sieve, matmul, crc32, hash (small loops) | 1.58 M | 1.15 M (−27%) |
+| `fib(18)`: calls | 163,047 | 163,048 |
+
+Every example program is smaller (`sort.c` 1,952 to 1,724 bytes of code,
+`calc.c` 2,292 to 2,272, `math.c` 13,440 to 13,112). A function whose
+variables are each used once or twice keeps them in the frame: saving and
+restoring a register costs two instructions.
+
+Globals stay in memory. Keeping one in a register through a loop would need
+to know that nothing in the loop stores through a pointer that may point to
+it, or calls a function that may change it: alias analysis that a one-pass
+compiler without a tree does not have.
+
+The bootstrap compiler does none of this, and its limits are what `cc.c`
+must stay within: its type table (480 records; it frees none) and its code
+area (192 KiB for `cc1`: 133 KiB now).
 
 ### Variable-length arrays
 

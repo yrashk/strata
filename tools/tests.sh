@@ -77,6 +77,7 @@ t web-os       fast build-main "os/kernel.s os/kunits os/servers os/ws os/lib si
 #      programs; the bootstrap (cc0 compiles cc.c, which reproduces itself)
 t cc-ladder    mid  build-main "emu os lang/cc/tests/ladder.py lang/cc/tests/ladder" 'CC_OUT=$B/test-cc-ladder lang/cc/tests/run.sh -f lang/cc/tests/ladder/FAST.txt'
 t cc           mid  build-main "emu os" "tools/test-cc.sh $OS"
+t cc-own       mid  build-main "emu os lang/cc/tests/ladder.py lang/cc/tests/own" 'CC_OUT=$B/test-cc-own lang/cc/tests/run.sh lang/cc/tests/own/*.c'
 t cc-boot      mid  build-main "emu os" "tools/test-cc-boot.sh $OS"
 
 # ---- Stratalk (lang/stratalk): the test vectors under StrataOS; the compiler in
@@ -85,6 +86,8 @@ t cc-boot      mid  build-main "emu os" "tools/test-cc-boot.sh $OS"
 t stratalk       mid  build-main "emu os lang/stratalk" 'lang/stratalk/tests/run.sh'
 t stratalk-check mid  build-main "lang/stratalk os/spec" 'python3 lang/stratalk/host/stratalk.py check $B/stratalk/stratalk.image lang/stratalk/kernel/LOAD && python3 lang/stratalk/host/osgen.py --check lang/stratalk/kernel/OSServers.st'
 t stratalk-host  mid  build-main "lang/stratalk" 'lang/stratalk/tests/run.sh -h'
+# ---- Stralog, the Prolog (lang/prolog): scripted sessions under StrataOS
+t stralog      fast build-main "emu os lang/prolog/tests" "lang/prolog/tests/run.sh session $OS"
 
 # ---- the framebuffer, the JIT, the debuggers --------------------------------------
 t fb           mid  build-main "emu rtl" 'tools/test-fb.sh $B/examples/gfx.stx'
