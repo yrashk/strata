@@ -250,6 +250,7 @@ v_hn:     .dword 0                      ; lines typed so far (the line editor's 
 v_kpos:   .dword 0                      ; keys read and not taken: kbuf[v_kpos..v_klen)
 v_klen:   .dword 0                      ; ...
 v_tmp:    .dword 0, 0, 0, 0             ; scratch words
+v_tcstep: .dword 0                      ; tcompare's steps left (a cyclic term: no end)
 ; ---- streams ----------------------------------------------------------------------------
 streams:  .space NSTREAM * SSZ          ; records
 sbufs:    .space NSTREAM * SBUF         ; their buffers

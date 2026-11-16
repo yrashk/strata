@@ -125,6 +125,7 @@ ub_give:
 ub_g2:
         cgive c6, s1                    ; the KST (atomic, copyable)
         cgive c4, s1                    ; core control (for doorbells)
+        cgive c12, s1                   ; the far image (its worker extension: wboot)
         addi  s1, s1, 1                 ; ...
         j     ub_give                   ; ...
 ub_gave:

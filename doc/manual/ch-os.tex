@@ -329,7 +329,7 @@ path is short and bounded.
 \begin{figure}[htbp]
 \centering
 \input{gen-os-fig-cs}
-\caption{A context switch on a worker core (Table~\ref{tab:os-switch}): A's registers go to its record (2) and its memory capabilities to the save table (3), its data extent and live stack out to its save area (4); B's code comes in first (5), then its data and stack (6). None of the transfers is waited for}\label{fig:os-switch}
+\caption{A context switch on a worker core (Table~\ref{tab:os-switch}): A's registers go to its record (2) and its memory capabilities to the save table (3); its D-LS stays where it is, and only a thread that is evicted has its data extent and live stack copied out to its save area (4); B's code comes in first (5), then, if B was not resident, its data and stack (6). None of the transfers is waited for}\label{fig:os-switch}
 \end{figure}
 
 
@@ -352,10 +352,12 @@ CSRs & \csr{epc} of the trap, the user trap registers \csr{utvec}, \csr{uepc}, \
   (Section~\ref{sec:os-pool}) and back\\
 \reg{c8}--\reg{c15} & not preserved across a switch. They are the thread's own between switches (the
   dispatcher borrows \reg{c8} and \reg{c9} during a trap and returns them)\\
-D-LS data & the thread's \term{data extent}, from address 0 to the end of its data section, is copied
-  to its save area with \insn{tput} and back with \insn{tget}; a bare-metal program, which may use any
+D-LS data & stays in the thread's data slice while it is resident (Section~\ref{sec:os-resident}). When it
+  is evicted, its \term{data extent}, from address 0 to the end of its data section, is copied to its
+  save area with \insn{tput}, and later back with \insn{tget}; a bare-metal program, which may use any
   address, has the extent \hex{0000}--\hex{9FFF}. A declared scratch range is skipped\\
-D-LS stack & only the live part, from \reg{sp} to \hex{10000}\\
+D-LS stack & stays in its stack slice; on eviction only the live part, from \reg{sp} to \hex{10000}, is copied\\
+Local Store windows & \csr{wdata} and \csr{wstack} set to the thread's slices; \csr{wcode} is the same for every thread\\
 I-LS code & never saved: it is read-only. It is reloaded with \insn{tgetx} from the image in the
   thread's arena, or from the program's code mirror\\
 Code cache, overlay map & the units the dispatcher paged in are recorded per thread, a slot each: on
@@ -366,9 +368,10 @@ Software cache & its CSRs are restored; its tag table and lines are data and tra
 \end{tabularx}
 \end{table}
 
-The I-LS cannot be read back and the D-LS has no address translation, so there is nothing to remap:
-every byte of a switch is a byte moved by a transfer. A switch between two small programs moves a few
-kilobytes; one between two programs that each use their whole data extent moves more than a hundred.
+The I-LS cannot be read back, and nothing is remapped but by the Local Store windows: every byte of a
+switch is a byte moved by a transfer. A switch to a resident thread moves its code and nothing else;
+one that evicts moves the evicted thread's extent and live stack out and, for the incoming thread, its
+whole data and stack slices in.
 The dispatcher counts context switches and bytes moved per process and per core; \texttt{ps},
 \texttt{cores}, \texttt{uptime} and \texttt{sched} print them, and the window server draws them.
 It also times itself with \csr{cycle}: \texttt{cores} shows, per core, its cycles per switch (from
@@ -404,21 +407,51 @@ Two supervisor calls let a program reduce or correct what a switch does.
   is installed anyway.
 \end{description}
 
+\subsection{Resident threads}\label{sec:os-resident}
+
+The program part of a worker's D-LS, the 1~KiB units \hex{0000}--\hex{9FFF} and \hex{E000}--\hex{FFFF}
+(48~KiB), is shared out in slices. A thread gets a data slice as large as its data extent, in whole
+kilobytes (all 40 for a bare-metal program), and an 8~KiB stack slice, anywhere in that part, and keeps
+them while it is switched out. The Local Store windows (Section~\ref{sec:lswin}) map its addresses onto
+them: \csr{wdata} takes $[0, \textit{extent})$ to its data slice and \csr{wstack} takes
+$[\hex{E000}, \hex{10000})$ to its stack slice, so a program sees the same addresses as ever. A switch to a
+resident thread moves no D-LS byte. A thread without slices gets free units; when there are not
+enough, the threads that ran least recently on the core are evicted (their extent and live stack
+saved) until there are; a thread that has ended just gives its units back. Two small programs fit side
+by side and switch for nothing but their code; two whose extents add up to more than 32~KiB evict each
+other. The bookkeeping does not fit the worker's resident code: it is the \term{worker extension}, code
+in the kernel's far image that each worker copies at start-up to I-LS \hex{7700}, over core~0's own
+resident code, which a worker never runs, through a share of the far image core~0 gives it. The code
+is not relocated: \csr{wcode} is I-LS \hex{8000}--\hex{FFFF} for every thread, and every switch reloads
+the incoming thread's code.
+
+\begin{center}\small
+\begin{tabular}{@{}l r r@{}}
+\toprule
+\textbf{Workload} (8 cores, \texttt{-T virtual}) & \textbf{KiB per switch, copying} & \textbf{resident}\\\midrule
+two \texttt{spin}s pinned to one core & 69.8 & 13.6\\
+\texttt{cat /src/cc.c} & 66.5 & 14.6\\
+\texttt{cp /src/cc.c /x} & 69.9 & 14.3\\
+\texttt{cat \textbar{} wc}, both on one core & 80.7 & 40.4\\
+\texttt{cat \textbar{} upper \textbar{} wc}, all on one core & 75.9 & 39.2\\
+\texttt{cc -o hi /src/hi.c} & 78.2 & 61.9\\
+\bottomrule
+\end{tabular}
+\end{center}
+
 \subsection{What the next process may see}\label{sec:os-isolate}
 
-What a switch leaves out, the D-LS above the data extent, below the live stack and in a scratch range,
-still holds the previous thread's bytes, and the next one could read them. So the dispatcher remembers
-whose bytes its D-LS holds. When it loads a thread of another process, and on a thread's first load,
-it restores the thread's whole D-LS, \hex{0000}--\hex{9FFF} and \hex{E000}--\hex{FFFF} (48~KiB, two
-\insn{tget}s), from the save area instead of only the extent and the stack. Outside those the save area
-holds zeros: the arena is scrubbed when MEMORY hands it out, CREATE accepts only such arenas, the
-program cannot reach its save area, and a switch writes there only the extent and the live stack.
+Only its own slices: the windows keep every other unit out of its reach. Units a thread is given anew
+may hold an evicted or ended thread's bytes, so a thread that was not resident gets both slices filled
+whole from its save area (two \insn{tget}s), not just its extent and live stack. Outside those the save
+area holds zeros: the arena is scrubbed when MEMORY hands it out, CREATE accepts only such arenas, the
+program cannot reach its save area, and an eviction writes there only the extent and the live stack.
 What it holds is therefore zeros or older bytes of the same thread, never another process's. A first
-load takes the zeros and then the image's data section on top (the transfers act in issue order),
-which replaces a 40~KiB store loop. A thread that returns to a core where nothing else ran meanwhile
-gets back only its extent and stack, as before. \texttt{tools/test-isolate.sh} checks this with
-two copies of \texttt{tools/dlsgap.s} on one core: one fills its gaps with a pattern, the other must
-never find it in its own, at its first load and after each switch back.
+load takes the zeros and then the image's data section on top (the transfers act in issue order).
+\texttt{tools/test-isolate.sh} checks this with two copies of \texttt{tools/dlsgap.s} on one core: one
+fills what a switch does not keep (its data window above the extent, its stack below \reg{sp}, its
+scratch range) with a pattern, the other must never find it in its own, at its first load and after
+each switch back.
 
 The I-LS above a program's resident code still holds the previous program's code and code-cache units.
 Nothing can read it: loads and \insn{tget} use the D-LS, \insn{tgetx} only writes the I-LS, \insn{ltag}
@@ -426,12 +459,15 @@ and \insn{linst} work on the D-LS tag table, and \insn{xcall} and \insn{xret} re
 the overlay map, which every switch-in clears. A program could only jump into that code and execute it;
 overwriting it would cost up to 32~KiB of far-bus traffic per switch, and it is not done.
 
-Neither Local Store is protected from user mode: loads, stores and \insn{tgetx} reach every address,
-including the dispatcher's own data at \hex{A000}--\hex{DFFF} (which holds the records, and so the saved
-registers, of the other threads on the core) and its code. Isolation between the processes on one core
-is therefore against disclosure to programs that read memory they did not write, not against a hostile
-program, which only a hardware bound on user-mode Local Store addresses would stop. Far memory is
-protected by capabilities either way.
+The kernel's part of the Local Stores is out of user mode's reach, and so is every other thread's
+slice. The windows give a thread its two slices and the code part of the I-LS, \hex{8000}--\hex{FFFF},
+and nothing else. A program that loads, stores or transfers into the dispatcher's data at
+\hex{A000}--\hex{DFFF} (the records, and so the saved registers, of the other threads on the core) or past
+its own data window, or copies code over the kernel's or jumps into it, traps with \cause{lsfault} or
+\cause{ifault}, and like any fault the kernel does not handle, that ends it.
+\texttt{tools/test-isolate.sh} checks this with \texttt{tools/lsprot.s}, which tries each way in. The
+supervisor itself is not confined, and far memory is protected by capabilities either way.
+\texttt{doc/ls-switch.md} and \texttt{doc/ls-windows.md} have the analysis that led here.
 
 \section{Emulating the inbox}\label{sec:os-emul}
 

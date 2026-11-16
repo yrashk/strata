@@ -205,13 +205,16 @@ func CheckTransfer(cap, kind, ls, off, n, lslimit)
         Trap(bounds, off);
     end
     if UInt(ls) > lslimit or UInt(n) > lslimit - ls then Trap(lsfault, ls); end
-end
+    if Window(kind == GETX, ls, n) == FAULT then Trap(lsfault, ls); end   // user mode (Section 'Local Store windows')
+end                                 // the transfer then uses ls relocated: Window(kind == GETX, ls, n)
 
 // Before every instruction (and while one waits): a pending stop, then the fetch.
 if Mode == User and IPEND == 1 then IPEND = 0; Trap(stop, 0); end
 if PC MOD 4 != 0 or UInt(PC) >= ILS_SIZE then Trap(ifault, PC); end
-Stall while PC overlaps the destination of an in-flight tgetx;
-instr = ILS.Read(PC, 4);
+pa = Window(TRUE, PC, 4);                      // user mode: the code window
+if pa == FAULT then Trap(ifault, PC); end
+Stall while pa overlaps the destination of an in-flight tgetx;
+instr = ILS.Read(pa, 4);
 \end{pseudo}
 
 \section{Pseudo-instructions}

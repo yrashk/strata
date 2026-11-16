@@ -315,6 +315,12 @@ static void insn(uint32_t ir, uint64_t pc, unsigned idx) {
      * (a 32-bit immediate, sign-extended: the size is at most 64 KiB) */
     testi((int32_t)(uint32_t)(~(L.dls_size - 1) | ((1u << lg) - 1)));
     to_stub(jcc32(CC_NE), SK_INTERP, pc, idx); /* the interpreter traps */
+    /* relocated by its window: + drel[addr >> unit]; outside them it lands beyond the D-LS */
+    movrr(RCX, RAX);
+    shi(5, RCX, __builtin_ctzll(L.dls_size) - 6);
+    opm(false, 1, 0x03, -1, RAX, CTX, RCX, 3, (int32_t)L.drel); /* add rax, [rbx + rcx*8 + drel] */
+    testi((int32_t)(uint32_t)~(L.dls_size - 1));
+    to_stub(jcc32(CC_NE), SK_INTERP, pc, idx);
     int32_t dl = (int32_t)L.dls;
     if (store) {
       ldg(RCX, rd);
@@ -385,6 +391,9 @@ void *jit_be_block(JitBuf *b, uint64_t pc, const uint32_t *ir, int n, int tail) 
   uint8_t *entry = cur();
   alurr(A_TEST, BUD, BUD);
   to_stub(jcc32(CC_NS), SK_LIMIT, pc, 0); /* the quantum is used up */
+  opm(false, 1, 0x83, -1, 7, CTX, -1, 0, (int32_t)(L.irel + 8 * (pc / (L.ils_size / 64)))); /* cmp irel[unit], 0 */
+  byte(0);
+  to_stub(jcc32(CC_NE), SK_INTERP, pc, 0); /* outside the code window, or relocated */
   for (int i = 0; i < n; i++) insn(ir[i], pc + 4ull * (unsigned)i, (unsigned)i);
   unsigned last = ir[n - 1] >> 26;
   if (last != OP_JAL && last != OP_JALR)

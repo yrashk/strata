@@ -48,16 +48,16 @@ architectural requirement.
 \toprule
 \textbf{Code} & \textrm{\bfseries Name} & \textbf{Raised when} & \textbf{\csr{tval}}\\\midrule
 1 & illegal & undefined opcode or function; a checked field with a value no instruction defines (Table~\ref{tab:fieldrules}); SYS function $>$ 2; CAP2 function $>$ 5; \insn{svc} in supervisor mode & the instruction word\\
-2 & lsfault & load/store out of range or misaligned; transfer Local Store range out of range; bad tag-table entry; bad \insn{xmap} I-LS address & the Local Store address\\
+2 & lsfault & load/store out of range or misaligned; transfer Local Store range out of range; bad tag-table entry; bad \insn{xmap} I-LS address; in user mode, any of these outside the Local Store windows (Section~\ref{sec:lswin}) & the Local Store address (as the program gave it)\\
 3 & capinv & the named capability register or save slot is not live (empty, or revocable and its granule revoked); \insn{crevoke}/\insn{cundom} without a revoker; \insn{csend}/\insn{crecv} without a suitable endpoint & transfers and atomics: the far offset; capability and overlay instructions: the register or slot number\\
 4 & perm & missing permission; transfer through an endpoint; \insn{tgetx} through device or core-control space; \insn{tget} through core-control space; \insn{catomic} outside T2/T3 & far offset (transfers, atomics) or register number\\
 5 & bounds & far range outside the segment; overlay offset $\geq$ length & the far offset\\
 6 & xalign & memory transfer operands or atomic offset not multiples of 8; \insn{xmap} far address not a multiple of $2^{\csr{xslot}}$ & the far offset\\
-7 & ifault & fetch from a misaligned \reg{pc} or one $\geq$ \texttt{ILS\_SIZE} & \reg{pc}\\
+7 & ifault & fetch from a misaligned \reg{pc} or one $\geq$ \texttt{ILS\_SIZE}; in user mode, from outside \csr{wcode} & \reg{pc}\\
 8 & xmiss & \insn{xcall} target, or \insn{xret} far link, not mapped & the absolute far address; for \insn{xret}, the link (bit 63 set)\\
 9 & pend & with CCR.PTRAP, a load, store, \insn{ltag} or \insn{linst} that would stall on an in-flight range; a \insn{tget} or \insn{tput} whose D-LS range overlaps a pending device read & the Local Store address\\
 10 & capop & overwrite of a live linear capability; bad \insn{csplit} (beyond the end, an offset that is not a multiple of 8, or a revoker cut off a granule boundary) or \insn{cjoin}; \insn{cgive} outside the window (or in user mode without one), beyond node $N$ or to a halted core; \insn{csend} to such a node; bad \insn{cdom} source (not whole granules, revocable already, \ldots); an empty revoker; \insn{cmkep} beyond node $N$ & register or slot number, split offset, or node number\\
-11 & priv & in user mode: \insn{csave}, \insn{crestore}, \insn{cdom}, \insn{crevoke}, \insn{cundom}, \insn{cmkep}; \insn{ctake}, \insn{cpoll}, \insn{tany} with the inbox bit; reading \csr{sscratch} or \csr{ipend}; writing \csr{status}, \csr{corebase}, \csr{corecount} or CSRs 19--24 & the instruction word\\
+11 & priv & in user mode: \insn{csave}, \insn{crestore}, \insn{cdom}, \insn{crevoke}, \insn{cundom}, \insn{cmkep}; \insn{ctake}, \insn{cpoll}, \insn{tany} with the inbox bit; reading \csr{sscratch}, \csr{ipend} or CSRs 26--28; writing \csr{status}, \csr{corebase}, \csr{corecount} or CSRs 19--24 and 26--28 & the instruction word\\
 12 & halt & \insn{halt} in user mode (always to the supervisor) & 0\\
 13 & stop & a stop request from core control, taken in user mode (always to the supervisor) & 0\\
 14 & svc & \insn{svc} in user mode (always to the supervisor) & 0\\
@@ -103,6 +103,9 @@ to the supervisor; the others go to the user handler when a user-mode program ha
 23 & sscratch & RW & --- & supervisor scratch register\\
 24 & ipend & RW & --- & bit 0: a stop request is pending (set through core control; taken in user mode)\\
 25 & xslot & RW & RW & bits 5:0: $\log_2$ of the overlay slot size; 0 selects exact mapping (Section~\ref{sec:xslot})\\
+26 & wdata & RW & --- & the first user-mode window of the D-LS: bit 63 enable, bits 6:0 first virtual unit, 14:8 units, 22:16 first physical unit; a unit is 1/64 of the store (Section~\ref{sec:lswin})\\
+27 & wstack & RW & --- & the second user-mode window of the D-LS (after \csr{wdata}), the same fields\\
+28 & wcode & RW & --- & the user-mode window of the I-LS, the same fields\\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -110,6 +113,7 @@ to the supervisor; the others go to the user handler when a user-mode program ha
 Columns S and U give the access in supervisor and user mode. R: read; RW: read and write; ---: the
 access traps with \cause{priv}. In user mode, writing a register marked R traps with \cause{priv} if it
 is \csr{status}, \csr{corebase}, \csr{corecount} or one of CSRs 19--22, and is ignored otherwise.
+CSRs 26--28, the Local Store windows, keep only the bits they define; the others read as zero.
 Reading an unassigned CSR number returns 0; writing a read-only or unassigned CSR has no effect. All
 CSRs are zero at reset, except \csr{status}, which reads 3 (supervisor mode, SPP = 1).
 
