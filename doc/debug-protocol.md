@@ -29,7 +29,7 @@ Companion flags of `strata-emu`:
 | Flag | Meaning |
 |---|---|
 | `--map FILE` | load a symbol map (`sasm -g`). `IMAGE.map`, next to `IMAGE.stx`, is loaded by itself. |
-| `--os DIR` | StrataOS awareness: `DIR/kernel.map` for the kernel and its code units, `DIR/prog/NAME.map` for the program a core runs in user mode (loaded when first needed); the kernel's tables and `proc`'s process table read through them. `make` writes these maps into `build/`, so `--os build`. |
+| `--os DIR` | StrataOS awareness: `DIR/kernel.map` for the kernel and its code units, `DIR/prog/NAME.map` for the program a core runs in user mode (loaded when first needed; for a server, `DIR/sys/NAME.map` first when it is there: a server may have the name of a program, and `sys/NAME:label` names its code in a breakpoint); the kernel's tables and `proc`'s process table read through them; `DIR/msgops.txt` for the names of the messages (below). `make` writes these into `build/`, so `--os build`. |
 | `--www DIR` | the files a TCP debug port serves to a browser |
 | `--history N` | time travel's memory budget in MiB (512; 128 in the browser) |
 
@@ -71,7 +71,7 @@ idle machine skips it ahead to the next deadline, so it may jump.
 
 | Request | Answer |
 |---|---|
-| `hello` | `version` (1), `ncores`, `ctab` (save-table entries), `nxmap` (overlay map entries), `dls`, `ils` (the Local Stores' sizes in bytes), `image`, `jit`, `virtual`, `timetravel`, `os`, `state` (`stopped`, `running`, `done`), `maps` (`path`, `scope`: image / kernel / prog, `prog`, `forth`), the position |
+| `hello` | `version` (1), `msgs` (StrataOS's messages are recorded), `ncores`, `ctab` (save-table entries), `nxmap` (overlay map entries), `dls`, `ils` (the Local Stores' sizes in bytes), `image`, `jit`, `virtual`, `timetravel`, `os`, `state` (`stopped`, `running`, `done`), `maps` (`path`, `scope`: image / kernel / prog, `prog`, `forth`), the position |
 | `status` | `state`, `why` (when done), the position, `events` (the next event sequence number), `console` (bytes of console output so far), `history` (below) |
 | `quit` | the engine ends after answering |
 
@@ -168,7 +168,7 @@ or after the line; a basename is enough) or, under StrataOS, `prog:label`.
 | Request | Answer |
 |---|---|
 | `cores` | the position and `cores`: one summary per core (below) |
-| `regs {core}` | `pc` (with `sym`, `file`, `line`), `x` (32 values), `csr` (instret, mode, ccr, cause, epc, tval, tvec, the user-mode ones, scratch, sscratch, ttag, tdata, tgeom, takefrom, corebase, corecount, xslot, ipend), `halted`, `stall` |
+| `regs {core}` | `pc` (with `sym`, `file`, `line`), `x` (32 values), `csr` (instret, mode, ccr, cause, epc, tval, tvec, the user-mode ones, scratch, sscratch, ttag, tdata, tgeom, takefrom, corebase, corecount, xslot, wdata, wstack, wcode, ipend), `halted`, `stall` |
 | `caps {core}` | `caps`: 16 capabilities |
 | `ctab {core}` | `size`, `entries`: `slot`, `cap` for every valid entry of the save table |
 | `inbox {core}` | `from`: `node`, `caps` per sender with something queued |
@@ -176,6 +176,7 @@ or after the line; a basename is enough) or, under StrataOS, `prog:label`.
 | `tags {core?}` | `cores`: `core`, `tags` (16: `tag`, `busy`; for a tag that has had a transfer: `op` tget / tput / tgetx, `space`, `ls`, `len`, `far`, `port` (device), `pc`, `issued` and `completed` rounds, and ticks), `stall` |
 | `pending` | `reads`: every pending device read (`core`, `tag`, `port`, `name`, `ls`, `len`, `seq`, `issued`, `waits`: what it waits for, e.g. "the timer deadline 5002 (now 3, in 4999 ticks)"); `blk`: the block device's queues (`commands`, `partial`, `caps`, `completions`, `returning_to`, `submitters`: the core that submitted each queued command, `lenders`: the core that gave each capability waiting there); `input_queued`, `breaks`, `deadline`, `now` |
 | `granules` | `units`: the revocation units (`space`, `base`, `len`, `gen`) |
+| `changes {since, core?, space?, hex?, max?}` | what is in the Local Stores and T2, and what changed in them (below). Answered while the machine runs. |
 | `mem {space, core, addr or loc, len}` | `space` (dls, ils, t2, t3, disk), `addr`, `hex`, `sym` (D-LS). At most 64 KiB, inside the space (a Local Store: its size, `hello`'s `dls` / `ils`). |
 | `disasm {core, addr or loc, n, before}` | `lines`: `addr`, `word`, `text`, `label` (at a label), `sym`, `file`, `line`, `pc` (the core's pc), `bp` |
 | `sym {loc}` | `addr`, `section`, `prog` |
@@ -184,6 +185,41 @@ or after the line; a basename is enough) or, under StrataOS, `prog:label`.
 | `processes` | StrataOS: `procs`: `pid`, `parent`, `state`, `status`, `core`, `ncores`, `name`, `running` (the cores running it now); `guests`: the guest OSes running on cores of their own (`id`, `cores`) |
 | `console` | `data`: the last 64 KiB of console output |
 | `history` | `history`, as above |
+
+**The stores while the machine runs.** Every read request is answered
+while the machine runs (between the engine's slices of running, every 5
+ms at most), so a front-end can look at the machine without stopping it.
+`changes` is made for that: the engine keeps a copy of every core's D-LS
+and I-LS and of T2, compares them with the machine in 64-byte blocks at
+each `changes` request, and gives each block that differs the request's
+version. A front-end keeps the `version` of its last answer and passes it
+as `since`; it gets the blocks changed since then, so clients do not
+disturb each other, and a block written back to what it was is not
+reported. `since` 0 (the default) gives every block that has held
+anything. Nothing runs between requests: the cost is the comparison, about
+0.1 ms per request for 15 cores (2.2 MiB), paid at the rate the front-end
+asks (0.02% of a run at two requests a second). Fields of the request:
+`core` (one core's stores, and no T2), `space` (`dls`, `ils` or `t2`),
+`hex` (true: the bytes too), `max` (bytes of hex in one answer, 16384).
+The answer:
+
+```json
+{"version":12,"blk":64,"tick":..,"round":..,"stores":[
+  {"core":0,"space":"dls","size":65536,"used":4032,"unit":1024,"units":[2,0,16,...],
+   "ranges":[{"addr":"0x0","len":"0x40","sym":"mark","hex":"1eaba15c..."}]},
+  ...,
+  {"space":"t2","size":262144,"used":16512,"unit":4096,"units":[...],"ranges":[...]}],
+ "truncated":true}
+```
+
+`used` is the bytes of the blocks that hold a byte that is not zero;
+`units` divides the store into 64 pieces of `unit` bytes and gives, for
+each, how many of its blocks do. `ranges` are runs of changed blocks, with
+the name of their first byte where a map has one (D-LS: the program's data,
+under StrataOS the program the core runs or the kernel; I-LS: code, as
+`disasm` names it; T2: the map's `cluster` labels). `truncated`: more bytes
+changed than `max`; the ranges past it come without `hex` (`mem` reads
+them).
 
 A **capability** is `{valid, live, space (none, t2, t3, dev, core, ep),
 base, len, perms (r w x a d v), rv, gen, gnow (the granule's generation
@@ -237,6 +273,83 @@ Every event has `seq`, `kind`, `tick`, `round`, `core`, and under StrataOS
 The log keeps the last 65536 events. When the engine goes back in time it
 drops the events after the new position (the replay writes them again):
 `last` may go down, and a front-end drops what it has from `last` on.
+
+### StrataOS's messages
+
+Under `--os`, the engine records every message sent to the kernel (the
+system core's endpoint, core 0) and to each server, and pairs it with its
+reply.
+
+**Where they are seen.** A message is a 4 KiB buffer of system memory (T3)
+lent from one core's inbox to another's. Every such move (a process's own
+`csend`, its dispatcher's `csend` for svc SEND, the `cgive` of svc REPLY,
+core 0's answers and EXITED) enters the destination's inbox through one
+function of the emulator, and the engine is called there
+(`emu/debug_msg.c`). So every message is seen, on every path the machine
+runs (the exact loop, and the fast loop and the JITs of a fast continue),
+with nothing taken from the kernel's code addresses, and the header and
+data are read from T3 at the moment the buffer moves. A buffer moved by the
+core that runs its owner (the process whose arena holds it, as the kernel's
+`pid_of` finds it; the kernel for its own) is a request; one moved by a core
+running another process while a request with that buffer waits is that
+request's reply; anything else (core 0 hands a new process its buffer among
+its arena's pieces) is not a message. Capabilities that are not buffers,
+moved by the same core to the same core within the 64 instructions before
+it, are the message's attachments.
+
+**Cost.** The engine only reads: the machine's behaviour and its `-T
+virtual` timing do not change. Recording costs about 4 µs per buffer
+moved, whether a front-end looks or not: a session that boots and runs
+`ls`, `cat` and a pipeline moves 400 (1.5 ms of a 9 s run, 0.02%). A
+front-end that shows them pays for the requests it makes: `msgs` with
+`since` returns only what is new or newly answered.
+
+**Names.** `DIR/msgops.txt` is written by `tools/osspec.py --table` from
+`os/spec/*.toml`, the files the site's and the manual's tables of the
+servers' messages are made from: each op's name, the fields of its data in
+order (which `data` below decodes: numbers, a path or bytes as a quoted
+string, `[N bytes: per ...]` for a repeated group, a ws key event's key),
+and what each of its negative results means (and `E_*` of
+`os/lib/sys.s`). An op is named from the receiver's table (`kernel` for
+core 0; the server's program name), from `system` for 36..38 (DUPS,
+CLEANUP, CANCEL) and for what the kernel sends proc (EXITED). Without the
+file, messages come without names or decoded data (`names: false`).
+
+| Request | Answer |
+|---|---|
+| `msgs {since, max, from, to, server, pid, op, core, waiting}` | the messages that are new or newly answered since version `since` (0: all kept), the newest `max` (500) of them, oldest first: `version` (pass it as the next `since`), `first` (the oldest kept), `next` (the next sequence number: a front-end drops what it has from `next` on, after time travel), `moved`, `names`, `truncated` (more changed than `max`), `msgs`. Filters: `from` (the sender: a pid, a process's or a server's name, or `kernel`), `to` (the receiver: the same), `server` (the receiver's name or the table its op is named from: kernel, proc, fs, ..., system), `pid` (a pid or a name, sender or receiver), `op` (a number or a name), `core` (sending or receiving), `waiting` (only those without a reply). Answered while the machine runs. |
+| `msg {seq}` | `msg`: one message, as below, with `hex`: its header and data (request and reply), as kept |
+| `msgstats {from, to, server, pid, op, core}` | `stats`: per sender, receiver and op, `from`, `fromkind`, `to`, `server`, `op`, `name`, `n`, `replied`, `errors` (negative results), `avg_rt`, `max_rt` (round trips in ticks), over the messages kept |
+
+A message:
+
+```json
+{"seq":69,"buf":"0x7ff000","server":"fs","from":8,"fromname":"cat","fromkind":"process","fromcore":3,
+ "to":3,"toname":"fs","tocore":3,"tokind":"server","op":3,"name":"OPEN",
+ "tick":8876699,"round":1109588,"instret":431207,"core":3,"pid":8,"proc":"cat",
+ "handle":0,"len":10,"mode":0,"data":"path=\"/doc/about\"","bytes":10,
+ "reply":{"result":1,"tick":8953827,"round":1119227,"instret":...,"core":3,"pid":3,"proc":"fs",
+          "handle":0,"len":0,"mode":0,"bytes":0,"rt":77128,"rt_rounds":9639}}
+```
+
+`from` / `fromname` / `fromcore` are the sender (also the request's `pid`,
+`proc`, `core`): its pid (0: the kernel), its name, its core; `fromkind`
+says what it is: `kernel`, `server` (the server of the core it sent from:
+servers send to each other and to the kernel, as proc asks fs to load a
+program or tty asks dev for the console) or `process`. `to` / `toname` /
+`tocore` / `tokind` are the receiver: the server of the core it went to, or
+the kernel. The reply's `pid`, `proc`, `core` are the process that answered. `handle`, `len`,
+`mode` are header words 8, 16, 24; `result` is word 32 of the reply, with
+`error` (its meaning) when it is negative. `att`: the capabilities attached
+(as in `caps`). `rt`: the round trip in ticks, `rt_rounds` in rounds
+(rounds / 100 = microseconds of machine time on the virtual timer).
+`reply` is null while the request waits. `bytes`: the data bytes kept: what
+the table says the message carries (the header's length, the reply's
+result, or its fixed fields), at most 4032. The engine keeps the last 16384
+messages and their bytes in a 16 MiB ring (4 MiB in the browser): an old
+message's `hex` may be gone before the message is. Going back in time drops
+the messages and replies after the new position; the replay records them
+again.
 
 ### Capability provenance
 
@@ -305,7 +418,7 @@ and code above `KSTART` is Forth's kernel, installed from `.far`.
 
 | Version | Changes |
 |---|---|
-| 1 | the first |
+| 1 | the first; `changes` added later (an engine without it answers "unknown command changes"); `msgs`, `msg`, `msgstats` and `hello.msgs` later still |
 
 A front-end checks `hello.version`; the engine will keep accepting version
 1 requests, and new fields may be added to answers and events at any time.

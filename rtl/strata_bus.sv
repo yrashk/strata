@@ -11,11 +11,17 @@
 //   bus -> master  gnt (one cycle: the request was taken)
 //   write data     master drives wvalid/wdata, the bus drives wready; a beat
 //                  moves when both are high
-//   read data      the bus drives rvalid/rdata once per beat; masters always
-//                  accept (an atomic returns the old value as one read beat)
+//   read data      the bus drives rvalid/rdata; a beat moves when the master's
+//                  rready is high too. Only the memory targets hold a beat for
+//                  it: a master may lower rready on a memory read only (a
+//                  Transfer Unit whose core has one single-port Local Store
+//                  memory does; everyone else keeps it high). An atomic
+//                  returns the old value as one read beat
 //   end            done (one cycle) when the burst is complete, or retry
 //                  (one cycle, before any data) when a device has nothing to
 //                  give yet; the master asks again later, freeing the bus
+//                  (a core's Transfer Unit: once the device space raises the
+//                  core's wake line, strata_dev)
 
 module strata_bus
   import strata_pkg::*;
@@ -37,6 +43,7 @@ module strata_bus
   input  logic [NM-1:0][63:0] m_cmp,
   input  logic [NM-1:0]       m_wvalid,
   input  logic [NM-1:0][63:0] m_wdata,
+  input  logic [NM-1:0]       m_rready,
   output logic [NM-1:0]       m_gnt,
   output logic [NM-1:0]       m_wready,
   output logic [NM-1:0]       m_rvalid,
@@ -56,6 +63,7 @@ module strata_bus
   output logic [63:0]         t_cmp,
   output logic                t_wvalid,
   output logic [63:0]         t_wdata,
+  output logic                t_rready,
   input  logic [3:0]          t_wready,
   input  logic [3:0]          t_rvalid,
   input  logic [3:0][63:0]    t_rdata,
@@ -143,6 +151,7 @@ module strata_bus
   assign t_cmp    = l_cmp;
   assign t_wvalid = st == B_ACT && m_wvalid[cur];
   assign t_wdata  = m_wdata[cur];
+  assign t_rready = m_rready[cur];
   assign m_rdata  = tgt == 3'd4 ? '0 : t_rdata[tgt[1:0]];
 
   always_comb begin

@@ -83,6 +83,34 @@ inputs() {
   } | sort -u
 }
 
+# The machine's test slots, shared by every checkout: a test runs only while
+# it holds one, so the runs of several checkouts together run at most
+# $STRATA_SLOTS tests at a time (default: the number of processors), however
+# many of them start. A slot is a directory, taken by mkdir (atomic) with the
+# holder's pid in it; one whose holder is gone is taken back.
+slots=${STRATA_SLOTS_DIR:-$HOME/.cache/strata/slots}
+nslots=${STRATA_SLOTS:-$(sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
+slot=
+slot_take() {
+  mkdir -p "$slots"
+  while :; do
+    i=0
+    while [ $i -lt "$nslots" ]; do
+      if mkdir "$slots/$i" 2>/dev/null; then
+        echo $$ >"$slots/$i/pid"; slot=$slots/$i
+        trap 'slot_give' EXIT; trap 'slot_give; exit 130' INT TERM
+        return
+      fi
+      p=$(cat "$slots/$i/pid" 2>/dev/null)
+      if [ -n "$p" ] && ! kill -0 "$p" 2>/dev/null; then rm -rf "$slots/$i"; continue; fi
+      [ -z "$p" ] && [ -n "$(find "$slots/$i" -maxdepth 0 -mmin +1 2>/dev/null)" ] && { rm -rf "$slots/$i"; continue; }
+      i=$((i + 1))
+    done
+    sleep 0.3
+  done
+}
+slot_give() { [ -n "$slot" ] && rm -rf "$slot"; slot=; }
+
 one() {
   line=$(awk -F'\t' -v n="$1" '$1 == n' "$reg")
   [ -n "$line" ] || { echo "run-tests: no test $1" >&2; exit 2; }
@@ -100,9 +128,11 @@ one() {
     echo "ok cached $was 0" >"$out/$name.res"
     exit 0
   fi
+  slot_take
   t0=$(now)
   ( export BUILD="$D" NCORES="$N"; eval "$cmd" ) >"$log" 2>&1 </dev/null
   rc=$?
+  slot_give
   t1=$(now)
   # this shell's children: user and system seconds
   times >"$out/$name.times"
@@ -199,7 +229,7 @@ if [ $changed = 1 ]; then
       tools/stdb/*) w="stdb stdb-test os" ;;
       conformance/*) w="" ;;
       tools/test-*|tools/compare*|tools/*.out|tools/*.js|tools/net-echo.py|tools/dlsgap.s) w="" ;;
-      tools/kira-*|tools/wdoom-assets.py|tools/web-code.py|tools/web-stamp.sh|tools/vi-shots.sh|tools/bench-jit.sh|tools/fs-progs-speed.sh) w="" ;;
+      tools/kira-*|tools/plat-*|tools/wdoom-assets.py|tools/web-code.py|tools/web-stamp.sh|tools/vi-shots.sh|tools/bench-jit.sh|tools/fs-progs-speed.sh) w="" ;;
       *) w=ALL ;;      # asm/, common/, the Makefile, the test runner, anything not listed
     esac
     [ "$w" = ALL ] && all=1

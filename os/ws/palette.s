@@ -17,7 +17,7 @@
 PAL_W     = 560                         ; panel width
 PAL_ROW   = 22                          ; completion row height
 PAL_MAXM  = 6                           ; completions shown
-PAL_NPROG = 14                          ; programs known
+PAL_NPROG = 15                          ; programs known
 PAL_ENT   = 48                          ; bytes per program entry: name 12, description 36
 
         .data                           ; D-LS
@@ -34,6 +34,8 @@ pal_progs:                              ; name (12 bytes), description (36), NUL
         .ascii "a first-person shooter\0\0\0\0\0\0\0\0\0\0\0\0\0\0" ; its description
         .ascii "kira\0\0\0\0\0\0\0\0" ; name
         .ascii "Princess Kira: games for a child\0\0\0\0" ; its description
+        .ascii "plat\0\0\0\0\0\0\0\0" ; name
+        .ascii "Plat: plan and build a town\0\0\0\0\0\0\0\0\0" ; its description
         .ascii "vi\0\0\0\0\0\0\0\0\0\0" ; name
         .ascii "text editor: asm, Forth colours\0\0\0\0\0" ; its description
         .ascii "wclock\0\0\0\0\0\0"     ; name

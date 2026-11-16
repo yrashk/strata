@@ -37,6 +37,8 @@ module strata_ram #(
   input  logic [63:0]   b_wdata,
   output logic [63:0]   b_rdata
 );
+  // (a core built with LS_1P = 1 keeps its two stores in strata_ram1 and
+  // leaves two unused words here: WORDS < 512, no macros, reads return 0)
   localparam int ROWS = WORDS / 512;
   localparam int RW   = ROWS > 1 ? $clog2(ROWS) : 1;
 
@@ -54,7 +56,10 @@ module strata_ram #(
   assign row = ROWS > 1 ? RW'(addr >> 9) : '0;
   always_ff @(posedge clk) if (en) row_q <= row;
 
-  logic [63:0] q [ROWS];
+  logic [63:0] q [ROWS > 0 ? ROWS : 1];
+  if (ROWS == 0) begin : g_none
+    assign q[0] = '0;
+  end
   for (genvar r = 0; r < ROWS; r++) begin : g_r
     logic cen;
     assign cen = !(en && row == RW'(r));

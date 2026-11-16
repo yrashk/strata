@@ -126,3 +126,10 @@ the scope of a variable-length array by `goto`. `../examples/sort.c`,
 StrataOS shell with the other examples (`vla.c` with both compilers) and
 compares the session with `tools/test-cc.out`. The mathematical functions
 were also compared with another library: `../lib/src/README.md`.
+
+`own/` holds the compiler's own tests, written for what the suites do not
+reach in its code generator: `regvars.c` for the variables kept in
+registers (DESIGN.md, "Register variables"). Their expected output was made
+with the host's compiler, as for lacc. The runner takes them as files
+(`run.sh lang/cc/tests/own/*.c`, the `cc-own` test of `make test`); they are
+not part of the ladder or of its count.

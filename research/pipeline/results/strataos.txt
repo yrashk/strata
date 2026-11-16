@@ -1,0 +1,17 @@
+== StrataOS session (os/demo.txt): 64598933 instructions, 8 cores
+  mix: alu 44.3%, lui 3.4%, load 11.4%, store 5.6%, branch 21.1%, jal 8.4%, jalr 3.5%, xfer 0.1%, twait/tpoll/tany 0.0%, tamo 0.8%, cap 1.2%, csrr 0.1%, csrw 0.1%, sys 0.0%, xmap 0.0%, xcall 0.0%, xret 0.0%, cap2 0.1%
+  branches 13612289 (21.1%), taken 8817478 (64.8%); backward 5809862, of them taken 5486391 (94.4%); forward taken 3331087 (42.7% of forward)
+  traps/stops 6111, serialising instructions 42731; load used by the next instruction 3518669 (47.8% of loads), by the one after 2473918; capability used by the next 19386
+  predictor (p5b): right 14503498, wrong 346129, taken but not in the buffer 1678005
+  design    CPI   stalls per instruction
+  mc      3.227   (today's core, STREAM = 0)
+  p3      1.424   control 0.255, far atomic, ltag 0.066, load use 0.054, mul/div 0.046, traps, serialising 0.001, save table 0.001
+  p3r     1.680   control 0.511, far atomic, ltag 0.066, load use 0.054, mul/div 0.046, traps, serialising 0.002, save table 0.001
+  p3f     1.369   control 0.255, far atomic, ltag 0.066, mul/div 0.046, traps, serialising 0.001, save table 0.001
+  p3b     1.201   far atomic, ltag 0.066, load use 0.054, mul/div 0.046, control 0.032, traps, serialising 0.001, save table 0.001
+  p5      1.894   control 0.682, mul/div 0.088, far atomic, ltag 0.066, load use 0.054, traps, serialising 0.002, capability use 0.000
+  p5s     1.824   control 0.612, mul/div 0.088, far atomic, ltag 0.066, load use 0.054, traps, serialising 0.002, capability use 0.000
+  p5b     1.283   mul/div 0.088, control 0.071, far atomic, ltag 0.066, load use 0.054, traps, serialising 0.002, capability use 0.000
+  b4      4.087   per thread; the pipeline 0.979 instructions per cycle with 4 threads ready
+  b5      5.065   per thread; the pipeline 0.987 instructions per cycle with 5 threads ready
+  b8      8.012   per thread; the pipeline 0.999 instructions per cycle with 8 threads ready

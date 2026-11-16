@@ -1,0 +1,27 @@
+stralog
+open(notes, write, S), writeq(S, fact(1, 'two words', [3])), write(S, '.'), nl(S), write(S, 'fact(2, x, []).'), nl(S), close(S).
+open(notes, read, S), read(S, A), read(S, B), read(S, C), close(S).
+open(notes, append, S), format("~w~n", [ignored]), write(S, 'fact(3, y, z).'), nl(S), close(S).
+[notes], findall(N-X, fact(N, X, _), L).
+open(nosuch, read, S).
+op(700, xfx, ===>), op(200, xfy, ^^).
+X = (a ===> b ^^ c ^^ d), writeq(X), nl, X =.. L.
+op(0, xfy, ^^), catch(term_to_atom(T, '1^^2'), error(E, _), true).
+current_op(P, T, mod).
+
+writeq(f(1+2*3, (1+2)*3, -(1), 1-(-1), 2-(3-4), a=b, [a|b], 'hello world', [])), nl.
+X = "text", atom_codes(A, X), atom_length(A, N).
+[calc], calc("2 * (3 + 4) - 5", V), parse("1+2*3", T).
+[roman], roman(1987, R), arabic('MMXXVI', N).
+phrase(("ab", [C]), `abc`, Rest).
+[user].
+foo(1).
+foo(2) :- true.
+findall(X, foo(X), L).
+read(T).
+term(read, 42).
+get_char(C), get_char(D).
+xy
+statistics.
+halt.
+halt

@@ -17,9 +17,13 @@
 #   4. StrataOS: break when the process `ls` runs, info processes; a guest
 #      OS (its cores in info cores and processes) and a break on the reset
 #      `guest stop` makes;
-#   5. the wasm engine: a breakpoint and a reverse step;
+#   5. the wasm engine: a breakpoint, a reverse step, the D-LS's changes;
 #   6. fast continues (ff, with the JIT): hello to its end, StrataOS to the
-#      process ls, and the history starting again there.
+#      process ls, and the history starting again there;
+#   7. the stores while the machine runs: a D-LS value written in the middle
+#      of a run, seen at a breakpoint (changes, info stores) and, with `live`,
+#      while the machine still runs, before it ends; under StrataOS, the
+#      stores' changes with the programs' labels.
 #
 #   tools/test-dbg.sh            (-v: show the transcripts)
 set -u
@@ -161,7 +165,7 @@ EOF
     "console| strata\$ " \
     "stopped: breakpoint 1: process ls runs (at its entry)" "<_start> (ls.s:" \
     "pid parent state  core n  running  name" "  proc" "  sh" "  ls" \
-    "pid 8 ls"
+    "pid 10 ls"
   # a guest OS: its cores while it runs, then `guest stop`'s core-control resets
   cp "$b/disk.img" "$tmp/disk.img"
   cat > "$tmp/guest.cmd" <<'EOF'
@@ -192,12 +196,14 @@ fi
 # ---- 5. the WebAssembly build's engine
 if command -v node >/dev/null 2>&1 && [ -f "$b/web/strata-emu.js" ]; then
   printf '%s\n' '{"cmd":"break","loc":"print_str"}' '{"cmd":"continue"}' '{"cmd":"reverse-stepi","core":0}' \
+    '{"cmd":"changes","core":0,"space":"dls"}' \
     > "$tmp/wasm.req"
   node "$here/tools/wasm-dbg.js" "$b/web/strata-emu.js" -c 4 -j -T virtual "$b/examples/hello.stx" \
     < "$tmp/wasm.req" > "$tmp/wasm.out" 2>&1
   [ $verbose = 1 ] && { echo "==== wasm"; cat "$tmp/wasm.out"; }
   expect wasm '"reason":"breakpoint 1: pc 0x5c (print_str examples/lib/print.s:34)"' \
-    '"reason":"reverse step","core":0'
+    '"reason":"reverse step","core":0' \
+    '"ranges":[{"addr":"0x0","len":"0x80","sym":"msg"}]'
 else
   echo "test-dbg: no node or no WebAssembly build (make wasm): skipping part 5"
 fi
@@ -214,6 +220,55 @@ if [ -f "$b/disk.img" ] && [ -f "$b/kernel.map" ]; then
   expect osff "stopped: breakpoint 1: process ls runs (at its entry)" "<_start> (ls.s:" \
     "recording starts again at the next round's start" "stopped: step" "stopped: reverse step" \
     "time travel: ticks "
+fi
+
+# ---- 7. the stores while the machine runs
+# Core 0 writes `mark`, then writes a count down into `count` 3 million
+# times (about half a second of the engine's exact loop: far longer than
+# the 10 ms between live looks), then writes `mark` again and halts. The
+# first value of `mark` is in a live printout only while the count runs.
+cat > "$tmp/lsrun.s" <<'EOF'
+        .data
+        .align 8
+mark:   .space 8
+count:  .space 8
+        .text
+_start:
+        csrr  t0, coreid
+        bnez  t0, idle
+        li    t1, 0x5ca1ab1e
+        la    t2, mark
+        sd    t1, 0(t2)
+first:
+        li    s0, 3000000
+        la    t3, count
+spin:
+        sd    s0, 0(t3)
+        addi  s0, s0, -1
+        bnez  s0, spin
+        li    t1, 0xd0d0cafe
+        sd    t1, 0(t2)
+        li    a0, 0
+idle:
+        halt
+EOF
+"$b/sasm" -g "$tmp/lsrun.map" -o "$tmp/lsrun.stx" "$tmp/lsrun.s"
+printf 'break first\ncontinue\nchanges dls\ninfo stores\ndelete\nlive 10\ncontinue\nlive off\nchanges dls\nquit\n' > "$tmp/ls.cmd"
+run ls "$tmp/ls.cmd" -c 2 -j -T virtual "$tmp/lsrun.stx"
+expect ls "stopped: breakpoint 1" \
+  "core 0 D-LS [0x0, 0x40) <mark>" "  0x0      1e ab a1 5c 00 00 00 00 00 00 00 00" \
+  "core 0  D-LS   0.1K of 64K   in use  [." "core 1  D-LS     0K of 64K" "        T2       0K of 256K  in use" \
+  "while the machine runs: what changed in the stores is shown every 10 ms" \
+  "live: tick" "core 0 D-LS [0x0, 0x40) <mark>" "  0x0      1e ab a1 5c 00 00 00 00" \
+  "the machine has stopped: halted" "live: off"
+# (and by the end, `mark` holds its second value)
+grep -qF "  0x0      fe ca d0 d0" "$tmp/ls.out" || { echo "test-dbg: ls: expected the second value of mark"; fail=1; }
+if [ -f "$b/disk.img" ] && [ -f "$b/kernel.map" ]; then
+  cp "$b/disk.img" "$tmp/disk.img"
+  printf 'break process ls\ninput ls\\n\ncontinue\ninfo stores\nchanges dls core 0\nquit\n' > "$tmp/osls.cmd"
+  run osls "$tmp/osls.cmd" -c 8 -j -T virtual -g none -d "$tmp/disk.img" --os "$b" "$b/bootrom.stx"
+  expect osls "stopped: breakpoint 1: process ls runs" "core 0  I-LS" "core 7  D-LS" "        T2" \
+    "core 0 D-LS [0xa000, 0xa040) <w_me>"
 fi
 
 if [ $fail = 0 ]; then echo "test-dbg: ok"; else exit 1; fi

@@ -111,6 +111,28 @@ address (a 16-bit literal) was folded into the load and the store, and
 `1+` is one `addi`: the body is three instructions. The numbers in the
 disassembly are hex.
 
+## How the Forth here is written
+
+- **Names for records and requests.** A server's request is a constant
+  named after its spec (`op-open`, `op-cores`: `os/spec/*.toml`), and a
+  record's field is a word that fetches it (`: running ( r -- pid ) 1+ c@
+  ;`), so code reads `dup running` rather than `dup 1+ c@`. sys.fs names
+  what several ports share; a program names the rest itself.
+- **Short definitions**, one job each, each with a stack comment. A comment
+  says what a record holds or why something is done, not what is on the
+  stack.
+- **Plain stack use.** A value that a loop or several words need is a
+  variable; the return stack holds a value across a call or a loop inside
+  one definition (`>r ... r>`), not more, and `pick` is rare.
+- **Code words** (sys.fs's byte loops, vi.fs's scanners) are assembly
+  written in Forth: named opcodes (`lbu,` `bgeu,`), a comment per step.
+- **What names cost.** Under StrataOS a name takes 16 to 32 bytes of the
+  16 KiB of data space, and a program's text is read and interpreted at
+  every start (some 50 K instructions a KiB). So `progs.pk` is packed
+  without its comments, and vi.fs, whose dictionary is full (about 300
+  bytes of data space left), keeps vi.s's short names, described where
+  they are declared.
+
 ## Design
 
 ### Threading model and registers
@@ -405,7 +427,7 @@ directory that has the file).
 |---|---|---|---|
 | kernel + platform code | 13.4 KiB (15.2 with the parts for paging and start-up, which compiled code overwrites) | 16.3 KiB resident (the kernel, the platform layer, the stub and trampolines: the code mirror), and 0.9 KiB of start-up code the code cache overwrites | 15.0 KiB resident, and 2.3 KiB (paging, start-up) that compiled code overwrites |
 | Forth source compiled at start-up | core.fs, tools.fs, see.fs: 19.4 KiB | core.fs, os.fs: 9.8 KiB, in code units (inline limit 4) | core.fs, os.fs: 8.9 KiB (compact code, inline limit 4) |
-| code space after start-up | 31.1 KiB of 64 free | 92 KiB of the 104 KiB unit store free, paged through a 14 KiB code cache (7 slots of 2 KiB) | 8.0 KiB of 32 free |
+| code space after start-up | 31.1 KiB of 64 free | 108 KiB of the 120 KiB unit store free, paged through a 14 KiB code cache (7 slots of 2 KiB) | 8.0 KiB of 32 free |
 | data space free after start-up | 16.5 KiB | 16.1 KiB | 16.1 KiB |
 | image | 131 KiB | 89 KiB (limit: 128) | the same |
 | start-up | about 1.0 M instructions | 1.58 M for `forth -e 1 drop`, all of it (was 1.53 M before code paging): 51 code units paged in | 1.79 M with 2 threads (1.77 M) |
@@ -444,7 +466,7 @@ Under the OS:
   reads source through `fs`, tag paths included (`include /forth/core.fs`).
 - **The I-LS budget.** Programs get 0x8000..0xFFFF (32 KiB). With one
   thread the kernel takes 16.3 KiB of it and the rest is the code cache;
-  code space proper is the unit store in far memory, 104 KiB. With threads
+  code space proper is the unit store in far memory, 120 KiB. With threads
   the kernel, the platform layer and core.fs compiled in compact form (and
   with the inlining limit at 4) leave about 8.2 KiB of code space. Either
   way the tools (`see`, the disassembler, `dump`, `words`, `.cap`, the
@@ -621,7 +643,7 @@ read, and they make the page into a buffer in data space and send it.
 With one thread, a StrataOS Forth keeps only its kernel in the I-LS. Every
 word compiled after it, core.fs and os.fs at start-up and everything after
 them, goes into **code units**: 2 KiB, slot-aligned pieces of a store in far
-memory (c0 `[0x20000, 0x3A000)`, 104 KiB, the arena's parcel, which only
+memory (c0 `[0x20000, 0x3E000)`, 120 KiB, the arena's parcel, which only
 threads need), each holding whole definitions. StrataOS pages them, with
 the hardware's slot mapping and its own miss handler (doc/strataos.md 2.2,
 "Code units"; the manual's code-paging section):
@@ -701,13 +723,13 @@ machine, `tools/fs-progs-speed.sh` for the ports):
 
 | | with code overlays (overlay.fs) | with code paging |
 |---|---|---|
-| code space after start-up | 8.0 KiB of I-LS | 92 KiB of units (104), through a 14 KiB cache |
+| code space after start-up | 8.0 KiB of I-LS | 92 KiB of units (104), through a 14 KiB cache (now 108 of 120) |
 | start-up, `forth -e 1 drop` | 1.53 M | 1.58 M (51 misses) |
 | vi.fs: starting (`forth vi.fs`, `:q`) | 7.76 M | 7.36 M |
 | vi.fs: opening `/src/sh.s` (333 KiB) | 21.6 M | 23.2 M (1,640 misses with drawing and `:q`) |
 | vi.fs: opening `seq 15000` (77 KiB) | 17.6 M | 20.3 M |
 | vi.fs: a key in normal mode (`j`, `k`) | 55 K | 54 K (14 misses) |
-| vi.fs: code / data space left | 0 of I-LS (19 overlays of 4.1 KiB) / 1.2 KiB | 31 KiB of units / 2.0 KiB (1.3 KiB since C colouring: 23 KiB of units) |
+| vi.fs: code / data space left | 0 of I-LS (19 overlays of 4.1 KiB) / 1.2 KiB | 31 KiB of units / 2.0 KiB (1.3 KiB since C colouring: 23 KiB of units; since visual mode 128 bytes of units, 344 bytes; since Stratalk and Prolog, with a store of 120 KiB, 2.1 KiB of units, 152 bytes) |
 | the ports: a run | | 3 to 4 % more (about 110 K: start-up, sys.fs's units) |
 | `forth units.fs` | 3.72 M | 3.50 M (257 misses) |
 
@@ -761,9 +783,9 @@ Forth prompt; `tools/test-vic.sh -f` runs vi.s's C sessions with it and
 compares its frames with vi.s's (in `make test`; `tools/vi-shots.sh -f` takes
 its pictures in a window).
 
-It is 1020 lines in three files (`vi.fs` includes `vi-text.fs` and
+It is 1250 lines in three files (`vi.fs` includes `vi-text.fs` and
 `vi-edit.fs`: an included file's text must fit in 64 KiB with what it
-includes) and about 68 KiB of code, which is in code units like any other
+includes) and about 91 KiB of code, which is in code units like any other
 ("Code paging": it needs no annotations; it was nineteen code overlays of
 overlay.fs before, and its longest words are split to fit units). The byte loops (lines, keywords, identifiers, strings, numbers) are
 code words assembled with core.fs's assembler; the keyword tables are
@@ -796,6 +818,29 @@ the same file cost when it was coloured as assembly (530 K, 600 K to 615 K,
 86 K). The first visit to a part of a file works out its comment states:
 about 2,000 instructions a line (6 M for the first 3000 lines of `cc.c`;
 vi.s: 700).
+
+Visual mode (`v V` Ctrl-V, the operators on a selection, `:'<,'>`, `gv`,
+the mouse; `tools/test-viv.sh -f` compares its frames and files with
+vi.s's) added about 23 KiB of code units and 1 KiB of data space, which
+leaves 128 bytes of units and 344 bytes of data space: the unit store
+(104 KiB, `os/config.s`) is full, and anything more for vi.fs needs room
+made first (a bigger store, which takes it from the far heap, or smaller
+code). To spend little data space its state is one array, `vv`, read and
+written with `v@ i` and `v! i` (compiled as one load or store), its words
+have names of five bytes or fewer (a header of 16 bytes rather than 24),
+and the scratch the assembly uses for a put over lines is not needed
+(`cls` is `tbuf` here).
+
+Stratalk and Prolog colouring (`hl-st` and `hl-pl`, high-level words over
+`b@`, the byte at an index or 0 past the end) added about 14 KiB of code
+units and 192 bytes of data space (twelve headers of 16 bytes: the names
+are five bytes or fewer; Prolog's operators are tested in code, `pl-op`,
+not looked up in a table, and `ckbits` stays 256 bytes: two bits a state
+now, for the first 16384 lines, where vi.s keeps the first 32768). To make
+room the unit store grew from 104 KiB to 120 KiB (`A_HEAP` 0x3A000 ->
+0x3E000), 16 KiB the far heap no longer has; vi.fs still has room for its
+200 chunks of text. The two new keyword tables (Stratalk's, Prolog's) are in the far heap, which
+moved the messages and what follows them up 4 KiB.
 
 ### The ports of os/progs
 
@@ -831,18 +876,24 @@ tcpecho, httpd: `httpd.fs` is Forth's own web server), the window server and
 its clients (ws, term, wclock, wmandel), sh and as. `units.fs` is now what
 units.s is: 24 functions of a little over 1 KiB, each in a code unit of its
 own, three times Forth's code cache, in chains seven deep; it prints the
-units the dispatcher paged in (257) where it printed the overlays it brought
-in.
+units the dispatcher paged in (about 270: the number moves with the size of
+sys.fs, after whose code the port's starts) where it printed the overlays it
+brought in.
 
-**sys.fs** is their library (os/lib/sys.s's counterpart, about 2.9 KiB of
-code and 9.2 KiB of data space, the buffers of a message and of standard
-input): `main:` (`' NAME-main main: NAME` ends a port: from the command line
-it runs at once on the arguments and ends the process with STATUS), `stop
-( code -- )`, `usage`, `+e` `e!` (a message on standard error), `arg ( a u --
-rest u' word u2 )`, `atoi`, `num`, `.u`, `last/`, `zlen`, `in-line ( buf max
--- u|-1 )` (standard input by lines, as sys.s's in_line reads them), `open`
-`read` `close` `stat` `fs-path` `fs-2path` `tags-of` (the file server),
-`proc`, `write ( a u reg id -- )`, and the code words `scan`, `skip`,
+**sys.fs** is their library (os/lib/sys.s's counterpart, about 3.9 KiB of
+code and 9.8 KiB of data space, mostly the buffers of a message and of
+standard input): `main:` (`' NAME-main main: NAME` ends a port: from the
+command line it runs at once on the arguments and ends the process with
+STATUS), `stop ( code -- )`, `usage`, `fail` (a message and exit code 1),
+`complain` (the same, and the program goes on), `+e` `e!` (a message on
+standard error, made in parts), `arg ( a u -- rest u' word u2 )`, `cmdline`,
+`atoi`, `num`, `.u`, `hex.`, `?type`, `type-pad`, `last/`, `zlen`, `in-line
+( buf max -- u|-1 )` (standard input by lines, as sys.s's in_line reads
+them), `open` `read` `close` `stat` `fs-path` `fs-2path` `tags-of` and the
+`rec-` words for their records (the file server), `proc`, `write ( a u reg
+id -- )`, `>msg` `msg>` `msg@` (a message's data), the names of the
+requests more than one port makes (`op-open`, `op-tag`, `op-info`, ...: a
+port names its others itself), and the code words `scan`, `skip`,
 `digits`. Under StrataOS it is compiled after the platform has read the
 standard handles, so their servers and ids are compiled in as literals.
 
@@ -851,7 +902,10 @@ were written (1024 now; a DIR answer still holds 126), and the standard disk alr
 the ports and sys.fs are not files of their own: the Makefile packs them
 into one, `progs.pk` (`tools/forth-pack.py`): `progs.fs`, Forth, with an
 index put in (a line `OFFSET LENGTH port NAME` per file; `untag.fs` and
-`retag.fs` are more names for `tag.fs`), then the files. INCLUDED, given a
+`retag.fs` are more names for `tag.fs`), then the files, without their
+comments (a line that was only a comment stays, empty, so that errors name
+the lines of the sources): the pack is read and interpreted at every start,
+and its comments would cost some 50 K instructions a KiB. INCLUDED, given a
 name that is no file, runs the word in KVAR 39 instead (once): os.fs's
 `(pack)` includes `/progs.pk` with the name on the stack. INCLUDED reads the
 whole pack into far memory and interprets its head: the index lines note
@@ -882,7 +936,10 @@ Past that, the byte loops are code words and the messages are the same, so
 long inputs come close to the assembly programs. With code paging a run
 costs 3 to 4 % more than it did with every word resident (about 110 K: a
 start, sys.fs and the port compiled into units, a call of a unit one
-instruction longer); `units` costs less, without overlay.fs.
+instruction longer); `units` costs less, without overlay.fs. (The table is
+from an older build. Since the pack leaves the comments out, 29 KiB instead
+of 43, a start costs about 0.7 M less: `df` 4.0 M instead of 4.7 M on the
+same build.)
 
 | command | .s | .fs, code overlays | .fs, code paging | ratio (paging) |
 |---|---:|---:|---:|---:|

@@ -30,6 +30,13 @@
 //              if A was rotated behind it; only a device read that was
 //              answered retry before any data, with another command
 //              queued, is rotated
+//   parking    only a device read answered retry is parked; a parked read
+//              does not ask for the bus, and the engine waits on the head
+//              only while it is parked; after a wake no read is parked
+//              (unless it was answered retry in that same cycle), and a
+//              head that is no longer parked asks for the bus the next
+//              cycle; a parked head that has not started is rotated
+//              behind a command that is not parked
 //   progress   the engine never waits on itself: a tput in transfer always
 //              has a word buffered, arriving or being fetched; retire and
 //              rotate take one cycle
@@ -52,7 +59,8 @@
 //     read (strata_ram), for the one word the put-data property watches
 //
 // Not proved here: liveness (a transfer completes eventually), which
-// depends on the bus and the devices.
+// depends on the bus and the devices (that the device raises `wake` when a
+// waiting read would complete: strata_dev.svh).
 
   localparam int F_LS = 65536;    // the largest Local Store
 
@@ -84,6 +92,9 @@
                                      !(iss_kind == XF_GETX && iss_space == SP_DEV)));
   always_comb begin
     assume (f_core_ok);
+    // two Local Stores (LS_1P = 0): the core never makes the unit wait for
+    // the memory (a core with LS_1P is not covered)
+    assume (ls_gnt && !ls_want && !ls_used && !ls_denied);
     assume (!b_gnt || b_req);
     if (!f_bus) assume (!b_rvalid && !b_done && !b_retry);
     if (b_rvalid) assume (!h_put && off < h_len);
@@ -224,7 +235,7 @@
   assign f_A     = h_ls + off;
   always_comb begin
     if (f_rstd) begin
-      assert (es <= E_ROT);
+      assert (es <= E_PARK);
       assert (f_bus == (es == E_XFER));
       if (es != E_IDLE) begin
         assert (q_v[head]);
@@ -237,6 +248,7 @@
       if (es == E_ROT) assert (h_dev && h_kind == XF_GET && q_w[head] && off == 0 && count > 3'd1);
       if (es == E_REQ) assert (off < h_len);
       if (es == E_XFER) assert (h_len != 0);
+      if (es == E_PARK) assert (q_w[head] && h_dev && h_kind == XF_GET && off < h_len);
       if (es == E_REQ && h_put) assert (off == 0 && rd_off == 0 && pf_cnt == 0 && !pf_inflight);
     end
   end
@@ -312,6 +324,24 @@
     if (f_past && f_rstd && !$past(rst) && !$past(flush)) begin
       if ($past(es) == E_RETIRE || $past(es) == E_ROT) assert (es == E_IDLE);
       if ($past(es) == E_IDLE && $past(count) != 0) assert (es != E_IDLE);
+    end
+
+  // ---- parking
+  logic [QD-1:0] f_pw;            // entry i: parked only if tried, tried only if a device read
+  always_comb
+    for (int i = 0; i < QD; i++)
+      f_pw[i] = !q_v[i] || ((!q_p[i] || q_w[i]) &&
+                            (!q_w[i] || (q_sp[i] == SP_DEV && q_kind[i] == XF_GET && q_len[i] != 0)));
+  always_comb begin
+    if (f_rstd) assert (&f_pw);
+    if (f_rstd && b_req) assert (!q_p[head]);
+  end
+  always_ff @(posedge clk)
+    if (f_past && f_rstd && !$past(rst) && !$past(flush)) begin
+      if ($past(wake) && !($past(es) == E_XFER && $past(b_retry))) assert ((q_v & q_p) == 0);
+      if ($past(es) == E_PARK && !$past(q_p[head])) assert (es == E_REQ);
+      if ($past(es) == E_PARK && $past(q_p[head]) && $past(off) == 0 && $past(others)) assert (es == E_ROT);
+      if ($past(es) == E_PARK && es != E_PARK) assert (es == E_REQ || es == E_ROT);
     end
 
   // ================================================================ no loss, order
@@ -411,4 +441,6 @@
     cover (f_rstd && es == E_XFER && h_put && pop && pf_cnt == 2'd2 && f_A[15:3] == f_wa && off == LSW'(16));
     cover (f_rstd && es == E_XFER && h_put && h_dev && pop && f_A[2:0] == 3'd5);
     cover (f_rstd && es == E_XFER && b_retry && off != 0);               // a read that waits half way
+    cover (f_rstd && es == E_PARK && wake && count == 3'd2);             // a parked read woken
+    cover (f_rstd && es == E_PARK && others && off == 0);                // a parked read rotated
   end

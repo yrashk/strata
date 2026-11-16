@@ -1,0 +1,58 @@
+strata$ stralog
+Stralog 0.1
+?- X = f(Y), Y = 3.
+X = f(3), Y = 3.
+?- X = point(1, 2), X = point(A, B).
+X = point(1,2), A = 1, B = 2.
+?- f(X, b) = f(a, Y).
+X = a, Y = b.
+?- f(X) = g(X).
+false.
+?- append(X, Y, [1, 2]).
+X = [], Y = [1,2] ;
+X = [1], Y = [2] ;
+X = [1,2], Y = [] ;
+false.
+?- member(X, [a, b, c]).
+X = a ;
+X = b 
+.
+?- [family].
+true.
+?- grandparent(tom, W).
+W = ann ;
+W = pat ;
+false.
+?- ancestor(A, jim).
+A = pat ;
+A = tom ;
+A = bob ;
+false.
+?- first_child(bob, C).
+C = ann.
+?- findall(D, ancestor(tom, D), Ds).
+Ds = [bob,liz,ann,pat,jim].
+?- \+ parent(jim, _).
+true.
+?- ( parent(liz, _) -> R = parent ; R = none ).
+R = none.
+?- member(X, [1, 2, 3]), X > 1, !.
+X = 2.
+?- writeq([a, 'B', "c", 'it''s', f(-1, - 1, 1 - -1, (a :- b, c)), {x}, -(-(a))]), nl.
+[a,'B',[99],'it\'s',f(-1,- 1,1- -1,(a:-b,c)),{x},- -a]
+true.
+?- foo(1).
+Error: unknown procedure foo/1
+?- catch(atom_length(X, 3), error(E, _), true).
+E = instantiation_error.
+?- X = "a\x41\b\\c\n".
+X = [97,65,98,92,99,10].
+?- X = abcx^H ^H^H ^Hd.
+X = abd.
+?- Y = 1^H ^H^H ^H^H ^H^H ^H^H ^HY = 2.
+Y = 2.
+?- Y = 2.
+Y = 2.
+?- halt.
+strata$ halt
+StrataOS: all cores halted

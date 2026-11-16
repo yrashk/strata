@@ -8,8 +8,9 @@ The D-LS is a byte-addressed memory private to its core, \texttt{DLS\_SIZE} byte
 sign-extended 16-bit offset. An access of size $n$ (1, 2, 4 or 8 bytes) must be naturally aligned and
 lie entirely inside $[0, \texttt{DLS\_SIZE})$; otherwise it traps with cause \cause{lsfault} and
 \csr{tval} set to the address. Addresses are full 64-bit values: one at or past the size is out of
-range whatever its low bits, so no address wraps around into a smaller store. There is no address
-translation: D-LS addresses are physical, and address 0 is a valid location.
+range whatever its low bits, so no address wraps around into a smaller store. In supervisor mode
+D-LS addresses are physical, and address 0 is a valid location; in user mode they go through the
+Local Store windows when the supervisor has enabled them (Section~\ref{sec:lswin}).
 
 Because a 16-bit signed offset from \reg{x0} reaches addresses 0--32767, data placed in the lowest
 32~KiB of the D-LS (all of a D-LS of 32~KiB or less) can be addressed absolutely, as in
@@ -19,8 +20,8 @@ they have any free register.
 \subsection{Instruction Local Store}
 The I-LS is a memory of \texttt{ILS\_SIZE} bytes (64~KiB by default) from which, and only from which,
 instructions are fetched. Before each instruction the core checks that \reg{pc} is a multiple of 4 and
-less than \texttt{ILS\_SIZE}; if not, the fetch traps with cause \cause{ifault} and \csr{tval} =
-\reg{pc}. No load or store can read or write the I-LS. It is filled at reset from the boot image and at
+less than \texttt{ILS\_SIZE} (and, in user mode, inside the code window: Section~\ref{sec:lswin});
+if not, the fetch traps with cause \cause{ifault} and \csr{tval} = \reg{pc}. No load or store can read or write the I-LS. It is filled at reset from the boot image and at
 run time only by \insn{tgetx}.
 
 \subsection{The Local Stores' sizes}\label{sec:lssize}
@@ -38,6 +39,67 @@ starts with the D-LS size in \reg{sp} (Section~\ref{sec:reset}), so that a bare-
 core and without a device capability, has its stack at the top of its D-LS without knowing the number.
 A program image whose Local Store sections do not fit the machine's sizes cannot be loaded; the
 simulators refuse it.
+
+\subsection{Local Store windows}\label{sec:lswin}
+Three supervisor-only CSRs, \csr{wdata}, \csr{wstack} and \csr{wcode} (26--28), confine what user mode
+reaches of the core's own Local Stores and where it lands. Each describes a \term{window} in units of
+1/64 of its store (1~KiB of a 64~KiB store, 64 bytes of a 4~KiB one):
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+\textbf{Bits} & \textbf{Meaning}\\\midrule
+63 & enable: the window exists\\
+6:0 & \textit{vlo}: the first unit of user addresses it covers\\
+14:8 & \textit{len}: how many units it covers, $[\textit{vlo}, \textit{vlo} + \textit{len})$\\
+22:16 & \textit{pbase}: the first unit of the store those addresses reach\\
+others & read as zero; writes are ignored\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\csr{wdata} and \csr{wstack} are windows of the D-LS, \csr{wcode} of the I-LS. In user mode, while a store
+has a window enabled, every Local Store address a user-mode instruction uses must lie in one: the
+address's unit is looked up in \csr{wdata} first, then \csr{wstack} (the I-LS: \csr{wcode}), and the
+address is relocated by that window, $a + (\textit{pbase} - \textit{vlo}) \times \textit{unit}$. An address
+outside the windows, or one that the window would place beyond the store, traps: a fetch with
+\cause{ifault} (\csr{tval} = \reg{pc}), anything else with \cause{lsfault}, \csr{tval} = the address
+the program used. A range (a transfer's Local Store range, the tag-table entry of \insn{ltag} and
+\insn{linst}) must begin and end in the same window and is relocated as a whole; a transfer of no bytes
+is not looked at. With no window enabled for a store, or in supervisor mode, addresses are physical,
+as without windows. Everything a program sees holds its own addresses: \reg{pc}, \csr{epc},
+\csr{tval}, the overlay map (\insn{xmap} checks its I-LS address against \csr{wcode} and keeps it
+unrelocated; the fetch after \insn{xcall} is relocated like any other). An \insn{xmap} or \insn{tgetx} in
+supervisor mode uses physical addresses.
+
+\begin{pseudo}
+// The window that covers unit v of a store (code: the I-LS), NONE, or OFF (no window enabled).
+func WindowOf(code, v)
+    if code then return if WCODE<63> == 0 then OFF elsif Covers(WCODE, v) then WCODE else NONE; end
+    if WDATA<63> == 0 and WSTACK<63> == 0 then return OFF; end
+    if Covers(WDATA, v) then return WDATA; end
+    if Covers(WSTACK, v) then return WSTACK; end
+    return NONE;
+end
+func Covers(w, v) = w<63> == 1 and v >= w<6:0> and v < w<6:0> + w<14:8>
+
+// The physical address of a user-mode Local Store range [a, a + n), already inside its store;
+// FAULT if it leaves the windows. Supervisor mode, or n = 0: a itself.
+func Window(code, a, n)
+    if Mode == Supervisor or n == 0 then return a; end
+    u = (if code then ILS_SIZE else DLS_SIZE) / 64;
+    v0 = a DIV u;  v1 = (a + n - 1) DIV u;
+    w = WindowOf(code, v0);
+    if w == OFF then return a; end
+    if w == NONE or WindowOf(code, v1) != w or w<22:16> + (v1 - w<6:0>) >= 64 then return FAULT; end
+    return a + (w<22:16> - w<6:0>) * u;
+end
+\end{pseudo}
+
+The windows are what lets a supervisor keep its own part of a core's Local Stores (its code, its data,
+the saved registers of the programs it runs) out of the programs' reach, and, by relocating, let
+several programs share a core's stores without copying them on a switch. StrataOS sets them as
+Section~\ref{sec:os-isolate} describes.
 
 \section{Far spaces}
 

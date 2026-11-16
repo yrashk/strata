@@ -11,6 +11,8 @@ a conformance suite that holds them all to the same behaviour.
   emulator as WebAssembly; boot StrataOS, draw into the framebuffer, type
   Forth
 - **[Architecture Reference Manual](https://yrashk.github.io/strata/Strata-Architecture-Reference-Manual.pdf)** (PDF)
+- **[StrataOS](https://yrashk.github.io/strata/os/)**: the operating system's
+  architecture, its kernel and a catalogue of its servers and their messages
 - **[Source browser](https://yrashk.github.io/strata/code/)**: every
   assembly and Forth source, syntax-coloured
 
@@ -73,7 +75,7 @@ a conformance suite that holds them all to the same behaviour.
 | `tools/` | The tests (`tests.sh`: the list; `run-tests.sh`: runs them; `compare.sh`, `compare-boot.sh`, `test-*.sh`), `build-cache.sh`, `mkdisk` (bootable disks), `mkhex` (FPGA memory images), `bench-jit.sh`, `web-code.py` |
 | `fpga/` | Synthesis script, LiteDRAM adapter, a board top, pin constraints |
 | `web/` | The WebAssembly builds for the site's play page: the emulator (`web.c`), and the RTL simulator (`web_rtl.cpp`: Verilator's C++ compiled with Emscripten, `make wasm-rtl`) |
-| `site/` | The project site: the landing page, `play/` (the in-browser emulator), `debug/` (the web debugger) and `code/` (the source browser) |
+| `site/` | The project site: the landing page, `os/` (StrataOS: its message tables are made from the servers' sources by `tools/web-os.py`), `play/` (the in-browser emulator), `debug/` (the web debugger) and `code/` (the source browser) |
 | `doc/` | The manual's LaTeX sources (`doc/manual/`), the StrataOS design specification (`doc/strataos.md`), schematics |
 | `.github/workflows/` | CI: builds the manual, the WebAssembly emulator and the site, and publishes them |
 
@@ -237,8 +239,10 @@ strata$ ws                          # the window server takes the screen
 - **Preemption with a visible cost.** The system core stops, through core
   control, every worker that has more than one runnable thread, each time
   slice: 2 ms by default, configurable from 100 µs to 100 ms (`sched`). A
-  context switch copies out the part of the Local Store a program uses and
-  reloads the next one's — the cache flush other machines hide. `ps`,
+  program keeps its slices of the Local Store while it is switched out
+  (the Local Store windows map them); when another needs the room, its
+  part is copied out and later back — the cache flush other machines
+  hide. `ps`,
   `cores`, `uptime` and `sched` show switches and kilobytes moved.
 - **Bare-metal programs run unchanged.** Inbox instructions trap in user
   mode and the dispatcher emulates them, so the examples run as
@@ -271,8 +275,10 @@ strata$ ws                          # the window server takes the screen
   uptime date devs hexdump cores sched seq grep wc upper spin`, `units` (a program
   that pages its own code), `as`, and `cc`, a C compiler.
 - **The editor** (`vi FILE`): vi keys (motions, counts, `d c y` operators,
-  put, many-level undo and redo, `.`, search, `:w :q :e :set nu`) on the
-  console or in a window, Strata assembly and Forth in the site's colours
+  put, many-level undo and redo, `.`, search, `:w :q :e :set nu`, visual
+  mode: `v V` Ctrl-V with their operators, `:'<,'>`, `gv`, the mouse in a
+  window) on the console or in a window, Strata assembly, Forth and C in
+  the site's colours
   (keyword tables generated from the assembler and Forth sources), the
   screen's size asked of the terminal, and the text kept in far memory, so a
   file far bigger than the 64 KiB Local Store opens (the 333 KiB shell
@@ -376,11 +382,44 @@ or, at the press of a button, through Kira's eyes (wdoom's raycaster with
 a floor for every cell and a sky). In Garden she sows seeds and waters
 them into flowers that butterflies visit, and the garden is kept in a
 file. Paint has three colouring pages, and Music a xylophone, the
-friends' voices and four songs. The art is original and is drawn by a
+friends' voices and four songs. A button starts a game over, after a
+question answered with a tick or a cross. The art is original and is drawn by a
 script (`tools/kira-art.py`); the sounds are synthesised. Run `ws kira`
 from the shell, or `kira` from the palette; it is a preset on the play
 page.
 [`os/progs/PLAN-kira.md`](os/progs/PLAN-kira.md) has the design and the sizes.
+
+![plat: a small town by a river, with its yearly paper, the Plat Ledger, open over it](site/img/plat.png)
+
+`plat` is Plat, a city-building game in the genre of the classic city
+simulators, with its own name, art and text, written in Strata assembly as
+a client of the window server. Every game has new land (a river, lakes,
+woods); the player lays roads and rail (bridges over the water) and power
+lines, zones land for homes, shops and offices, and industry, and builds
+police and fire stations, parks, and coal or solar power plants. Once a
+month power spreads from the plants, zones with power and a road grow
+while their kind is in demand and the place suits them (land value,
+pollution, crime, traffic, each a map that can be shown over the town),
+the census counts the residents and the jobs, and taxes and upkeep move
+the treasury; the budget sets the tax rate and the services' funding.
+Advisers speak up in the bar, and every year ends with the town's paper,
+the Plat Ledger, and the mayor's approval. Fires start now and then and
+spread where the fire stations' cover is thin; floods, storms,
+earthquakes and a coal plant's failure strike now and then too, or when
+the events panel calls one down. The land can be made again (water,
+woods, plain land) before building on it. Every year's end (and every
+save) is kept as a snapshot of the file system, and the town can be taken
+back to any of its last eight years from them; December falls at dusk,
+with the windows lit. Three scenarios (a flooding river town, a town in
+debt with a failing plant, an unlit and overtaxed one) each set a goal
+and a few years to meet it. Five zoom
+levels (at the smallest the whole map is in view), a minimap, tooltips on
+the buttons,
+and the town is kept in a file with its population, year and funds as
+attributes. The art is original, drawn by a script (`tools/plat-art.py`).
+Run `ws plat` from the shell, or `plat` from the palette; it is a preset on
+the play page. [`os/progs/PLAN-city.md`](os/progs/PLAN-city.md) has the
+design, the stages and the sizes.
 
 
 `make ws-demo` runs the same renderers on the bare machine against a
@@ -420,7 +459,7 @@ strata$ cc -o calc calc.c           # -o names the output; -h KIB sizes the heap
 ```
 
 - **Two compilers.** `cc.c` is the compiler, written in the C it compiles.
-  `cc.s` is the bootstrap compiler, 13,900 lines of Strata assembly, there
+  `cc.s` is the bootstrap compiler, 13,600 lines of Strata assembly, there
   so that `cc.c` can be compiled on a machine with no C compiler. `make
   test-cc-boot` does it inside StrataOS: the bootstrap compiler compiles
   `cc.c`, the result compiles `cc.c` again, and that one once more; the last
@@ -445,8 +484,9 @@ strata$ cc -o calc calc.c           # -o names the output; -h KIB sizes the heap
 - **One pass.** The compiler emits code while it parses, keeping what it has
   not yet had to compute on a stack of value descriptors, so constants fold,
   variables become operands and narrow results are extended only where it
-  matters. With `-p` a program's code is paged in 4 KiB units, as the
-  compiler's own 106 KiB are.
+  matters. Each function body is read ahead once, and the variables it uses
+  most, never by address, live in the registers `s1`..`s11`. With `-p` a program's code is paged in 4 KiB units, as the
+  compiler's own 107 KiB are.
 - **A library in two parts.** What every program needs (`printf`, files,
   the heap, strings, the software floating point) is assembly, 9 KiB copied
   into each image. `qsort`, `bsearch` and `<math.h>` are C source inside
@@ -531,6 +571,9 @@ build/strata-dbg -c 4 -j -T virtual build/examples/pipeline.stx
 (sdb) info tags                          # the current core's tags: op, ranges, issue and completion
 (sdb) info pending                       # device reads in flight and what each one waits for
 (sdb) info cores                         # every core: where, what, and why it is stalled
+(sdb) info stores                        # the Local Stores and T2: how much is in use, and where
+(sdb) changes dls                        # what changed in them since the last look, with labels
+(sdb) live 250                           # while the machine runs: what changes, every 250 ms
 (sdb) reverse-stepi                      # time travel on deterministic runs (-T virtual)
 (sdb) prov c4                            # where a capability came from: split, given, taken...
 (sdb) tui                                # the cores side by side
@@ -554,7 +597,8 @@ build/strata-dbg -c 4 -j -T virtual build/examples/pipeline.stx
   pty for it (`screen /dev/ttys012` in another terminal: what you type
   there is the guest's input), or `--console FILE`.
 - The web debugger adds the transfer timeline (a row per core: transfers,
-  device reads in flight, stalls, gifts), a Local Store map, the
+  device reads in flight, stalls, gifts), a Local Store map (what is in
+  use, what changed, and the bytes, live while the machine runs; T2 too), the
   capability provenance graph and a time slider. In the page it runs the
   WebAssembly emulator; served by `strata-emu --debug PORT` it drives the
   desktop engine over a WebSocket.

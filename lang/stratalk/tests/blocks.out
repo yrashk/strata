@@ -1,0 +1,46 @@
+nil
+3
+42
+10
+9
+2
+55
+#(10 20 30)
+3
+#(13 102)
+OrderedCollection (10 20 20 40 30 60)
+5
+-2
+7
+10070401
+0
+10
+120
+5
+'none'
+#(2 4 1 3)
+#(30 80)
+true
+true
+4
+1
+10
+nil
+7
+false
+true
+false
+true
+'yes'
+nil
+#(SmallInteger Character String Symbol UndefinedObject True)
+a BlockClosure
+42
+9
+#(3 2 1)
+OrderedCollection (3 2 1)
+OrderedCollection (1->#a 2->#b 3->#c)
+4
+#(1 4 9)
+2432902008176640000
+2

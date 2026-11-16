@@ -1,0 +1,5 @@
+caught: division by zero
+result: 0
+resumed with a value
+succeeded after 3 attempts
+#('work' 'handled foo' 'cleanup')

@@ -98,6 +98,7 @@ CW=$(printf '\027'); CL=$(printf '\014'); CD=$(printf '\004')
   printf 'spin > f3 &\n'
   printf 'kill %%1\n'
   printf 'wait\n'
+  printf 'rm f3; touch f3\n'            # (whether spin wrote a byte before the kill is timing)
   printf 'sleep 0.05 &\n'
   printf 'fg\n'
   printf 'fg\n'

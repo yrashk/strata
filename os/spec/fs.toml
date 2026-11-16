@@ -1,0 +1,621 @@
+# fs: the messages of os/servers/fs.s (format: os/spec/README.md)
+
+[server]
+key = "fs"
+title = "fs"
+role = "files, tags, names and program images"
+does = "the file server: files, their tags and names, the index, program images; a client of `db`, to which it forwards programs' calls of the store for programs"
+reached = "c2 of every process"
+start = "kernel"
+pid = 3
+place = { core = 3, index = 0, alone = "from 8 cores" }
+holds = "endpoints to db's core (c1) and blk's (c2): the store is db's, the disk blk's (doc/fs-split.md)"
+sources = ["os/servers/fs.s", "os/servers/fsops.s", "os/servers/fsattr.s", "os/servers/fsunits.s"]
+dispatch = { file = "os/servers/fs.s", first = ";\\s*dispatch", last = "^bad:" }
+calls = "message"
+note = """The disk is a store: copy-on-write B+trees in namespaces, and a change is on the disk whole or \
+not at all. The store is another server's, db, which reaches the disk through blk; fs is its client. A file has one name and carries tags; the set of its tags is its directory, and a name is \
+unique within a directory. A path is components separated by `/` (empty ones are skipped): the last is \
+the file's name, the ones before it the tags of its directory, in any order. A path that does not start \
+with `/` is read under the requester's current tag path (CWD); `.` and `..` are resolved. A path is at \
+most 376 bytes, and so is the whole data of TAG, UNTAG, RENAME and SETATTR (−1 beyond; LOADIMG: −4). \
+Every call but READBLK answers −5 when the disk cannot be read as a store, a page fails its checksum or \
+the device refuses a command; a call that changes the disk answers −1 when the disk is full, and what it \
+had changed is given up. Up to 16 files are open at a time, across all programs."""
+
+[[op]]
+num = 1
+name = "READ"
+summary = "Read from an open file"
+note = "Reads at the file's position and moves it on. A file opened in a snapshot is read as the snapshot has it."
+
+[op.request]
+handle = "the id from OPEN (mode 0)"
+length = "the most bytes wanted (at most 4032 are answered)"
+
+[op.reply]
+result = "the bytes read; 0 at the end of the file"
+data = [{ type = "bytes", name = "the bytes read" }]
+
+[op.errors]
+"-1" = "not an id open for reading, or the snapshot it was opened in has been deleted"
+
+[[op]]
+num = 2
+name = "WRITE"
+summary = "Write to a file open for writing or appending"
+note = "The bytes go after what was written before; a long write is committed every MiB. Mode 1: they become the file's contents at the last CLOSE. Mode 2: they go to the contents where they are, and the file's size is set at the last CLOSE."
+
+[op.request]
+handle = "the id from OPEN (mode 1 or 2)"
+length = "the bytes (at most 4032 are taken)"
+data = [{ type = "bytes", name = "the bytes to write" }]
+
+[op.reply]
+result = "the bytes taken: the length, or 4032 when it was more; 0 for none"
+
+[op.errors]
+"-1" = "not an id open for writing, a write the disk had no room for (the file takes no more), or the disk is full. A write of at most 512 bytes goes to db with fs's next call to it, so a disk it fills is reported by a later call on the file, CLOSE at the latest"
+
+[[op]]
+num = 3
+name = "OPEN"
+summary = "Open a file by its path"
+note = """For reading the path may exclude tags (`-tag`), hold terms (`size>N`, `NAME=VALUE`) and start with \
+`@SNAP` to read a snapshot. For writing or appending, a file that is not there is made in the path's \
+directory, with tags that do not exist yet; such a path holds no exclusion of its own and no term. \
+Writing (mode 1) puts the new bytes in a blob of their own: the last CLOSE puts them in place of the old \
+contents. Appending (mode 2) extends the contents where they are. A mode above 2 opens as mode 1."""
+
+[op.request]
+length = "the path's length"
+modes = { "0" = "read", "1" = "write: the file's contents are replaced at the close", "2" = "append" }
+data = [{ type = "bytes", name = "the path" }]
+
+[op.reply]
+result = "the id (1..16): the caller holds a reference to it"
+
+[op.errors]
+"-1" = "a bad path (too long, a bare `-`, a name or a tag over 255 bytes, more than 16 tags), no name in it, an exclusion or a term in a path that writes, writing in a snapshot, or the disk is full"
+"-4" = "reading: no such file or tag; either mode: no such snapshot"
+"-6" = "16 files are open already, the path would make more than 16 new tags, or fs has no room for the caller's reference (64 in all; the file is closed again, a new one stays, empty)"
+
+[[op]]
+num = 4
+name = "CLOSE"
+summary = "Drop a reference to an open file"
+note = "The last reference finishes the file: a written file gets its new contents and size, in one commit; a boot object is also brought into one run of pages and the boot manifest is written anew in the same commit."
+
+[op.request]
+handle = "the id"
+
+[op.reply]
+result = "0, also for an id the caller does not hold"
+
+[op.errors]
+"-1" = "the last reference: the disk is full (a boot object: no run of free pages for it); the file keeps its contents as of the last commit"
+
+[[op]]
+num = 11
+name = "UNLINK"
+summary = "Delete a file"
+note = "One commit. The path may exclude tags and hold terms; the file must carry the path's tags and none it excludes."
+
+[op.request]
+length = "the path's length"
+data = [{ type = "bytes", name = "the path" }]
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "a bad path, no name in it, or a boot object (proc, dev, fs, blk, db: what the boot manifest lists)"
+"-4" = "no such file or tag"
+
+[[op]]
+num = 12
+name = "TAG"
+summary = "Give a file tags: it moves to the directory of its tags and these"
+note = """The file keeps its name. Tags that do not exist yet are made. A name `/` empties the set at that \
+point (`/` first, then the new tags: `retag`). One commit; refused when the new directory has a file of \
+that name. A request that fails leaves no new tags."""
+
+[op.request]
+length = "the data's bytes"
+data = [
+  { type = "bytes", name = "the file's path" },
+  { type = "u8", name = "0" },
+  { repeat = "per tag name", fields = [
+    { type = "bytes", name = "the tag's name", note = "1..255 bytes; `/` empties the set" },
+    { type = "u8", name = "0", note = "between names; none after the last" },
+  ] },
+]
+
+[op.reply]
+result = "0 (also when nothing changes)"
+
+[op.errors]
+"-1" = "no zero byte after the path, a bad path or one without a name, a bad tag name (starting with `-`, holding `/`, over 255 bytes), a file of that name in the new directory, or no room in the file's record or the name's key"
+"-4" = "no such file, or no such tag in the path"
+"-6" = "more than 16 tags in all, or more than 16 new ones"
+
+[[op]]
+num = 13
+name = "UNTAG"
+summary = "Take tags from a file: it moves to the directory without them"
+note = "As TAG. A name the file does not carry, or that is no tag, is passed over; `/` takes every tag away (the file goes to the root)."
+
+[op.request]
+length = "the data's bytes"
+data = [
+  { type = "bytes", name = "the file's path" },
+  { type = "u8", name = "0" },
+  { repeat = "per tag name", fields = [
+    { type = "bytes", name = "the tag's name" },
+    { type = "u8", name = "0", note = "between names; none after the last" },
+  ] },
+]
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "no zero byte after the path, a bad path or one without a name, or a file of that name in the new directory"
+"-4" = "no such file, or no such tag in the path"
+"-6" = "the file carries more than 16 tags"
+
+[[op]]
+num = 15
+name = "RENAME"
+summary = "Move a file to a new path's directory and name"
+note = """The file's tags become the new path's (made if new; none: the root). A new path with no `/` changes \
+only the name and leaves the file where it is. A file of the new name there is deleted. The contents and \
+attributes stay. One commit. The new path holds no exclusion of its own and no term."""
+
+[op.request]
+length = "the data's bytes"
+data = [
+  { type = "bytes", name = "the file's path" },
+  { type = "u8", name = "0" },
+  { type = "bytes", name = "the new path" },
+]
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "no zero byte, a bad path, either path without a name, an exclusion or a term in the new path, a boot object (to move, or to be replaced), or no room in the record or the name's key"
+"-4" = "no such file, or no such tag in the first path"
+"-6" = "the new path would make more than 16 new tags, or the file carries more than 16"
+
+[[op]]
+num = 20
+name = "CWD"
+summary = "Get or set the caller's current tag path"
+note = """The current path is read in front of every path that does not start with `/`. A new path is \
+resolved against the current one (`..`, `a/b`, `-x`); each of its components must be a tag that exists, \
+or `-` and one, and at least one file must be in that view (no empty views). Up to 64 processes may be \
+away from `/`. A process starts in its parent's path."""
+
+[op.request]
+length = "mode 1: the path's length (0: `/`)"
+modes = { "0" = "get", "1" = "set: data = a path", "2" = "from `proc` only, when it spawns: data = u64 the parent's pid, u64 the child's pid; the child starts in the parent's path (at `/` when the table is full)" }
+data = [{ type = "bytes", name = "mode 1: the new path; mode 2: the two pids" }]
+
+[op.reply]
+result = "modes 0 and 1: the path's length (1 at the root); mode 2: 0"
+data = [{ type = "bytes", name = "the current path", note = "`/` at the root" }]
+
+[op.errors]
+"-1" = "another mode, mode 2 from anyone but `proc`, a path over 376 bytes, more than 16 tags or exclusions, or a resolved path over 120 bytes"
+"-4" = "no such tag, or no file in that view"
+"-6" = "the table of current paths is full"
+
+[[op]]
+num = 27
+name = "STAT"
+summary = "A file's size"
+note = "The path may exclude tags, hold terms and start with `@SNAP`."
+
+[op.request]
+length = "the path's length"
+data = [{ type = "bytes", name = "the path" }]
+
+[op.reply]
+result = "the size in bytes"
+
+[op.errors]
+"-1" = "a bad path, or no name in it"
+"-4" = "no such file, tag or snapshot"
+
+[[op]]
+num = 28
+name = "LOADIMG"
+summary = "Copy a file's contents into an attached arena"
+from = "any program; `proc` when it spawns"
+note = """A program image is loaded so. A relative path is read from the starter's current path. A name with \
+no `/` that is not found there is looked for in `/bin`, then in `/sys`; the reply then carries the path \
+it was found by. The path may start with `@SNAP`."""
+
+[op.request]
+handle = "the most bytes the arena takes from the offset"
+length = "the path's length"
+mode = "bits 0..31: the offset in the arena; bits 32..63: the pid of the process that starts the program (0: the caller)"
+attachment = "the arena, lent for the call"
+data = [{ type = "bytes", name = "the path" }]
+
+[op.reply]
+result = "the file's size; all of it is copied in"
+length = "found in `/bin` or `/sys`: that path's length; else the request's, unchanged"
+data = [{ type = "bytes", name = "found in `/bin` or `/sys`: the path it was found by; else the request's path, left in place" }]
+attachments = { c6 = "the arena, given back" }
+
+[op.errors]
+"-1" = "no arena attached, or the file in whole pages is more than the most bytes"
+"-4" = "no such file (nor in `/bin` or `/sys`), also for a bad or too long path"
+
+[[op]]
+num = 32
+name = "STATFS"
+summary = "The disk's blocks and files"
+
+[op.request]
+
+[op.reply]
+result = "3"
+data = [
+  { type = "u64", name = "total blocks", note = "512 bytes each" },
+  { type = "u64", name = "used blocks", note = "pages in use, as blocks; snapshots' pages count" },
+  { type = "u64", name = "files" },
+]
+
+[[op]]
+num = 33
+name = "READBLK"
+summary = "A raw block of the disk"
+note = "Answered even when the disk is not a store (`db`, `wdb` and `fsck` read the store so). blk answers it: fs hands it on and the block back."
+
+[op.request]
+handle = "the block's number"
+
+[op.reply]
+result = "512"
+data = [{ type = "bytes", name = "the block", note = "512 bytes" }]
+
+[op.errors]
+"-1" = "past the end of the disk"
+
+[[op]]
+num = 34
+name = "READALL"
+summary = "An open file, whole, into an attached arena"
+
+[op.request]
+handle = "the id from OPEN (mode 0)"
+length = "the most bytes the arena takes from the offset"
+mode = "the offset in the arena"
+attachment = "the arena, lent for the call"
+
+[op.reply]
+result = "the file's size; all of it is copied in"
+attachments = { c6 = "the arena, given back" }
+
+[op.errors]
+"-1" = "no arena attached, not an id open for reading, its snapshot deleted, or the file in whole pages is more than the most bytes"
+
+[[op]]
+num = 35
+name = "WRITEALL"
+summary = "Bytes of an attached arena written to a file open for writing"
+note = "As WRITE, without the 4032-byte limit: the bytes go after what was written before."
+
+[op.request]
+handle = "the id from OPEN (mode 1 or 2)"
+length = "the bytes"
+mode = "the offset in the arena"
+attachment = "the arena, lent for the call"
+
+[op.reply]
+result = "the bytes written (the length)"
+attachments = { c6 = "the arena, given back" }
+
+[op.errors]
+"-1" = "no arena attached, not an id open for writing (or one whose bytes were lost), or the disk is full"
+
+[[op]]
+num = 40
+name = "QUERY"
+summary = "List the files of a directory, part by part"
+note = """The path names tags (the directory), `-tag` exclusions and terms: `NAME=VALUE`, `NAME<VALUE`, \
+`NAME>VALUE` over an attribute, `size` or `modified` (digits compare as numbers, anything else as bytes), \
+and as its last component `PREFIX*`. A last component that is no tag, term or exclusion names one file, \
+and only that file is answered. With tags in the path, the files of deeper directories (those with more \
+tags than the path) come as records without a name; their other tags are the facets: the subdirectories. \
+With no tag, the root's own files are answered; but with a term other than `PREFIX*`, or mode bit 1, every \
+file that matches is, each with its name. A path starting with `@SNAP` lists the snapshot. Ask again with \
+the cursor until it is 0."""
+
+[op.request]
+handle = "the cursor: 0 at first, then the one the last reply gave"
+length = "the path's length (0: the current path)"
+mode = "bit 0: only the count and the facets, no records; bit 1: with no tag in the path, every file wherever it is (not only the root's)"
+data = [{ type = "bytes", name = "the path" }]
+
+[op.reply]
+result = "the records in this reply; with mode bit 0, the files of the directory itself (not deeper ones), all of them; 1 when the path names one file"
+handle = "the cursor to ask with again (the last file answered); 0: that was all"
+length = "the data's bytes"
+mode = "the facets: bit t for a tag id t below 64 that a file answered carries, less the path's own tags; every bit at the root (no tag, no term, no mode bit 1); 0 for one file"
+data = [
+  { type = "u64", name = "n", note = "the path's own tags" },
+  { repeat = "n times", fields = [{ type = "u32", name = "a tag id" }] },
+  { type = "pad" },
+  { repeat = "per file (none with mode bit 0, unless the path names one file)", fields = [
+    { type = "u16", name = "record bytes" },
+    { type = "u16", name = "name length", note = "0 for a deeper directory's file" },
+    { type = "u32", name = "tags", note = "the file's tag count; bit 31: a deeper directory's record, without a name; 0 when the path names one file (its ids still follow)" },
+    { type = "u64", name = "size" },
+    { type = "bytes", name = "the name" },
+    { type = "pad" },
+    { type = "bytes", name = "the file's tag ids", note = "u32 each" },
+    { type = "pad" },
+  ] },
+]
+
+[op.errors]
+"-1" = "a bad path (too long, a bare `-`, more than 16 tags or exclusions, more than 4 terms)"
+"-4" = "no such tag, no such file (a last component naming one), or no such snapshot"
+
+[[op]]
+num = 41
+name = "TAGS2"
+summary = "List every tag, or a file's tags, part by part"
+note = "With no path (or `/`), every tag by id; with a path, the tags of the file it names (any last component is read as a file's name). The path may start with `@SNAP`. Ask again with the cursor until it is 0."
+
+[op.request]
+handle = "the cursor: 0 at first, then the one the last reply gave"
+length = "the path's length (0: every tag)"
+data = [{ type = "bytes", name = "the path" }]
+
+[op.reply]
+result = "the records in this reply"
+handle = "the cursor to ask with again (every tag: the last id answered; a file: the index of its next tag in its record); 0: that was all"
+length = "the data's bytes"
+data = [
+  { repeat = "per tag", fields = [
+    { type = "u16", name = "record bytes" },
+    { type = "u16", name = "name length" },
+    { type = "u32", name = "the tag's id" },
+    { type = "u64", name = "files carrying it" },
+    { type = "bytes", name = "the name" },
+    { type = "pad" },
+  ] },
+]
+
+[op.errors]
+"-1" = "a bad path"
+"-4" = "no such file, tag or snapshot"
+
+[[op]]
+num = 42
+name = "SETATTR"
+summary = "Set or take away one of a file's attributes"
+note = "A value in digits is kept as a number, any other as a string. An attribute name gets an id at its first use. One commit."
+
+[op.request]
+length = "the data's bytes"
+data = [
+  { type = "bytes", name = "the file's path" },
+  { type = "u8", name = "0" },
+  { type = "bytes", name = "the attribute's name", note = "no `=`, `<`, `>`, `*` or `/`; not `size`, `modified`, `tag` or `boot`" },
+  { type = "u8", name = "0" },
+  { type = "bytes", name = "the value", note = "0..255 bytes; none: the attribute goes" },
+]
+
+[op.reply]
+result = "0"
+
+[op.errors]
+"-1" = "a missing zero byte, an empty or bad name, a name or a value over 255 bytes, a bad path or one without a name"
+"-4" = "no such file or tag"
+"-6" = "the file's record has no room for the value"
+
+[[op]]
+num = 43
+name = "GETATTR"
+summary = "A file's attributes"
+note = "The path may exclude tags and hold terms. Records that do not fit 4032 bytes are left out."
+
+[op.request]
+length = "the path's length"
+data = [{ type = "bytes", name = "the path" }]
+
+[op.reply]
+result = "the records"
+length = "the data's bytes"
+data = [
+  { repeat = "per attribute", fields = [
+    { type = "u16", name = "record bytes" },
+    { type = "u16", name = "name length" },
+    { type = "u8", name = "type", note = "0 a number, 1 a string" },
+    { type = "u8", name = "value length", note = "8 for a number" },
+    { type = "u16", name = "0" },
+    { type = "bytes", name = "the name" },
+    { type = "pad" },
+    { type = "bytes", name = "the value", note = "a number: u64" },
+    { type = "pad" },
+  ] },
+]
+
+[op.errors]
+"-1" = "a bad path, or no name in it"
+"-4" = "no such file or tag, or a snapshot path"
+
+[[op]]
+num = 45
+name = "SNAP"
+summary = "Take, delete, list or restore snapshots"
+note = """A snapshot is the whole disk as of a commit, under a name; taking one copies nothing. A path \
+whose first component is `@NAME` reads it (OPEN for reading, STAT, LOADIMG, QUERY, TAGS2); OPEN for \
+writing given such a path answers −1, any other call −4; every call answers −4 when there is no \
+snapshot of that name. \
+Restoring makes the file system what the snapshot shows, in one commit; the snapshots stay. A mode \
+above 3 deletes, as mode 1."""
+
+[op.request]
+length = "the name's length (1..32; none for mode 2)"
+modes = { "0" = "take one", "1" = "delete one", "2" = "list them", "3" = "restore one" }
+data = [{ type = "bytes", name = "the snapshot's name" }]
+
+[op.reply]
+result = "modes 0, 1, 3: 0; mode 2: the records (100 at most)"
+data = [
+  { repeat = "mode 2: per snapshot, oldest first", fields = [
+    { type = "u64", name = "its commit" },
+    { type = "bytes", name = "its name", note = "32 bytes, zero-padded" },
+  ] },
+]
+
+[op.errors]
+"-1" = "a name of 0 or more than 32 bytes; take: one of that name exists; restore: a file is open for writing"
+"-4" = "delete, restore: no snapshot of that name"
+
+[[op]]
+num = 46
+name = "FIND"
+summary = "Files across the whole file system by name, part by part"
+note = """Mode 0 seeks the names' tree directory by directory, so it reads only the names that begin with \
+the text (case counts). Mode 1 reads the records in object order, 384 at most per part, comparing letters \
+in any case: a part may hold no file and still have a cursor, so the asker can stop between parts. Ask \
+again with the cursor until it is 0."""
+
+[op.request]
+handle = "the cursor: 0 at first, then the one the last reply gave"
+length = "the text's length (1..255)"
+mode = "only bit 0 counts"
+modes = { "0" = "the names that begin with the text", "1" = "the names that hold it" }
+data = [{ type = "bytes", name = "the text" }]
+
+[op.reply]
+result = "the records in this reply"
+handle = "the cursor to ask with again (mode 0: directories passed << 32 | names of the next answered; mode 1: the last object read); 0: that was all"
+length = "the data's bytes"
+data = [
+  { type = "u64", name = "0", note = "as QUERY's n: no path tags" },
+  { repeat = "per file", fields = [
+    { type = "u16", name = "record bytes" },
+    { type = "u16", name = "name length" },
+    { type = "u32", name = "tags", note = "the file's tag count" },
+    { type = "u64", name = "size" },
+    { type = "bytes", name = "the name" },
+    { type = "pad" },
+    { type = "bytes", name = "the file's tag ids", note = "u32 each" },
+    { type = "pad" },
+  ] },
+]
+
+[op.errors]
+"-1" = "no text, or more than 255 bytes"
+
+[[op]]
+num = 64
+name = "DBGET"
+summary = "A value from a program's tree"
+note = """The store for programs: trees of keys and values (bytes, compared unsigned) in namespaces of \
+their own. Namespaces made by DBBATCH are public; `fs` is private and refused. db answers these: fs \
+forwards the request itself to db, which answers the program (from 8 cores; on fewer fs relays the data \
+and the answer); programs may send DBGET and DBSCAN to db directly (os/spec/db.toml)."""
+
+[op.request]
+length = "the data's bytes (8..4032)"
+data = [
+  { type = "u8", name = "namespace name length", note = "1..32" },
+  { type = "u8", name = "tree name length", note = "1..28" },
+  { type = "u16", name = "key length" },
+  { type = "u32", name = "0" },
+  { type = "bytes", name = "the namespace's name" },
+  { type = "bytes", name = "the tree's name", note = "not starting with `.`" },
+  { type = "bytes", name = "the key" },
+]
+
+[op.reply]
+result = "the value's length"
+data = [{ type = "bytes", name = "the value" }]
+
+[op.errors]
+"-1" = "a bad request (lengths, a key that does not lie inside the data, a tree name starting with `.`), a private namespace, or a value kept as a stream"
+"-4" = "no such namespace, tree or key"
+
+[[op]]
+num = 65
+name = "DBSCAN"
+summary = "Records of a program's tree, in key order"
+note = "The first record is the nearest on the mode's side of the key; those after it follow in key order, as many as fit. Ask again with the last key and mode 1."
+
+[op.request]
+length = "the data's bytes (8..4032)"
+modes = { "0" = "ST_GE: from the key on", "1" = "ST_GT: after the key", "2" = "ST_LE: from the last key at or before it", "3" = "ST_LT: from the last key before it" }
+data = [
+  { type = "u8", name = "namespace name length", note = "1..32" },
+  { type = "u8", name = "tree name length", note = "1..28" },
+  { type = "u16", name = "key length", note = "0: from the start" },
+  { type = "u32", name = "0" },
+  { type = "bytes", name = "the namespace's name" },
+  { type = "bytes", name = "the tree's name", note = "not starting with `.`" },
+  { type = "bytes", name = "the key" },
+]
+
+[op.reply]
+result = "the records"
+length = "the data's bytes"
+data = [
+  { repeat = "per record", fields = [
+    { type = "u16", name = "key length" },
+    { type = "u16", name = "value length" },
+    { type = "u32", name = "0" },
+    { type = "bytes", name = "the key" },
+    { type = "pad" },
+    { type = "bytes", name = "the value" },
+    { type = "pad" },
+  ] },
+]
+
+[op.errors]
+"-1" = "a bad request (lengths, a key that does not lie inside the data, a tree name starting with `.`), or a private namespace"
+"-4" = "no such namespace or tree"
+
+[[op]]
+num = 66
+name = "DBBATCH"
+summary = "Puts and deletes in a program's tree, in one commit"
+note = "Every item is checked before any is done: all of them reach the disk, or none. The namespace and the tree are made by the first write (a namespace or tree made by a refused batch stays, empty)."
+
+[op.request]
+handle = "the items"
+length = "the data's bytes (8..4032)"
+data = [
+  { type = "u8", name = "namespace name length", note = "1..32" },
+  { type = "u8", name = "tree name length", note = "1..28" },
+  { type = "u16", name = "key length", note = "unused" },
+  { type = "u32", name = "0" },
+  { type = "bytes", name = "the namespace's name" },
+  { type = "bytes", name = "the tree's name", note = "not starting with `.`" },
+  { type = "pad" },
+  { repeat = "per item", fields = [
+    { type = "u8", name = "1 put, 2 delete" },
+    { type = "u8", name = "0" },
+    { type = "u16", name = "key length", note = "1 to a page / 8 − 32 (480 with 4 KiB pages)" },
+    { type = "u16", name = "value length", note = "with the key padded to 8, at most (page − 32) / 4 − 10, down to a multiple of 8 (1000 with 4 KiB pages); for a delete 0 (a value is passed over)" },
+    { type = "u16", name = "0" },
+    { type = "bytes", name = "the key" },
+    { type = "pad" },
+    { type = "bytes", name = "the value", note = "none for a delete" },
+    { type = "pad" },
+  ] },
+]
+
+[op.reply]
+result = "0: every item is on the disk"
+
+[op.errors]
+"-1" = "a bad request, a private namespace, or a bad item (its kind, its lengths, past the data's end): none is done; or the disk is full"

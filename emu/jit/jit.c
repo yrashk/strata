@@ -97,9 +97,9 @@ static void wr_end(uint8_t *lo, uint8_t *hi) {
 bool jit_init(const JitLayout *lay, void *cores, size_t stride, int ncores) {
   if (ncores < 1 || ncores > MAXJCORES) return false;
   /* the backends address these fields with short unsigned offsets */
-  size_t offs[] = {lay->x, lay->pc, lay->instret};
+  size_t offs[] = {lay->x, lay->pc, lay->instret, lay->drel, lay->irel};
   for (unsigned i = 0; i < sizeof offs / sizeof *offs; i++)
-    if (offs[i] % 8 || offs[i] + 8 * 32 > 32760) return false;
+    if (offs[i] % 8 || offs[i] + 8 * 64 > 32760) return false;
   L = *lay;
   memlen = TRAMP_BYTES + (size_t)ncores * REGION_BYTES;
   int flags = MAP_PRIVATE | MAP_ANON;
@@ -144,7 +144,8 @@ static void *translate(JCore *j, uint64_t pc) {
   const uint8_t *ils = j->core + L.ils;
   uint32_t ir[MAXBLK];
   int n = 0, tail = JT_NEXT_LINK;
-  for (uint64_t p = pc; n < MAXBLK && p < L.ils_size; p += 4) {
+  uint64_t end = (pc | (L.ils_size / 64 - 1)) + 1; /* a block stays inside one window unit */
+  for (uint64_t p = pc; n < MAXBLK && p < end; p += 4) {
     uint32_t w;
     memcpy(&w, ils + p, 4);
     if (!jit_plain(w)) { tail = JT_NEXT_INTERP; break; }
@@ -168,11 +169,13 @@ static void *translate(JCore *j, uint64_t pc) {
 void jit_exec(int id, uint64_t limit) {
   JCore *j = &jcs[id];
   uint64_t *pcp = (uint64_t *)(j->core + L.pc), *ip = (uint64_t *)(j->core + L.instret);
+  const int64_t *irel = (const int64_t *)(j->core + L.irel);
   void *site = NULL;
   uint64_t site_gen = 0;
   while (*ip < limit) {
     uint64_t pc = *pcp;
     if ((pc & 3) || pc >= L.ils_size) return; /* the interpreter raises the fetch fault */
+    if (irel[pc / (L.ils_size / 64)]) return;  /* or fetches through a relocating code window */
     void *code = j->table[pc / 4];
     if (!code && !(code = translate(j, pc))) return;
     if (site && site_gen == j->gen) { /* chain the exit we came from to this block */

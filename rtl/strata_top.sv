@@ -15,6 +15,8 @@ module strata_top
   parameter int    NXMAP      = NXMAP_DEF,  // overlay map entries per core (4..16)
   parameter int    DLS_KIB    = LS_DEF_KIB, // each core's D-LS and I-LS in KiB (powers of two, 4..64)
   parameter int    ILS_KIB    = LS_DEF_KIB,
+  parameter bit    LS_1P      = 1'b0,          // each core's Local Stores in one single-port memory (strata_core)
+  parameter bit    STREAM     = 1'b1,          // each core's sequential fetch without F0 / F1 (strata_core)
   parameter int    T3_W       = T3_WORDS,
   parameter int    T3_LAT     = 20,
   parameter int    T2_W       = T2_WORDS,
@@ -26,7 +28,7 @@ module strata_top
   parameter string PLAT_INIT  = "",
   parameter int    UART_DIV   = 868,
   parameter int    CLK_MHZ    = 100,    // clock frequency: cycles per timer tick (1 us)
-  parameter bit    T3_EXT     = 0       // 1: system memory is outside (the ext_t3 port, e.g. DRAM)
+  parameter bit    T3_EXT     = 1'b0       // 1: system memory is outside (the ext_t3 port, e.g. DRAM)
 )(
   input  logic clk,
   input  logic rst,
@@ -46,6 +48,7 @@ module strata_top
   output logic [63:0] ext_t3_wdata,
   input  logic        ext_t3_wready,
   input  logic        ext_t3_rvalid,
+  output logic        ext_t3_rready,  // a read beat moves when this is high too (low only with LS_1P)
   input  logic [63:0] ext_t3_rdata,
   input  logic        ext_t3_done
 );
@@ -54,6 +57,8 @@ module strata_top
 
   // ================================================================ far bus
   logic [NM-1:0]       m_req, m_we, m_amo, m_byte, m_wvalid, m_gnt, m_wready, m_rvalid, m_done, m_retry;
+  logic [NM-1:0]       m_rready;
+  logic                t_rready;
   logic [NM-1:0][2:0]  m_op, m_space;
   logic [NM-1:0][63:0] m_addr, m_cmp, m_wdata;
   logic [NM-1:0][23:0] m_beats;
@@ -70,9 +75,9 @@ module strata_top
   strata_bus #(.NM(NM)) u_bus (
     .clk, .rst,
     .m_req, .m_we, .m_amo, .m_amo_op(m_op), .m_space, .m_addr, .m_beats, .m_byte, .m_cmp,
-    .m_wvalid, .m_wdata, .m_gnt, .m_wready, .m_rvalid, .m_rdata, .m_done, .m_retry,
+    .m_wvalid, .m_wdata, .m_rready, .m_gnt, .m_wready, .m_rvalid, .m_rdata, .m_done, .m_retry,
     .t_start, .t_master, .t_we, .t_amo, .t_amo_op(t_op), .t_addr, .t_beats, .t_byte, .t_cmp,
-    .t_wvalid, .t_wdata, .t_wready, .t_rvalid, .t_rdata, .t_done, .t_retry
+    .t_wvalid, .t_wdata, .t_rready, .t_wready, .t_rvalid, .t_rdata, .t_done, .t_retry
   );
 
   assign ext_t3_start  = T3_EXT && t_start[0];
@@ -84,6 +89,7 @@ module strata_top
   assign ext_t3_cmp    = t_cmp;
   assign ext_t3_wvalid = t_wvalid;
   assign ext_t3_wdata  = t_wdata;
+  assign ext_t3_rready = t_rready;
   if (T3_EXT) begin : g_t3_ext
     assign t_wready[0] = ext_t3_wready;
     assign t_rvalid[0] = ext_t3_rvalid;
@@ -93,7 +99,7 @@ module strata_top
     strata_mem #(.WORDS(T3_W), .LAT(T3_LAT), .KIND(3)) u_t3 (
       .clk, .rst, .start(t_start[0]), .we(t_we), .amo(t_amo), .amo_op(t_op), .addr(t_addr),
       .beats(t_beats), .cmp(t_cmp), .wvalid(t_wvalid), .wdata(t_wdata), .wready(t_wready[0]),
-      .rvalid(t_rvalid[0]), .rdata(t_rdata[0]), .done(t_done[0])
+      .rvalid(t_rvalid[0]), .rready(t_rready), .rdata(t_rdata[0]), .done(t_done[0])
     );
   end
   assign t_retry[0] = 0;
@@ -101,7 +107,7 @@ module strata_top
   strata_mem #(.WORDS(T2_W), .LAT(T2_LAT), .KIND(4)) u_t2 (
     .clk, .rst, .start(t_start[1]), .we(t_we), .amo(t_amo), .amo_op(t_op), .addr(t_addr),
     .beats(t_beats), .cmp(t_cmp), .wvalid(t_wvalid), .wdata(t_wdata), .wready(t_wready[1]),
-    .rvalid(t_rvalid[1]), .rdata(t_rdata[1]), .done(t_done[1])
+    .rvalid(t_rvalid[1]), .rready(t_rready), .rdata(t_rdata[1]), .done(t_done[1])
   );
   assign t_retry[1] = 0;
 
@@ -120,6 +126,7 @@ module strata_top
 
   // revocation granules and core control
   logic [NCORES-1:0]          dom_req, dom_done, dom_t2, stop_req, reset_req, reset_flush;
+  logic [NCORES-1:0]          dev_wake;      // a device read of core i that waits may now complete
   logic [NCORES-1:0][1:0]     dom_op;
   logic [NCORES-1:0][GW-1:0]  dom_a, dom_n;
   logic [15:0]                dom_gen;
@@ -127,6 +134,7 @@ module strata_top
   logic [GW-1:0]              gt_idx;
   logic [16:0]                gt_wd;
 
+  assign m_rready[2*NCORES] = 1;       // (the block device's DMA engine always takes its beats)
   strata_dev #(.NCORES(NCORES), .DISK_WORDS(DISK_WORDS), .DISK_INIT(DISK_INIT),
                 .PLAT_INIT(PLAT_INIT), .UART_DIV(UART_DIV), .CLK_MHZ(CLK_MHZ)) u_dev (
     .clk, .rst,
@@ -139,6 +147,7 @@ module strata_top
     .m_done(m_done[2*NCORES]),
     .in_push(dev_in_push), .in_cap(dev_in_cap), .in_from(dev_in_from), .in_ready(dev_in_ready),
     .core_clr(reset_flush),
+    .wake(dev_wake),
     .give_valid(g_valid[NCORES]), .give_dst(g_dst[NCORES]), .give_cap(g_cap[NCORES]),
     .give_ack(g_ack[NCORES]),
     .uart_txd, .uart_rxd
@@ -160,14 +169,15 @@ module strata_top
     assign m_byte[2*i+1]   = 0;
     assign m_beats[2*i+1]  = 24'd1;
     assign m_wvalid[2*i+1] = 0;
+    assign m_rready[2*i+1] = 1;
 
-    strata_core #(.COREID(i), .NCORES(NCORES), .NXMAP(NXMAP), .DLS_KIB(DLS_KIB), .ILS_KIB(ILS_KIB),
+    strata_core #(.COREID(i), .NCORES(NCORES), .NXMAP(NXMAP), .DLS_KIB(DLS_KIB), .ILS_KIB(ILS_KIB), .STREAM(STREAM), .LS_1P(LS_1P),
                   .ILS_INIT(ILS_INIT), .DLS_INIT(DLS_INIT)) u_core (
       .clk, .rst,
       .tu_req(m_req[2*i]), .tu_we(m_we[2*i]), .tu_space(m_space[2*i]), .tu_addr(m_addr[2*i]),
       .tu_beats(m_beats[2*i]), .tu_byte(m_byte[2*i]), .tu_wvalid(m_wvalid[2*i]),
       .tu_wdata(m_wdata[2*i]), .tu_gnt(m_gnt[2*i]), .tu_wready(m_wready[2*i]),
-      .tu_rvalid(m_rvalid[2*i]), .tu_done(m_done[2*i]), .tu_retry(m_retry[2*i]),
+      .tu_rvalid(m_rvalid[2*i]), .tu_rready(m_rready[2*i]), .tu_done(m_done[2*i]), .tu_retry(m_retry[2*i]), .tu_wake(dev_wake[i]),
       .am_req(m_req[2*i+1]), .am_op(m_op[2*i+1]), .am_space(m_space[2*i+1]),
       .am_addr(m_addr[2*i+1]), .am_wdata(m_wdata[2*i+1]), .am_cmp(m_cmp[2*i+1]),
       .am_gnt(m_gnt[2*i+1]), .am_done(m_done[2*i+1]),

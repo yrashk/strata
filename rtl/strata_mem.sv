@@ -1,6 +1,7 @@
 // -----------------------------------------------------------------------------
 // strata_mem: a far memory target (block RAM on FPGA, a plain array in
 // simulation) with a fixed start-up latency per burst, then one beat per cycle.
+// A read beat is held while the master is not ready for it (rready low).
 // Atomics are a read-modify-write of one word.
 
 module strata_mem
@@ -24,6 +25,7 @@ module strata_mem
   input  logic [63:0] wdata,
   output logic        wready,
   output logic        rvalid,
+  input  logic        rready,      // the master takes the read beat (rvalid) this cycle
   output logic [63:0] rdata,
   output logic        done
 );
@@ -95,9 +97,9 @@ module strata_mem
     done   = st == M_DONE;
     case (st)
       M_RD: begin
-        rd_en  = left != 0;
+        rd_en  = left != 0 && (!q_valid || rready);     // (a held beat keeps q)
         rvalid = q_valid;
-        done   = q_valid && out_left == 1;
+        done   = q_valid && rready && out_left == 1;
       end
       M_WR: begin
         wr_en = wvalid;
@@ -136,12 +138,12 @@ module strata_mem
         M_LAT: if (lat == 0) st <= l_amo ? M_AMO1 : l_we ? M_WR : M_RD;
                else lat <= lat - 1;
         M_RD: begin
-          q_valid <= left != 0;
-          if (left != 0) begin
-            a    <= a + 1;
-            left <= left - 1;
-          end
-          if (q_valid) begin
+          if (rd_en) begin
+            q_valid <= 1;
+            a       <= a + 1;
+            left    <= left - 1;
+          end else if (rready) q_valid <= 0;
+          if (q_valid && rready) begin
             out_left <= out_left - 1;
             if (out_left == 1) st <= M_IDLE;
           end

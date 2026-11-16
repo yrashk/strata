@@ -8,6 +8,10 @@
 #                   those that what differs from main can reach; test-one T=NAME (doc/testing.md)
 #   make test-small the examples and the StrataOS session with 8 overlay map entries
 #                   (NXMAP=8, the FPGA configuration; part of make test)
+#   make test-nostream  the examples and the conformance suite on an RTL built with
+#                   STREAM=0 (every instruction fetched through F0 and F1; part of make test)
+#   make test-ls1p  the examples, the conformance suite and the StrataOS session on an
+#                   RTL built with LS_1P=1 (one single-port memory per core; part of make test)
 #   make test-ls    the examples, lssize.s and StrataOS's refusal with smaller Local
 #                   Stores (32/32, 16/4, 4/32 KiB D-LS/I-LS; part of make test)
 #   make run        run every example on the RTL simulator, showing its output
@@ -44,6 +48,15 @@ NCORES  ?= 8
 NXMAP   ?= 16
 DLS_KIB ?= 64
 ILS_KIB ?= 64
+# the cores' stream fetch (rtl/strata_core.sv STREAM): 0 fetches every
+# instruction in two cycles of its own, the same machine in more cycles
+STREAM  ?= 1
+# 1: each core's two Local Stores in one single-port memory (rtl/strata_core.sv LS_1P)
+LS_1P   ?= 0
+# the 1-bit parameters for Verilator, as sized constants (1'b0, 1'b1:
+# Verilator 5.032, as in the Pages workflow, rejects a plain 1 for a bit
+# parameter); written for a recipe inside sh -c '...'
+VBITS = -GSTREAM=1\'"'"'b$(STREAM) -GLS_1P=1\'"'"'b$(LS_1P)
 
 # SDL2 for the framebuffer window, when pkg-config finds it (else -DNO_SDL:
 # no window, PRESENT only records frames for -F)
@@ -59,14 +72,14 @@ BUILD   := build
 # the contents of their sources and of this file; STRATA_CACHE= turns it off)
 CACHED  := ./tools/build-cache.sh
 RTL     := rtl/strata_pkg.sv rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv rtl/strata_mul.sv \
-           rtl/strata_ram.sv rtl/strata_uart.sv rtl/strata_tu.sv rtl/strata_bus.sv \
+           rtl/strata_ram.sv rtl/strata_ram1.sv rtl/strata_uart.sv rtl/strata_tu.sv rtl/strata_bus.sv \
            rtl/strata_mem.sv rtl/strata_dev.sv rtl/strata_core.sv rtl/strata_top.sv
 EXAMPLES := $(wildcard examples/*.s)
 IMAGES  := $(patsubst examples/%.s,$(BUILD)/examples/%.stx,$(EXAMPLES))
 PROGS   := $(patsubst examples/%.s,$(BUILD)/prog/%,$(EXAMPLES))
 EMU     := $(BUILD)/strata-emu -c $(NCORES)
 
-.PHONY: all examples test-small test-ls clean lint run run-emu boot boot-net boot-ws boot-wdoom boot-demo boot-rtl boot-rtl-demo os fpga-images manual
+.PHONY: all examples test-small test-ls test-nostream test-ls1p clean lint run run-emu boot boot-net boot-ws boot-wdoom boot-demo boot-rtl boot-rtl-demo os fpga-images manual
 
 all: $(BUILD)/sasm $(BUILD)/strata-emu $(BUILD)/strata-rtl $(BUILD)/netrelay $(BUILD)/strata-dbg
 
@@ -88,7 +101,7 @@ $(BUILD)/sasm: asm/sasm.c asm/isa.h
 # the JIT (emu/jit/): each backend compiles to nothing on other hosts
 JIT_SRC := emu/jit/jit.c emu/jit/jit_arm64.c emu/jit/jit_x86_64.c
 # the debug engine (--debug): included by emu/emu.c
-DBG_ENGINE := emu/debug.h emu/debug.c emu/debug_sym.c emu/debug_tt.c emu/debug_io.c common/json.h
+DBG_ENGINE := emu/debug.h emu/debug.c emu/debug_sym.c emu/debug_tt.c emu/debug_io.c emu/debug_msg.c common/json.h
 
 $(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) $(DBG_ENGINE) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
 	@mkdir -p $(BUILD)
@@ -97,11 +110,11 @@ $(BUILD)/strata-emu: emu/emu.c $(JIT_SRC) $(DBG_ENGINE) emu/jit/jit.h emu/jit/ji
 
 $(BUILD)/strata-rtl: $(RTL) sim/main.cpp common/stx.h common/platform.h common/display.h common/net.h common/netnat.h asm/isa.h
 	@mkdir -p $(BUILD)
-	$(CACHED) "rtl $$(verilator --version) $$(c++ --version | head -1) $(NCORES) $(NXMAP) $(DLS_KIB) $(ILS_KIB) $(SDL_CFLAGS) $(SDL_LIBS)" \
+	$(CACHED) "rtl $$(verilator --version) $$(c++ --version | head -1) $(NCORES) $(NXMAP) $(DLS_KIB) $(ILS_KIB) $(STREAM) $(LS_1P) $(SDL_CFLAGS) $(SDL_LIBS)" \
 	  -o $@ -i rtl -i sim -i common -i asm/isa.h -i Makefile -- sh -c '\
 	verilator --cc --exe --build -j 0 -O3 --x-assign fast --x-initial fast \
 	  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
-	  -DSIMULATION -GNCORES=$(NCORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) --top-module strata_top \
+	  -DSIMULATION -GNCORES=$(NCORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) $(VBITS) --top-module strata_top \
 	  -Mdir $(BUILD)/obj_dir -o strata-rtl \
 	  -CFLAGS "-O2 -std=c++17 -DNCORES=$(NCORES) -DNXMAP=$(NXMAP) -DDLS_KIB=$(DLS_KIB) -DILS_KIB=$(ILS_KIB) $(SDL_CFLAGS)" \
 	  -LDFLAGS "$(SDL_LIBS)" $(RTL) sim/main.cpp && \
@@ -111,6 +124,9 @@ lint:
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -DSIMULATION --top-module strata_top $(RTL)
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM --top-module strata_top $(RTL)
 	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GDLS_KIB=8 -GILS_KIB=4 --top-module strata_top $(RTL)
+	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GSTREAM=1\'b0 --top-module strata_top $(RTL)
+	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GLS_1P=1\'b1 --top-module strata_top $(RTL)
+	verilator --lint-only -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -GLS_1P=1\'b1 -GSTREAM=1\'b0 -GDLS_KIB=8 -GILS_KIB=4 --top-module strata_top $(RTL)
 
 $(BUILD)/examples/%.stx: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/examples
@@ -149,7 +165,7 @@ test-list:
 
 # what the tests need built (the NEEDS of tools/tests.sh); run-tests.sh builds
 # them with one make -j
-.PHONY: build-main build-test-disks build-stdb-test build-forth build-small build-ls32 build-ls16-4 build-ls4-32 build-f44 \
+.PHONY: build-main build-test-disks build-stdb-test build-forth build-small build-nostream build-ls1p build-ls32 build-ls16-4 build-ls4-32 build-f44 \
         build-wasm build-wasm-test build-wasm-rtl-test
 build-main: all examples os $(BUILD)/stdb
 build-test-disks: $(BUILD)/http-test/disk.img $(BUILD)/isol-test/disk.img $(BUILD)/files-test/disk.img $(BUILD)/forth-test/disk.img
@@ -164,6 +180,19 @@ build-small:
 	$(MAKE) BUILD=$(SMALL) NXMAP=8 all examples os $(SMALL)/stdb
 test-small:
 	@$(RUN_TESTS) 'small-*'
+
+# the fetch without the stream (STREAM=0) and one single-port memory for both
+# Local Stores (LS_1P=1): RTLs built that way in their own directories
+NOSTREAM := $(BUILD)/nostream
+LS1P     := $(BUILD)/ls1p
+build-nostream:
+	$(MAKE) BUILD=$(NOSTREAM) STREAM=0 all examples
+build-ls1p:
+	$(MAKE) BUILD=$(LS1P) LS_1P=1 all examples os $(LS1P)/stdb
+test-nostream:
+	@$(RUN_TESTS) 'nostream-*'
+test-ls1p:
+	@$(RUN_TESTS) 'ls1p-*'
 
 # smaller Local Stores (DLS_KIB / ILS_KIB, the emulator's -L): RTLs built
 # with 32/32, 16/4 and 4/32 KiB (D-LS/I-LS) in their own directories,
@@ -253,7 +282,7 @@ $(BUILD)/kernel.stx: os/kernel.s $(wildcard os/kunits/*.s) firmware/fw.s $(BUILD
 	$(BUILD)/sasm -g $(BUILD)/kernel.map -o $@ os/kernel.s
 
 # StrataOS 0.1 disk contents:
-#   servers (os/servers/*.s): proc dev fs tty pipe
+#   servers (os/servers/*.s): proc dev fs blk db tty pipe
 #   programs written against os/lib/sys.s (os/progs/*.s, except as and units)
 #   the examples, assembled to run as bare-metal programs (code at
 #   I-LS 0x8000); clock and gfx are left out: they need the device root
@@ -263,9 +292,11 @@ $(BUILD)/kernel.stx: os/kernel.s $(wildcard os/kunits/*.s) firmware/fw.s $(BUILD
 OS_EXCLUDE := clock gfx
 OS_EXAMPLES := $(filter-out $(OS_EXCLUDE),$(patsubst examples/%.s,%,$(EXAMPLES)))
 PROGS   := $(patsubst %,$(BUILD)/prog/%,$(OS_EXAMPLES))
-SERVERS := proc dev fs tty pipe net
+SERVERS := proc dev fs blk db tty pipe net
 UTILS   := sh ls cat rm df ps free uptime date devs hexdump cores sched seq grep wc upper spin tag tags cp mv touch guest
-SPROGS  := $(patsubst %,$(BUILD)/prog/%,$(SERVERS))
+# (the server db is built to sys/: build/prog/db is the program db, which shows
+# the store's trees; on the disk they are /sys/db and /bin/db)
+SPROGS  := $(patsubst $(BUILD)/prog/db,$(BUILD)/sys/db,$(patsubst %,$(BUILD)/prog/%,$(SERVERS)))
 UPROGS  := $(patsubst %,$(BUILD)/prog/%,$(UTILS))
 # the network programs (os/servers/net.s is the server): no sources on the disk
 NETUTILS := ping nc tcpecho ifconfig netstat host httpd
@@ -279,8 +310,11 @@ $(BUILD)/prog/%: examples/%.s $(BUILD)/sasm $(wildcard examples/lib/*.s)
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
-$(BUILD)/prog/fs: os/servers/fsunits.s os/servers/fsops.s os/servers/store.s os/servers/storew.s os/servers/sblob.s os/servers/fsattr.s
-$(SPROGS): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sasm
+$(BUILD)/prog/fs: os/servers/fsunits.s os/servers/fsops.s os/servers/fsattr.s os/servers/dbcall.s os/servers/stutil.s
+$(BUILD)/sys/db: os/servers/db.s os/servers/store.s os/servers/storew.s os/servers/sblob.s os/servers/dbsnap.s os/servers/dbprog.s os/servers/stutil.s os/lib/srv.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/sys
+	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
+$(filter $(BUILD)/prog/%,$(SPROGS)): $(BUILD)/prog/%: os/servers/%.s os/lib/sys.s os/lib/srv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -g $@.map -o $@ $<
 
@@ -310,6 +344,18 @@ $(BUILD)/guest/forth.g: $(FORTH_GUEST_SRC) $(BUILD)/forth-guest/corefs.s $(BUILD
 	@mkdir -p $(BUILD)/guest
 	$(BUILD)/sasm -I lang/forth/guest -I lang/forth/bare -I $(BUILD)/forth-guest -g $(BUILD)/guest/forth.map -o $@ lang/forth/forth.s
 FORTH_GUEST := $(BUILD)/guest/forth.g
+# StrataOS itself as a guest (`guest -p strataos 6 24`): the kernel and a RAM
+# disk with the servers and a few programs, one image (tools/mkguestos.py)
+GOS_PROGS := proc dev fs blk db tty pipe sh ls cat rm cp mv touch ps cores free uptime seq grep wc hello tag tags df
+GOS_FILES := os/guests/strataos/rc os/guests/strataos/motd $(patsubst %,$(BUILD)/prog/%,$(filter-out db,$(GOS_PROGS))) $(BUILD)/sys/db
+$(BUILD)/guest-os/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(GOS_FILES)
+	@mkdir -p $(BUILD)/guest-os
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx -b 6144 -t etc os/guests/strataos/rc -t doc os/guests/strataos/motd \
+	  -t sys $(patsubst %,$(BUILD)/prog/%,proc dev fs blk) $(BUILD)/sys/db $(patsubst %,$(BUILD)/prog/%,tty pipe) -t bin $(patsubst %,$(BUILD)/prog/%,$(filter-out proc dev fs blk db tty pipe,$(GOS_PROGS)))
+$(BUILD)/guest/strataos.g: tools/mkguestos.py $(BUILD)/kernel.stx $(BUILD)/guest-os/disk.img
+	@mkdir -p $(BUILD)/guest
+	python3 tools/mkguestos.py $(BUILD)/kernel.stx $(BUILD)/guest-os/disk.img $@
+GOS_GUEST := $(BUILD)/guest/strataos.g
 
 # untag is tag under another name (it looks at the name it was started by)
 $(BUILD)/prog/untag: $(BUILD)/prog/tag
@@ -349,6 +395,20 @@ $(BUILD)/prog/kira: os/progs/kira.s $(wildcard os/progs/kira/*.s) os/progs/wdoom
 kira-dat:
 	python3 tools/kira-art.py
 	python3 tools/kira-assets.py
+
+# plat, a city-building game in a window (os/progs/plat.s, os/progs/plat/): the
+# program, and its data file, which tools/plat-assets.py makes from the art
+# that tools/plat-art.py draws into os/progs/plat/art (the converted file is
+# in the tree: os/progs/plat/plat.dat; `make plat-dat` makes both again)
+PLAT_DAT := os/progs/plat/plat.dat
+$(BUILD)/prog/plat: os/progs/plat.s $(wildcard os/progs/plat/*.s) os/progs/wdoom/sound.s os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -I os/lib -g $@.map -o $@ $<
+
+.PHONY: plat-dat
+plat-dat:
+	python3 tools/plat-art.py
+	python3 tools/plat-assets.py
 
 # vi, the editor: its keyword tables come from the assembler, the Forth README,
 # the site's highlighter and cc's keywords and headers (tools/vi-syntax.py
@@ -418,6 +478,18 @@ $(BUILD)/cc/cc.lib: $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS) $(BUILD
 $(BUILD)/strata-cc: lang/cc/cc.c lang/cc/host/host.c lang/cc/host/strata.h
 	@mkdir -p $(BUILD)
 	$(CC) -O2 -w -Ilang/cc/host -o $@ lang/cc/cc.c lang/cc/host/host.c
+# ---- Stratalk (lang/stratalk): the VM, a StrataOS program, and its image ----------
+STRATALK_VM := lang/stratalk/vm.s $(wildcard lang/stratalk/vm-*.s)
+STRATALK_ST := $(addprefix lang/stratalk/kernel/,$(shell sed -e 's/\#.*//' lang/stratalk/kernel/LOAD))
+STRATALK_EX := $(sort $(wildcard lang/stratalk/examples/*.st))
+STRATALK_DISK := $(BUILD)/prog/stratalk $(BUILD)/stratalk/stratalk.image $(STRATALK_ST) $(STRATALK_EX)
+$(BUILD)/prog/stratalk: $(STRATALK_VM) os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -I lang/stratalk -g $(BUILD)/prog/stratalk.map -o $@ lang/stratalk/vm.s
+$(BUILD)/stratalk/stratalk.image: $(STRATALK_ST) lang/stratalk/kernel/LOAD $(wildcard lang/stratalk/host/*.py)
+	@mkdir -p $(BUILD)/stratalk
+	python3 lang/stratalk/host/stratalk.py build -o $@ lang/stratalk/kernel/LOAD
+
 $(BUILD)/prog/cc: $(BUILD)/strata-cc $(BUILD)/cc/cc.lib lang/cc/cc.c
 	@mkdir -p $(BUILD)/prog
 	CC_LIB=$(BUILD)/cc/cc.lib $(BUILD)/strata-cc -p -h 0 -o $@ lang/cc/cc.c
@@ -435,6 +507,23 @@ $(BUILD)/prog/cc0: $(BUILD)/cc/cc0.lib
 	@touch $@
 $(BUILD)/cc/cc0.lib: $(BUILD)/cc/cc-full.stx $(BUILD)/cc/libc.stx lang/cc/lib/mklib.py $(CC_HDRS) $(BUILD)/cc/asm.tab
 	python3 lang/cc/lib/mklib.py --cc $(BUILD)/cc/cc-full.stx $(BUILD)/prog/cc0 $@ $(CC_LIBIN)
+
+# Stralog: assembled whole, then split into the program and its code units
+# (lang/stralog/mkimg.py, which also checks that no jump leaves its unit)
+STRALOG_SRC := $(wildcard lang/stralog/*.s) os/lib/sys.s
+$(BUILD)/stralog/atoms.s: lang/stralog/mkatoms.py
+	@mkdir -p $(BUILD)/stralog
+	python3 lang/stralog/mkatoms.py $@
+$(BUILD)/stralog/bootpl.s: lang/stralog/boot.pl lang/stralog/mkboot.py
+	@mkdir -p $(BUILD)/stralog
+	python3 lang/stralog/mkboot.py lang/stralog/boot.pl > $@
+$(BUILD)/stralog/stralog.stx: $(STRALOG_SRC) $(BUILD)/stralog/atoms.s $(BUILD)/stralog/bootpl.s $(BUILD)/sasm
+	$(BUILD)/sasm -T 0x8000 -I lang/stralog -I $(BUILD)/stralog -g $(BUILD)/stralog/stralog.map -o $@ lang/stralog/stralog.s
+$(BUILD)/prog/stralog: $(BUILD)/stralog/stralog.stx lang/stralog/mkimg.py
+	@mkdir -p $(BUILD)/prog
+	python3 lang/stralog/mkimg.py $< $(BUILD)/stralog/stralog.map $@ $(BUILD)/prog/stralog.u
+$(BUILD)/prog/stralog.u: $(BUILD)/prog/stralog
+	@touch $@
 
 # Every source on the disk carries a copy of the library after the program.
 $(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s
@@ -478,7 +567,9 @@ FORTH_DISK += $(BUILD)/forth-os/progs.pk
 # machine (cc0 -p -h 0 -o cc1 /src/cc.c); and some C programs to try
 CC_DISK := $(BUILD)/prog/cc $(BUILD)/prog/cc.u $(BUILD)/cc/cc.lib $(BUILD)/prog/cc0 $(BUILD)/cc/cc0.lib
 CC_SRCS := lang/cc/cc.c $(sort $(wildcard lang/cc/examples/*.c))
-DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(DBPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as $(CC_DISK) $(CC_SRCS) \
+# the bootstrap compiler's assembly and its runtime (lib/*.s), under /src/cc
+CC_ASRCS := lang/cc/cc.s $(sort $(wildcard lang/cc/cc-*.s)) $(sort $(wildcard lang/cc/lib/*.s))
+DISK_FILES := $(OS_FILES) $(SPROGS) $(UPROGS) $(DBPROGS) $(NPROGS) $(BUILD)/prog/untag $(BUILD)/prog/retag $(WSPROGS) $(PROGS) $(BUILD)/prog/as $(CC_DISK) $(CC_SRCS) $(CC_ASRCS) \
               $(BUILD)/prog/units $(BUILD)/prog/vi $(BUILD)/prog/nav $(SRCS) $(USRCS) $(BUILD)/src/vi.s $(FORTH_DISK)
 
 # The same files with their tags (mkdisk -t TAGS applies to the files after it).
@@ -498,6 +589,10 @@ DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc
 DISK_FILES += $(BUILD)/prog/kira $(KIRA_DAT)
 DISK_ARGS  += -t bin $(BUILD)/prog/kira -t ws $(KIRA_DAT)
 
+# plat and its data (tagged ws: the program opens /ws/plat.dat)
+DISK_FILES += $(BUILD)/prog/plat $(PLAT_DAT)
+DISK_ARGS  += -t bin $(BUILD)/prog/plat -t ws $(PLAT_DAT)
+
 # wdoom and its data (tagged ws: the program opens /ws/wdoom.dat)
 DISK_FILES += $(BUILD)/prog/wdoom $(WDOOM_DAT)
 DISK_ARGS  += -t bin $(BUILD)/prog/wdoom -t ws $(WDOOM_DAT)
@@ -505,12 +600,25 @@ DISK_ARGS  += -t bin $(BUILD)/prog/wdoom -t ws $(WDOOM_DAT)
 WWW_FILES  := $(wildcard os/www/*)
 DISK_FILES += $(WWW_FILES)
 DISK_ARGS  += -t www $(WWW_FILES)
-DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS)
+DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS) -t src,cc $(CC_ASRCS)
+# Stratalk: the VM, its image, and the kernel's sources (lang/stratalk)
+DISK_FILES += $(STRATALK_DISK)
+DISK_ARGS  += -t bin $(BUILD)/prog/stratalk -t stratalk $(BUILD)/stratalk/stratalk.image $(STRATALK_ST) -t stratalk,examples $(STRATALK_EX)
+# Stralog, the Prolog (lang/stralog): the program, its code units, the examples
+STRALOG_PL := $(sort $(wildcard lang/stralog/examples/*.pl))
+STRALOG_ISO := $(sort $(wildcard lang/stralog/tests/iso/*.pl))
+DISK_FILES += $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u $(STRALOG_PL) $(STRALOG_ISO)
+DISK_ARGS  += -t bin $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u -t stralog $(STRALOG_PL) -t stralog,iso $(STRALOG_ISO)
 
-$(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST)
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST)
+$(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
 
-os: $(BUILD)/bootrom.stx $(BUILD)/disk.img
+os: $(BUILD)/bootrom.stx $(BUILD)/disk.img $(BUILD)/msgops.txt
+
+# the debugger's table of StrataOS's messages (strata-emu --os $(BUILD)), from
+# the same specifications as the site's and the manual's
+$(BUILD)/msgops.txt: tools/osspec.py os/spec/*.toml os/lib/sys.s
+	python3 tools/osspec.py --table $@
 
 # the same disk with an rc that starts the window server (make boot-ws)
 DISK_WS_ARGS := $(subst os/files/rc,os/files-ws/rc,$(DISK_ARGS))
@@ -642,12 +750,14 @@ $(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
 
 # the disk of tools/test-isolate.sh: the standard one plus dlsgap (tools/dlsgap.s),
-# which checks that no process sees what another left in its core's D-LS
-$(BUILD)/isol-test/dlsgap: tools/dlsgap.s os/lib/sys.s $(BUILD)/sasm
+# which checks that no process sees what another left in its core's D-LS, and
+# lsprot (tools/lsprot.s), which checks that user mode cannot reach the kernel's
+# part of the Local Stores
+$(BUILD)/isol-test/%: tools/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/isol-test
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
-$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap
+$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot
 
 # the disk of tools/test-files.sh: the standard one plus 300 small files tagged
 # many (f000 .. f299, each holding its own name): more files than one window
@@ -657,6 +767,29 @@ $(BUILD)/files-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	@mkdir -p $(BUILD)/files-test/many
 	@for f in $(MANY); do basename $$f > $$f; done
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) 2>&1 | cut -c1-200
+
+# make bench-store: what the file system and the store cost (tools/bench-store.sh,
+# doc/fs-split.md): an emulator that counts messages, and a disk with the
+# files of test-files, dbbench and a script that writes 100 small files
+.PHONY: bench-store
+$(BUILD)/strata-emu-stats: emu/emu.c $(JIT_SRC) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
+	$(CC) $(CFLAGS) -DSTRATA_MSGSTATS $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
+# an emulator that counts what context switches move, and what they would
+# move with dirty-segment tracking (doc/ls-switch.md, tools/ls-stats.sh)
+$(BUILD)/strata-emu-ls: emu/emu.c $(JIT_SRC) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
+	$(CC) $(CFLAGS) -DSTRATA_LSSTATS $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
+.PHONY: ls-stats
+ls-stats: $(BUILD)/strata-emu-ls $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	tools/ls-stats.sh $(BUILD)/strata-emu-ls $(BUILD) $(BUILD)/disk.img
+$(BUILD)/bench/dbbench: tools/bench/dbbench.s os/lib/sys.s os/lib/kv.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/bench
+	$(BUILD)/sasm -T 0x8000 -o $@ $<
+$(BUILD)/bench/disk.img: $(BUILD)/files-test/disk.img $(BUILD)/bench/dbbench
+	@i=0; while [ $$i -lt 100 ]; do echo "echo $$i > /sm/f$$i"; i=$$((i + 1)); done > $(BUILD)/bench/small
+	@$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) -t bin $(BUILD)/bench/dbbench \
+	  -t bench $(BUILD)/bench/small 2>&1 | cut -c1-200
+bench-store: $(BUILD)/strata-emu-stats $(BUILD)/bootrom.stx $(BUILD)/bench/disk.img
+	tools/bench-store.sh $(BUILD)/strata-emu-stats $(BUILD) $(BUILD)/bench/disk.img
 
 # the disk of `make test-forth`: the standard one plus the test files
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs) \
@@ -743,7 +876,8 @@ bench: $(BUILD)/strata-emu examples $(BUILD)/forth.stx
 #             from the manual's sources (the same data as make manual); and
 #             forth/ (every Forth word with its source, and a playground that
 #             runs the play page's worker), by doc/manual/gen/genforth.py
-#             from lang/forth/
+#             from lang/forth/; and os/ (site/os/ with the servers' message
+#             tables made from their sources, by tools/web-os.py)
 # web-site    build/web-site/: site/ with build/web/ under play/ and
 #             build/web-code/ under code/; preview it with
 #             python3 -m http.server --directory build/web-site
@@ -793,11 +927,11 @@ test-wasm-rtl: build-wasm-rtl-test
 	BUILD=$(BUILD) ./tools/test-wasm-rtl.sh
 $(WEB)/strata-rtl.js: $(RTL) sim/main.cpp web/web_rtl.cpp web/web_rtl_stubs.c common/stx.h common/platform.h common/display.h common/net.h common/netnat.h asm/isa.h
 	@mkdir -p $(WEB) $(BUILD)/web-rtl
-	$(CACHED) "rtl.js $$(verilator --version) $$($(EMXX) --version | head -1) $(WEB_RTL_CORES) $(NXMAP) $(DLS_KIB) $(ILS_KIB)" \
+	$(CACHED) "rtl.js $$(verilator --version) $$($(EMXX) --version | head -1) $(WEB_RTL_CORES) $(NXMAP) $(DLS_KIB) $(ILS_KIB) $(STREAM) $(LS_1P)" \
 	  -o $@ -o $(@:.js=.wasm) -i rtl -i sim -i web -i common -i asm/isa.h -i Makefile -- sh -c '\
 	verilator --cc -O3 --x-assign fast --x-initial fast \
 	  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
-	  -DSIMULATION -GNCORES=$(WEB_RTL_CORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) --top-module strata_top \
+	  -DSIMULATION -GNCORES=$(WEB_RTL_CORES) -GNXMAP=$(NXMAP) -GDLS_KIB=$(DLS_KIB) -GILS_KIB=$(ILS_KIB) $(VBITS) --top-module strata_top \
 	  -Mdir $(BUILD)/web-rtl/obj $(RTL) && \
 	$(EMCC) -O2 -c -o $(BUILD)/web-rtl/stubs.o web/web_rtl_stubs.c && \
 	$(EMXX) -std=c++17 -O2 -include cstdint -DNO_SDL -DVL_IGNORE_UNKNOWN_ARCH -DNCORES=$(WEB_RTL_CORES) -DNXMAP=$(NXMAP) -DDLS_KIB=$(DLS_KIB) -DILS_KIB=$(ILS_KIB) \
@@ -820,17 +954,20 @@ $(BUILD)/examples/%.map: $(BUILD)/examples/%.stx
 	@test -f $@ || $(BUILD)/sasm -g $@ -o $< examples/$*.s
 	@touch $@
 
-wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS)
+wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS) $(BUILD)/msgops.txt
 	@mkdir -p $(WEB)/images $(WEB)/demos $(WEB)/debug/src/examples/lib
 	cp $(WEB_IMAGES) $(WEB)/images/
 	cp lang/forth/demos/*.fs $(WEB)/demos/
 	ls lang/forth/demos | sed -n 's/\.fs$$//p' > $(WEB)/demos/index.txt
+	@mkdir -p $(WEB)/stralog
+	cp lang/stralog/examples/*.pl $(WEB)/stralog/
+	ls lang/stralog/examples | sed -n 's/\.pl$$//p' > $(WEB)/stralog/index.txt
 	cp $(DEBUG_ASSETS) $(WEB)/debug/
 	cp $(patsubst %,examples/%.s,$(DEBUG_EXAMPLES)) $(WEB)/debug/src/examples/
 	cp examples/lib/*.s $(WEB)/debug/src/examples/lib/
 	echo $(DEBUG_EXAMPLES) | tr ' ' '\n' > $(WEB)/debug/index.txt
 	@mkdir -p $(WEB)/debug/os/prog
-	cp $(BUILD)/bootrom.map $(BUILD)/kernel.map $(WEB)/debug/os/
+	cp $(BUILD)/bootrom.map $(BUILD)/kernel.map $(BUILD)/msgops.txt $(WEB)/debug/os/
 	cp $(BUILD)/prog/*.map $(WEB)/debug/os/prog/
 	ls $(BUILD)/prog | sed -n 's/\.map$$//p' > $(WEB)/debug/os/prog.txt
 
@@ -844,6 +981,7 @@ web-docs:
 	rm -rf $(BUILD)/web-docs
 	mkdir -p $(BUILD)/web-docs
 	python3 doc/manual/gen/genweb.py $(BUILD)/web-docs
+	python3 tools/web-os.py $(BUILD)/web-docs
 
 web-site: wasm web-code web-docs
 	rm -rf $(BUILD)/web-site
