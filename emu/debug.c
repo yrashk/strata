@@ -393,8 +393,10 @@ static void pre_decode(Core *c, Pre *p) {
   p->user = c->user;
   if (any_capwatch()) memcpy(p->caps, c->caps, sizeof p->caps);
   if ((c->pc & 3) || c->pc >= ils_size) return;
+  uint64_t ipa = c->pc + (uint64_t)c->irel[c->pc / (ils_size / 64)]; /* (relocated by the code window) */
+  if (ipa >= ils_size) return;
   uint32_t ir;
-  memcpy(&ir, c->ils + c->pc, 4);
+  memcpy(&ir, c->ils + ipa, 4);
   p->ir = ir;
   unsigned op = ir >> 26, rd = (ir >> 21) & 31, rs1 = (ir >> 16) & 31, rs2 = (ir >> 11) & 31;
   unsigned funct = ir & 0x7ff;
@@ -449,6 +451,15 @@ static void pre_decode(Core *c, Pre *p) {
     break;
   }
   case OP_SYS: p->kind = DK_SYS; p->fn = ir & 0xffff; break;
+  }
+  /* the Local Store bytes it touches, where they are: a user-mode address
+   * relocated by its window (one outside them traps; left as it is) */
+  if ((p->kind == DK_LOAD || p->kind == DK_STORE) && p->addr < dls_size) {
+    uint64_t pa = p->addr + (uint64_t)c->drel[p->addr / (dls_size / 64)];
+    if (pa < dls_size) p->addr = pa;
+  } else if ((p->kind == DK_XFER || p->kind == DK_LTAG || p->kind == DK_LINST) && p->len) {
+    uint64_t lim = p->kind == DK_XFER && p->sub == XF_GETX ? ils_size : dls_size, a = p->addr;
+    if (a <= lim && p->len <= lim - a && win_range(c, p->kind == DK_XFER && p->sub == XF_GETX, &a, p->len)) p->addr = a;
   }
 }
 
@@ -523,8 +534,10 @@ static void pre_hits(Core *c, const Pre *p) {
 static int stall_reason(const Core *c, uint64_t *detail) {
   *detail = 0;
   if ((c->pc & 3) || c->pc >= ils_size) return SR_OTHER;
+  uint64_t ipa = c->pc + (uint64_t)c->irel[c->pc / (ils_size / 64)];
+  if (ipa >= ils_size) return SR_OTHER;
   uint32_t ir;
-  memcpy(&ir, c->ils + c->pc, 4);
+  memcpy(&ir, c->ils + ipa, 4);
   unsigned op = ir >> 26, rs1 = (ir >> 16) & 31, rs2 = (ir >> 11) & 31, funct = ir & 0x7ff;
   uint64_t busy = tag_busy(c);
   switch (op) {
@@ -535,6 +548,7 @@ static int stall_reason(const Core *c, uint64_t *detail) {
   case OP_XFER: {
     uint64_t ls = c->x[(ir >> 14) & 31], len = c->x[ir & 31];
     unsigned sub = (ir >> 23) & 7, tg = (ir >> 19) & 15;
+    if (sub != XF_GETX && len && ls <= dls_size && len <= dls_size - ls) win_range((Core *)c, false, &ls, len);
     if (sub != XF_GETX && len)
       for (int i = 0; i < NPEND; i++)
         if (c->pend[i].on && ls < c->pend[i].ls + c->pend[i].len && c->pend[i].ls < ls + len) { *detail = (uint64_t)c->pend[i].tag; return SR_XPEND; }
@@ -1158,9 +1172,8 @@ static void jw_core_brief(JW *w, const Core *c) {
     int g = os_guest_of(c->id);
     if (g) jw_int(w, "guest", g); /* a guest OS's core (-1: taken, no guest record) */
   }
-  if (!c->halted && (c->pc & 3) == 0 && c->pc < ils_size) {
-    uint32_t ir;
-    memcpy(&ir, c->ils + c->pc, 4);
+  uint32_t ir;
+  if (!c->halted && fetch_ir(c, &ir)) {
     char d[160];
     disasm(c, ir, c->pc, d, sizeof d);
     jw_str(w, "insn", d);
@@ -1975,6 +1988,9 @@ static void dbg_request(const char *line, size_t len, JW *w) {
       jw_hex(w, "corebase", c->corebase);
       jw_hex(w, "corecount", c->corecount);
       jw_hex(w, "xslot", c->xslot);
+      jw_hex(w, "wdata", c->wcsr[0]);
+      jw_hex(w, "wstack", c->wcsr[1]);
+      jw_hex(w, "wcode", c->wcsr[2]);
       jw_bool(w, "ipend", c->ipend);
       jw_oend(w);
       jw_bool(w, "halted", c->halted);

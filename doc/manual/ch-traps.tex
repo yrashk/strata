@@ -26,9 +26,10 @@ The current mode and the mode that \insn{eret} returns to are recorded in CSR \c
 A core enters user mode only by executing \insn{eret} in supervisor mode with SPP = 0. It returns to
 supervisor mode only by taking a trap that is routed to the supervisor. User mode differs from
 supervisor mode in exactly the operations of Table~\ref{tab:userlimits}; every other instruction,
-including every transfer, far atomic, overlay operation and the endpoint operations \insn{csend} and
-\insn{crecv}, behaves identically in both modes. Authority over memory and devices is never a matter of mode: it comes from the capabilities
-a core holds.
+including every far atomic and the endpoint operations \insn{csend} and \insn{crecv}, behaves
+identically in both modes. Authority over far memory and devices is never a matter of mode: it comes
+from the capabilities a core holds. Of the core's own Local Stores, user mode reaches what the
+supervisor's Local Store windows give it (Section~\ref{sec:lswin}); with none enabled, all of them.
 
 \begin{table}[htbp]
 \centering\small
@@ -44,6 +45,8 @@ a core holds.
 \insn{halt} & after draining the core's transfers, traps to the supervisor with cause \cause{halt} instead of stopping the core\\
 \insn{svc} & traps to the supervisor with cause \cause{svc} (in supervisor mode it is \cause{illegal})\\
 \insn{cgive} & restricted to the core window: \cause{capop} if \csr{corecount} is 0\\
+\insn{csrr}, \insn{csrw} of \csr{wdata}, \csr{wstack}, \csr{wcode} & \cause{priv}\\
+loads, stores, transfers, \insn{ltag}, \insn{linst}, \insn{xmap}, the fetch & while the supervisor has enabled Local Store windows: confined to them and relocated by them (\cause{lsfault}, \cause{ifault}; Section~\ref{sec:lswin})\\
 \bottomrule
 \end{tabularx}
 \end{table}
