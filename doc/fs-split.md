@@ -22,120 +22,108 @@ neither layer can be reached without the other.
 Programs see the same ops with the same formats on the same endpoint (c2).
 DBGET, DBSCAN and DBBATCH are answered by `db`'s code; a program's request
 still goes to `fs`, which hands its data to `db` and the answer back (one
-round trip more; `db` alone is the only place that knows namespaces).
-
-**The page cache lives in `db`, only.** The B+tree code works on pages in
-the D-LS and needs them a transfer away, not a message away; `blk` is a
-driver with no cache (a command per run of blocks, the bytes moved by the
-device straight into the lent buffer). A cache in `blk` too would hold the
-same pages twice and still cost `db` a message per miss. A guest's `blk`
-over the host's `db` gets the host's cache for free.
+round trip more; `db` is the only place that knows namespaces).
 
 ## Several servers on one core
 
 The kernel used to give a worker core one server (`w_server`): every
 request arriving at the core went to it. Six cores were core 0 plus `proc`,
-`dev`, `fs`, `tty`, `pipe`; two more servers do not fit. Now a core keeps a
-table of up to four servers (`w_srv`, a byte each), servers share the core
+`dev`, `fs`, `tty`, `pipe`; two more servers do not fit, and eight cores
+for StrataOS would leave no room for StrataOS as a guest. Now a core keeps
+a table of up to four servers (`w_srv`, a byte each), servers share a core
 like any other program, and a request names its server by an index in
 header word 48: `0x53 << 56 | index` (byte 7 is 'S'; anything else means
-index 0, so every client of today's servers is unchanged). CREATE's flags
-carry the index (bits 12 and 13). Each server has its own count of queued
-requests, its own sender of the request it holds (for PARK), and only its
-own queued and parked requests go back with -1 when it ends. Clients learn
-the index with the endpoint: LOOKUP answers it in data[0]; the boot servers
-get theirs from the kernel.
+index 0, so every client of the servers there were is unchanged). CREATE's
+flags carry the index (bits 12 and 13). Each server has its own count of
+queued requests (the queue is one ring of 16; one taken out of turn leaves
+a hole), its own sender of the request it holds (for PARK), and only its
+own queued and parked requests go back with -1 when it ends. The kernel
+gives `fs` and `db` the indexes of the servers they call. The room in the
+worker's resident code came from gp-relative loads in place of `la` + `add`
+(16 bytes are left).
 
 Placement (any core count from 6): `proc` 1, `dev` 2 and `db` 2 (index 1),
-`fs` 3, `tty` 4, `pipe` 5 and `blk` 5 (index 1). `db` and `blk` sit beside
-the servers that run least (`dev`, `pipe`), so that `fs`, `db` and `blk`
-each run on a core of its own and a call between them is not a context
-switch; cores 6 and up stay free for threads.
+`fs` 3, `tty` 4, `pipe` 5 and `blk` 5 (index 1): `fs`, `db` and `blk` on
+three cores, beside the servers that run least. A server of index 1..3 is
+a core flag of its own (16): it does not keep a server of index 0 away (so
+`proc` still puts `pipe` on core 5) and does not count when a program is
+placed (or the login shell would land on core 6 and leave a guest no run
+of empty cores). The boot servers are made in the order dev, blk, db, fs,
+proc; one that sends to another that does not run yet gets -1 and asks
+again a tick later.
 
 ## Interfaces
 
-Header as for every message: 0 op, 8 handle, 16 length, 24 mode, 32 result,
-40 sender pid (stamped), 48 server index (requests), 56 reply extra (db: the
-commit number, and the count of aborts << 48).
+The full field-by-field description is `os/spec/blk.toml` and
+`os/spec/db.toml` (the site's server pages and the manual's chapter are
+made from them). In short:
 
-### blk (index 1 on `pipe`'s core)
+**blk** (pid 4): BREAD and BWRITE (a run of blocks into or out of the
+buffer lent with the request; any length, in device commands of 256
+blocks), WRITEV (several runs out of the lent buffer, then a flush: a
+commit's writes in one message), FLUSH, INFO, READBLK. The device moves the
+bytes straight into the lent buffer: `db`'s page frames, or a program's
+arena on its way from `proc` through `fs` and `db` (LOADIMG, READALL), so
+no server copies them. BREAD, BWRITE, WRITEV and FLUSH are taken from
+`db`'s pid only.
 
-| op | name | in | out |
-|---|---|---|---|
-| 1 | BREAD | handle = first block, length = blocks (any number), mode = byte offset in the attachment; the buffer as attachment | 0 / the device's status; the buffer back |
-| 2 | BWRITE | the same, from the buffer | the same |
-| 3 | FLUSH | | 0: what the device holds back is on the disk |
-| 4 | INFO | | data: u64 blocks, u64 1 for a RAM disk |
-| 33 | READBLK | handle = block | 512; data: the block (`fs` passes READBLK on: `db`, `wdb`, `fsck`) |
+**db** (pid 5): the store's routines as calls, by tree handle (TREE, GET,
+SEEK, PUT, DEL, SCAN), values of any length by part (VSIZE, VREAD at an
+offset, VWRITE at an offset, VTRUNC, VDEL, VLOAD into a lent arena),
+COMMIT, ABORT, INFO, SNAP (take, delete, list, restore), SNAPT (handles to
+a snapshot's trees), BOOT (the boot manifest from entries `fs` lists),
+FLUSH, and the program store's DBGET, DBSCAN, DBBATCH. Every reply carries
+the commit under way and a count of aborts (word 56): when `db` gives a
+commit up (the disk full, a bad page), the client sees the count change.
+A request from `fs` may carry a batch of puts and deletes after its data
+(word 48's bits 16..31: its bytes), applied first. Partial values were the
+point of the user's suggestion: a file's contents are one value read and
+written by parts, and a guest's disk can be one too.
 
-BREAD, BWRITE and FLUSH are taken from `db` only (its pid); anyone may
-READBLK, as before. Per command: 2 messages, no copy (the device moves the
-bytes into the lent buffer: `db`'s frames, or `proc`'s arena for LOADIMG).
+**fs** (pid 3): the same ops for programs as before. `os/servers/dbcall.s`
+has the store's routines under their old names, each a message to `db`,
+so the file system's code is what it was. Two things keep the messages
+down: a **read-ahead** (a SEEK walk, or a third GET of growing keys,
+fetches up to 4 KiB of following records with one SCAN; two trees are
+kept; anything that may change the store drops them), and **writes later**
+(`st_put` and `st_del`, whose answers the file system never looked at,
+are queued and go with the next call). `fs` hands DBGET, DBSCAN and
+DBBATCH on to `db` and READBLK to `blk`.
 
-### db (index 1 on `dev`'s core)
+**The page cache is in `db`, only.** The B+tree code works on pages in the
+D-LS; a page must be a transfer away, not a message away. `blk` keeps no
+cache: one in `blk` too would hold the same pages twice and still cost a
+message per miss, and a guest's `blk` over the host's `db` gets the host's
+cache anyway. What `db` cannot hold back is its writes when a frame must be
+reused: those go to `blk` at once; a commit's writes wait and go with its
+flush.
 
-A tree is named by a handle (its entry in `db`'s table of open trees). The
-calls follow the store's routines one for one, so that `fs`'s code calls
-`st_get`, `st_put` ... as before and those are now stubs that send a
-message (`os/servers/dbcall.s`).
+## Messages and copies per operation (as built)
 
-| op | name | in | out |
-|---|---|---|---|
-| 70 | TREE | handle = namespace id, mode 1 = make it, data = the tree's name | the handle, 0 none |
-| 71 | GET | handle = tree, data = key | the value's length (-1 none), data = the value, mode = its flag |
-| 72 | SEEK | handle = tree, mode = ST_GE/GT/LE/LT, data = key | 1 found / 0; length = the key's length, mode = the value's length \| flag << 32; data = the key (padded to 8) and the value |
-| 73 | PUT | handle = tree, mode = flag, data = {u16 key length, u16 value length, u32 0, key padded, value} | 1 added / 0 replaced / -1 too long |
-| 74 | DEL | handle = tree, data = key | 1 / 0 |
-| 75 | VSIZE | handle = tree, data = key | a value's length of any size, -1 none |
-| 76 | VREAD | handle = tree, data = {u64 extents' tree, u64 offset, u64 bytes, key} | bytes read (0 at the end); data: them |
-| 77 | VWRITE | handle = tree, data = {u64 extents' tree, u64 offset, u64 bytes, u64 key length, key padded, the bytes}, mode 1 = always a stream | 0 |
-| 78 | VTRUNC | handle = tree, data = {.., u64 new length, key} | 0 |
-| 79 | VDEL | handle = tree, data = key | 1 / 0 |
-| 80 | VLOAD | handle = tree, data = {.., u64 offset in the attachment, u64 most bytes, key}; an arena as attachment | the value's length, all of it copied in (-4 none, -1 longer); the arena back |
-| 81 | COMMIT | | 0: on the disk |
-| 82 | ABORT | | 0: back to the last commit; every handle is to be opened again |
-| 83 | INFO | | data: page size, blocks per page, pages, free pages, commit, last commit on the disk, the namespace "fs"'s id |
-| 84 | SNAP | as fs's SNAP (45): take, delete, list, restore | as SNAP |
-| 85 | SNAPT | handle = a snapshot's commit, data = namespace id and names | data: a handle per tree (read only, until the next SNAPT), -1 no such snapshot |
-| 86 | BOOT | handle = the data tree, data = the key made one run (or none), then the manifest's entries {name[16], key, size} | 0 |
-| 64, 65, 66 | DBGET, DBSCAN, DBBATCH | as programs send them to fs | as before |
+Each call to another server is 2 messages (the request, the reply); a
+round trip between two idle servers on different cores costs about 6,500
+rounds of the machine (the dispatchers on both sides, the server loops),
+and some 6,000 to 8,000 instructions in all.
 
-Values are any size: VREAD, VWRITE and VTRUNC reach part of a value by
-offset (a value longer than a quarter page is a stream of extents; the
-store had that for file contents). A file's contents are one such value,
-read and written by parts; a guest's disk can be one too.
-
-Errors: -1 a bad request (or the disk is full: the commit under way is given
-up), -5 the disk cannot be read as a store, a page failed its checksum, or
-the device refused. On -1 for a full disk and on -5 `db` has aborted: the
-reply's abort count says so, and `fs` gives up its writer's bytes and opens
-its trees again, as it did in one program.
-
-Who may call: TREE, the V* calls, COMMIT, ABORT, SNAP, SNAPT and BOOT come
-from `fs` (its pid); DBGET, DBSCAN and DBBATCH from anyone that reaches
-`db`, refused for the namespace "fs" as before.
-
-## Messages and copies per operation
-
-Expected from the code (each db call is 2 messages, a request and its
-reply; the measured counts are below):
-
-| op from a program | today | split |
+| op from a program | one `fs` | split |
 |---|---|---|
-| OPEN (a path of one tag) | 2 | 2 + 2 × (dictionary, name, record lookups: 3–5) |
-| READ 4 KiB | 2; the bytes: frame → D-LS → reply | 2 + 2; frame → db's D-LS → db's reply → fs's D-LS → reply (2 more copies) |
-| WRITE 4 KiB | 2 | 2 + 2; one more copy each way |
-| CLOSE of a written file | 2, a commit | 2 + 2 × (record, name, index puts: about 6) + the commit |
-| LOADIMG / READALL | 2; the device writes the arena | 2 + 2 + 2 per run of pages; the device still writes the arena (lent fs → db → blk → device) |
-| QUERY (one part of a listing) | 2 | 2 + 2 × (an index seek and a record get per file) |
-| DBGET / DBBATCH | 2 | 4 |
-| a cache miss in the store | a device command | + 2 messages (db → blk) |
+| OPEN of `/doc/motd` | 2 | 2 + 6 (tag, name, record) |
+| READ 4 KiB | 2; frame → D-LS → reply | 2 + 2; frame → db's D-LS → db's reply → fs's D-LS → reply: 2 more copies of the bytes |
+| WRITE 4 KiB | 2 | 2 + 2 (or 4: the batch first when it does not fit); one more copy |
+| creating a small file (OPEN, WRITE, CLOSE) | 6, a commit | 6 + about 22 (`fs` ↔ `db`), + 4 (`db` ↔ `blk`: the commit's WRITEVs) |
+| LOADIMG | 2; the device writes the arena | 2 + 8 (lookups, VLOAD) + 2 per run of pages read; the device still writes the arena |
+| a listing of 300 files | 4 (two parts) | 4 + about 34 (SCANs of the index and of the records, 4 KiB each) |
+| DBGET | 2 | 4 |
+| a cache miss in the store | a device command | + 2 messages (`db` → `blk`) |
 
 ## Measurements
 
-`make bench-store` (tools/bench-store.sh): sessions on the emulator,
-8 cores, `-T virtual`, each workload alone between two `uptime`s; numbers
-are the workload's own (a session with nothing in it taken away).
+`make bench-store` (`tools/bench-store.sh`): sessions on the emulator,
+8 cores, `-T virtual`, each workload alone between two `uptime`s; the
+numbers are the workload's own (a session with nothing in it taken away):
+its time in ticks (100 rounds each), the messages (4 KiB buffers put into
+an inbox: requests and replies), the commands to the block device, the
+context switches and the KiB they moved, the instructions of all cores.
 
 Before (main at 55f0543 plus the bench, one fs):
 
@@ -157,4 +145,66 @@ Before (main at 55f0543 plus the bench, one fs):
 The store test (`tools/test-store.sh`, 117 sessions, `tools/bench/store-test.sh`):
 1,535,736,521 instructions, 90,492 messages, 15,245 block commands.
 
-After: (to come)
+After, the split with one message per store call ("naive", commit
+5251024), and as it is on the branch (read-ahead, writes later, WRITEV):
+
+| workload | ticks before | naive | split | split / before | messages before → split | instructions before → split |
+|---|---:|---:|---:|---:|---:|---:|
+| boot to the shell | 9,000 | 16,000 | 16,000 | 1.78 | 258 → 617 | 2.53 M → 4.01 M |
+| cat /src/cc.c (162 KB) | 81,897 | 88,311 | 90,623 | 1.11 | 239 → 427 | 9.36 M → 11.08 M |
+| wc < /src/cc.c | 86,419 | 92,699 | 94,782 | 1.10 | 163 → 351 | 9.58 M → 11.28 M |
+| ls /many (300 files) | 18,196 | 79,757 | 28,882 | 1.59 | 69 → 141 | 2.48 M → 3.92 M |
+| ls /bin | 5,397 | 19,575 | 10,646 | 1.97 | 61 → 99 | 1.09 M → 1.80 M |
+| cp /src/cc.c /x | 88,777 | 106,702 | 104,193 | 1.17 | 251 → 589 | 9.82 M → 12.90 M |
+| 100 small files (echo >) | 282,875 | 717,471 | 420,071 | 1.49 | 664 → 3,090 | 31.4 M → 55.7 M |
+| touch /many/f100 | 1,811 | 2,961 | 3,077 | 1.70 | 77 → 99 | 0.94 M → 1.16 M |
+| dbbench 200 | 210,758 | 353,480 | 284,789 | 1.35 | 883 → 2,519 | 22.1 M → 37.0 M |
+| — 200 DBBATCH puts | 170,757 | 306,831 | 226,449 | 1.33 | | |
+| — 200 DBGETs | 33,312 | 38,723 | 49,982 | 1.50 | | |
+| — a DBSCAN of 200 | 4,861 | 5,115 | 5,512 | 1.13 | | |
+
+Block commands are the same (they are the store's): 1,503 for the 100
+files, 44 for `cat`, 22 at boot. Context switches and the KiB they move
+grew where a program shares a core with a server it waits on: the login
+shell sits on core 2, beside `dev` and `db`, so every request it makes
+while `db` works swaps the two (100 small files: 606 switches moving 65 MB,
+none before; `cat`: 98 and 8.4 MB, about as before). On a machine with a
+core to spare the shell could sit alone.
+
+The store test (`tools/test-store.sh`, all its sessions on the counting
+emulator, `tools/bench/store-test.sh`): 1.54 G instructions, 90,492
+messages, 15,245 block commands before; 1.84 G (+20%), 164,962 messages
+(+82%), 15,020 block commands after.
+
+Where the time goes: not in copies (a READ's bytes cross two more
+transfers, `cat` is 11% slower) but in round trips. A store call that was
+a function call is now some 6,500 rounds; a listing or a file's creation
+makes dozens. The first version (a message per call) was 2.5 to 4.4 times
+slower on those; the read-ahead and the queued writes took most of that
+back, and the rest is the calls that must wait for an answer (lookups by
+path, the record read before a change).
+
+## Recommendation
+
+**Do not land the split on `main` as the file system's structure; land
+the kernel part.**
+
+- Several servers on a core is cheap, general (servers share cores like
+  programs, the user's point) and needed by anything that adds a server:
+  it can go to `main` on its own (with the debugger's change; placement's
+  flag 16).
+- The split costs 10–17% on bulk reads and copies, 1.5–2× on what makes
+  many small store calls (listings, creating files, boot, the program
+  store), for every program, all the time, to gain one thing: a store a
+  guest can reach without the file system.
+- That one thing can be had without splitting the host's file system: a
+  guest's disk is a value (or a namespace) in the host's store, and the
+  host's `fs` can answer a guest's block calls on it, as it answers DBGET
+  today — or `db` can be split out only where it is used across a
+  boundary. The partial-value calls (VREAD, VWRITE at an offset) are what a
+  guest's `blk` needs, and they work in one server as well as in two.
+- If the guest work does build on `db` directly, two things are missing
+  first: transactions for a second writer (today `fs` is `db`'s only
+  writer; a guest's batch in the middle of an `fs` request would commit
+  `fs`'s half-done change), and a program store reached without `fs` (the
+  extra hop is the DBGET's 1.5×).

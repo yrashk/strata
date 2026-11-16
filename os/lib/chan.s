@@ -20,10 +20,13 @@
 ; in order). The producer must be one thread at a time; so must the consumer.
 ; Neither trusts the other's words: lengths and positions are checked.
 ;
-; The ring is reached through c10 (both calls copy nothing into it: the
-; caller puts the segment there, a copy of a copyable capability, right
-; before the call; c10 survives traps but not a context switch). Offsets
-; are from c10's base; ring sizes are multiples of 8 and at least 80.
+; The producer (chan_put: a program) reaches its ring through c6, where it
+; holds it, a register that is its own across context switches; the
+; consumer (chan_get: tty, alone on its core) through c10, where it puts the
+; segment of all the rings right before the call (c10 survives traps but not
+; a context switch: a program preempted between that copy and a use of c10
+; faulted on it). Offsets are from the register's base; ring sizes are
+; multiples of 8 and at least 80.
 ; Clobbers t0..t6, a0..a7.
 
 CH_HEAD  = 0                            ; ring header: bytes written
@@ -36,9 +39,9 @@ CH_DATA  = 64                           ; the records
 ; if the record does not fit now (nothing written)
 chan_put:
         mv    a6, a0                    ; a6 = the ring
-        tamo.add a4, c10, a6, zero      ; a4 = HEAD (an atomic add of 0 reads)
+        tamo.add a4, c6, a6, zero       ; a4 = HEAD (an atomic add of 0 reads)
         addi  t0, a6, CH_TAIL           ; a5 = TAIL
-        tamo.add a5, c10, t0, zero      ; ...
+        tamo.add a5, c6, t0, zero       ; ...
         addi  a7, a1, -CH_DATA          ; a7 = the data's size
         sub   t1, a4, a5                ; used
         bgtu  t1, a7, cp_full           ; (damaged: treat as full)
@@ -51,7 +54,7 @@ chan_put:
         remu  t4, a4, a7                ; t4 = HEAD's position in the data
         addi  t0, a6, CH_DATA           ; the length word
         add   t0, t0, t4                ; ...
-        tamo.swap zero, c10, t0, a3     ; ...
+        tamo.swap zero, c6, t0, a3      ; ...
         mv    t5, a2                    ; t5 = next source byte
         add   t6, a2, a3                ; t6 = the end of the source
 cp_word:
@@ -84,12 +87,12 @@ cp_b:
 cp_store:
         addi  t0, a6, CH_DATA           ; -> the ring
         add   t0, t0, t4                ; ...
-        tamo.swap zero, c10, t0, t1     ; ...
+        tamo.swap zero, c6, t0, t1      ; ...
         j     cp_word                   ; ...
 cp_pub:
-        tamo.add zero, c10, a6, t2      ; publish: HEAD += the record
+        tamo.add zero, c6, a6, t2       ; publish: HEAD += the record
         addi  t0, a6, CH_SLEEP          ; is the consumer awake?
-        tamo.add a1, c10, t0, zero      ; ...
+        tamo.add a1, c6, t0, zero       ; ...
         mv    a0, a3                    ; written
         ret                             ; done
 cp_full:
