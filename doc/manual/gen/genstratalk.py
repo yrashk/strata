@@ -238,7 +238,7 @@ def page_parts(files, classes, exs, intro):
           '<b>Try</b> here.</p>' % len(exs)]
     for name, com, src in exs:
         ex.append('<h3 id="ex-%s">%s.st <button type="button" class="small try-b" data-try="%s">Try</button></h3>'
-                  '<p>%s</p><pre class="lst"><code>%s</code></pre>' % (
+                  '<p>%s</p><pre class="lst"><code class="language-stratalk">%s</code></pre>' % (
                       esc(name), esc(name), esc(src.strip()), esc(com), esc(src.strip())))
     ex.append("</section>")
     main.append("\n".join(ex))

@@ -10,9 +10,9 @@ uses. Pages are published next to the site (site/), whose style.css and
 hl.js they use. It also runs gen/genforth.py: OUTDIR/forth/index.html, the
 Strata Forth words and playground, generated from lang/forth/;
 gen/genstratalk.py: OUTDIR/stratalk/index.html, Stratalk's classes, examples
-and playground, from lang/stratalk/; and gen/genprolog.py:
-OUTDIR/prolog/index.html, Stralog's predicates, examples and playground,
-from lang/prolog/.
+and playground, from lang/stratalk/; and gen/genstralog.py:
+OUTDIR/stralog/index.html, Stralog's predicates, examples and playground,
+from lang/stralog/.
 
 Nothing is copied by hand. The instruction entries come from the same data
 that gen/geninsns.py turns into the manual's LaTeX (geninsns.INSNS and
@@ -50,15 +50,31 @@ def insn_id(key):
 
 # ---------------------------------------------------------------- the page shell
 NAV = [("../#idea", "Idea", None), ("../arch/", "Architecture", "arch"), ("../isa/", "Instructions", "isa"), ("../os/", "OS", None),
-       ("../forth/", "Forth", "forth"), ("../stratalk/", "Stratalk", "stratalk"), ("../prolog/", "Prolog", "prolog"),
-       ("../c/", "C", None),
+       ("Languages", [("../forth/", "Forth", "forth"), ("../stratalk/", "Stratalk", "stratalk"),
+                      ("../stralog/", "Stralog", "stralog"), ("../c/", "C", None)]),
        ("../hardware/", "Hardware", None), ("../play/", "Play", None),
        ("../debug/", "Debug", None), ("../code/", "Source", None)]
 
 
+def nav_links(here):
+    """The top bar's links; a (title, links) entry is a menu (site/style.css: .menu)."""
+    def a(h, t, k, ind):
+        return '%s<a href="%s"%s>%s</a>' % (ind, h, ' aria-current="page"' if k == here else "", t)
+    out = []
+    for e in NAV:
+        if isinstance(e[1], list):
+            cur = " current" if any(k == here for (_, _, k) in e[1]) else ""
+            out.append('    <div class="menu%s">\n      <span class="menu-btn" tabindex="0" aria-haspopup="true">%s</span>\n'
+                       '      <div class="drop">' % (cur, e[0]))
+            out += [a(h, t, k, "        ") for (h, t, k) in e[1]]
+            out.append("      </div>\n    </div>")
+        else:
+            out.append(a(*e, "    "))
+    return "\n".join(out)
+
+
 def page(here, title, desc, side, main, head="", tail=""):
-    links = "\n".join('    <a href="%s"%s>%s</a>' % (h, ' aria-current="page"' if k == here else "", t)
-                      for (h, t, k) in NAV)
+    links = nav_links(here)
     return """<!doctype html>
 <html lang="en">
 <head>
@@ -502,9 +518,9 @@ def main():
     c = genstratalk.write(out, page, link_sources, files)
     print("web-docs: Stratalk: %d classes, %d methods, %d examples -> %s/stratalk/" % (
         c["classes"], c["methods"], c["examples"], out))
-    import genprolog  # noqa: E402  (the Stralog section: prolog/, from lang/prolog/)
-    n, k = genprolog.write(out, page, link_sources, files)
-    print("web-docs: %d Stralog predicates, %d examples -> %s/prolog/" % (n, k, out))
+    import genstralog  # noqa: E402  (the Stralog section: stralog/, from lang/stralog/)
+    n, k = genstralog.write(out, page, link_sources, files)
+    print("web-docs: %d Stralog predicates, %d examples -> %s/stralog/" % (n, k, out))
 
 
 if __name__ == "__main__":

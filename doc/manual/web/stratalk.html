@@ -43,7 +43,7 @@ st> Proc ps
 OrderedCollection (2 dev (core 2, blocked) 4 blk (core 2, blocked) ...)</code></pre>
 
 <p>A file:</p>
-<pre class="lst"><code>Object subclass: #Point slots: 'x y'.
+<pre class="lst"><code class="language-stratalk">Object subclass: #Point slots: 'x y'.
 Point class >> x: ax y: ay [ ^self new setX: ax y: ay ]
 Point >> setX: ax y: ay [ x := ax. y := ay ]
 Point >> + p [ ^Point x: x + p x y: y + p y ]
@@ -177,7 +177,7 @@ false</code></pre>
   <code>FsServer</code>, <code>DbServer</code>, <code>WsServer</code>, ...) and two methods per
   operation, one without arguments and one that takes a Dictionary of the request's fields by their
   spec names. The reply decodes its data by the spec. Friendlier faces sit on top:</p>
-<pre class="lst"><code>Proc ps                          "the processes"
+<pre class="lst"><code class="language-stratalk">Proc ps                          "the processes"
 ProcServer default info fields   "cores, memory, context switches"
 Fs statfs                        "#(blocks used files)"
 (Db tree: 'mine/notes') at: 'k' put: 'v'; at: 'k'

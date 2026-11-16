@@ -1306,7 +1306,7 @@ assembles and runs a program.
 
 The C compiler (Section~\ref{sec:cc}) is on the disk too, and is self-hosting in the same sense.
 \texttt{cc prog.c} compiles a program at the shell: \texttt{cc} is an ordinary StrataOS program whose
-106~KiB of code are paged in 4~KiB units from a second file, \texttt{/bin/cc.u}, whose large tables and
+107~KiB of code are paged in 4~KiB units from a second file, \texttt{/bin/cc.u}, whose large tables and
 its window on the source are in its arena, and which reads the library from \texttt{/bin/cc.lib}. The
 disk also carries the compiler's source, \texttt{/src/cc.c}, and \texttt{cc0}, the compiler in assembly
 it is bootstrapped from (its source, \texttt{cc.s}, the \texttt{cc-*.s} beside it and its runtime, in

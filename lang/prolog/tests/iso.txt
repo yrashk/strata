@@ -1,8 +1,0 @@
--m 4 stralog -g iso(1,8) /prolog/iso/iso_run
--m 4 stralog -g iso(9,16) /prolog/iso/iso_run
--m 4 stralog -g iso(17,24) /prolog/iso/iso_run
--m 4 stralog -g iso(25,32) /prolog/iso/iso_run
--m 4 stralog -g iso(33,40) /prolog/iso/iso_run
--m 4 stralog -g iso(41,48) /prolog/iso/iso_run
--m 4 stralog -g iso(49,56) /prolog/iso/iso_run
-halt

@@ -93,13 +93,13 @@ t stratalk-host  mid  build-main "lang/stratalk" 'lang/stratalk/tests/run.sh -h'
 #      examples (EXPR >>> RESULT) as the REPL prints them under StrataOS
 t web-stratalk  fast build-main "lang/stratalk doc/manual/gen/genstratalk.py" 'python3 doc/manual/gen/genstratalk.py --check'
 t stratalk-doc  mid  build-main "emu os lang/stratalk doc/manual/gen/genstratalk.py" 'lang/stratalk/tests/doc.sh'
-# ---- Stralog, the Prolog (lang/prolog): scripted sessions under StrataOS
-t stralog      fast build-main "emu os lang/prolog/tests" "lang/prolog/tests/run.sh session $OS"
-t stralog-bi   fast build-main "emu os lang/prolog/tests" "lang/prolog/tests/run.sh builtins $OS"
-t stralog-files fast build-main "emu os lang/prolog/tests" "lang/prolog/tests/run.sh files $OS"
-t stralog-demos fast build-main "emu os lang/prolog/tests lang/prolog/examples" "lang/prolog/tests/run.sh demos $OS"
-t stralog-iso  fast build-main "emu os lang/prolog/tests" "lang/prolog/tests/run.sh iso $OS"
-t web-prolog   fast build-main "lang/prolog doc/manual/gen/genprolog.py" 'python3 doc/manual/gen/genprolog.py --check'
+# ---- Stralog, the Prolog (lang/stralog): scripted sessions under StrataOS
+t stralog      fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/run.sh session $OS"
+t stralog-bi   fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/run.sh builtins $OS"
+t stralog-files fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/run.sh files $OS"
+t stralog-demos fast build-main "emu os lang/stralog/tests lang/stralog/examples" "lang/stralog/tests/run.sh demos $OS"
+t stralog-iso  fast build-main "emu os lang/stralog/tests" "lang/stralog/tests/run.sh iso $OS"
+t web-stralog   fast build-main "lang/stralog doc/manual/gen/genstralog.py" 'python3 doc/manual/gen/genstralog.py --check'
 
 # ---- the framebuffer, the JIT, the debuggers --------------------------------------
 t fb           mid  build-main "emu rtl" 'tools/test-fb.sh $B/examples/gfx.stx'
