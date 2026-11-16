@@ -3106,6 +3106,8 @@ void g_binop(int op)
 {
     struct val *a = vp - 1, *b = vp;
     int ta = a->type, tb = b->type, t;
+    if (b->kind == VK_JMP) gv_d(b);     /* (&&, || on the right: its jumps land where it becomes a
+                                           value, so that must come before a's code, a reload) */
     if (is_ptr(ta) || is_ptr(tb)) { g_ptrop(op); return; }
     if (is_fp(ta) || is_fp(tb)) { f_binop(op); return; }
     if (!is_int(ta) || !is_int(tb)) err("invalid operands", 0);
