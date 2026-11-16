@@ -761,6 +761,7 @@ lk_class:
         sd    a0, v_tmp3(zero)          ; ...
         li    a1, 1                     ; its keys
         call  oload                     ; ...
+        beqz  a0, lk_super              ; (none yet)
         mv    a3, a0                    ; a3 = keys
         call  fld                       ; their number: a power of two
         srli  a2, a0, SIZE_SHIFT        ; a2 = n

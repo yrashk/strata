@@ -57,8 +57,9 @@ Object >> at: index put: anObject [ <primitive: 45> ^self indexError: index ]
 Object >> instVarAt: index [ <primitive: 49> ^self indexError: index ]
 Object >> instVarAt: index put: anObject [ <primitive: 50> ^self indexError: index ]
 Object >> indexError: index [
-    self isImmutable ifTrue: [^self error: 'this object cannot be changed'].
     index isInteger ifFalse: [^self error: 'an index must be an integer'].
+    ((index between: 1 and: self basicSize) and: [self isImmutable])
+        ifTrue: [^self error: 'this object cannot be changed'].
     ^SubscriptOutOfBounds new signal: 'index ', index printString, ' is out of bounds' ]
 Object >> isImmutable [ <primitive: 55> ]
 Object >> beImmutable [ <primitive: 56> ]
@@ -237,14 +238,14 @@ Class class >> new: aSymbol super: aClass slots: aString format: aFormat [
     meta := Metaclass basicNewFar: 0.
     meta setSuperclass: superMeta methodDict: MethodDictionary new
         format: superMeta instSize index: Smalltalk newClassIndex.
+    Smalltalk registerClass: meta.
     cls := meta basicNewFar: 0.
     cls setSuperclass: aClass methodDict: MethodDictionary new
         format: (aClass == nil ifTrue: [0] ifFalse: [aClass instSize]) + names size + (fmt bitShift: 16)
         index: Smalltalk newClassIndex.
+    Smalltalk registerClass: cls.
     cls setName: aSymbol instVarNames: names asArray.
     meta setThisClass: cls instVarNames: #().
-    Smalltalk registerClass: cls.
-    Smalltalk registerClass: meta.
     Smalltalk at: aSymbol put: cls.
     ^cls ]
 

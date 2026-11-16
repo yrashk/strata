@@ -827,8 +827,6 @@ class Compiler:
         elif v is FALSE: self.emit(sc, PUSH_FALSE)
         elif isinstance(v, int) and -128 <= v <= 127: self.emit(sc, PUSH_INT8, v & 255)
         else:
-            if isinstance(v, int) and not (-(1 << 62) <= v < (1 << 62)):
-                raise CompileError('integer literal too large')
             self.emit(sc, PUSH_LIT, sc.lit(v))
 
     def gen_send(self, sel, nargs, sc, sup):

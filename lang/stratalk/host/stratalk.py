@@ -259,7 +259,12 @@ class Builder:
         if v is NIL: return 0
         if v is TRUE: return self.true
         if v is FALSE: return self.false
-        if isinstance(v, int): return si(v)
+        if isinstance(v, int):
+            if SMALL_MIN <= v <= SMALL_MAX: return si(v)
+            m = abs(v); b = bytearray()
+            while m: b.append(m & 255); m >>= 8
+            o = self.h.alloc_bytes(self.classes['LargeNegativeInteger' if v < 0 else 'LargePositiveInteger'].ci, bytes(b))
+            return o
         if isinstance(v, Sym): return self.symbol(v.s)
         if isinstance(v, Str): return self.string(v.s)
         if isinstance(v, Char): return ch(v.c)
@@ -503,7 +508,7 @@ class VM:
         cls = h.slot(self.classes, ci)
         while cls:
             md = h.slot(cls, B_MDICT)
-            if md:
+            if md and h.slot(md, 1):
                 keys, vals = h.slot(md, 1), h.slot(md, 2)
                 size = h.nslots(keys)
                 i = ((h.hdr(sel) >> HASH_SHIFT) & HASH_MASK) & (size - 1)
@@ -575,17 +580,19 @@ class VM:
         self.serial += 1
         f.serial = self.serial
         self.frame = f
-        if self.depth_check(): self.overflow(f)
+        if not self.serial & 255: self.depth_check()
 
     def depth_check(self):
+        """Deeper than the VM's paged stack goes: Stratalk stackOverflow."""
         n = 0
         f = self.frame
-        if self.serial & 63: return False
         while f: n += 1; f = f.sender
-        return n > 3000
-
-    def overflow(self, f):
-        raise StError('stack overflow (Python)')
+        if n < 50000: self.in_ovf = False
+        if n > 100000 and not getattr(self, 'in_ovf', False):
+            self.in_ovf = True
+            st = self.frame.stack
+            st.append(self.h.slot(self.specials, SP_START_RCVR))
+            self.send(self.h.slot(self.specials, SP_OVERFLOW), 0, None)
 
     def send(self, sel, nargs, start_cls):
         self.sends += 1
@@ -968,7 +975,9 @@ class VM:
             if p == 100 or p == 110:
                 b = args[0]
                 if b & 7 or b == 0 or h.fmt(b) != F_BYTES: return None
+                self.out.flush()
                 (sys.stderr.buffer if p == 110 else self.out).write(h.bytes_of(b))
+                if p == 110: sys.stderr.buffer.flush()
                 return rcvr
             if p == 101:
                 self.out.flush()
@@ -1232,7 +1241,11 @@ def send_value(vm, rcvr, sel, args):
 def same_literal(h, v, o, cls_oop, where):
     if v is NIL: return o == 0
     if v is TRUE or v is FALSE: return o != 0 and o & 7 == 0 and h.ci(o) == (CI['True'] if v is TRUE else CI['False'])
-    if isinstance(v, int): return o == si(v)
+    if isinstance(v, int):
+        if SMALL_MIN <= v <= SMALL_MAX: return o == si(v)
+        m = abs(v); b = bytearray()
+        while m: b.append(m & 255); m >>= 8
+        return o & 7 == 0 and o and h.bytes_of(o) == bytes(b)
     if isinstance(v, Char): return o == ch(v.c)
     if isinstance(v, Sym): return o & 7 == 0 and o and h.ci(o) == CI['Symbol'] and h.bytes_of(o) == v.s.encode()
     if isinstance(v, Str): return o & 7 == 0 and o and h.ci(o) == CI['String'] and h.bytes_of(o) == v.s.encode()
@@ -1340,6 +1353,22 @@ def main(argv):
     if cmd == 'run':
         h = load_image(argv[2])
         vm = VM(h, argv[3:])
+        if os.environ.get('STRATALK_WATCH'):
+            import signal
+            def dump(*a):
+                f = vm.frame
+                while f is not None and f is not vm.bottom:
+                    m = f.method
+                    nl = HDR_NLITS(si_val(h.slot(m, 0)))
+                    sel = h.slot(m, nl - 1) if not f.flags & FL_BLOCK else 0
+                    cls = h.slot(m, nl)
+                    try: name = h.bytes_of(sel).decode() if sel else '[]'
+                    except Exception: name = '?'
+                    print('  %s ip %d' % (name, f.ip), file=sys.stderr)
+                    f = f.sender
+                os._exit(9)
+            signal.signal(signal.SIGALRM, dump)
+            signal.alarm(int(os.environ['STRATALK_WATCH']))
         try:
             code = vm.start()
         except StError as e:

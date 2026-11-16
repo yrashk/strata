@@ -481,7 +481,8 @@ $(BUILD)/strata-cc: lang/cc/cc.c lang/cc/host/host.c lang/cc/host/strata.h
 # ---- Stratalk (lang/stratalk): the VM, a StrataOS program, and its image ----------
 STRATALK_VM := lang/stratalk/vm.s $(wildcard lang/stratalk/vm-*.s)
 STRATALK_ST := $(addprefix lang/stratalk/kernel/,$(shell sed -e 's/\#.*//' lang/stratalk/kernel/LOAD))
-STRATALK_DISK := $(BUILD)/prog/stratalk $(BUILD)/stratalk/stratalk.image $(STRATALK_ST)
+STRATALK_EX := $(sort $(wildcard lang/stratalk/examples/*.st))
+STRATALK_DISK := $(BUILD)/prog/stratalk $(BUILD)/stratalk/stratalk.image $(STRATALK_ST) $(STRATALK_EX)
 $(BUILD)/prog/stratalk: $(STRATALK_VM) os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/prog
 	$(BUILD)/sasm -T 0x8000 -I lang/stratalk -g $(BUILD)/prog/stratalk.map -o $@ lang/stratalk/vm.s
@@ -585,7 +586,7 @@ DISK_ARGS  += -t www $(WWW_FILES)
 DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS) -t src,cc $(CC_ASRCS)
 # Stratalk: the VM, its image, and the kernel's sources (lang/stratalk)
 DISK_FILES += $(STRATALK_DISK)
-DISK_ARGS  += -t bin $(BUILD)/prog/stratalk -t stratalk $(BUILD)/stratalk/stratalk.image $(STRATALK_ST)
+DISK_ARGS  += -t bin $(BUILD)/prog/stratalk -t stratalk $(BUILD)/stratalk/stratalk.image $(STRATALK_ST) -t stratalk,examples $(STRATALK_EX)
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)

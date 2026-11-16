@@ -8,4 +8,5 @@ Exception.st
 System.st
 Compiler.st
 LineEditor.st
+File.st
 Init.st

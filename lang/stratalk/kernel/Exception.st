@@ -30,7 +30,7 @@ ExceptionSet >> handles: anException [ ^classes anySatisfy: [:c | c handles: anE
 
 Exception >> messageText [ ^messageText ifNil: [self description] ]
 Exception >> messageText: aString [ messageText := aString ]
-Exception >> description [ ^self class name ]
+Exception >> description [ ^self class name asString ]
 Exception >> isResumable [ ^true ]
 Exception >> signalFrame [ ^signalFrame ]
 Exception >> signal: aString [ messageText := aString. ^self signal ]

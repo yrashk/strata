@@ -751,7 +751,6 @@ Compiler >> genLiteral: v in: sc [
     v == true ifTrue: [^self emit: sc op: 2].
     v == false ifTrue: [^self emit: sc op: 3].
     (v isInteger and: [v between: -128 and: 127]) ifTrue: [^self emit: sc op: 26 with: (v bitAnd: 255)].
-    (v isInteger and: [v isLarge]) ifTrue: [^self error: 'integer literal too large'].
     self emit: sc op: 18 with: (sc lit: (self literal: v)) ]
 Compiler >> literal: v [
     "Literal strings, arrays and byte arrays cannot be changed."

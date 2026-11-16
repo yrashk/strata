@@ -223,17 +223,11 @@ ArrayedCollection >> , other [
 Array >> isArray [ ^true ]
 Array >> printOn: aStream [
     aStream nextPut: $#; nextPut: $(.
-    self do: [:e | e printInArrayOn: aStream] separatedBy: [aStream space].
+    self do: [:e | aStream print: e] separatedBy: [aStream space].
     aStream nextPut: $) ]
 Array >> displayOn: aStream [
     aStream nextPut: $(.
     self do: [:e | e displayOn: aStream] separatedBy: [aStream space].
-    aStream nextPut: $) ]
-Object >> printInArrayOn: aStream [ self printOn: aStream ]
-Symbol >> printInArrayOn: aStream [ aStream nextPutAll: self ]
-Array >> printInArrayOn: aStream [
-    aStream nextPut: $(.
-    self do: [:e | e printInArrayOn: aStream] separatedBy: [aStream space].
     aStream nextPut: $) ]
 Array >> isLiteral [ ^self allSatisfy: [:e | e isLiteral] ]
 Object >> isLiteral [ ^false ]
@@ -628,7 +622,7 @@ Association >> hash [ ^key hash ]
 
 "---- method dictionaries: as the VM probes them -----------------------------------"
 
-MethodDictionary class >> new [ ^self basicNewFar: 0 ]
+MethodDictionary class >> new [ ^(self basicNewFar: 0) setEmpty; yourself ]
 MethodDictionary >> setEmpty [ tally := 0. keys := Array basicNewFar: 8. values := Array basicNewFar: 8 ]
 MethodDictionary >> indexOf: aSymbol [
     | n i k |

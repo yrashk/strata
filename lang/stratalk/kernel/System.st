@@ -12,7 +12,7 @@ SystemDictionary >> noteNewSymbol [ ^self ]
 SystemDictionary >> newClassIndex [
     | t |
     t := self classTable.
-    33 to: t size do: [:i | (t at: i) == nil ifTrue: [t at: i put: 0. ^i - 1]].
+    33 to: t size do: [:i | (t at: i) == nil ifTrue: [^i - 1]].
     ^self error: 'no room for another class' ]
 SystemDictionary >> registerClass: aClass [ self classTable at: aClass classIndex + 1 put: aClass ]
 SystemDictionary >> allClassesDo: aBlock [
@@ -92,7 +92,8 @@ Stratalk class >> evaluateAndPrint: aString [
     Transcript showln: r printString ]
 Stratalk class >> fileIn: aName arguments: anArray [
     replFrame := Frame current.
-    (FileStream named: aName) fileIn.
+    Smalltalk at: #Arguments put: anArray.
+    (File named: aName) fileIn.
     Transcript flush.
     Smalltalk quit: 0 ]
 Stratalk class >> unhandled: anException [

@@ -65,22 +65,56 @@ LineEditor >> wordBefore [
     i := line size.
     [i > 0 and: [(line at: i) isAlphaNumeric or: [(line at: i) = $_ or: [(line at: i) = $:]]]] whileTrue: [i := i - 1].
     ^line copyFrom: i + 1 to: line size ]
+LineEditor >> receiverBefore: aWord [
+    "What the selector being typed is sent to, when the line shows it plainly:
+     a literal, a global's name, the result of nothing else (nothing is run).
+     nil if unknown."
+    | head i tok |
+    head := (line copyFrom: 1 to: line size - aWord size) trimSeparators.
+    head isEmpty ifTrue: [^nil].
+    (head last = $') ifTrue: [^'' ].
+    i := head size.
+    [i > 0 and: [(head at: i) isAlphaNumeric or: [(head at: i) = $_ or: [(head at: i) = $#]]]] whileTrue: [i := i - 1].
+    (i > 0 and: [(head at: i) = $-]) ifTrue: [i := i - 1].
+    tok := head copyFrom: i + 1 to: head size.
+    tok isEmpty ifTrue: [^nil].
+    tok first = $# ifTrue: [^#sym].
+    (tok first isDigit or: [tok first = $-]) ifTrue: [^tok asInteger].
+    (tok first = $$) ifTrue: [^$a].
+    tok first isUppercase ifTrue: [^Smalltalk at: tok asSymbol ifAbsent: [nil]].
+    tok = 'nil' ifTrue: [^#nil].
+    (tok = 'true' or: [tok = 'false']) ifTrue: [^true].
+    ^nil ]
+LineEditor >> add: aSelector to: aSet after: aWord [
+    "A keyword selector: only its next keyword."
+    | k |
+    (aSelector size >= aWord size and: [aSelector beginsWith: aWord]) ifFalse: [^self].
+    k := aSelector indexOf: $: startingAt: aWord size + 1.
+    aSet add: (k = 0 ifTrue: [aSelector asString] ifFalse: [aSelector copyFrom: 1 to: k]) ]
 LineEditor >> candidatesFor: aWord [
-    | out |
+    | out rcvr cls head |
     out := Set new.
-    aWord first isUppercase
-        ifTrue: [Smalltalk keysDo: [:k | (k beginsWith: aWord) ifTrue: [out add: k asString]]]
-        ifFalse: [
-            Smalltalk symbolTable do: [:s |
-                (s notNil and: [s size > 0 and: [(s at: 1) isLowercase and: [s beginsWith: aWord]]]) ifTrue: [
-                    "a keyword selector: its next keyword"
-                    | k | k := s indexOf: $: startingAt: aWord size + 1.
-                    out add: (k = 0 ifTrue: [s asString] ifFalse: [s copyFrom: 1 to: k])]]].
+    head := (line copyFrom: 1 to: line size - aWord size) trimSeparators.
+    "a name: at the start, or after a statement or an operator"
+    (aWord notEmpty and: [aWord first isUppercase]) | (aWord isEmpty and: [head isEmpty or: ['.(:[^=' includes: head last]]) ifTrue: [
+        Smalltalk keysDo: [:k | (k beginsWith: aWord) ifTrue: [out add: k asString]].
+        ^out asSortedCollection: [:a :b | a <= b]].
+    "a selector: the receiver's, if it can be told"
+    rcvr := self receiverBefore: aWord.
+    rcvr == #nil ifTrue: [rcvr := nil. cls := UndefinedObject] ifFalse: [cls := rcvr == nil ifTrue: [nil] ifFalse: [rcvr class]].
+    cls == nil
+        ifTrue: [
+            aWord isEmpty ifTrue: [cls := Object] ifFalse: [
+                Smalltalk symbolTable do: [:s |
+                    (s notNil and: [s size > 0 and: [(s at: 1) isLowercase]]) ifTrue: [self add: s to: out after: aWord]].
+                ^out asSortedCollection: [:a :b | a <= b]]].
+    [cls == nil] whileFalse: [
+        cls methodDict keysDo: [:s | self add: s to: out after: aWord].
+        cls := cls superclass].
     ^out asSortedCollection: [:a :b | a <= b] ]
 LineEditor >> complete [
-    | word cands prefix |
+    | word cands prefix width col |
     word := self wordBefore.
-    word isEmpty ifTrue: [^self].
     cands := self candidatesFor: word.
     cands isEmpty ifTrue: [^self].
     prefix := cands first.
@@ -90,10 +124,15 @@ LineEditor >> complete [
         line := line, more.
         self out: more.
         ^self].
-    cands size = 1 ifTrue: [^self].
+    (cands size = 1 and: [word notEmpty]) ifTrue: [^self].
+    "all of them, in columns"
+    width := (cands inject: 0 into: [:m :c | m max: c size]) + 2.
+    col := 0.
     self out: (String with: Character cr).
-    (cands first: (cands size min: 60)) do: [:c | self out: c] separatedBy: [self out: '  '].
-    cands size > 60 ifTrue: [self out: '  ...'].
+    cands do: [:c |
+        col + width > 78 ifTrue: [self out: (String with: Character cr). col := 0].
+        self out: c; out: (String new: width - c size withAll: $ ).
+        col := col + width].
     self out: (String with: Character cr), prompt, line ]
 LineEditor >> common: a with: b [
     | n |
