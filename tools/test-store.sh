@@ -561,8 +561,9 @@ v=$(printf 'v%.0s' $(seq 200))
   for i in $(seq 1 16); do echo "seq 100000 > /t/l$i"; done
   for i in $(seq 1 12); do echo "seq 10000 > /t/m$i"; done
   for i in $(seq 1 12); do echo "seq 1000 > /t/s$i"; done
+  for i in $(seq 1 40); do echo "seq 100 > /t/t$i"; done
   echo "echo --puts"
-  for i in $(seq 100 299); do echo "db put full/t k$i $v"; done
+  for i in $(seq 100 499); do echo "db put full/t k$i $v"; done
   echo "echo --after"
   echo "cat /t/l1 | wc"
   echo "db get full/t k100 | wc"

@@ -145,6 +145,7 @@ strata$ spin > f3 &
 strata$ kill %1
 [1] killed  spin > f3
 strata$ wait
+strata$ rm f3; touch f3
 strata$ sleep 0.05 &
 [1] PID
 strata$ fg
@@ -174,7 +175,7 @@ tfile                          11
 f1                             15 
 s1                             33 
 f2                              6 
-f3                              1 
+f3                              0 
 n1                              6 
 doc/
 etc/
@@ -193,7 +194,7 @@ tfile                          11
 f1                             15 
 s1                             33 
 f2                              6 
-f3                              1 
+f3                              0 
 doc/
 etc/
 sys/
@@ -260,7 +261,7 @@ tfile                          11
 f1                             15 
 s1                             33 
 f2                              6 
-f3                              1 
+f3                              0 
 n3                              6 
 doc/
 etc/
@@ -400,7 +401,7 @@ tfile                          11
 f1                             15 
 s1                             33 
 f2                              6 
-f3                              1 
+f3                              0 
 p1b                             4 
 doc/
 etc/
@@ -493,7 +494,7 @@ ls: no such tag or file: /cdt
 /
 strata$ rm f1 f2 f3 s1 tfile
 strata$ date
-2000-02-29 05:30:01 +05:30
+2000-02-29 05:30:02 +05:30
 strata$ exit 3 &
 [1] PID
 strata$ wait
