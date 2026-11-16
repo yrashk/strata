@@ -480,7 +480,8 @@ static int pre_capop(const Pre *p) {
   return 0;
 }
 
-static const char *cur_prog(const Core *c) { return os_aware && c->user ? os_name_of(os_cur_pid(c->id)) : NULL; }
+/* the program core c runs, as its map is named (a server built to sys/: sys/NAME) */
+static const char *cur_prog(const Core *c) { return os_aware && c->user ? os_map_name(os_cur_pid(c->id)) : NULL; }
 
 /* Breakpoints in front of core c's instruction. */
 static void pre_hits(Core *c, const Pre *p) {
