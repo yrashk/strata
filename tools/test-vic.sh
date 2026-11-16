@@ -1,6 +1,6 @@
 #!/bin/sh
-# vi's C highlighting on the emulator. Boots StrataOS with a scripted console
-# and runs vi on C files: one typed in (every kind of token: a preprocessor
+# vi's C, Stratalk and Prolog highlighting on the emulator. Boots StrataOS
+# with a scripted console and runs vi on C files: one typed in (every kind of token: a preprocessor
 # line (one with blanks around the #), a #include <name>, comments of both kinds, one over two lines,
 # keywords, types, strings and characters with escapes, numbers), the same
 # file after an edit that ends a comment (the rows below change colour),
@@ -8,7 +8,14 @@
 # lines above the screen), a file whose comment runs over 100 lines (seen
 # from inside, after an edit far above that ends it, and scrolling back up
 # into it), a comment typed in insert mode while the screen scrolls,
-# :syntax off, and a .h file.
+# :syntax off, and a .h file. Then Stratalk and Prolog: a file of each typed
+# in (every colour: comments and strings over lines, $c, #symbols, numbers,
+# keyword parts, the pseudo-variables, classes, :x and | temps |, ^ := >>;
+# % and /* */ comments, a clause's head, variables, :- --> ?- !, control,
+# builtins, operators, quoted atoms, strings, 0'c), a .st file whose comment
+# and then a string run over 100 lines (each seen from inside: the state
+# kept every 16 lines has two bits; and after an edit that turns the string
+# into a comment), and a .pl file whose comment runs over 100 lines.
 #
 #   tools/test-vic.sh build/bootrom.stx build/disk.img     (-u: update the .out)
 #   tools/test-vic.sh -f build/bootrom.stx build/disk.img  (the Forth port)
@@ -70,7 +77,43 @@ E=$(printf '\033'); CB=$(printf '\002')
   # :syntax off; a .h file
   printf '%s t.c\n:syntax off\n:q\n' "$VI"
   printf '%s t.h\ni#ifndef T_H\ntypedef unsigned long size_t; /* x */\n#endif%s:wq\n' "$VI" "$E"
-  printf 'rm t.c f.c g.c t.h\n'
+  # Stratalk: every colour
+  printf '%s t.st\ni' "$VI"
+  cat <<'ST'
+"a comment
+ over two lines" Object subclass: #Point
+| x y |
+at: i put: v ^ self at: i put: #'q''
+a string' , 'it''s' , $a printString , $' , #
+  x := 16r1F + 1.5e-3 + 2e + 3 >> 4. #(1 $b #sym:with: #'q''s' #+ #) nil
+[:e :each | super foo: thisContext] value: true & false ; a:=b
+Point >> x [ ^x ] "open at the end
+ST
+  printf '%s:wq\n' "$E"
+  # Prolog: every colour
+  printf '%s t.pl\ni' "$VI"
+  cat <<'PL'
+% a comment: 'not an atom'
+/* a block
+   comment */ parent(tom, bob).
+grandparent(X, Z) :- parent(X, Y), parent(Y, Z).
+'Quoted head'(_, A) --> [A], !, { A \== b, A =.. L, \+ member(x, L) }.
+?- X is 0'a + 0'\n + 1.5e+3 + 2E5, (X >= 1 -> writeln("a \"s\"") ; fail).
+t :- catch(f, E, true), findall(Y, between(1, 3, Y), _L), X @=< Y, X = 'it''s'.
+ head2 :- X =:= 1, X == Y, X @> Y, X =\= 1, 0' . /* open
+PL
+  printf '%s:wq\n' "$E"
+  # a Stratalk comment over 100 lines, then a string over 100: inside each;
+  # the first quote gone: all of it below is a comment
+  printf "echo '\"' > s.st; seq 100 >> s.st; echo '\"' >> s.st; echo \"x := 'a\" >> s.st; seq 100 >> s.st; echo \"' , y\" >> s.st\n"
+  printf '%s s.st\n50G:q\n' "$VI"
+  printf '%s s.st\n150G:q\n' "$VI"
+  printf '%s s.st\n150Gggx150G:q!\n' "$VI"
+  # a Prolog comment over 100 lines
+  printf "echo '/*' > p.pl; seq 100 >> p.pl; echo '*/ a :- b.' >> p.pl; seq 100 >> p.pl\n"
+  printf '%s p.pl\n50G:q\n' "$VI"
+  printf '%s p.pl\n150G:q\n' "$VI"
+  printf 'rm t.c f.c g.c t.h t.st t.pl s.st p.pl\n'
   printf 'echo bye\n\004'
 } >"$tmp/in.txt"
 cp "$2" "$tmp/d.img"
@@ -145,8 +188,8 @@ for k, s in enumerate(sessions):
 open(sys.argv[2], "w", encoding="latin-1").write("\n".join(out) + "\n")
 for b in bad[:10]:
     print("vic:", b)
-if len(sessions) != 9:
-    print(f"vic: {len(sessions)} vi sessions, not 9")
+if len(sessions) != 16:
+    print(f"vic: {len(sessions)} vi sessions, not 16")
     sys.exit(1)
 sys.exit(1 if bad else 0)
 PY
@@ -154,4 +197,4 @@ if [ $upd -eq 1 ]; then cp "$tmp/out.txt" "$here/tools/test-vic.out"; echo "tool
 if ! cmp -s "$tmp/out.txt" "$here/tools/test-vic.out"; then
   diff "$here/tools/test-vic.out" "$tmp/out.txt" | head -40; fail "the frames differ"
 fi
-printf '%-14s OK    C colours: tokens, comments over lines and screens, edits, :syntax off, .h\n' $name
+printf '%-14s OK    C, Stratalk, Prolog colours: tokens, comments and strings over lines and screens, edits, :syntax off\n' $name

@@ -247,7 +247,7 @@
         } else if (t[0] === "$") o += sp("s", t);
         else if (t[0] === "#") o += sp("kc", t);
         else if (/^\d/.test(t)) o += sp("n", t);
-        else if (t[0] === ":" && t.length > 2) o += sp("cr", t);
+        else if (t[0] === ":" && t !== ":=") o += sp("cr", t);
         else if (t === "^" || t === ":=" || t === ">>") o += sp("k-sys", t);
         else if (t.endsWith(":")) o += sp("f-ctl", t);
         else if (ST_PSEUDO.has(t)) o += sp("d", t);
