@@ -537,19 +537,26 @@ $(BUILD)/src/vi.s: os/progs/vi.s os/lib/sys.s $(BUILD)/vi-syntax.s
 	awk '/^[[:space:]]*\.include "\.\.\/lib\/sys\.s"/ { system("cat os/lib/sys.s"); next } \
 	     /^[[:space:]]*\.include "vi-syntax\.s"/ { system("cat $(BUILD)/vi-syntax.s"); next } { print }' $< > $@
 
+# (the examples, units and as are built with -r -n: their sources end with
+# .resident and .near, so that `as`, which has no command line, assembles
+# them the same way inside StrataOS)
+RN_LINES := '        .resident                       ; no paged code (sasm -r)\n        .near                           ; no far data (sasm -n)\n'
 $(BUILD)/src/units.s: os/progs/units.s examples/lib/print.s
 	@mkdir -p $(BUILD)/src
 	grep -v '^[[:space:]]*\.include' $< > $@
 	cat examples/lib/print.s >> $@
+	printf $(RN_LINES) >> $@
 
 $(BUILD)/src/%.s: examples/%.s examples/lib/print.s
 	@mkdir -p $(BUILD)/src
 	grep -v '^[[:space:]]*\.include' $< > $@
 	cat examples/lib/print.s >> $@
+	printf $(RN_LINES) >> $@
 
 $(BUILD)/src/as.s: os/progs/as.s
 	@mkdir -p $(BUILD)/src
 	cp $< $@
+	printf $(RN_LINES) >> $@
 
 # Strata Forth as a StrataOS program (its rules are in the Forth section below):
 # `forth`, the files it loads on demand (tools.fs, see.fs), core.fs to read, the demos
