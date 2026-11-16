@@ -89,9 +89,10 @@ else
 fi
 # ---- 4. the network words and httpd.fs, over loopback (127.0.0.1: no link needed)
 # tests/nettest.fs uses the words at the prompt (on demand) and for good, TCP
-# and UDP within one process; then httpd.fs answers 11 requests sent with nc
+# and UDP within one process; then httpd.fs answers 12 requests sent with nc
 # for the files of tests/http/ (tagged httptest): two files, a listing with
-# and without a trailing /, HEAD, 404, 405, 400, a binary's type, the type
+# and without a trailing /, a listing with a subdirectory (/demo: src/),
+# HEAD, 404, 405, 400, a binary's type, the type
 # of / (its home page, /www/forth.html), and /~ps twice (what the machine is
 # doing: lines without numbers, which change with the OS);
 # its log is shown last. HTTP's CRs are dropped before the comparison, and
@@ -99,10 +100,11 @@ fi
 {
   printf 'forth < /forth/nettest.fs\n'
   printf -- '-n 2 forth -e 80 tcp-listen\n'
-  printf 'forth httpd.fs 8000 11 > hlog &\n'
+  printf 'forth httpd.fs 8000 12 > hlog &\n'
   printf 'echo "GET /httptest/note.txt HTTP/1.0" | nc 127.0.0.1 8000\n'
   printf 'echo "GET /httptest/page.html HTTP/1.0" | nc 127.0.0.1 8000\n'
   printf 'echo "GET /httptest HTTP/1.0" | nc 127.0.0.1 8000\n'
+  printf 'echo "GET /demo HTTP/1.0" | nc 127.0.0.1 8000\n'
   printf 'echo "HEAD /httptest/ HTTP/1.0" | nc 127.0.0.1 8000\n'
   printf 'echo "GET /httptest/nosuch HTTP/1.0" | nc 127.0.0.1 8000\n'
   printf 'echo "DELETE /httptest/note.txt HTTP/1.0" | nc 127.0.0.1 8000\n'
