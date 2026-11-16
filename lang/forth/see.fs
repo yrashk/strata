@@ -59,7 +59,7 @@ variable pc                                     \ the instruction being shown
     ." .word " over h. nip
   endcase ;
 : dis ( insn -- )                                \ one instruction
-  dup 26 6 field case
+  dup 26 6 field case                           \ the opcode, bits 26..31
     0 of dis-alu endof
     $0A of ." lui  " dup 21 5 field reg. ., 0 16 field 16 sext . endof
     $28 of dis-jal endof
@@ -67,8 +67,8 @@ variable pc                                     \ the instruction being shown
     $30 of dis-xfer endof
     $3D of dis-x endof
     $3E of dis-x endof
-    dup 1 $0A within if dup >r dis-imm r> else
-    dup $20 $26 within if dup >r dis-branch r> else
+    dup 1 $0A within if dup >r dis-imm r> else  \ (the others are ranges: the opcode is kept
+    dup $20 $26 within if dup >r dis-branch r> else \ for ENDCASE to drop)
     dup $10 $1C within if dup >r dis-ldst r> else
     tuck dis-sys then then then
   endcase ;
