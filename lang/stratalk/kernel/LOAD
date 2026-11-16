@@ -9,4 +9,5 @@ System.st
 Compiler.st
 LineEditor.st
 File.st
+OS.st
 Init.st

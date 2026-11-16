@@ -6,7 +6,7 @@
 ;
 ; Runs a Stratalk image (lang/stratalk/README.md has the formats; the
 ; image is built by lang/stratalk/host/stratalk.py). The image is the far
-; heap: it is read into an extra arena (c6, MIB megabytes, 4 by default)
+; heap: it is read into an extra arena (c6, MIB megabytes, 6 by default)
 ; and every object there is reached with transfers. The core works on its
 ; Local Stores only:
 ;
