@@ -54,7 +54,7 @@
     '$choice'(B1),
     (   nonvar(E)
     ->  '$print_exc'(E), !
-    ;   '$answer'(Vs, B0, B1), !
+    ;   catch('$answer'(Vs, B0, B1), E2, '$print_exc'(E2)), !
     ).
 '$query'(_, _) :- write('false.'), nl.
 
@@ -315,9 +315,10 @@ length(L, N) :-
     '$skip'(L, 0, _, T),
     (   ( T == [] ; var(T) ) -> true ; throw(error(type_error(list, L), P)) ).
 
-reverse(L, R) :- '$rev'(L, [], R).
-'$rev'([], A, A).
-'$rev'([H|T], A, R) :- '$rev'(T, [H|A], R).
+% the second argument bounds the first's length, so that reverse(-, +) ends
+reverse(L, R) :- '$rev'(L, R, [], R).
+'$rev'([], [], A, A).
+'$rev'([H|T], [_|B], A, R) :- '$rev'(T, B, [H|A], R).
 
 nth0(I, L, E) :- integer(I), !, I >= 0, '$nth'(I, L, E).
 nth0(I, L, E) :- var(I), '$nthv'(L, E, 0, I).
@@ -652,8 +653,11 @@ aggregate_all(set(E), G, S) :- findall(E, G, L), sort(L, S).
 '$dcg_body'(call(G), S0, S, call(G, S0, S)) :- !.
 '$dcg_body'(NT, S0, S, G) :- '$dcg_nt'(NT, S0, S, G).
 
-phrase(G, L) :- phrase(G, L, []).
-phrase(G, L, R) :- '$dcg_body'(G, S0, S, Goal), S0 = L, S = R, call(Goal).
+phrase(G, L) :- '$phrase'(G, L, [], phrase/2).
+phrase(G, L, R) :- '$phrase'(G, L, R, phrase/3).
+'$phrase'(G, _, _, P) :- var(G), !, throw(error(instantiation_error, P)).
+'$phrase'(G, _, _, P) :- \+ callable(G), !, throw(error(type_error(callable, G), P)).
+'$phrase'(G, L, R, _) :- '$dcg_body'(G, S0, S, Goal), S0 = L, S = R, call(Goal).
 
 % ---- output ---------------------------------------------------------------------------------
 writeln(X) :- write(X), nl.

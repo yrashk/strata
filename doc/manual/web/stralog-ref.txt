@@ -1,0 +1,1380 @@
+<!--
+  The predicate reference of the website's Stralog section (stralog/), which
+  doc/manual/gen/genstralog.py renders after the examples. Every predicate of
+  the sources (lang/stralog/init.s's bi_tab and boot.pl) has an entry here, and
+  `genstralog.py --check` (the test web-stralog) says so, and that each entry
+  has a template and an example. The examples run, in this order and in one
+  session, in the test stralog-ref (lang/stralog/tests/ref.sh): what they show
+  is what Stralog prints.
+
+  # id | Title          a group; the lines up to its first entry are its
+                        introduction (a line starting with < is HTML)
+  ## name/2 name/3      an entry, for one or more predicates
+  : template            a template, with modes (+ - ? @ :), one per line
+  plain lines           what it does, a paragraph each; `code`, which links
+                        to the entry when it is a predicate indicator
+  error: formal — when  an error it raises, and when
+  differs: text         where it differs from ISO or SWI-Prolog
+  ?- query.             an example, up to a blank line: the query, then what
+                        Stralog prints. "| text" is a line typed for the
+                        program (read/1, get_char/1); an answer ending in " ;"
+                        had ; typed after it; "." alone is Enter after an
+                        answer that may have had others. A block starting with
+                        "strata$ " is a shell transcript, shown and not run.
+-->
+# control | Control
+Conjunction, disjunction, if-then-else, cut and negation are run by the solve loop itself (`solve.s`); `call/N`, `catch/3` and `findall/3` are too. The others here are written in Prolog in `boot.pl`. A cut inside `call/1`, `\+`, `findall/3` or the condition of an if-then-else is local to it: it cuts only what that goal created.
+
+## true/0
+: true
+Succeeds, once.
+?- true.
+true.
+
+## fail/0 false/0
+: fail
+: false
+Fail at once. The two are the same predicate under two names.
+?- fail.
+false.
+?- ( false ; X = 1 ).
+X = 1.
+
+## ,/2
+: (:First, :Second)
+Conjunction: calls `First`, then `Second` for each of its solutions. On backtracking, `Second`'s solutions come before `First`'s next one. A cut in either is the cut of the clause that holds the conjunction.
+error: instantiation_error — a goal is a variable (when it is reached).
+error: type_error(callable, G) — a goal `G` is a number (when it is reached).
+differs: ISO checks the whole conjunction before calling it, and `call((write(a), 1))` writes nothing; Stralog writes `a` and then raises the type error.
+?- X = 1, Y is X + 1.
+X = 1, Y = 2.
+?- member(X, [1, 2, 3]), X > 1.
+X = 2 ;
+X = 3 ;
+false.
+
+## ;/2 |/2
+: (:Either ; :Or)
+: (:Either | :Or)
+Disjunction: the solutions of `Either`, then those of `Or`. With `->` as its left side it is if-then-else (`->/2`), and with `*->` a soft cut (`*->/2`). `|` at the top of a goal is the same as `;`.
+?- ( X = 1 ; X = 2 ).
+X = 1 ;
+X = 2.
+
+## ->/2
+: (:Condition -> :Then)
+: (:Condition -> :Then ; :Else)
+If-then-else. `Condition` is called once: if it has a solution, its bindings stay, the choices it left are cut and `Then` runs; otherwise `Else` runs (and with no `Else`, the goal fails). `Then` and `Else` are transparent to cut: a cut in them cuts the clause. A cut in `Condition` is local to it. Nested `( C1 -> T1 ; C2 -> T2 ; E )` chains as in other Prologs.
+?- X = 2, ( X > 1 -> Y = big ; Y = small ).
+X = 2, Y = big.
+?- ( member(X, [1, 2, 3]), X > 1 -> true ; X = none ).
+X = 2.
+?- ( fail -> true ).
+false.
+
+## *->/2
+: (:Condition *-> :Then)
+: (:Condition *-> :Then ; :Else)
+Soft cut: like `->/2`, but every solution of `Condition` is kept, and `Then` runs for each. `Else` runs only if `Condition` has no solution at all. Without `; Else`, `( C *-> T )` is the same as `( C, T )`. `if/3` is the same with three arguments.
+?- ( member(X, [1, 2, 3]), X > 1 *-> Y = yes ; Y = no ).
+X = 2, Y = yes ;
+X = 3, Y = yes ;
+false.
+?- ( member(X, []) *-> Y = yes ; Y = no ).
+Y = no.
+
+## !/0
+: !
+Cut: succeeds, and drops every choice made since the clause that holds it was called, the choice of the other clauses of its predicate among them. In a query at the top level it cuts the query.
+?- member(X, [a, b, c]), !.
+X = a.
+?- assert((first_big(L, X) :- member(X, L), X > 2, !)), first_big([1, 5, 3, 9], X).
+X = 5.
+
+## \+/1 not/1
+: \+ :Goal
+: not(:Goal)
+Negation as failure: succeeds, binding nothing, if `Goal` has no solution, and fails if it has one. `Goal` is called once (as by `once/1`); a cut inside it is local. `\+` is a prefix operator (900, fy); `not/1` is the same predicate.
+error: instantiation_error — `Goal` is a variable.
+error: type_error(callable, Goal) — `Goal` is a number.
+?- \+ member(d, [a, b, c]).
+true.
+?- \+ X = 1.
+false.
+?- not(fail).
+true.
+
+## call/1
+: call(:Goal)
+Calls `Goal`, and has all its solutions. A cut inside `Goal` is local to it: `call(!)` is the same as `true`. A variable goal in a clause body, `p(G) :- G.`, is the same as `call(G)`.
+error: instantiation_error — `Goal` is a variable.
+error: type_error(callable, Goal) — `Goal` is a number.
+error: existence_error(procedure, Name/Arity) — `Goal`'s predicate has no clauses and is not declared `dynamic`.
+?- G = member(X, [a, b]), call(G).
+G = member(a,[a,b]), X = a ;
+G = member(b,[a,b]), X = b ;
+false.
+?- call((member(X, [1, 2, 3]), !)).
+X = 1.
+?- call(3).
+Error: type_error(callable,3)
+
+## call/2 call/3 call/4 call/5 call/6 call/7 call/8
+: call(:Closure, ?A1)
+: call(:Closure, ?A1, ?A2, ...)
+Calls `Closure` with one to seven more arguments added after its own: `call(plus(1), 2, X)` calls `plus(1, 2, X)`. A closure that is an atom becomes a predicate of that many arguments. This is what `maplist/2..4`, `foldl/4`, `include/3` and the lambdas (`>>/2`) are built on.
+error: instantiation_error — `Closure` is a variable.
+error: type_error(callable, Closure) — `Closure` is a number.
+error: existence_error(procedure, Name/Arity) — the goal made has no predicate.
+?- call(plus(1), 2, X).
+X = 3.
+?- call(atom_length, hello, N).
+N = 5.
+?- call(format, "~w-~w~n", [a, b]).
+a-b
+true.
+
+## once/1
+: once(:Goal)
+The first solution of `Goal` only: `once(G)` is `(G -> true)`. A cut in `Goal` is local.
+error: instantiation_error — `Goal` is a variable.
+error: type_error(callable, Goal) — `Goal` is a number.
+?- once(member(X, [a, b, c])).
+X = a.
+
+## ignore/1
+: ignore(:Goal)
+Calls `Goal` once, and succeeds whether or not it does: `(Goal -> true ; true)`.
+?- ignore(member(X, [a, b])).
+X = a.
+?- ignore(fail).
+true.
+
+## forall/2
+: forall(:Generator, :Test)
+Succeeds if `Test` holds for every solution of `Generator`: `\+ (Generator, \+ Test)`. It binds nothing.
+?- forall(member(X, [2, 4, 6]), X mod 2 =:= 0).
+true.
+?- forall(member(X, [2, 3]), X mod 2 =:= 0).
+false.
+
+## if/3
+: if(:Condition, :Then, :Else)
+The soft cut as a predicate: `(Condition *-> Then ; Else)`.
+?- if(member(X, [1, 2]), Y = X, Y = none).
+X = 1, Y = 1 ;
+X = 2, Y = 2 ;
+false.
+?- if(fail, Y = 1, Y = none).
+Y = none.
+
+## repeat/0
+: repeat
+Succeeds, and again on every backtrack, for ever. It is used with a goal that fails until a condition holds, and a cut after it: `repeat, read(T), T == end_of_file, !`.
+?- repeat, nb_value = nb_value, !.
+true.
+
+## catch/3
+: catch(:Goal, ?Catcher, :Recovery)
+Calls `Goal`. If it succeeds, `catch/3` succeeds as it does, and backtracks into it. If an exception is thrown while `Goal` runs (`throw/1`, or an error a builtin raises), the bindings made since `catch/3` was called are undone, and if a copy of the ball unifies with `Catcher`, `Recovery` is called; if not, the ball goes on to the next `catch/3` out. An exception from `Recovery` is not caught by the same `catch/3`. A ball that reaches the top level prints as `Error:` and its formal term, or `Error: uncaught` and the ball. A `Goal` that is a variable or a number raises its error inside the `catch/3`, so a catcher that unifies with it catches it.
+?- catch(X is 1 // 0, error(E, _), true).
+E = evaluation_error(zero_divisor).
+?- catch(member(X, [1, 2, 3]), _, true), X > 1.
+X = 2 ;
+X = 3 ;
+false.
+?- catch(throw(oops), other, true).
+Error: uncaught oops
+
+## throw/1
+: throw(+Ball)
+Throws a copy of `Ball` to the nearest `catch/3` around the call whose catcher unifies with it (see `catch/3`). Errors are `error(Formal, Context)` balls; any other term may be thrown too.
+error: instantiation_error — `Ball` is a variable.
+?- catch(throw(found(42)), found(X), true).
+X = 42.
+?- catch(throw(_), E, true).
+E = error(instantiation_error,_A).
+
+## halt/0 halt/1
+: halt
+: halt(+Status)
+Ends Stralog, back to the shell: `halt` with status 0, `halt(Status)` with `Status`, which the shell shows as `[exit Status]` when it is not 0. At the end of the input (Ctrl-D at the prompt) the top level halts too.
+strata$ stralog -g halt(3)
+[exit 3]
+[3] strata$
+strata$ stralog
+Stralog 0.1
+?- halt.
+strata$
+
+## >>/2 >>/3 >>/4 >>/5 >>/6 >>/7
+: [X1, ...]>>Goal
+: call([X1, ...]>>Goal, A1, ...)
+A lambda, for `maplist/2..4`, `foldl/4`, `include/3` and the other predicates that call a closure with more arguments. Called with arguments, the lambda is first copied, so that each call has fresh variables; then its parameters `X1, ...` are unified with the arguments, and `Goal` is called. Arguments beyond the parameters are added to `Goal`, as `call/N` does. Variables of `Goal` that are not parameters are copied too, so a lambda cannot pass a binding out through them; a variable bound before the call (`N` in the second example) is a value, and is shared.
+differs: SWI-Prolog's library(yall) has `Free/[X]>>Goal` to share variables and `\X^Goal`; Stralog has only `Params>>Goal`. `>>` is the shift operator (400, yfx), so a lambda's body that has operators needs parentheses: `[X]>>(X > 1)`.
+?- maplist([X, Y]>>(Y is X * 2), [1, 2, 3], L).
+L = [2,4,6]
+.
+?- N = 10, maplist([X, Y]>>(Y is X + N), [1, 2], L).
+N = 10, L = [11,12]
+.
+?- F = [X]>>(X > 1), include(F, [0, 3, 1, 5], L).
+F = [X]>>(X>1), L = [3,5]
+.
+
+## ^/2
+: Var^Goal
+Calls `Goal`. It means something only as the goal of `bagof/3` or `setof/3`, where `Var^` marks `Var` as not free: the answers are not grouped by it.
+?- X^member(X, [a]).
+X = a ;
+false.
+?- setof(N, Age^member(N-Age, [bob-7, ann-9]), L).
+L = [ann,bob].
+
+# terms | Terms
+Unification, comparison and the type tests are builtins of the engine (`bi.s`). The standard order of terms, which `compare/3`, `@</2`, `msort/2` and `sort/2` use: variables, then integers by value, then atoms by their bytes, then compound terms, by arity, then name, then arguments from the left. A variable's place among variables is its age (older first).
+
+## =/2
+: ?X = ?Y
+Unifies `X` and `Y`: binds variables in either so that the two are the same term, or fails, binding nothing. There is no occurs check: `X = f(X)` makes a cyclic term. Stralog has no use for one: unifying, comparing or writing a cyclic term raises `resource_error(term_depth)`, and copying it or listing its variables `resource_error(findall)`, so an answer that would show one is an error.
+error: resource_error(term_depth) — both terms are cyclic, and alike as far as unification goes.
+?- f(X, b) = f(a, Y).
+X = a, Y = b.
+?- [H|T] = [1, 2, 3].
+H = 1, T = [2,3].
+?- f(a) = g(a).
+false.
+?- X = f(X).
+Error: resource_error(findall)
+
+## \=/2
+: @X \= @Y
+Succeeds if `X` and `Y` do not unify; binds nothing.
+?- a \= b.
+true.
+?- f(X) \= f(1).
+false.
+
+## ==/2
+: @X == @Y
+Succeeds if `X` and `Y` are identical: the same term now, without binding anything. Two different variables are not identical.
+?- f(X) == f(X).
+true.
+?- X == Y.
+false.
+?- X = Y, X == Y.
+Y = X.
+?- X = f(X), Y = f(Y), X == Y.
+Error: resource_error(term_depth)
+
+## \==/2
+: @X \== @Y
+Succeeds if `X` and `Y` are not identical (`\+ X == Y`).
+?- a \== b, X \== Y.
+true.
+
+## @</2 @>/2 @=</2 @>=/2
+: @X @< @Y
+: @X @> @Y
+: @X @=< @Y
+: @X @>= @Y
+Compare two terms in the standard order (see the group's introduction): before, after, before or identical, after or identical. Nothing is evaluated: `1+1 @< 2` compares a compound with an integer.
+?- 1 @< a, a @< f(a), f(z) @< g(a), g(a) @< f(a, a).
+true.
+?- 1+1 @< 2.
+false.
+
+## compare/3
+: compare(?Order, @X, @Y)
+Compares `X` and `Y` in the standard order and unifies `Order` with `<`, `=` or `>`.
+error: type_error(atom, Order) — `Order` is neither a variable nor an atom.
+error: domain_error(order, Order) — `Order` is an atom other than `<`, `=` and `>`.
+error: resource_error(term_depth) — both terms are cyclic, and alike as far as the comparison goes.
+?- compare(O, 1, a).
+O = (<).
+?- compare(O, f(b), g(a)), compare(P, f(a, b), g(a)).
+O = (<), P = (>).
+?- compare(=, X, X).
+true.
+?- compare(less, 1, 2).
+Error: domain_error(order,less)
+
+## var/1
+: var(@Term)
+Succeeds if `Term` is an unbound variable.
+?- var(X).
+true.
+?- X = 1, var(X).
+false.
+
+## nonvar/1
+: nonvar(@Term)
+Succeeds if `Term` is not an unbound variable.
+?- nonvar(f(X)).
+true.
+?- nonvar(X).
+false.
+
+## atom/1
+: atom(@Term)
+Succeeds if `Term` is an atom. `[]` is an atom (the same as `'[]'`); `"abc"` is a list of codes, and `""` is `[]`.
+?- atom(foo), atom([]), atom('hello world').
+true.
+?- atom("abc").
+false.
+
+## number/1
+: number(@Term)
+Succeeds if `Term` is a number. Stralog's only numbers are integers, so it is the same as `integer/1`.
+?- number(-42).
+true.
+?- number('42').
+false.
+
+## integer/1
+: integer(@Term)
+Succeeds if `Term` is an integer. `- 1`, with a space, is the compound `-(1)` and not an integer (see Terms and syntax).
+?- integer(7), integer(-7).
+true.
+?- integer(- 7).
+false.
+
+## atomic/1
+: atomic(@Term)
+Succeeds if `Term` is an atom or a number.
+?- atomic(a), atomic(3), atomic([]).
+true.
+?- atomic(f(a)).
+false.
+
+## compound/1
+: compound(@Term)
+Succeeds if `Term` is a compound term. A non-empty list is one (`'.'/2`).
+?- compound(f(x)), compound([a]).
+true.
+?- compound([]).
+false.
+
+## callable/1
+: callable(@Term)
+Succeeds if `Term` is an atom or a compound: something that could be called as a goal (whether or not a predicate exists for it).
+?- callable(foo), callable(f(x)).
+true.
+?- callable(3).
+false.
+
+## is_list/1
+: is_list(@Term)
+Succeeds if `Term` is a proper list: `[]`, or a list cell whose tail is a proper list. A partial list (`[a|_]`) is not one.
+?- is_list([a, b]).
+true.
+?- is_list([a|_]).
+false.
+
+## ground/1
+: ground(@Term)
+Succeeds if `Term` has no unbound variables.
+?- ground(f(a, [b])).
+true.
+?- ground(f(a, X)).
+false.
+
+## functor/3
+: functor(+Term, ?Name, ?Arity)
+: functor(-Term, +Name, +Arity)
+With `Term` bound: unifies `Name` and `Arity` with its name and arity; an atomic term is its own name, with arity 0. With `Term` unbound: makes the most general term of that name and arity, with fresh variables as its arguments. A list cell's name is `'.'`.
+error: instantiation_error — `Term` and `Name`, or `Term` and `Arity`, are variables.
+error: type_error(integer, Arity) — `Arity` is not an integer.
+error: type_error(atomic, Name) — `Name` is compound.
+error: type_error(atom, Name) — `Name` is a number and `Arity` is more than 0.
+error: domain_error(not_less_than_zero, Arity) — `Arity` is negative.
+error: representation_error(max_arity) — `Arity` is more than 255.
+?- functor(f(a, b), N, A).
+N = f, A = 2.
+?- functor(T, point, 3).
+T = point(_A,_B,_C).
+?- functor(T, foo, 0), functor([a], N, A).
+T = foo, N = '.', A = 2.
+
+## arg/3
+: arg(+N, +Term, ?Arg)
+Unifies `Arg` with the `N`th argument of the compound `Term`, counting from 1. It fails if `N` is 0, negative or more than the arity.
+error: instantiation_error — `N` or `Term` is a variable.
+error: type_error(integer, N) — `N` is not an integer.
+error: type_error(compound, Term) — `Term` is atomic.
+differs: SWI-Prolog enumerates the arguments when `N` is unbound; Stralog raises an instantiation error.
+?- arg(2, f(a, b, c), X).
+X = b.
+?- arg(4, f(a, b, c), X).
+false.
+
+## =../2
+: +Term =.. ?List
+: -Term =.. +List
+"Univ": `List` is `Term`'s name followed by its arguments. An atomic term gives a one-element list. With `Term` unbound, `List` must be a proper list whose head is an atom (or a number, alone).
+error: instantiation_error — `Term` is a variable and `List` is partial, or its head is a variable.
+error: type_error(list, List) — `List` is neither a list nor a partial list, or is `[]`.
+error: type_error(atom, Head) — `List` has arguments and its head is not an atom.
+error: type_error(atomic, Head) — `List` has no arguments and its head is compound.
+?- f(a, b) =.. L.
+L = [f,a,b].
+?- T =.. [point, 1, 2].
+T = point(1,2).
+?- 3 =.. L, X =.. [abc].
+L = [3], X = abc.
+
+## copy_term/2
+: copy_term(@Term, ?Copy)
+Unifies `Copy` with a copy of `Term` in which every variable is a fresh one; variables that occur twice in `Term` are the same fresh variable twice.
+?- copy_term(f(X, Y, X), C).
+C = f(_A,_B,_A).
+
+## term_variables/2
+: term_variables(@Term, -Vars)
+Unifies `Vars` with the list of the distinct variables of `Term`, in the order they first occur, depth first and from the left.
+differs: ISO raises a type error when `Vars` is neither a variable nor a partial list; Stralog just fails to unify.
+?- term_variables(f(X, g(Y, X), Z), Vs).
+Vs = [X,Y,Z].
+?- term_variables(f(a), Vs).
+Vs = [].
+
+## numbervars/3
+: numbervars(?Term, +Start, -End)
+Binds the variables of `Term`, in order, to `'$VAR'(Start)`, `'$VAR'(Start+1)`, ..., and `End` to the next number. `write/1`, `print/1`, `writeq/1` and `format/2`'s `~w` print `'$VAR'(N)` as a variable name: `A` to `Z` for 0 to 25, then `A1`, `B1`, ...
+error: type_error(evaluable, Start/0) — `Start` is an atom (it is added to with `is/2`).
+?- T = f(X, Y, X), numbervars(T, 0, E), print(T), nl.
+f(A,B,A)
+T = f(A,B,A), X = A, Y = B, E = 2.
+
+## term_to_atom/2
+: term_to_atom(?Term, +Atom)
+Reads `Atom`'s text as a term (with no end `.` needed) and unifies it with `Term`. Each variable in the text is a fresh variable.
+error: instantiation_error — `Atom` is a variable.
+error: syntax_error(Message) — the text is not a term.
+differs: SWI-Prolog also writes `Term` into `Atom` when `Atom` is unbound; Stralog only reads. Reading takes one of the two file streams (see `open/3`).
+?- term_to_atom(T, 'foo(X, Y, X)').
+T = foo(_A,_B,_A).
+?- term_to_atom(T, '1 + 2 * 3'), X is T.
+T = 1+2*3, X = 7.
+
+# arith | Arithmetic
+Integers only, of 61 bits: from -1152921504606846976 to 1152921504606846975 (-2<sup>60</sup> to 2<sup>60</sup>-1). A result outside them raises `evaluation_error(int_overflow)`; there are no floats and no big integers. An expression is an integer, or one of the functions below with expressions as its arguments; a variable bound to an expression is evaluated as that expression.
+<table class="ar-fns">
+<tr><th>function</th><th>value</th></tr>
+<tr><td><code>X + Y</code>, <code>X - Y</code>, <code>X * Y</code></td><td>sum, difference, product</td></tr>
+<tr><td><code>- X</code>, <code>+ X</code></td><td>negation; X itself</td></tr>
+<tr><td><code>X // Y</code></td><td>quotient, rounded toward zero: <code>-7 // 2</code> is -3</td></tr>
+<tr><td><code>X / Y</code></td><td>the same as <code>//</code>: there are no floats</td></tr>
+<tr><td><code>X div Y</code></td><td>quotient, rounded down: <code>-7 div 2</code> is -4</td></tr>
+<tr><td><code>X rem Y</code></td><td>remainder of <code>//</code>, with the sign of X: <code>-7 rem 2</code> is -1</td></tr>
+<tr><td><code>X mod Y</code></td><td>remainder of <code>div</code>, with the sign of Y: <code>-7 mod 2</code> is 1</td></tr>
+<tr><td><code>min(X, Y)</code>, <code>max(X, Y)</code></td><td>the smaller, the larger</td></tr>
+<tr><td><code>abs(X)</code>, <code>sign(X)</code></td><td>absolute value; -1, 0 or 1</td></tr>
+<tr><td><code>gcd(X, Y)</code></td><td>greatest common divisor, not negative</td></tr>
+<tr><td><code>X ** Y</code>, <code>X ^ Y</code></td><td>X to the power Y; Y below 0 is allowed only when X is 1 or -1</td></tr>
+<tr><td><code>X &gt;&gt; Y</code>, <code>X &lt;&lt; Y</code></td><td>arithmetic shift right, shift left</td></tr>
+<tr><td><code>X /\ Y</code>, <code>X \/ Y</code>, <code>X xor Y</code>, <code>\ X</code></td><td>bitwise and, or, exclusive or, complement</td></tr>
+<tr><td><code>msb(X)</code></td><td>the index of the highest bit set, for X above 0</td></tr>
+</table>
+Comparison and evaluation raise the same errors: `instantiation_error` for an unbound variable in the expression; `type_error(evaluable, Name/Arity)` for an atom or compound that is not one of the functions (`foo + 1` gives `foo/0`), and a list, `"a"` among them; `evaluation_error(zero_divisor)` for `//`, `/`, `div`, `rem`, `mod` by 0 and `0 ** -1`; `evaluation_error(undefined)` for `msb` of 0 or less; `evaluation_error(int_overflow)` for a result outside 61 bits, a shift left by a negative count or by 61 or more among them.
+differs: ISO and SWI-Prolog have floats, so in them `/` gives `3.5` and `**` a float; SWI-Prolog has unbounded integers. `X is "a"` evaluates to 97 in SWI-Prolog. `2 ** -1` raises `type_error(integer, 2)` here.
+
+## is/2
+: ?Result is +Expression
+Evaluates `Expression` and unifies `Result` with its value. `Result` is not evaluated: `3 is 1 + 2` succeeds, `1 + 2 is 3` fails.
+error: instantiation_error — `Expression` has an unbound variable.
+error: type_error(evaluable, Name/Arity) — `Expression` has a term that is not a function.
+error: evaluation_error(zero_divisor) — a division by 0.
+error: evaluation_error(undefined) — `msb` of 0 or less.
+error: evaluation_error(int_overflow) — a value outside 61 bits.
+?- X is 7 * 6, Y is X // 4, Z is -7 mod 2.
+X = 42, Y = 10, Z = 1.
+?- X is 2 ** 10, Y is 1 << 59, Z is max(3, 9) - abs(-4).
+X = 1024, Y = 576460752303423488, Z = 5.
+?- X is 1 << 60.
+Error: evaluation_error(int_overflow)
+?- X is foo + 1.
+Error: type_error(evaluable,foo/0)
+?- X is msb(1000), Y is msb(1).
+X = 9, Y = 0.
+?- X is msb(0).
+Error: evaluation_error(undefined)
+
+## =:=/2 =\=/2 </2 >/2 =</2 >=/2
+: +X =:= +Y
+: +X =\= +Y
+: +X < +Y
+: +X > +Y
+: +X =< +Y
+: +X >= +Y
+Evaluate both sides as `is/2` does, and compare the values: equal, not equal, less, greater, less or equal, greater or equal. They bind nothing.
+error: instantiation_error — a side has an unbound variable.
+error: type_error(evaluable, Name/Arity) — a side has a term that is not a function.
+?- 1 + 2 =:= 3, 2 * 3 =\= 5, 2 < 3, 3 >= 3.
+true.
+?- X = 4, X =< 2 * 2.
+X = 4.
+?- X < 3.
+Error: instantiation_error
+
+## between/3
+: between(+Low, +High, ?X)
+With `X` unbound: `X` is `Low`, then `Low + 1` on backtracking, and so on up to `High`; it fails at once if `Low` is more than `High`. With `X` an integer: succeeds if `Low =< X =< High`.
+error: instantiation_error — `Low` or `High` is a variable.
+error: type_error(integer, T) — `Low`, `High` or `X` is neither a variable nor an integer.
+differs: SWI-Prolog accepts `inf` as `High`; Stralog raises a type error.
+?- between(1, 3, X).
+X = 1 ;
+X = 2 ;
+X = 3 ;
+false.
+?- between(1, 10, 7).
+true.
+
+## succ/2
+: succ(?X, ?Y)
+`Y` is `X + 1`, for natural numbers: either can be computed from the other. `succ(X, 0)` fails.
+error: instantiation_error — both are variables.
+error: type_error(integer, T) — an argument is neither a variable nor an integer.
+error: domain_error(not_less_than_zero, T) — an argument is negative.
+?- succ(3, Y), succ(X, 3).
+Y = 4, X = 2.
+?- succ(X, 0).
+false.
+
+## plus/3
+: plus(?X, ?Y, ?Z)
+`Z` is `X + Y`, with any two of the three given.
+error: instantiation_error — two of them are variables.
+error: type_error(integer, T) — an argument is neither a variable nor an integer.
+?- plus(1, 2, Z), plus(1, Y, 5), plus(X, 2, 5).
+Z = 3, Y = 4, X = 3.
+
+# atoms | Atoms and text
+An atom's text is a string of bytes: what the reader read, UTF-8 if the source was. Lengths and positions count bytes. Text is given and returned as a list of codes (integers from 0 to 255) or of characters (one-character atoms); double-quoted text in the source is already a list of codes (see Terms and syntax).
+
+## atom_codes/2
+: atom_codes(+Atom, ?Codes)
+: atom_codes(-Atom, +Codes)
+`Codes` is the list of the character codes of `Atom`. A number is accepted as `Atom` and gives the codes of its text.
+error: instantiation_error — `Atom` is a variable and `Codes` is a partial list.
+error: type_error(atom, Atom) — `Atom` is compound.
+error: type_error(list, Codes) — `Codes` is neither a list nor a partial list.
+error: type_error(integer, E) — an element of `Codes` is not an integer.
+?- atom_codes(hello, L).
+L = [104,101,108,108,111].
+?- atom_codes(A, "hi"), atom_codes(42, M).
+A = hi, M = [52,50].
+
+## atom_chars/2
+: atom_chars(+Atom, ?Chars)
+: atom_chars(-Atom, +Chars)
+`Chars` is the list of the characters (one-character atoms) of `Atom`. A number is accepted as `Atom`.
+error: instantiation_error — `Atom` is a variable and `Chars` is a partial list.
+error: type_error(atom, Atom) — `Atom` is compound.
+error: type_error(list, Chars) — `Chars` is neither a list nor a partial list.
+error: type_error(character, E) — an element of `Chars` is not a one-character atom.
+?- atom_chars(xyz, L).
+L = [x,y,z].
+?- atom_chars(A, [o, k]).
+A = ok.
+
+## char_code/2
+: char_code(+Char, ?Code)
+: char_code(-Char, +Code)
+`Code` is the code of the one-character atom `Char`.
+error: instantiation_error — both are variables.
+error: type_error(character, Char) — `Char` is not a one-character atom.
+error: representation_error(character_code) — `Code` is not from 0 to 255.
+?- char_code(a, X), char_code(C, 0'z).
+X = 97, C = z.
+
+## atom_length/2
+: atom_length(+Atom, ?Length)
+`Length` is the number of bytes of `Atom`'s text. A number is accepted, with the length of its text.
+error: instantiation_error — `Atom` is a variable.
+error: type_error(atom, Atom) — `Atom` is compound.
+error: type_error(integer, Length) — `Length` is neither a variable nor an integer.
+error: domain_error(not_less_than_zero, Length) — `Length` is negative.
+differs: ISO raises `type_error(atom, Atom)` for a number; Stralog accepts it, as SWI-Prolog does. A non-ASCII character counts as several bytes.
+?- atom_length(hello, N), atom_length('', Z).
+N = 5, Z = 0.
+?- atom_length(12345, N).
+N = 5.
+?- atom_length(X, 3).
+Error: instantiation_error
+?- atom_length(abc, three).
+Error: type_error(integer,three)
+
+## number_codes/2
+: number_codes(+Number, ?Codes)
+: number_codes(-Number, +Codes)
+`Codes` is the text of `Number` as codes. Read in this direction, the text is a number as the reader reads one: layout first is allowed, then an optional `-`, then decimal digits, `0x`, `0o` or `0b` digits, or `0'c`; nothing may follow.
+error: instantiation_error — `Number` is a variable and `Codes` is a partial list, or has a variable element.
+error: type_error(number, Number) — `Number` is neither a variable nor a number.
+error: type_error(list, Codes) — `Codes` is neither a list nor a partial list.
+error: representation_error(character_code) — an element of `Codes` is not from 0 to 255.
+error: syntax_error(illegal_number) — the text is not a number.
+?- number_codes(N, " 42"), number_codes(M, "0x1F"), number_codes(C, "0'a").
+N = 42, M = 31, C = 97.
+?- number_codes(-12, L).
+L = [45,49,50].
+?- number_codes(N, "4 2").
+Syntax error: illegal_number
+
+## number_chars/2
+: number_chars(+Number, ?Chars)
+: number_chars(-Number, +Chars)
+`number_codes/2` with characters (one-character atoms) instead of codes.
+error: instantiation_error — `Number` is a variable and `Chars` is a partial list, or has a variable element.
+error: type_error(number, Number) — `Number` is neither a variable nor a number.
+error: type_error(character, E) — an element of `Chars` is not a one-character atom.
+error: syntax_error(illegal_number) — the text is not a number.
+?- number_chars(N, ['1', '2']), number_chars(-3, L).
+N = 12, L = [(-),'3'].
+
+## atom_number/2
+: atom_number(+Atom, ?Number)
+: atom_number(-Atom, +Number)
+`Atom`'s text is the number `Number`. With `Atom` given, it fails, rather than raising an error, if the text is not a number.
+error: instantiation_error — both are variables.
+?- atom_number('42', N), atom_number(A, 7).
+N = 42, A = '7'.
+?- atom_number(foo, N).
+false.
+
+## atom_concat/3
+: atom_concat(+A, +B, ?AB)
+: atom_concat(?A, ?B, +AB)
+`AB` is the text of `A` followed by that of `B`. With `AB` given and `A` or `B` unbound, it gives every way to split `AB`, from `A = ''` on, on backtracking. Numbers are accepted as atomic text.
+error: instantiation_error — `AB` and `A` or `B` are variables.
+error: type_error(atom, T) — an argument is compound.
+?- atom_concat(abc, def, X).
+X = abcdef.
+?- atom_concat(X, Y, ab).
+X = '', Y = ab ;
+X = a, Y = b ;
+X = ab, Y = '' ;
+false.
+?- atom_concat(X, def, abcdef).
+X = abc ;
+false.
+
+## sub_atom/5
+: sub_atom(+Atom, ?Before, ?Length, ?After, ?Sub)
+`Sub` is a part of `Atom`: `Before` bytes come before it, it is `Length` bytes long and `After` bytes come after it. Any of the four may be given; on backtracking it gives every part that agrees with them, in order of `Before` and then `Length`.
+error: instantiation_error — `Atom` is a variable.
+error: type_error(atom, Atom) — `Atom` is not an atom.
+error: type_error(atom, Sub) — `Sub` is neither a variable nor an atom.
+error: type_error(integer, T) — `Before`, `Length` or `After` is neither a variable nor an integer.
+Only the answers become atoms: the parts tried on the way are lists of codes (atoms are never collected).
+?- sub_atom(hello, 1, 3, A, S).
+A = 1, S = ell ;
+false.
+?- sub_atom(abcab, B, L, A, ab).
+B = 0, L = 2, A = 3 ;
+B = 3, L = 2, A = 0 ;
+false.
+
+## upcase_atom/2
+: upcase_atom(+Atom, ?Upper)
+`Upper` is `Atom` with the letters `a` to `z` made capitals; every other byte is left as it is. A number is accepted.
+error: instantiation_error — `Atom` is a variable.
+?- upcase_atom('Hello, world!', U).
+U = 'HELLO, WORLD!'.
+
+# db | The database
+Clauses added and removed while the program runs. Every predicate is dynamic in the sense that `assert/1` may add to it, except the builtins and the predicates of `boot.pl`, which are static. Changes follow the logical update view: a call sees the clauses there were when it was made, and clauses added or removed after that do not change its answers. A predicate with no clauses that was never declared `dynamic` raises an existence error when it is called. Clauses that are retracted keep their space in the clause store (168 KiB); so do those replaced when a file is consulted again.
+
+## assert/1 assertz/1
+: assert(+Clause)
+: assertz(+Clause)
+Adds `Clause` (a fact, or `Head :- Body`) at the end of its predicate. The clause is copied: its variables are fresh, and binding them later changes nothing stored. The two names are the same predicate.
+error: instantiation_error — `Clause` or its head is a variable.
+error: type_error(callable, T) — the head, or a goal of the body, is a number.
+error: permission_error(modify, static_procedure, Name/Arity) — the predicate is a builtin or one of `boot.pl`'s.
+differs: ISO stores a variable body goal `G` as `call(G)`; Stralog stores it as it is (which behaves the same when it runs, but `clause/2` returns `G`).
+?- assertz(fruit(apple)), assertz(fruit(pear)), findall(F, fruit(F), L).
+L = [apple,pear].
+?- assert((double(X, Y) :- Y is 2 * X)), double(21, Y).
+Y = 42.
+?- assert(atom_length(a, 1)).
+Error: permission_error(modify,static_procedure,atom_length/2)
+
+## asserta/1
+: asserta(+Clause)
+Adds `Clause` at the beginning of its predicate; otherwise as `assertz/1`.
+error: instantiation_error — `Clause` or its head is a variable.
+error: type_error(callable, T) — the head, or a goal of the body, is a number.
+error: permission_error(modify, static_procedure, Name/Arity) — the predicate is static.
+?- asserta(stack(1)), asserta(stack(2)), findall(X, stack(X), L).
+L = [2,1].
+
+## retract/1
+: retract(+Clause)
+Removes the first clause that unifies with `Clause` (a fact, or `Head :- Body`; a plain head matches facts only), and unifies its variables. On backtracking it removes the next one that unifies.
+error: instantiation_error — `Clause` or its head is a variable.
+error: type_error(callable, Head) — the head is a number.
+error: permission_error(access, private_procedure, Name/Arity) — the predicate is a builtin.
+?- assertz(tally(1)), assertz(tally(2)), retract(tally(1)), findall(X, tally(X), L).
+L = [2]
+.
+?- retract(tally(X)).
+X = 2 ;
+false.
+?- retract(nothing_there(_)).
+false.
+
+## retractall/1
+: retractall(+Head)
+Removes every clause whose head unifies with `Head`, and succeeds, even if there were none. If the predicate did not exist, it is now declared dynamic (it has no clauses, and calling it fails).
+error: instantiation_error — `Head` is a variable.
+error: type_error(callable, Head) — `Head` is a number.
+error: permission_error(access, private_procedure, Name/Arity) — the predicate is a builtin.
+differs: ISO raises a permission error for a static predicate of the program; in Stralog every predicate of the program can be changed.
+?- assertz(seen(a)), assertz(seen(b)), retractall(seen(_)), findall(X, seen(X), L).
+L = [].
+?- retractall(never_was(_)), never_was(1).
+false.
+
+## abolish/1
+: abolish(+Name/Arity)
+Removes all the clauses of the predicate `Name/Arity`, which stays known (as by `retractall/1`). It fails if the argument is not of the form `Name/Arity`.
+error: instantiation_error — `Name` or `Arity` is a variable.
+error: permission_error(access, private_procedure, Name/Arity) — the predicate is a builtin.
+differs: in ISO, `abolish/1` forgets the predicate altogether, and raises type and domain errors for a malformed argument.
+?- assertz(temp(1)), abolish(temp/1), findall(X, temp(X), L).
+L = [].
+
+## clause/2
+: clause(+Head, ?Body)
+Unifies `Head` and `Body` with the clauses of `Head`'s predicate, one by one on backtracking; a fact's body is `true`. It works on the predicates of the program and on those of `boot.pl` (the library), but not on builtins.
+error: instantiation_error — `Head` is a variable.
+error: type_error(callable, Head) — `Head` is a number.
+error: permission_error(access, private_procedure, Name/Arity) — the predicate is a builtin.
+?- assertz((twice(X, Y) :- Y is X * 2)), clause(twice(A, B), Body).
+Body = (B is A*2)
+.
+?- clause(member(X, L), B).
+L = [X|_A], B = true ;
+L = [_A|_B], B = member(X,_B)
+.
+
+## dynamic/1
+: dynamic(+Specs)
+: :- dynamic Name/Arity, ...
+Declares predicates dynamic: calling one that has no clauses then fails, instead of raising an existence error. `Specs` is `Name/Arity`, or several joined by commas or in a list. As a directive, `dynamic` is a prefix operator (1150, fx).
+error: instantiation_error — `Specs`, or a spec in it, is a variable.
+differs: a spec that is not `Name/Arity` makes `dynamic/1` fail, without an error.
+?- dynamic(visited/1), visited(x).
+false.
+?- dynamic([a1/0, b2/2]), a1.
+false.
+
+## discontiguous/1
+: discontiguous(+Specs)
+Accepted, and ignored: in Stralog the clauses of a predicate need not be together in a file. `discontiguous` is a prefix operator (1150, fx), for the directive.
+?- discontiguous(foo/1).
+true.
+
+## current_predicate/1
+: current_predicate(?Name/?Arity)
+Unifies `Name/Arity` with the predicates that have clauses or were declared dynamic, on backtracking: those of the program and those of `boot.pl` (whose internal predicates start with `$`). Builtins are not among them.
+differs: SWI-Prolog's `current_predicate/1` does not show the library's internal predicates; ISO raises a type error for an argument that is not `Name/Arity`.
+?- assertz(color(red)), current_predicate(color/A).
+A = 1
+.
+?- current_predicate(append/3), \+ current_predicate(atom_length/2).
+true
+.
+
+## consult/1 ./2
+: consult(+File)
+: [+File, ...]
+Reads the clauses of a file into the database. The file is looked for as `File`, `File.pl`, `/stralog/File` and `/stralog/File.pl`, in that order; the examples are under `/stralog`. Consulting a file again replaces the predicates it defines. Directives (`:- Goal`) are run as they are read; a directive that fails or raises is reported, and loading goes on. DCG rules (`-->`) are translated. A syntax error in a clause is reported with its line, and the clause is skipped. `consult(user)` reads clauses from the input, up to Ctrl-D. `[File, ...]` consults each.
+error: instantiation_error — `File` is a variable.
+error: existence_error(source_sink, Path) — no file is found (`Path` is the last tried).
+?- consult(family), findall(D, ancestor(tom, D), Ds).
+Ds = [bob,liz,ann,pat,jim].
+?- [hanoi, queens].
+true.
+?- consult(no_such_file).
+Error: existence_error(source_sink,'/stralog/no_such_file.pl')
+
+# all | All solutions
+`findall/3` is run by the solve loop, which copies each answer into a store of its own (124 KiB); the others are written in Prolog in `boot.pl` on top of it. The goal's cut is local to it.
+
+## findall/3
+: findall(?Template, :Goal, ?List)
+`List` is the list of a copy of `Template` for each solution of `Goal`, in order; `[]` if there is none. Variables of `Template` and `Goal` are not bound by the call.
+error: instantiation_error — `Goal` is a variable.
+error: type_error(callable, Goal) — `Goal` is a number.
+error: resource_error(findall) — the answers do not fit in the findall store.
+differs: ISO raises `type_error(list, List)` when `List` is neither a list nor a partial list; Stralog fails.
+?- findall(X-Y, member(X-Y, [1-a, 2-b]), L).
+L = [1-a,2-b].
+?- findall(X, member(X, []), L).
+L = [].
+
+## findall/4
+: findall(?Template, :Goal, ?List, ?Tail)
+`findall/3` with `Tail` as the tail of `List` instead of `[]`.
+error: instantiation_error — `Goal` is a variable.
+error: type_error(list, T) — `List` or `Tail` is neither a list nor a partial list.
+?- findall(X, member(X, [a, b]), L, [end]).
+L = [a,b,end].
+
+## bagof/3
+: bagof(?Template, +Goal, ?Bag)
+Like `findall/3`, but it fails when `Goal` has no solution, and it groups the answers by the free variables of `Goal`: those that occur in neither `Template` nor a `Var^` prefix of `Goal`. For each binding of the free variables (sorted in the standard order) it gives one `Bag`, on backtracking. `Var^Goal` marks `Var` as not free.
+error: instantiation_error — `Goal` is a variable.
+error: type_error(callable, Goal) — `Goal` is a number.
+error: type_error(list, Bag) — `Bag` is neither a list nor a partial list.
+?- bagof(X, member(X-Y, [1-a, 2-b, 3-a]), L).
+Y = a, L = [1,3] ;
+Y = b, L = [2] ;
+false.
+?- bagof(X, Y^member(X-Y, [1-a, 2-b, 3-a]), L).
+L = [1,2,3].
+?- bagof(X, member(X, []), L).
+false.
+
+## setof/3
+: setof(?Template, +Goal, ?Set)
+`bagof/3`, with each `Set` sorted in the standard order and without duplicates.
+error: instantiation_error — `Goal` is a variable.
+error: type_error(callable, Goal) — `Goal` is a number.
+error: type_error(list, Set) — `Set` is neither a list nor a partial list.
+?- setof(X, member(X, [c, a, b, a]), L).
+L = [a,b,c].
+?- setof(N-A, member(A-N, [7-tom, 9-ann, 7-bob]), L).
+L = [ann-9,bob-7,tom-7].
+
+## aggregate_all/3
+: aggregate_all(count, :Goal, -Count)
+: aggregate_all(sum(Expr), :Goal, -Sum)
+: aggregate_all(bag(Template), :Goal, -List)
+: aggregate_all(set(Template), :Goal, -Set)
+Aggregates over all the solutions of `Goal` at once, as `findall/3` does (no grouping by free variables): how many there are; the sum of `Expr` over them (0 for none); the list of `Template`; the sorted list of `Template` without duplicates.
+error: instantiation_error — `Goal` is a variable.
+error: type_error(evaluable, T) — for `sum(Expr)`: `Expr` is not an arithmetic expression.
+differs: SWI-Prolog also has `max(Expr)`, `min(Expr)` and their `Witness` forms; Stralog fails for them.
+?- aggregate_all(count, member(_, [a, b, c]), N).
+N = 3.
+?- aggregate_all(sum(X * 2), member(X, [1, 2, 3]), S).
+S = 12.
+?- aggregate_all(set(X), member(X, [b, a, b]), L).
+L = [a,b].
+
+# lists | Lists and sorting
+Written in Prolog in `boot.pl`, mostly as in other Prologs; `clause/2` shows their clauses. Lists are `'.'(Head, Tail)` cells ending in `[]` (see Terms and syntax). Calls with a list argument that is not a proper list may loop or fail where the entry says nothing; the sorts check their arguments.
+
+## append/3
+: append(?Front, ?Back, ?List)
+`List` is `Front` followed by `Back`. With `List` given, it splits it in every way on backtracking.
+?- append([1, 2], [3], L).
+L = [1,2,3].
+?- append(X, Y, [1, 2]).
+X = [], Y = [1,2] ;
+X = [1], Y = [2] ;
+X = [1,2], Y = [] ;
+false.
+
+## member/2
+: member(?Elem, ?List)
+`Elem` unifies with an element of `List`, each in turn on backtracking.
+?- member(X, [a, b]).
+X = a ;
+X = b ;
+false.
+?- member(b, [a, b, c]).
+true ;
+false.
+
+## memberchk/2
+: memberchk(?Elem, +List)
+`member/2`, once: the first element that unifies, and no choice left.
+?- memberchk(X, [a, b]).
+X = a.
+?- memberchk(z, [a, b]).
+false.
+
+## length/2
+: length(?List, ?Length)
+`Length` is the number of elements of `List`. With `List` partial (it ends in a variable) and `Length` an integer, it makes the list that long; with both unbound, it gives lists of length 0, 1, 2, ... on backtracking.
+error: type_error(integer, Length) — `Length` is neither a variable nor an integer.
+error: domain_error(not_less_than_zero, Length) — `Length` is negative.
+error: type_error(list, List) — `List` ends in something other than `[]` or a variable.
+?- length([a, b, c], N).
+N = 3.
+?- length(L, 2).
+L = [_A,_B].
+?- length([a|T], 3).
+T = [_A,_B].
+
+## reverse/2
+: reverse(?List, ?Reversed)
+`Reversed` is `List` in the opposite order. Either may be the one given: each bounds the other's length, so asked for another answer it fails rather than looking for longer lists. With both unbound, it gives lists of length 0, 1, 2, ... on backtracking.
+?- reverse([1, 2, 3], R).
+R = [3,2,1].
+?- reverse(X, [a, b]).
+X = [b,a] ;
+false.
+
+## nth0/3
+: nth0(?Index, ?List, ?Elem)
+`Elem` is the element of `List` at `Index`, counting from 0. With `Index` unbound, it gives every index and element on backtracking. It fails for an index that is out of range or not an integer.
+?- nth0(1, [a, b, c], X).
+X = b.
+?- nth0(I, [a, b, a], a).
+I = 0 ;
+I = 2 ;
+false.
+
+## nth1/3
+: nth1(?Index, ?List, ?Elem)
+`nth0/3`, counting from 1.
+?- nth1(1, [a, b, c], X).
+X = a.
+
+## last/2
+: last(?List, ?Last)
+`Last` is the last element of `List`. It fails for `[]`.
+?- last([1, 2, 3], X).
+X = 3.
+
+## select/3
+: select(?Elem, ?List, ?Rest)
+`Rest` is `List` without one element that unifies with `Elem`; on backtracking, each such element in turn. With `Rest` given, it inserts `Elem` at each place.
+?- select(b, [a, b, c], R).
+R = [a,c] ;
+false.
+?- select(x, L, [a, b]).
+L = [x,a,b] ;
+L = [a,x,b] ;
+L = [a,b,x] ;
+false.
+
+## selectchk/3
+: selectchk(?Elem, +List, ?Rest)
+`select/3`, once.
+?- selectchk(a, [a, b, a], R).
+R = [b,a].
+
+## permutation/2
+: permutation(+List, ?Perm)
+`Perm` is a permutation of `List`; on backtracking, each of them, in order.
+?- permutation([1, 2, 3], P).
+P = [1,2,3] ;
+P = [1,3,2] ;
+P = [2,1,3] ;
+P = [2,3,1] ;
+P = [3,1,2] ;
+P = [3,2,1] ;
+false.
+
+## delete/3
+: delete(+List, @Elem, ?Rest)
+`Rest` is `List` without every element that unifies with `Elem`. Elements are tested with `\=/2`, so no bindings are made.
+?- delete([a, b, a, c], a, L).
+L = [b,c].
+?- delete([f(1), g(2), f(3)], f(_), L).
+L = [g(2)].
+
+## exclude/3
+: exclude(:Pred, +List, ?Rest)
+`Rest` is the elements of `List` for which `call(Pred, Elem)` fails. `Pred` is called once for each element.
+?- exclude([X]>>(X > 2), [1, 5, 2, 7], L).
+L = [1,2]
+.
+
+## include/3
+: include(:Pred, +List, ?Kept)
+`Kept` is the elements of `List` for which `call(Pred, Elem)` succeeds.
+?- include([X]>>(X mod 2 =:= 0), [1, 2, 3, 4], L).
+L = [2,4]
+.
+
+## maplist/2 maplist/3 maplist/4
+: maplist(:Pred, ?List)
+: maplist(:Pred, ?List1, ?List2)
+: maplist(:Pred, ?List1, ?List2, ?List3)
+Calls `Pred` on each element of `List`, or with the elements of the lists at the same place as its added arguments: `maplist(P, [a, b], [X, Y])` calls `call(P, a, X)` and `call(P, b, Y)`. The lists are as long as each other. `maplist/3` and `maplist/4` leave a choice behind, since the first argument does not tell their clauses apart.
+?- maplist(integer, [1, 2, 3]).
+true
+.
+?- maplist(succ, [1, 2, 3], L).
+L = [2,3,4]
+.
+?- maplist([X, Y, Z]>>(Z is X * Y), [1, 2], [3, 4], L).
+L = [3,8]
+.
+
+## foldl/4
+: foldl(:Pred, +List, +Acc0, -Acc)
+Calls `call(Pred, Elem, A0, A1)` for each element of `List`, from the left, threading an accumulator from `Acc0` to `Acc`.
+?- foldl([X, A0, A]>>(A is A0 + X), [1, 2, 3], 0, S).
+S = 6
+.
+?- foldl([X, A0, [X|A0]]>>true, [a, b, c], [], R).
+R = [c,b,a]
+.
+
+## sum_list/2
+: sum_list(+List, -Sum)
+`Sum` is the sum of the numbers in `List` (evaluated as by `is/2`); 0 for `[]`.
+error: type_error(evaluable, T) — an element is not an arithmetic expression.
+?- sum_list([1, 2, 3], S).
+S = 6.
+
+## max_list/2
+: max_list(+List, -Max)
+`Max` is the largest number in `List`. It fails for `[]`.
+error: type_error(evaluable, T) — an element is not an arithmetic expression.
+?- max_list([3, 1, 4, 1, 5], M).
+M = 5.
+
+## min_list/2
+: min_list(+List, -Min)
+`Min` is the smallest number in `List`. It fails for `[]`.
+error: type_error(evaluable, T) — an element is not an arithmetic expression.
+?- min_list([3, 1, 4, 1, 5], M).
+M = 1.
+
+## numlist/3
+: numlist(+Low, +High, -List)
+`List` is the integers from `Low` to `High`; `[]` if `Low` is more than `High`.
+error: instantiation_error — `Low` or `High` is a variable.
+error: type_error(evaluable, T) — `Low` or `High` is not a number.
+?- numlist(1, 5, L).
+L = [1,2,3,4,5].
+
+## msort/2
+: msort(+List, ?Sorted)
+`Sorted` is `List` sorted in the standard order of terms, duplicates kept. The sort is a stable merge sort.
+error: instantiation_error — `List` is a partial list.
+error: type_error(list, T) — `List` or `Sorted` is neither a list nor a partial list.
+?- msort([b, a, c, a], L).
+L = [a,a,b,c].
+?- msort([f(a), 2, b, X, 1], L).
+L = [X,1,2,b,f(a)].
+
+## sort/2
+: sort(+List, ?Sorted)
+`msort/2`, with duplicates (identical terms) removed.
+error: instantiation_error — `List` is a partial list.
+error: type_error(list, T) — `List` or `Sorted` is neither a list nor a partial list.
+?- sort([b, a, c, a], L).
+L = [a,b,c].
+
+## keysort/2
+: keysort(+Pairs, ?Sorted)
+`Pairs` is a list of `Key-Value` pairs; `Sorted` is the list sorted by key in the standard order. Pairs with equal keys keep their order, and duplicates are kept.
+error: instantiation_error — `Pairs` is a partial list, or an element is a variable.
+error: type_error(list, T) — `Pairs` or `Sorted` is neither a list nor a partial list.
+error: type_error(pair, E) — an element of `Pairs` or `Sorted` is not a variable or `Key-Value`.
+?- keysort([b-1, a-2, b-0, a-1], L).
+L = [a-2,a-1,b-1,b-0].
+
+## predsort/3
+: predsort(:Order, +List, -Sorted)
+Sorts `List` with the comparison `call(Order, O, A, B)`, which binds `O` to `<`, `>` or `=`. The sort is stable.
+differs: SWI-Prolog's `predsort/3` drops an element that compares `=` to one already there; Stralog keeps both.
+?- predsort([O, A, B]>>compare(O, B, A), [1, 3, 2], L).
+L = [3,2,1].
+?- predsort([O, K1-_, K2-_]>>compare(O, K1, K2), [b-1, a-2, b-3], L).
+L = [a-2,b-1,b-3].
+
+# io | Input and output
+A stream is a term `'$stream'(N)`. Stream 0 is `user_input`, the console's input through the line editor; stream 1 is `user_output`, the console. `user_error` is the console too. Files are opened with `open/3`, read and written through a 512-byte buffer, and named by paths of StrataOS's file system, relative to the shell's directory. Only two files can be open at once (`term_to_atom/2` uses one of the two while it reads), so a program closes what it opens. Predicates without a stream argument use the current input or output, which `set_input/1` and `set_output/1` change. Each predicate with a stream argument raises `instantiation_error` for an unbound stream and `existence_error(stream, S)` for a term that is not an open stream.
+
+## write/1 write/2
+: write(@Term)
+: write(+Stream, @Term)
+Writes `Term` as text: operators as operators, atoms without quotes, `'$VAR'(N)` as a variable name, `{}`-terms in braces and lists in brackets. Unbound variables are written as `_` and a number. What `write/1` writes cannot always be read back (`'hello world'` is written `hello world`); `writeq/1` writes for reading.
+error: instantiation_error — `Stream` is a variable.
+error: existence_error(stream, Stream) — `Stream` is not an open stream.
+?- write(f('A', 'b c', [1, 2], 1+2*3, - 1, "hi")), nl.
+f(A,b c,[1,2],1+2*3,- 1,[104,105])
+true.
+?- write(user_output, done), nl.
+done
+true.
+
+## print/1 print/2
+: print(@Term)
+: print(+Stream, @Term)
+Writes `Term` as `writeq/1` does. It is what `format/2`'s `~p` uses.
+differs: in SWI-Prolog `print/1` goes through `portray_clause` and `print_message`'s hooks; Stralog has none.
+?- print(f('A', 'b c', '$VAR'(1))), nl.
+f('A','b c',B)
+true.
+
+## writeq/1 writeq/2
+: writeq(@Term)
+: writeq(+Stream, @Term)
+Writes `Term` so that it can be read back: atoms are quoted where they need to be, with `\n`, `\t` and `\'` escapes; an operator atom alone as an argument is put in parentheses; `- 1` (the compound) keeps its space, so that it does not read as the integer -1. `'$VAR'(N)` is written as a variable name.
+?- writeq(f('A', 'b c', [], 'don''t', 'a\nb', - 1, -(-1), -, a=b, '.')), nl.
+f('A','b c',[],'don\'t','a\nb',- 1,- -1,(-),a=b,'.')
+true.
+
+## write_canonical/1 write_canonical/2
+: write_canonical(@Term)
+: write_canonical(+Stream, @Term)
+Writes `Term` quoted and without operators, and `'$VAR'(N)` as it is: the form every Prolog reads the same. Lists are still written in brackets.
+?- write_canonical(f('A', 1+2, [a, b], '$VAR'(1))), nl.
+f('A',+(1,2),[a,b],'$VAR'(1))
+true.
+
+## write_term/2 write_term/3
+: write_term(@Term, +Options)
+: write_term(+Stream, @Term, +Options)
+Writes `Term` with options: `quoted(true)` quotes atoms as `writeq/1` does; `ignore_ops(true)` writes operators as functions; `numbervars(true)` writes `'$VAR'(N)` as a variable name; `priority(P)` writes the term as an argument of priority `P` would be (in parentheses if its operator's priority is higher). Without options it is `write_canonical/1` without the quotes: no options are on.
+differs: other options, and an option list that is not a list, are ignored rather than raising a domain or type error.
+?- write_term(f('A', 1+2), [quoted(true)]), nl.
+f('A',1+2)
+true.
+?- write_term(1+2*3, [ignore_ops(true)]), nl.
++(1,*(2,3))
+true.
+?- write_term((a :- b), [priority(999)]), nl.
+(a:-b)
+true.
+
+## writeln/1
+: writeln(@Term)
+`write/1`, then a newline.
+?- writeln(hello), writeln("ab").
+hello
+[97,98]
+true.
+
+## nl/0 nl/1
+: nl
+: nl(+Stream)
+Writes a newline.
+error: instantiation_error — `Stream` is a variable.
+error: existence_error(stream, Stream) — `Stream` is not an open stream.
+?- write(a), nl, write(b), nl.
+a
+b
+true.
+
+## tab/1
+: tab(+N)
+Writes `N` spaces. `N` is evaluated, as by `is/2`; 0 or less writes nothing.
+error: instantiation_error — `N` is a variable.
+error: type_error(evaluable, T) — `N` is not an arithmetic expression.
+?- write(a), tab(3), write(b), tab(1 + 1), write(c), nl.
+a   b  c
+true.
+
+## put_char/1 put_char/2
+: put_char(+Char)
+: put_char(+Stream, +Char)
+Writes the character `Char`, a one-character atom.
+error: instantiation_error — `Char` or `Stream` is a variable.
+error: type_error(character, Char) — `Char` is not a one-character atom.
+?- put_char(o), put_char(k), put_char('\n').
+ok
+true.
+
+## get_char/1 get_char/2
+: get_char(?Char)
+: get_char(+Stream, ?Char)
+Reads the next character and unifies it with `Char`; at the end of the stream, `end_of_file`. On the console it reads from the line typed (the line editor gives a whole line, with its newline, when Enter is pressed).
+error: instantiation_error — `Stream` is a variable.
+error: existence_error(stream, Stream) — `Stream` is not an open stream.
+?- get_char(C), get_char(D).
+| xy
+C = x, D = y.
+
+## peek_char/1 peek_char/2
+: peek_char(?Char)
+: peek_char(+Stream, ?Char)
+The next character, as `get_char/1` would read it, left in the stream: the next read gets it again.
+error: instantiation_error — `Stream` is a variable.
+error: existence_error(stream, Stream) — `Stream` is not an open stream.
+?- peek_char(C), get_char(D).
+| z
+C = z, D = z.
+
+## read/1 read/2
+: read(?Term)
+: read(+Stream, ?Term)
+Reads a term, which ends with `.` and layout, and unifies it with `Term`; at the end of the stream, `end_of_file`. Its variables are fresh variables. From the console, the term may take several lines.
+error: instantiation_error — `Stream` is a variable.
+error: existence_error(stream, Stream) — `Stream` is not an open stream.
+error: syntax_error(Message) — the text is not a term (the rest of it, up to its end, is skipped).
+?- read(T).
+| point(1, 2).
+T = point(1,2).
+
+## read_term/2 read_term/3
+: read_term(?Term, +Options)
+: read_term(+Stream, ?Term, +Options)
+`read/1` with options. `variable_names(Vars)` unifies `Vars` with a list of `Name = Var`, one for each named variable of the term, in order (`_` alone is not named). Other options are ignored.
+error: instantiation_error — `Stream` is a variable.
+error: existence_error(stream, Stream) — `Stream` is not an open stream.
+error: syntax_error(Message) — the text is not a term.
+?- read_term(T, [variable_names(Vs)]).
+| f(X, Y, _, X).
+T = f(_A,_B,_C,_A), Vs = ['X'=_A,'Y'=_B].
+
+## format/1 format/2
+: format(+Format)
+: format(+Format, +Args)
+Writes `Format`, an atom or a list of codes (a double-quoted string), with its directives replaced: `~w` the next argument as `write/1` writes it; `~a` and `~d` the same; `~q` as `writeq/1`; `~p` as `print/1`; `~s` a list of codes as text; `~n` a newline; `~~` a tilde. `Args` is a list, or one argument that is not a list. `format/1` has no arguments.
+differs: only these directives exist; another, or one for which no argument is left, makes `format/2` fail, after writing what came before it. `~d` does not check for an integer and takes no column argument. There is no `format/3`.
+?- format("~w and ~q~n", [a, 'B']).
+a and 'B'
+true.
+?- format("~s has ~d letters~n", ["abc", 3]).
+abc has 3 letters
+true.
+?- format('100~~~n').
+100~
+true.
+
+## open/3 open/4
+: open(+File, +Mode, -Stream)
+: open(+File, +Mode, -Stream, +Options)
+Opens the file `File` (an atom: a path) and unifies `Stream` with the stream. `Mode` is `read`, `write` (the file is made, or emptied) or `append`. `Options` are accepted and ignored. Only two files can be open at once; close each.
+error: instantiation_error — `File` or `Mode` is a variable.
+error: domain_error(io_mode, Mode) — `Mode` is not `read`, `write` or `append`.
+error: existence_error(source_sink, File) — `File` cannot be opened for reading.
+error: resource_error(stream) — two files are open already.
+error: uninstantiation_error(Stream) — `Stream` is not a variable (the file is not opened).
+?- open(note, write, S), write(S, 'hello.'), nl(S), close(S).
+S = '$stream'(2).
+?- open(note, read, S), read(S, T), read(S, E), close(S).
+S = '$stream'(2), T = hello, E = end_of_file.
+?- open(no_such_file, read, S).
+Error: existence_error(source_sink,no_such_file)
+?- open(note, read, s).
+Error: uninstantiation_error(s)
+
+## close/1
+: close(+Stream)
+Closes `Stream`, writing out what is buffered. Closing `user_input` or `user_output` does nothing.
+error: instantiation_error — `Stream` is a variable.
+error: existence_error(stream, Stream) — `Stream` is not an open stream.
+?- open(note, append, S), close(S).
+S = '$stream'(2).
+
+## set_input/1
+: set_input(+Stream)
+Makes `Stream` the current input, which `read/1`, `get_char/1` and `peek_char/1` read.
+error: instantiation_error — `Stream` is a variable.
+error: existence_error(stream, Stream) — `Stream` is not an open stream.
+?- open(note, read, S), set_input(S), read(T), set_input(user_input), close(S).
+S = '$stream'(2), T = hello.
+
+## set_output/1
+: set_output(+Stream)
+Makes `Stream` the current output, which `write/1`, `nl/0`, `format/2` and the others without a stream argument write to.
+error: instantiation_error — `Stream` is a variable.
+error: existence_error(stream, Stream) — `Stream` is not an open stream.
+?- open(log, write, S), set_output(S), write('logged.'), nl, set_output(user_output), close(S).
+S = '$stream'(2).
+?- open(log, read, S), read(S, T), close(S).
+S = '$stream'(2), T = logged.
+
+## current_input/1
+: current_input(?Stream)
+Unifies `Stream` with the current input stream.
+?- current_input(S).
+S = '$stream'(0).
+
+## current_output/1
+: current_output(?Stream)
+Unifies `Stream` with the current output stream.
+?- current_output(S).
+S = '$stream'(1).
+
+## flush_output/0 flush_output/1
+: flush_output
+: flush_output(+Stream)
+Writes out what is buffered for the current output, or for `Stream`. The top level flushes before it reads, so a prompt written with `write/1` shows.
+error: instantiation_error — `Stream` is a variable.
+error: existence_error(stream, Stream) — `Stream` is not an open stream.
+?- write('working... '), flush_output, write(done), nl.
+working... done
+true.
+
+# system | Operators and the system
+
+## op/3
+: op(+Priority, +Type, +Names)
+Defines `Names` (an atom, or a list of atoms) as operators of `Type` and `Priority`, from 1 to 1200; priority 0 removes the definition. `Type` is `xfx`, `xfy` or `yfx` for an infix operator, `fy` or `fx` for a prefix one, `xf` or `yf` for a postfix one. A name may be an infix and a prefix operator at once. The reader uses the new definition from the next term it reads: an operator defined in a query cannot be used in the same query. The table at Terms and syntax has the operators Stralog starts with.
+error: instantiation_error — an argument, or a name in the list, is a variable.
+error: type_error(integer, Priority) — `Priority` is not an integer.
+error: domain_error(operator_priority, Priority) — `Priority` is not from 0 to 1200.
+error: type_error(atom, T) — `Type` or a name is not an atom.
+error: domain_error(operator_specifier, Type) — `Type` is not one of the seven.
+error: type_error(list, Names) — `Names` is neither an atom nor a list.
+error: permission_error(modify, operator, ',') — the name is `,`.
+error: permission_error(create, operator, N) — the name is `[]`, or `|` with a priority below 1001 or a type that is not infix.
+?- op(700, xfx, ===>).
+true.
+?- X = (a ===> b), X =.. L.
+X = (a===>b), L = [(===>),a,b].
+?- op(900, fy, nicht).
+true.
+?- X = (nicht nicht a), writeq(X), nl.
+nicht nicht a
+X = (nicht nicht a).
+
+## current_op/3
+: current_op(?Priority, ?Type, ?Name)
+Unifies the three with the definitions of the operators, one by one on backtracking.
+error: domain_error(operator_priority, Priority) — `Priority` is neither a variable nor an integer from 0 to 1200.
+error: domain_error(operator_specifier, Type) — `Type` is neither a variable nor one of the seven.
+error: type_error(atom, Name) — `Name` is neither a variable nor an atom.
+?- current_op(P, T, -).
+P = 500, T = yfx ;
+P = 200, T = fy ;
+false.
+?- current_op(P, T, mod).
+P = 400, T = yfx
+.
+
+## statistics/0
+: statistics
+Prints what the engine has done and moved between the Local Store and far memory since it started: the calls; for the heap, the trail and the choicepoint stack, what is in use and their windows' spills (a half written out), slides (the window moved down) and the bytes moved; the garbage collections and what they gave back; the far cache's misses and write-backs; and how full the atom, clause and findall stores are. Memory is explicit on Strata, and this is where Stralog shows it.
+strata$ stralog
+Stralog 0.1
+?- statistics.
+calls: 33
+heap: 3896 of 241664 bytes used; window: 0 spills, 0 slides, 0 bytes moved
+garbage collections: 0, 0 bytes given back
+trail: 16 bytes used; window: 0 spills, 0 slides, 0 bytes moved
+choicepoints: 4 frames; window: 0 spills, 0 slides, 0 bytes moved
+far cache: 6567 misses, 2456 write-backs (64-byte lines)
+atoms: 14920 bytes, clauses: 85104 bytes, findall: 0 bytes
+true.
+
+## statistics/2
+: statistics(runtime, -[Ms, 0])
+: statistics(inferences, -Calls)
+`runtime`: the milliseconds since StrataOS started, and 0. `inferences`: the number of calls made so far (the first number `statistics/0` prints). Other keys fail.
+differs: SWI-Prolog's `runtime` is CPU time, with the time since the last call second; it has many more keys.
+?- assertz((calls(G, N) :- statistics(inferences, A), call(G), statistics(inferences, B), N is B - A)).
+true.
+?- calls(numlist(1, 10, _), N).
+N = 59.
+
+## phrase/2 phrase/3
+: phrase(:Body, ?List)
+: phrase(:Body, ?List, ?Rest)
+Runs a DCG body on a list: `phrase(B, List, Rest)` succeeds if `B` covers `List` up to `Rest`; `phrase/2` is `phrase/3` with `Rest = []`. `Body` is a nonterminal, a list (terminals), `{Goal}`, `!`, `\+ B`, `call(G)`, or bodies joined with `,`, `;` and `->`, as on the right of `-->`. Grammar rules `Head --> Body` in a consulted file are translated into clauses with two more arguments.
+error: instantiation_error — `Body` is a variable.
+error: type_error(callable, Body) — `Body` is a number.
+?- phrase(([a], [b]), [a, b]).
+true.
+?- phrase(("ab", [C]), "abc", R).
+C = 99, R = [].
+?- phrase(G, [a]).
+Error: instantiation_error
+?- consult(calc), phrase(expr(T), "2*(3+4)"), V is T.
+T = 2*(3+4), V = 14.

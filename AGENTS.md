@@ -41,7 +41,8 @@ details (the tiers, the selection, the caches, how to add a test).
     `make test`;
   - a test's script or expected output: that test (`make test-one`);
   - `doc/`, `site/`, `*.md`: no test reads them (`make test-changed` says
-    so).
+    so), except the Stralog reference, `doc/manual/web/stralog-ref.txt`,
+    whose examples `stralog-ref` runs (`make test-one T=stralog-ref`).
 - `make test-list` lists the tests with their tiers. `make test-forth` and
   `make formal` are not part of `make test` (only the StrataOS half of
   `test-forth` is: `forth-os`): run them when you change `lang/forth/` or

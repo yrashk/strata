@@ -186,6 +186,12 @@ of the exceptions, collections growing and shrinking, the collector under
 load, deep recursion, the compiler. `tests/run.sh` types them into
 `stratalk -` under StrataOS on the emulator; `-h` on the host.
 
+Every class and method of the kernel is described by its comments (the
+class's right after its definition, the method's first in its body), which
+the site's Stratalk page shows. A comment line `EXPR >>> RESULT` is an
+example; `tests/doc.sh` types every one into `stratalk -` and checks what
+it prints.
+
 ## Files
 
 | file | |
