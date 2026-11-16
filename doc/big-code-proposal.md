@@ -1,21 +1,23 @@
-# Programs larger than the instruction store: paging code without restructuring
+# Programs larger than the Local Stores: paging code and data without restructuring
 
 Status: a proposal. Nothing under "Options", "Recommendation" or "Work" is
 implemented. The measurements describe the tree at commit b9e3438
 (2026-11-16).
 
 The question: how can a program whose code is much larger than the 32 KiB of
-I-LS a StrataOS program has be written and compiled as if all its code were
-present, with the code loaded on demand, so that large C programs,
-interpreters and games can be ported without being cut into code units by
-hand? Explicit units must stay possible.
+I-LS a StrataOS program has, and whose data is much larger than the 40 KiB of
+D-LS it has, be written and compiled as if all its code and data were
+present, with both loaded on demand, so that large C programs, interpreters
+and games can be ported without being cut into code units or rewritten
+around explicit transfers? Explicit units and explicit transfers must stay
+possible. Sections 2 to 7 are about code, section 8 about data.
 
 `doc/code-loading-proposal.md` asked where a loading service should live and recommended keeping
 the miss mechanism in the dispatcher, adding code segments per thread, and
 putting the policy in `proc`. This document is about the other side: what a
 *program* must look like for that mechanism to page it, and who makes it look
 like that. It uses that document's RTL miss costs and reuses its stages for
-the kernel side. Section 8 says where the two differ.
+the kernel side. Section 9 says where the two differ.
 
 ## 1. Summary
 
@@ -34,7 +36,7 @@ the kernel side. Section 8 says where the two differ.
   arena offsets. A C program is written as if all its code were present. What
   limits large C programs is not code: an image of at most 128 KiB, a function
   of at most 4 KiB and, above all, 40 KiB of data, because a C pointer is a
-  D-LS address.
+  D-LS address. Section 8 removes that limit.
 - **For assembly, the assembler can do the same rewrite.** `sasm` sees the
   whole program; there is no linker. It can find the functions (the targets
   of calls), pack them into units, expand calls and returns, and reject what
@@ -53,13 +55,34 @@ the kernel side. Section 8 says where the two differ.
   dispatcher, **+57% today**. This is the case to expect from large
   one-pass programs, and only a larger overlay map really reduces it
   (section 7).
-- **Recommendation: a hybrid with no ISA change.** The assembler and the
-  compiler rewrite code into units at build time, under one convention. The
-  kernel pages them as it does now. Units come from a read-only segment, not
-  from a copy in the arena, so images are no longer limited to 128 KiB (the
-  earlier proposal's stages 2 and 3). Programs that manage their own units
-  (the Forth, the Stratalk JIT, Stralog) keep doing so. Section 9 lists the
-  work.
+- **Data can be paged; the hardware already has the assist.** `ltag` and
+  `linst` look an arena offset up in a set-associative tag table in the D-LS,
+  and Stralog runs its whole far heap through such a cache (4 KiB, 3.1% of
+  lookups miss). Unlike a jump, a load outside the D-LS faults precisely, so
+  data could even be paged on faults alone, but at a trap per far access.
+- **A far data model for C.** A pointer below 0x10000 is a D-LS address, one
+  from 0x10000 up is an arena offset, the split `cc -p` already uses for
+  function pointers. The stack, scalars and small statics stay in the D-LS;
+  the heap and large objects go to the arena. A dereference tests the
+  pointer and, when it is far, goes through an `ltag` cache in the D-LS. In
+  `cc` compiling itself, 63 of every 1000 instructions are dereferences.
+  Kept near, they would cost +6%. Made far, they would cost about +30%
+  (+4 instructions per load, +6 per store); a 4 KiB cache misses on 0.7% of
+  them.
+- **One ISA change is worth weighing for data**: loads and stores beyond the
+  D-LS doing the tag lookup themselves, with a dirty bit and a precise miss
+  trap. That takes the +30% back to a few cycles per access, makes far data
+  transparent to assembly too, and reuses the RTL's tag-lookup sequencer
+  (section 8.4). Unlike the code-side change, it buys speed.
+- **Recommendation: a hybrid with no ISA change to begin with.** The assembler
+  and the compiler rewrite code into units at build time, under one
+  convention, and the kernel pages them as it does now. Units come from a
+  read-only segment, not from a copy in the arena, so images are no longer
+  limited to 128 KiB (the earlier proposal's stages 2 and 3). `cc` gets the
+  far data model in software. The data ISA change is decided on the numbers
+  from one large C program ported that way. Programs that manage their own
+  units or transfers (the Forth, the Stratalk JIT, Stralog, wdoom's art) keep
+  doing so. Section 10 lists the work.
 
 ## 2. What the machine catches
 
@@ -358,7 +381,188 @@ existing pager, with three additions:
 **(c) A fault that reports the source of a jump.** It would not help: what is
 missing is translation, not information.
 
-## 8. Where this differs from the earlier proposal
+## 8. Data
+
+### 8.1 What limits C programs, and what the machine has
+
+- **The limit.**
+  - A C pointer is a D-LS address (`lang/cc/DESIGN.md`, section 2). A
+    program's data, heap included, lives in D-LS 0..0x9FFF (40 KiB), with an
+    8 KiB stack.
+  - The arena (1 MiB by default, up to 255 MiB with the shell's `-m N`) is
+    reachable only through `far_read` and `far_write`.
+  - The design rejected far pointers because a software cache behind every
+    dereference "would cost a check per access and code the 32 KiB
+    instruction store has no room for". Paged code removes the second half
+    of that objection; the first half is measured below.
+- **The translation the machine has.**
+  - Loads and stores reach only the D-LS. The two D-LS windows relocate 1 KiB
+    units inside the 64 KiB store, so they cannot name more than 64 KiB.
+  - The software-cache assist (manual, "Software data caches") can. `ltag rd,
+    rs` looks an arena offset up in a set-associative tag table in the D-LS.
+    A hit gives the D-LS address of the byte; a miss gives the victim line
+    with bit 63 set. `linst` records a new line.
+  - The geometry is in `ttag`, `tdata` and `tgeom`, which the dispatcher
+    already saves and restores per thread. The lines and tags are ordinary
+    D-LS data, so they travel with the thread.
+- **A cache that already works.** Stralog keeps its atoms, clauses and older
+  stack cells in the arena behind exactly such a cache: 4 KiB, 64-byte lines,
+  2 ways, write-back with a dirty byte per line (`lang/stralog/core.s`,
+  `crd`/`cwr`/`fc_fill`).
+  - A read hit is 3 instructions (`ltag`, `bltz`, `ld`); a write hit is 7.
+  - In the demo session it did 4,756,865 lookups and 145,805 fills: 3.1%
+    miss.
+
+### 8.2 What the machine catches, for data
+
+Data differs from code here. A load or store outside the D-LS (or outside
+the windows) traps with `lsfault`, precisely, with `tval` = the address. The
+handler can perform the access itself and step past it:
+- decode the instruction;
+- look the address up in the tag table, filling a line if it is missing;
+- write the destination register, or the line.
+
+So far data with *no* compiler change is possible on this ISA. It costs a
+trap per far access, not per miss: probably 60 to 100 instructions (not
+measured; the code miss path, which keeps more records, is 184). At `cc`'s
+63 dereferences per 1000 instructions that is +400% to +600%. It is useful
+only as a fallback: for rare accesses, and for assembly nobody has converted.
+
+### 8.3 A far data model for C, without an ISA change
+
+- **Pointers.** One 64-bit value. Below 0x10000 it is a D-LS address (near);
+  from 0x10000 up it is an arena offset (far). NULL is 0.
+  - This is the split `cc -p` already makes for function pointers, so a C
+    pointer of either kind has one rule.
+  - Arithmetic, comparison within an object, and casts to and from integers
+    are unchanged.
+  - Code units and far data share the arena's offsets but never a pointer
+    type, so the two cannot be confused.
+- **Where objects go.** Named objects are placed by the compiler, which
+  addresses them directly as now:
+  - near: the stack (through `sp`), scalars and small statics (through
+    `zero` and `gp`);
+  - far: the heap (`malloc` in the arena), statics above a size threshold,
+    string literals, and large locals and variable-length arrays (on a
+    second stack in the arena).
+  - Only accesses through pointers change.
+- **A dereference.** `gp` is 0x10000 in `cc`'s convention, so the test is one
+  instruction: `bgeu p, gp, far`. The near path is the old load or store.
+  - A far load is inline: `addi t, p, off; ltag t, t; bltz t, miss;
+    ld x, 0(t)`.
+  - A far store also marks the line dirty, in 2 or 3 instructions with a
+    dirty byte per line.
+  - A miss calls a routine in the C library that writes the victim back if it
+    is dirty, `tget`s the line and `linst`s it: Stralog's `fc_fill`, about 30
+    instructions plus the line's transfer.
+  - Natural alignment keeps a scalar inside one line.
+- **Block operations.** Structure copies, `memcpy`, `memset`, the string
+  functions, `far_read` and `far_write` handle any mix of near and far:
+  through the cache, or by writing back and dropping a range and then
+  transferring it directly.
+- **The cache.** It lives in the program's data section: 4 to 8 KiB plus tags
+  and dirty bytes. That leaves about 32 KiB for near data, and the cache
+  travels with the thread like any other data.
+- **A compiler option**, `-d`. Programs that fit keep today's faster model.
+
+**Measured**, on `cc` compiling itself: a C program built by `cc`, 74.9
+million instructions, counted by the base register of every load and store.
+
+| Accesses | Share | Per 1000 instructions |
+|---|---|---|
+| all loads and stores | | 293 |
+| through `sp` (the stack) | 47% | 138 |
+| at fixed addresses (`zero`) | 31% | 91 |
+| through a pointer | 21% | 63 (26% of them stores) |
+
+Those 4.7 million pointer accesses were replayed through write-back caches
+of `ltag`'s geometry, with round robin in each set as `linst` does:
+
+| Cache | Line | Ways | Misses (% of pointer accesses) | Write-backs (%) |
+|---|---|---|---|---|
+| 2 KiB | 64 B | 2 | 1.72 | 0.44 |
+| 4 KiB | 64 B | 2 | 0.69 | 0.22 |
+| 4 KiB | 64 B | 4 | 0.49 | 0.22 |
+| 8 KiB | 64 B | 2 | 0.26 | 0.11 |
+| 16 KiB | 64 B | 2 | 0.07 | 0.03 |
+
+The cost in instructions follows.
+- **Every pointer stays near:** +1 per dereference, **+6%**. This is the
+  price of the model for a program that does not need it.
+- **All of them far**, with a 4 KiB cache:
+  - +4 per load and +6 per store hit: +28%;
+  - 0.43 misses per 1000 instructions at about 30 instructions each: +1.3%;
+  - in all, **about +30%**.
+- Each miss also waits for a 64-byte line from system memory, and a quarter
+  to two fifths of the misses also write a line back.
+
+These working sets are a lower bound. `cc` was written to keep its pointer
+data inside 40 KiB, while a program written for flat memory touches more.
+Stralog's real far cache, which serves a large heap, misses on 3.1% of
+lookups at 4 KiB. The miss rate of a ported program is the number to
+measure first.
+
+### 8.4 An ISA change: loads and stores through the tag table
+
+- **What it is.** A user-mode load or store whose address lies beyond the
+  D-LS (today an `lsfault`) looks the address up in the tag table instead,
+  as `ltag` does.
+  - On a hit it accesses the line, and a store sets the line's dirty bit
+    (the tag format gains one).
+  - On a miss it traps with a new cause, `dmiss`, with `tval` = the address.
+    The handler fills the line, and `eret` retries the access.
+- **What it buys.**
+  - Every dereference is the plain load or store: no test, no `ltag`, no
+    dirty byte.
+  - The +30% above becomes the lookup's cycles.
+  - Far data becomes transparent to assembly too: an assembly program's
+    pointers can simply be arena offsets.
+- **Who serves the miss.** Either of two:
+  - the program's run-time library, through its trap handler;
+  - the dispatcher, exactly as it pages code units. The geometry is in CSRs
+    and the victim's tag says what to write back, so no records are needed:
+    a shorter path than the code miss.
+- **What it costs the RTL.**
+  - The load/store path already detects an address beyond the D-LS (to raise
+    `lsfault`). That detection would start the existing tag-lookup sequencer
+    (`S_LG`/`S_LT`, one table word per two cycles: about 4 to 5 cycles for 2
+    ways) before the access.
+  - A store hit writes the tag word back with its dirty bit, as `linst`'s
+    second write (`S_LW`) does.
+- **What it costs elsewhere.**
+  - The tag format change reaches every `ltag` user: Stralog, Stratalk, the
+    `swcache` example, the manual.
+  - The emulator's fast loop and both JITs already range-check loads; their
+    slow path becomes the lookup.
+  - The conformance suite and the formal proofs change.
+- **Verdict.** Unlike the far PC of section 7a, this buys speed as well as
+  transparency, and its parts exist in the RTL. Decide it after the software
+  model has run one large C program, with that program's miss rate and
+  instruction counts in hand.
+
+### 8.5 What far data meets in the system
+
+- **Threads.** Each thread's cache is private. Two threads that share far data
+  (on different cores, or the same core) see stale lines unless each writes
+  back and drops the shared range at its synchronisation points. A
+  single-threaded port is unaffected. A threaded one needs flushes at its
+  locks, which the library's lock calls can make.
+- **Explicit transfers.** A program that also uses `tget`/`tput`, `far_read`
+  or `far_write` on far data must not bypass dirty lines. The library's
+  versions write back first.
+- **Context switches.**
+  - The cache is part of the data extent, so a resident thread pays nothing.
+  - An evicted thread pays the cache's size, and its dirty lines stay dirty
+    in the save area, which is correct.
+  - A switch neither flushes nor drops lines.
+- **Code paging.** Independent: one is the I-LS and the overlay map, the other
+  the D-LS and the tag table. Both use the arena: the code units from 0x10000,
+  far data after them.
+- **Debugging.** A far pointer is an arena offset. To show what it points at,
+  the debugger must look in the program's cache before the arena, because
+  the arena may be stale.
+
+## 9. Where this differs from the earlier proposal
 
 - **What is paged.** The earlier proposal did not plan to page the resident
   code. Here everything is paged except a small pinned part, because that is
@@ -373,9 +577,11 @@ missing is translation, not information.
   server on the miss path, units read from memory and never from the disk
   one miss at a time.
 
-## 9. Recommendation and work
+## 10. Recommendation and work
 
-Option 3, in stages, with no ISA change.
+Option 3 for code, the far data model for C, in stages, with no ISA change
+to begin with. Stages A to C are code, D and E data; they are independent of
+each other.
 
 **Stage A: a paged mode in `sasm`.** No kernel change.
 - Functions found from call targets; packing into units of 2^n bytes (2 KiB
@@ -405,6 +611,24 @@ function runs and misses. The hook used here records code blocks; a symbol map
 turns them into functions. `sasm` takes the result as the pinned list. Pinning
 `cc`'s hottest few KiB is the cheapest experiment on its +57%.
 
+**Stage D: far data in `cc`.**
+- The `-d` model of section 8.3: the pointer test, inline far loads and
+  stores through an `ltag` cache, the miss routine, placement of the heap,
+  large statics and large locals in the arena.
+- In the library: block operations, `far_read`/`far_write` and the flush, for
+  near and far alike.
+- `cc` counts its cache's lookups, misses and write-backs, as Stralog's
+  `statistics/0` does.
+- Check:
+  - the C test ladder compiled with `-d`;
+  - a program with several MiB of heap (run with `-m`);
+  - `cc` itself built with `-d` and still reproducing itself.
+
+**Stage E: decide on loads and stores through the tag table** (section 8.4),
+with stage D's numbers from a ported program. If adopted, `cc -d` drops its
+inline sequences and the miss routine moves to the run-time library or the
+dispatcher.
+
 **Optional, later:**
 - a shorter miss path (184 instructions, of which the record keeping is a
   part);
@@ -414,6 +638,8 @@ turns them into functions. `sasm` takes the result as the pinned list. Pinning
 
 **What ports most easily:**
 - C programs within the data limits: already, with `cc -p`.
+- C programs beyond them: with `-d`, at the cost of section 8.3, once stage D
+  exists.
 - Assembly that calls with `call`/`ret`, keeps code addresses only in
   registers and calls, and does not keep values in the scratch register
   across calls. A first count of `gp`, `t6`, `jalr` and `la` in vi, ws,
@@ -422,11 +648,15 @@ turns them into functions. `sasm` takes the result as the pinned list. Pinning
 - Games, as far as code is concerned: wdoom's working set is 11 KiB.
 
 **Risks:**
-- **Data, not code, limits large C programs.** A C object must live in the
-  40 KiB of D-LS, with no far pointers (`lang/cc/DESIGN.md`, section 2).
-  Large C programs, interpreters written in C and games keep far more than
-  that. Paging code does not address it, and porting them needs a decision
-  about data first.
+- **Far data's cost is measured only on a program that does not need it.**
+  The +30% and the miss rates of section 8.3 come from `cc`, whose data fits
+  in 40 KiB. A program written for flat memory may miss more. Stralog's 3.1%
+  is the only real far-cache figure.
+- **Far data and threads.** Threads that share far data must flush at their
+  synchronisation points. A C program that relies on shared memory without
+  locks will see stale data.
+- **The D-LS gets tighter.** The data cache takes 4 to 8 KiB of the 40 KiB
+  for near data.
 - **Programs with large working sets.** They pay +50% or more in
   instructions, as `cc` does today. Only pinning and a larger map reduce it.
 - **Hand-written assembly with its own conventions.** Some code uses `gp` as a
@@ -443,7 +673,7 @@ turns them into functions. `sasm` takes the result as the pinned list. Pinning
 - **One unit size per thread.** A program that both builds units and JITs
   code must agree on it.
 
-## 10. Questions
+## 11. Questions
 
 1. **Scope.**
    - Is stage A worth doing on its own? With the units-file workaround, it
@@ -451,7 +681,10 @@ turns them into functions. `sasm` takes the result as the pinned list. Pinning
    - Or should it wait for the segments of stage B?
 2. **The convention.** Should the scratch register for rewritten calls be
    fixed (`t6`, as `cc` uses) or chosen per program?
-3. **Data for C.** Should large C programs wait for a decision on far data,
-   which this proposal does not make?
+3. **Data for C.**
+   - Should `cc` get the `-d` far data model of section 8.3 (stage D)?
+   - Should loads and stores through the tag table (section 8.4) be
+     considered only after a large C program has been ported in software, as
+     recommended, or earlier?
 4. **NXMAP.** Is a larger map acceptable as a platform option, given that
    only programs like `cc` gain from it?
