@@ -1,0 +1,49 @@
+-m 4 stralog
+[queens].
+queens2(8, Qs), show(Qs).
+
+count_queens(6, N).
+[zebra].
+zebra(Owner).
+
+houses(Hs), member(h(C, N, P, water, S), Hs).
+
+[animals].
+identify([hair, tawny, dark_spots, eats_meat]).
+identify([feathers, swims, black_and_white]).
+identify.
+yes.
+no.
+no.
+yes.
+no.
+yes.
+[hanoi].
+hanoi(3).
+moves(20, N).
+[primes].
+primes(60, Ps).
+
+nth_prime(100, P).
+[sendmore].
+sendmore(L).
+
+[graph].
+shortest(a, e, P).
+reachable(a, L).
+[kb].
+in_order(Ps).
+setof(P, R^D^M^(planet(P, R, D, M), R > 20000), Big).
+aggregate_all(sum(M), planet(_, _, _, M), Total).
+[meta].
+solve(app(X, Y, [1, 2])).
+;
+;
+;
+proof(app([1], [2], L), P).
+
+[sorting].
+qsort([3,1,4,1,5,9,2,6], L), isort([3,1,2], L2).
+nrev_bench(200).
+halt.
+halt

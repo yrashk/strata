@@ -1,0 +1,52 @@
+stralog
+X is 7 * 6, Y is X // 4, Z is X mod 5, W is -7 // 2, V is -7 mod 2.
+X is 2 ** 10, Y is 1 << 59, Z is max(3, 9) - abs(-4) + gcd(12, 18).
+X is 1 << 60.
+X is foo + 1.
+X is 1 // 0.
+X is Y + 1.
+1 + 2 =:= 3, 2 < 3, 3 >= 3, 4 =\= 5.
+assert(count(0)), retract(count(N)), N1 is N + 1, assert(count(N1)), count(V).
+
+asserta(p(1)), assertz(p(2)), asserta(p(0)), findall(X, p(X), L).
+retract(p(1)), findall(X, p(X), L).
+
+retractall(p(_)), findall(X, p(X), L).
+assert(q(1)), assert(q(2)), q(X), assert(q(3)), fail ; findall(Y, q(Y), L).
+clause(ancestor(X, Y), B).
+[family], clause(ancestor(X, Y), B).
+;
+
+assert(age(peter, 7)), assert(age(ann, 11)), assert(age(pat, 8)), assert(age(tom, 11)).
+setof(A-N, age(N, A), L).
+bagof(N, age(N, A), L).
+;
+;
+
+setof(N, A^age(N, A), L).
+aggregate_all(count, age(_, _), C), aggregate_all(sum(A), age(_, A), S).
+msort([b, a, c, a], L), sort([b, a, c, a], S), keysort([2-a, 1-b, 2-c, 1-d], K).
+predsort([O, A, B]>>compare(O, A, B), [3, 1, 2], L).
+catch(throw(oops), E, (write(caught(E)), nl)).
+catch(number_codes(N, "12x"), error(syntax_error(S), _), true).
+catch(atom_length(123456, L), E, true).
+catch(foo(_), error(existence_error(procedure, PI), _), true).
+atom_codes(A, [0'h, 0'i]), atom_chars(B, [h, o]), char_code(C, 0'z), atom_length(hello, N).
+number_codes(N, " 42"), atom_number('17', M), atom_concat(abc, def, X), atom_concat(Y, def, abcdef).
+
+findall(B-L, sub_atom(abc, B, L, _, b), Ps), upcase_atom(hello, U).
+functor(F, point, 3), functor(foo(a, b), N, A), arg(2, foo(a, b), X), T =.. [g, 1, 2], g(1, 2) =.. L.
+copy_term(f(X, Y, X), C), term_variables(f(X, g(Y, X), Z), Vs), length(Vs, N).
+X = f(A), Y = f(B), X \== Y, compare(O, 1, a), A = 1, X @< f(2).
+length(L, 3), nth0(1, [a, b, c], E0), nth1(1, [a, b, c], E1), last([a, b, c], La), reverse([1, 2, 3], R).
+between(1, 5, X), X * X > 10.
+;
+;
+succ(X, 4), plus(2, Y, 7), sum_list([1, 2, 3], S), max_list([3, 9, 2], M), numlist(1, 5, NL).
+maplist([X, Y]>>(Y is X * 2), [1, 2, 3], L).
+
+foldl([X, A0, A]>>(A is A0 + X), [1, 2, 3], 0, S).
+
+format("~w and ~q, ~a~n", [foo('A'), 'B c', d]).
+halt.
+halt

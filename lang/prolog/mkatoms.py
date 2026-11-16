@@ -104,9 +104,9 @@ ATOMS = [
     # builtins' names
     ('p_var', 'var', []), ('p_nonvar', 'nonvar', []), ('p_compare', 'compare', []),
     ('p_functor', 'functor', []), ('p_arg', 'arg', []), ('p_copy_term', 'copy_term', []),
-    ('p_term_variables', 'term_variables', []), ('p_atom_codes', 'atom_codes', []),
-    ('p_atom_chars', 'atom_chars', []), ('p_char_code', 'char_code', []),
-    ('p_number_codes', 'number_codes', []), ('p_number_chars', 'number_chars', []),
+    ('p_term_variables', 'term_variables', []), ('p_atom_codes', '$atom_codes', []),
+    ('p_atom_chars', '$atom_chars', []), ('p_char_code', 'char_code', []),
+    ('p_number_codes', '$number_codes', []), ('p_number_chars', '$number_chars', []),
     ('print', 'print', []), ('writeq', 'writeq', []), ('wcanon', 'write_canonical', []),
     ('p_write_term', 'write_term', []), ('p_nl', 'nl', []), ('p_put_char', 'put_char', []),
     ('p_get_char', 'get_char', []), ('p_peek_char', 'peek_char', []),
@@ -121,6 +121,7 @@ ATOMS = [
     ('p_preds', '$preds', []), ('p_stats', '$stats', []), ('p_now', '$now', []),
     ('p_choice', '$choice', []), ('p_is_builtin', '$is_builtin', []),
     ('p_atom_stream', '$atom_stream', []),
+    ('priority', 'priority', []),
 ]
 
 
