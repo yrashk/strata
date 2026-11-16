@@ -322,8 +322,8 @@ the second servers of `dev`'s and `pipe`'s cores, so 6 cores still do.
 `doc/fs-split.md` has the interfaces, the numbers before and after and
 the recommendation; `make bench-store` and `tools/bench/store-test.sh`
 measure. The server `db` is built to `build/sys/db` (`build/prog/db` is
-the program); the debugger picks a process's symbols by name, so it shows
-the program's for the server.
+the program); the debugger takes a server's symbols from `build/sys/` first
+(`sys/db:label` in a breakpoint).
 
 ## Open work
 

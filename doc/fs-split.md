@@ -208,8 +208,9 @@ the kernel part.**
   its console ring through `c10` (`os/lib/chan.s`), which does not survive
   a context switch, so one preempted between copying the ring there and
   writing it faulted (`test-procs` lost its login shell once `db` shared
-  the shell's core). `chan_put` now uses `c6`, where the ring is
-  (commit d2e7ba3).
+  the shell's core). `chan_put` now uses `c6`, where the ring is: on
+  `main` since 0be9790, with the debugger taking a server's symbols from
+  `sys/NAME.map` first.
 - If the guest work does build on `db` directly, two things are missing
   first: transactions for a second writer (today `fs` is `db`'s only
   writer; a guest's batch in the middle of an `fs` request would commit

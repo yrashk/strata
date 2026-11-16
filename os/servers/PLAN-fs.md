@@ -253,5 +253,5 @@ was tagged with, could not tell `/src/x` from `/src/demo/x`.)
 - [ ] Transactions for clients other than fs (a guest's): a client's
       changes in the middle of another's request (today fs is db's only
       writer; a guest's batch would commit fs's half-done change)
-- [ ] The debugger's symbols for the server `db` (it takes the program's)
+- [x] The debugger's symbols for the server `db` (`sys/NAME.map` first; on main)
 
