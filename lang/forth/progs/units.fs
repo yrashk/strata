@@ -19,9 +19,10 @@ create nxt  5 , 12 , 19 , 2 , 9 , 16 , 23 , 6 , 13 , 20 , 3 , 10 ,         \ the
             17 , 0 , 7 , 14 , 21 , 4 , 11 , 18 , 1 , 8 , 15 , 22 ,
 create uxt 24 cells allot                       \ their xts
 : call-unit ( x d k -- r ) cells uxt + @ execute ;
-: ref ( k x d -- r )                            \ the same computation, in one word
-  >r over cells mult + @ * over cells addc + @ +
-  r> ?dup if 1- >r swap cells nxt + @ over $ffff and r> recurse + else nip then ;
+: ref ( k x d -- r )                            \ the same computation, in one word (no calls:
+  >r  over cells mult + @ *  over cells addc + @ + \ it stays in its unit): k's part, y
+  r> ?dup 0= if nip exit then                   ( k y d )
+  1- >r  swap cells nxt + @  over $ffff and  r> recurse + ;
 : pad ( -- ) 270 0 do 0 insn, loop ; immediate  \ 1 KiB of code that never runs (nops)
 
 \ f(x, d) = x * multiplier + constant, plus the next function's f(that & $ffff, d - 1) when d > 0
@@ -52,10 +53,14 @@ create uxt 24 cells allot                       \ their xts
 : uxt! ( xt0 .. xt23 -- ) 0 23 do uxt i cells + ! -1 +loop ;
 ' u0  ' u1  ' u2  ' u3  ' u4  ' u5  ' u6  ' u7  ' u8  ' u9  ' u10 ' u11
 ' u12 ' u13 ' u14 ' u15 ' u16 ' u17 ' u18 ' u19 ' u20 ' u21 ' u22 ' u23  uxt!
+variable paged  variable resident               \ the sums of the 24 chains, both ways
+: sums ( -- )
+  0 paged !  0 resident !
+  24 0 do  i 1+ 6 i call-unit paged +!  i i 1+ 6 ref resident +!  loop ;
 : units-main ( a u -- )
   2drop ." units: 24 functions of 1 KiB, chains 7 calls deep" cr
-  unit-stats drop  0 0 24 0 do  swap i 1+ 6 i call-unit +  swap i i 1+ 6 ref +  loop ( misses paged resident )
-  ." paged sum   = " over .u cr  ." resident sum= " dup .u cr
-  = if ." check: ok" else ." check: MISMATCH" then cr
+  unit-stats drop  sums                         \ (the units paged in so far)
+  ." paged sum   = " paged @ .u cr  ." resident sum= " resident @ .u cr
+  paged @ resident @ = if ." check: ok" else ." check: MISMATCH" then cr
   ." [" unit-stats drop swap - .u ."  code units paged in]" cr ;
 ' units-main main: units
