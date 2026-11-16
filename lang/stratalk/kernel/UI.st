@@ -244,12 +244,13 @@ UIApp >> escape: s [
         c = $D ifTrue: [#left] ifFalse: [c = $H ifTrue: [#home] ifFalse: [c = $F ifTrue: [#end] ifFalse: [#none]]]]]]).
     ^true ]
 UIApp >> flushPending [
-    "No more came: the ESC was the Esc key, and what followed it plain keys."
+    "No more came: an ESC alone was the Esc key; a sequence begun (ESC [ ...)
+     lost its rest (ws dropped it, its queue full) and is dropped: taking it
+     for Esc would close a tool while an arrow is held."
     | p |
     p := pending.
     pending := nil.
-    self key: (Character value: 27).
-    p size > 1 ifTrue: [self keys: (p copyFrom: 2 to: p size)] ]
+    p size = 1 ifTrue: [self key: (Character value: 27)] ]
 UIApp >> key: c [
     "Handles the character c: Tab moves the focus to the next pane, Ctrl-Q
      quits, Esc quits where quitsOnEscape; otherwise command: may take it,
