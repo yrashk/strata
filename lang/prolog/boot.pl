@@ -133,8 +133,11 @@ consult(F) :-
 
 [F|Fs] :- consult([F|Fs]).
 
+% F, F.pl, then the same in /prolog (where the examples are)
 '$open_source'(F, S) :- catch(open(F, read, S), _, fail), !.
-'$open_source'(F, S) :- atom_concat(F, '.pl', F2), open(F2, read, S).
+'$open_source'(F, S) :- atom_concat(F, '.pl', F2), catch(open(F2, read, S), _, fail), !.
+'$open_source'(F, S) :- atom_concat('/prolog/', F, F3), catch(open(F3, read, S), _, fail), !.
+'$open_source'(F, S) :- atom_concat('/prolog/', F, F3), atom_concat(F3, '.pl', F4), open(F4, read, S).
 
 '$load'(S) :-
     repeat,
