@@ -29,6 +29,8 @@ them apart.
 | 0x4000 | **framebuffer controller** | 0x00 PRESENT, 0x08 VSYNC |
 | 0x4100 | **pointer** | 0x00 EVENT, 0x08 STATE |
 | 0x4200 | **network interface** | 0x00 TX, 0x08 RX, 0x10 STATUS, 0x18 CANCEL |
+| 0x4300 | sound (optional) | 0x00 PCM, 0x08 RATE, 0x10 STATUS |
+| 0x4400 | **written-page map** | 0x000..0x7F8: a word per 256 KiB granule of T3 |
 
 `DEV_SPACE_LEN` becomes 0x5000.
 
@@ -245,10 +247,28 @@ that compare the two machines run without it).
   samples to the page, which schedules them with WebAudio (after the first
   key or click: browsers do not let a page sound before).
 
+#### Written-page map (0x4400)
+
+One bit per 4 KiB page of T3 (16,384 bits, 2 KiB), set by every write to
+the page: a transfer, a far atomic, the block device's DMA. At power-on
+every bit is set (a page may hold anything). It lets the kernel zero only
+the pages of an arena written since it last zeroed them (2.2). Both
+machines have it and list it in the platform table (type 10); in the RTL
+`strata_top` sees every T3 write on the far bus (a burst's write beats, an
+atomic) and `strata_dev` keeps the bits, one word per 256 KiB granule of
+the T3 it is built with. `strata-emu --no-pmap` is a machine without it
+(the kernel then zeroes everything, as before; `tools/test-isolate.sh`
+runs it so). Conformance test `pmap`.
+
+- **Word n** (0x4400 + 8 n, n = 0..255): the bits of T3's granule n, bit i
+  for page 64 n + i. A read gives them (latched at byte 0); a write clears
+  the bits written as 1 (when byte 7 is written) and leaves the others.
+
 ### 1.3 Platform table
 
-Four new entry types; `PLAT_ENTRIES` grows by four (to 9, 320 bytes). A
-machine with the sound device has a tenth entry (352 bytes).
+Five new entry types; `PLAT_ENTRIES` grows by five (to 10, 352 bytes). A
+machine with the sound device has an eleventh entry (384 bytes); one
+without the written-page map (`--no-pmap`) lacks the tenth.
 
 | Type | Name | space | base | size | info |
 |---|---|---|---|---|---|
@@ -257,6 +277,7 @@ machine with the sound device has a tenth entry (352 bytes).
 | 7 | PT_POINTER | SP_DEV (4) | 0x4100 | 0x10 | buttons (bits 0..7: left, right, middle) \| wheels << 8 (bit 8 y, bit 9 x): 0x0307 |
 | 8 | PT_NET | SP_DEV (4) | 0x4200 | 0x20 | the MTU (1500) |
 | 9 | PT_SOUND | SP_DEV (4) | 0x4300 | 0x18 | samples the queue holds (16384); only on a machine that has the device |
+| 10 | PT_PMAP | SP_DEV (4) | 0x4400 | 0x800 | the page size (4096) |
 
 All have node = 0xffff (nothing to `cgive` to). The framebuffer
 controller's ports are at the fixed device address 0x4000.
@@ -431,8 +452,17 @@ greater length.
   platform's T2 is smaller), accessed only with far atomics (an atomic
   takes about 7 bus cycles in T2, 23 in T3): per-core counters, the published state of each core's thread
   slots, exit events, job records for threads being created, deadlines of
-  timed waits. Commands from the system core to a worker are a job record
-  plus a doorbell.
+  timed waits. Commands from the system core to a worker (a job record, a
+  notification, a kill, a freed zombie, a guest job, halt) are the command's
+  words, then the worker's pending word (G_PEND) set, then a doorbell; a
+  dispatcher swaps its pending word to 0 on every pass and reads its
+  commands only when it was set, so a pass with nothing posted costs one
+  atomic. What a dispatcher publishes (slot states, the running pid, the
+  runnable count, free pool slots) it writes only when it differs from what
+  it wrote last (a copy in its D-LS); the switch and trap timing counters
+  only when the core goes idle. In `os/demo.txt` (12 cores) this took the
+  KST's atomics from 612,000 to 126,000 and the session's far-bus cycles
+  down by 20%.
 - **Servers are processes** (user mode, scheduled like any other, each a
   server of one core; up to four servers per core, below):
   - `proc` (pid 1) — the process server: spawning (loading images through
@@ -674,8 +704,8 @@ every other unit out of its reach. Units it is given anew may hold an
 evicted or dead thread's bytes, so a thread that was not resident gets
 both slices filled whole from its save area (its data window and 8 KiB
 of stack, two `tget`s), not just the extent and the live stack. Outside
-those, the save area holds zeros (the arena is scrubbed when MEMORY hands
-it out, CREATE takes only such arenas, the program cannot reach its save
+those, the save area holds zeros (MEMORY scrubs the save areas of every
+arena it hands out, CREATE takes only such arenas, the program cannot reach its save
 area, and an eviction writes there only the extent and the live stack)
 or older bytes of the same thread: never another process's. A first load
 takes the zeros and then the image's data section on top (transfers act
@@ -683,7 +713,10 @@ in issue order). `tools/test-isolate.sh` checks it: two copies of
 `tools/dlsgap.s` pinned to one core, one filling what a switch does not
 keep (its data window above the extent, its stack below sp, its scratch
 range) with a pattern, the other looking for it in its own at its first
-load and after each of 8 switches back.
+load and after each of 8 switches back. It checks the arenas too (below):
+one copy fills all its far memory with the pattern and exits, the next, on
+the same granules, must find none of it, and a copy of `dlsgap` cut short
+is refused.
 
 Not covered, and why:
 - **The I-LS** above a program's resident code and its code units still
@@ -726,7 +759,8 @@ where two threads do not fit side by side (`pipe` and `db` on one core,
 `cc`). `doc/ls-switch.md` has the analysis that led here.
 
 **The arena** (1 MiB unless the spawner asked for more, whole 256 KiB
-granules, zeroed when handed out), for a process with N threads, with
+granules, scrubbed when handed out except where nothing reads, see
+below), for a process with N threads, with
 P = 0xD0000 − (N−1) × 48 KiB. The offsets are from the arena's **layout
 base**, E bytes above its start for an arena of 1 MiB + E (a 1 MiB arena:
 its start): the parts below sit at the arena's top, and the program's
@@ -744,6 +778,56 @@ memory is E bytes larger, [−E, P). The start-up block stays at offset
 A save area holds the data extent at 0.. (40 KiB at most) and the live
 stack at 0xA000.. (8 KiB at most).
 
+**Scrubbing.** An arena's granules may have belonged to another process
+before, and nothing of it may reach the new one. MEMORY therefore zeroes
+an arena before it hands it out (core 0, 4 KiB `tput`s of a zeroed buffer),
+everything the new process can read before it writes it: its program
+memory (c0), the save areas (a first load restores the whole D-LS from
+them), the message buffer. For an image (MEMORY mode 2, which is how
+`proc` asks for the arena of a program it spawns, and how the kernel
+loads the boot servers) it leaves two parts as they are: the gap
+[0xFC000, 0xFF000), which no capability reaches, and the image area
+[0xD0000, 0xF0000). The image area is written by `fs` (or the disk)
+only as far as the image goes, and the rest may hold an earlier owner's
+bytes; but only the kernel reads that area (the image's headers, and
+code, data and the `.far` section where they say), and CREATE gets the
+image's length from `proc` and refuses an image whose sections, headers
+included, end beyond it. The code goes only into the I-LS, which nothing
+reads; the data and the `.far` section become readable, so they must
+come from bytes `fs` wrote. An arena of state 6 (issued for an image) is
+taken only by CREATE and FREE, never by GSTART, and MEMORY mode 1 (an
+extra arena, MORE) is always scrubbed whole.
+
+What the scrubbing costs: 532 bus cycles per 4 KiB (20 to start, a cycle
+per 8 bytes), about 117,600 for the 884 KiB of a 1 MiB arena for an image
+(136,200 for all of it). Measured with `strata-emu --bus-stats` on the
+demo session (`os/demo.txt`, 12 cores, `-T virtual`), the scrubbing was
+10,765 transfers, 5.73 M of the session's 17.04 M far-bus cycles (34%);
+leaving the image area and the gap alone takes it to 9,295 transfers and
+4.94 M of 16.29 M (30%). Software cannot do better: a program reaches all
+of its program memory through c0 at offsets of its own choosing (the
+start-up block at 0x7F000, `vi`'s register at 0xB8000, `cc`'s and `as`'s
+output at 0xC0000), and the kernel cannot see which of it the earlier
+owner wrote.
+
+With the **written-page map** (1.2) it can: the kernel
+finds the map at boot (K0_PMAP), and MEMORY reads the map's word for each
+granule of the arena, zeroes only the pages whose bit is set, waits for
+those writes (which set the bits again) and then clears the bits of the
+pages it zeroed. Pages it leaves for an image keep their bits. A page
+nobody wrote since its last zeroing is not written at all; a page used
+for the first time since power-on is (every bit starts set). Without the
+map (an older platform, `strata-emu --no-pmap`) it zeroes as above. With
+it the same session's scrubbing was 2,188 transfers, 1.16 M of 12.45 M bus
+cycles (9%), most of them the first use of each page; reading and
+clearing the words adds a few hundred device transfers of 8 bytes. On the
+RTL (8 cores, `strata-rtl -T virtual -g none`) the session took
+157,503,927 cycles with the map against 160,841,887 without it, 2% less:
+most of the session is fixed waits. Measured again on the main of
+2026-11-16 (the T2 dispatcher, Local Store windows, the file server
+split): without the map 9,738 transfers, 5.18 M of 12.74 M bus cycles
+(41%); with it 2,665, 1.42 M of 9.02 M (16%).
+
 The kernel counts switches and bytes moved per process and per core
 (shown by `ps`, `cores`, `uptime`, `sched`, and drawn by the window
 server). Each worker's dispatcher also times itself with the `cycle`
@@ -752,7 +836,9 @@ to switch to having issued the next thread's restore (`w_out` + `w_in`),
 and **cycles per trap**, from a trap's entry to the `eret` that resumes a
 thread, its idle time not counted (on the emulator `cycle` counts
 instructions). The sums and counts are published in the KST core area
-(CA_SWCYC, CA_NSWP, CA_KCYC, CA_NTRAP) with the other per-core words.
+(CA_SWCYC, CA_NSWP, CA_KCYC, CA_NTRAP) with the other per-core words,
+each time the core goes idle (a core that never goes idle shows the
+figures of the last time it did).
 
 Measured on the RTL (8 cores, `os/demo.txt`, `strata-rtl -T virtual -g
 none`), one row per step of the 2026-11 switch work: the counters alone,
@@ -954,9 +1040,9 @@ Common error results: -1 failed / invalid, -2 interrupted, -3 would block,
 
 | op | name | in | out |
 |---|---|---|---|
-| 1 | CREATE | attachment: an arena from MEMORY already holding the program image at 0xD0000 (as `fs` loaded it) and the start-up block at 0x7F000. Data: u64 pid (`proc` allocates pids), thread count (0 = one time-shared thread), flags (server 2, privileged 8, device capabilities 16, alone on its core 32, give the arena to `proc` at exit 64), a core to pin to or -1, the *core numbers* of the endpoints for c1..c4 (one byte each, 255 = none; the dispatcher mints the endpoints), a0, a1, a2 | 0, data[0] = the first core; the process starts. A server's reply carries a send endpoint to its core. On failure the arena comes back as an attachment |
+| 1 | CREATE | attachment: an arena from MEMORY already holding the program image at 0xD0000 (as `fs` loaded it) and the start-up block at 0x7F000; mode = the image's length (what `fs` loaded: an image whose sections end beyond it is refused, as the rest of the image area is not scrubbed). Data: u64 pid (`proc` allocates pids), thread count (0 = one time-shared thread), flags (server 2, privileged 8, device capabilities 16, alone on its core 32, give the arena to `proc` at exit 64), a core to pin to or -1, the *core numbers* of the endpoints for c1..c4 (one byte each, 255 = none; the dispatcher mints the endpoints), a0, a1, a2 | 0, data[0] = the first core; the process starts. A server's reply carries a send endpoint to its core. On failure the arena comes back as an attachment |
 | 2 | DESTROY | handle = pid | 0: stopped, its arena revoked (every capability it held, derived or lent out dies); `proc` later gets EXITED with the killed bit |
-| 3 | MEMORY | length = the size wanted (0: 1 MiB; rounded up to whole 256 KiB granules, at least 1 MiB); mode 1: an extra arena for the process handle = pid (`proc`'s MORE): it is that process's until FREE gives it back, and when the process ends it is revoked and freed with its arena | 0 and a zeroed arena with a fresh capability as an attachment, data[0] = its base, data[1] = its size; -6 (no memory, or all 64 arena slots in use) |
+| 3 | MEMORY | length = the size wanted (0: 1 MiB; rounded up to whole 256 KiB granules, at least 1 MiB); mode 1: an extra arena for the process handle = pid (`proc`'s MORE): it is that process's until FREE gives it back, and when the process ends it is revoked and freed with its arena; mode 2 (not with 1): for an image, only CREATE or FREE take it, and its image area and the gap above the save area are not scrubbed (2.2) | 0 and a scrubbed (zeroed) arena with a fresh capability as an attachment, data[0] = its base, data[1] = its size; -6 (no memory, or all 64 arena slots in use) |
 | 4 | STATS | | the process count; data: 8 words (cores, free heap, total heap, kernel units loaded, switches, KiB moved, processes, 0), then 32 bytes per core (pid running, runnable, processes, flags; switches; KiB moved), then 32 bytes per process (pid, core, state, flags; threads; switches; bytes moved) |
 | 5 | TUNE | length = the time slice in ticks (100..100000) | 0: the preemption time slice from now on; -1 out of range |
 | 6 | FREE | attachment: an arena (unused from MEMORY, or returned with EXITED) | 0 |
@@ -1930,7 +2016,7 @@ host opens `http://localhost:8080/`.
 `vi [FILE]` (`os/progs/vi.s`) edits a file in the manner of vi, on the
 console (an ANSI terminal: `make boot`, the browser's terminal) and in a
 `term` window (`make boot-ws`, Alt+Enter), with Strata assembly, Strata
-Forth and C in colour. FILE is a path (`/src/hello.s`, or a name under the current
+Forth, C, Stratalk and Prolog in colour. FILE is a path (`/src/hello.s`, or a name under the current
 tag path); one that does not exist is created by `:w`. The screen is the
 text, a line a row (a long line scrolls the view sideways), and a status
 line: `-- INSERT --` (or `-- VISUAL --`, `-- VISUAL LINE --`, `-- VISUAL
@@ -1985,8 +2071,8 @@ messages and the `:` and `/` lines take its place.
   file only with `!`). Ctrl-L asks the terminal its size and draws everything
   again; Ctrl-G shows the file and its size.
 - **Highlighting.** `.s` is Strata assembly, `.fs` Strata Forth, `.c` and
-  `.h` C; another name is plain unless the file carries the tag `src`
-  (assembly) or `forth`.
+  `.h` C, `.st` Stratalk, `.pl` Prolog (Stralog); another name is plain
+  unless the file carries the tag `src` (assembly) or `forth`.
   The rules are the site's (`site/hl.js`): for assembly, comment lines and
   `;` `#` `//` comments, labels, `NAME =` and CAPITALS, mnemonics by
   category (ALU, memory, branch, transfer, capability, system, paging,
@@ -2018,10 +2104,28 @@ messages and the `:` and `/` lines take its place.
   matters, as in C. The keywords are `cc`'s (`lang/cc/cc.c`'s `kw_names`)
   and the type names its headers', both read by `tools/vi-syntax.py`.
   `:syntax off` and `:syntax on` work as for the others.
+- **Stratalk** (`site/hl.js`'s `stLines`). Comments `"..."` 90 and strings
+  `'...'` 35 (both may run over lines; a doubled quote is inside); `$c` 35;
+  symbols (`#name:`, `#'text'`, `#+`, `#(`) 92; numbers (`16r1F`, `1.5e-3`)
+  32; keyword message parts (`at:` `put:`) 95, the control colour; `self
+  super nil true false thisContext` 34; names that start with a capital
+  (classes) 97; block arguments (`:x`) and `| temporaries |` (first on a
+  line) 93; `^`, `:=` and `>>` 31.
+- **Prolog** (`site/hl.js`'s `plLines`). Comments, `%` and `/* */` (which
+  may run over lines), 90; the atom that starts a line (a clause's head,
+  quoted or not) 97; variables (a capital or `_` first) 93; `:-` `-->` `?-`
+  and `!` 31; control (`-> ; \+ call catch throw findall bagof setof forall
+  once ignore not true fail false halt repeat between`) 95; the common
+  builtins (`is assert retract functor arg atom_codes write format length
+  append member sort ...`) and the comparison and arithmetic operators
+  (`= == \== =.. =:= =\= < > =< >= @< @>` ...) 34; other quoted atoms 92;
+  strings 35; numbers (`0'c`, `1.5e+3`) 32. The two word lists are the
+  site's (`ST_PSEUDO`, `PL_CTL`, `PL_BI`), read by `tools/vi-syntax.py`.
 - **Comments over lines.** Whether a row starts inside a comment (Forth's
-  `(`, C's `/*`) depends on every line above it. vi keeps that state for the
-  rows on the screen, for the last top line it worked out, and for every
-  16th line of the first 32768 (a bit each); a change to a line forgets the
+  `(`, C's and Prolog's `/*`, Stratalk's `"`) or a Stratalk string depends
+  on every line above it. vi keeps that state for the rows on the screen,
+  for the last top line it worked out, and for every 16th line of the
+  first 32768 (two bits each; `vi.fs`: of the first 16384); a change to a line forgets the
   states below it, and the states of the lines it passes are kept again as
   it scrolls. A top line far from the last one is worked out from the
   nearest kept state above it (15 lines at most), not from the start of
@@ -2477,7 +2581,8 @@ A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
   shell session with editing keys, compared with `tools/test-sh.out`.
   `tools/test-preempt.sh`: two `spin` processes on one core both make
   progress; `ps` shows context switches. `tools/test-isolate.sh`: nothing
-  one process leaves in its core's D-LS is visible to the next (2.2). `tools/test-boot-jit.sh`: the
+  one process leaves in its core's D-LS or in its arena is visible to the
+  next, and an image shorter than its headers say is refused (2.2). `tools/test-boot-jit.sh`: the
   demo session three times under the JIT's coarser interleaving.
   `tools/test-guest.sh`: guests (2.13): a benign one, a hostile one (its
   attacks refused, nothing of StrataOS's left on its cores), and the Forth
@@ -2525,12 +2630,16 @@ A guest's cores show in `cores` (and `ps`) as a guest's: they carry the
   takes pictures of vi in the window server's terminal:
   `build/vi-shots/asm.png`, `forth.png` (`-f`: of `forth vi.fs`,
   `fs-asm.png`, `fs-forth.png`).
-- `tools/test-vic.sh`: the editor's C colours. A scripted session types a
-  C file with every kind of token, ends a comment by an edit, enters
-  `cc.c` in the middle of its first comment, opens a file whose comment
-  runs over 100 lines (from inside, after an edit far above ends it, and
-  scrolling back up into it), types a comment in insert mode while the
-  screen scrolls, and tries `:syntax off` and a `.h` file. Each session's
+- `tools/test-vic.sh`: the editor's C, Stratalk and Prolog colours. A
+  scripted session types a C file with every kind of token, ends a comment
+  by an edit, enters `cc.c` in the middle of its first comment, opens a
+  file whose comment runs over 100 lines (from inside, after an edit far
+  above ends it, and scrolling back up into it), types a comment in insert
+  mode while the screen scrolls, and tries `:syntax off` and a `.h` file;
+  then it types a `.st` and a `.pl` file with every colour of each, and
+  opens a `.st` file whose comment and then string run over 100 lines
+  (each from inside, and after an edit that makes the string a comment)
+  and a `.pl` file whose comment does. Each session's
   output is played into an 80 × 24 grid, and its last frame, with the
   colour of each run of cells, is compared with `tools/test-vic.out`; an
   SGR that changes nothing (the colour in effect, or another SGR before

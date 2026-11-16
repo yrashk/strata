@@ -13,9 +13,9 @@
 \ operators with counts, undo and redo, ., search,
 \ : commands, status line, screen-size question (ESC [ 6 n, 80 x 24 without
 \ an answer, Ctrl-L), and highlighting of Strata assembly and Strata Forth in
-\ the site's colours and of C (.c, .h), with the same rules; a comment's
-\ state over lines is kept as vi.s keeps it (every 16th line, and the last
-\ top line). The keys are vi.s's. Given the
+\ the site's colours and of C (.c, .h), Stratalk (.st) and Prolog (.pl), with
+\ the same rules; a comment's or a string's state over lines is kept as vi.s
+\ keeps it (every 16th line, and the last top line). The keys are vi.s's. Given the
 \ same keys, it writes the same files (tools/test-vifs.sh checks that).
 \
 \ How it fits. The program's code is several times the I-LS a program has

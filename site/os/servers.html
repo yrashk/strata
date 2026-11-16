@@ -132,7 +132,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 <a href="#proc-44"><span class="n">44</span><code>LESS</code><span>Give an extra arena back</span></a>
 </div>
 <article class="op" id="proc-5">
-<h4><span class="n">5</span><a class="opname" href="../code/#os/servers/proc.s:1104"><code>SPAWN</code></a><span class="sum">Start a program</span></h4>
+<h4><span class="n">5</span><a class="opname" href="../code/#os/servers/proc.s:1108"><code>SPAWN</code></a><span class="sum">Start a program</span></h4>
 <p>The program is the command&#x27;s first word (1..24 bytes): a path, or a name looked for in the caller&#x27;s current directory, then in <code>/bin</code>, then in <code>/sys</code>; when it is found in <code>/bin</code> or <code>/sys</code> that path becomes the command&#x27;s first word. proc gets an arena from the kernel (MEMORY), writes the start-up block into it (pid, parent, the three descriptors, the command), has fs load the image (LOADIMG), tells fs the child starts in the caller&#x27;s tag path (CWD mode 2), sends DUPS to fs, tty and pipe for the handles passed, and asks the kernel to CREATE the process. The caller is the child&#x27;s parent. A command whose first word is exactly <code>ws</code> is made the server of the lowest empty core, a busy one (CREATE flag bit 14: its clients, <code>term</code>, are placed on other cores); exactly <code>net</code>, the server of the lowest empty core and alone on it (proc keeps the endpoint CREATE gives it, parked in the kernel, to send it CANCEL and CLEANUP; with no room to park it, that net is stopped again and SPAWN answers −7). Both stay ordinary children (WAIT, KILL and Ctrl-C work) and may REGISTER. A bare-metal image (no &quot;SYS2&quot; marker) runs as N threads, one on each of N contiguous cores without a server (N = 1 if the thread count is 0); a file as its handle 0 is copied into its arena first (fs READALL to 0x80000, a0 = its length), and a file as its handle 1 gets its output at exit (0xC0000, as many bytes as the exit code, at most 64 KiB; the status becomes 0).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -156,7 +156,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-6">
-<h4><span class="n">6</span><a class="opname" href="../code/#os/servers/proc.s:1260"><code>WAIT</code></a><span class="sum">Wait for a child to end</span></h4>
+<h4><span class="n">6</span><a class="opname" href="../code/#os/servers/proc.s:1264"><code>WAIT</code></a><span class="sum">Wait for a child to end</span></h4>
 <p>A finished child&#x27;s record is freed when its status is read. The status is bits 0..31 the exit code, bit 62 killed, bit 63 faulted (the cause in bits 0..7): read the result as unsigned when bit 63 can be set. A child whose parent ended has no parent; its status is discarded. A pending interrupt (SIGNAL to a process that catches them) is consumed by the next WAIT that finds a matching child still running, with or without mode bit 0.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -175,7 +175,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-7">
-<h4><span class="n">7</span><a class="opname" href="../code/#os/servers/proc.s:1576"><code>KILL</code></a><span class="sum">Stop a process</span></h4>
+<h4><span class="n">7</span><a class="opname" href="../code/#os/servers/proc.s:1580"><code>KILL</code></a><span class="sum">Stop a process</span></h4>
 <p>proc asks the kernel to DESTROY it: its arena is revoked, and the kernel&#x27;s EXITED gives it status bit 62. Any process may kill any other but proc, dev, fs, blk and db (pids 1..5).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -190,7 +190,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-9">
-<h4><span class="n">9</span><a class="opname" href="../code/#os/servers/proc.s:2214"><code>PS</code></a><span class="sum">The processes</span></h4>
+<h4><span class="n">9</span><a class="opname" href="../code/#os/servers/proc.s:2218"><code>PS</code></a><span class="sum">The processes</span></h4>
 <p>One record per process the kernel knows, then one per finished child that proc keeps for its parent&#x27;s WAIT; 64 records at most. The state: the kernel&#x27;s, read as 1 running (its core runs it now), 2 ready (or loading), 3 blocked, 4 ended. A finished child&#x27;s record has its first core, its parent and its name, and 0 for the rest.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -216,7 +216,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-16">
-<h4><span class="n">16</span><a class="opname" href="../code/#os/servers/proc.s:1899"><code>INFO</code></a><span class="sum">A summary of the system</span></h4>
+<h4><span class="n">16</span><a class="opname" href="../code/#os/servers/proc.s:1903"><code>INFO</code></a><span class="sum">A summary of the system</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -237,7 +237,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-17">
-<h4><span class="n">17</span><a class="opname" href="../code/#os/servers/proc.s:1604"><code>SIGNAL</code></a><span class="sum">Interrupt a process (Ctrl-C)</span></h4>
+<h4><span class="n">17</span><a class="opname" href="../code/#os/servers/proc.s:1608"><code>SIGNAL</code></a><span class="sum">Interrupt a process (Ctrl-C)</span></h4>
 <p>A process that catches interrupts (CATCH 1) is interrupted: its WAIT at proc is answered −2 (or the interrupt is kept for its next WAIT), proc sends CANCEL for it to tty, pipe and net (their waiting requests answer −2), and the kernel notifies it (bit 0: a sleep ends). Any other process is killed as by KILL, except a server that proc started at boot (tty, pipe) and pids 1..5.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -252,7 +252,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-22">
-<h4><span class="n">22</span><a class="opname" href="../code/#os/servers/proc.s:1672"><code>CATCH</code></a><span class="sum">Catch interrupts, or be killed by them</span></h4>
+<h4><span class="n">22</span><a class="opname" href="../code/#os/servers/proc.s:1676"><code>CATCH</code></a><span class="sum">Catch interrupts, or be killed by them</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>not 0: catch them (SIGNAL interrupts the caller); 0: SIGNAL kills it (the default)</td></tr>
@@ -265,7 +265,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-25">
-<h4><span class="n">25</span><a class="opname" href="../code/#os/servers/proc.s:1689"><code>LOOKUP</code></a><span class="sum">An endpoint to a server, by name</span></h4>
+<h4><span class="n">25</span><a class="opname" href="../code/#os/servers/proc.s:1693"><code>LOOKUP</code></a><span class="sum">An endpoint to a server, by name</span></h4>
 <p>The registered names: proc, dev, fs, tty, pipe from boot, and what servers REGISTER (<code>ws</code>, <code>net</code>). The endpoint names the core the name was registered with; <code>sys_lookup</code> moves it from c6 to the register the caller asks for.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -281,7 +281,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-29">
-<h4><span class="n">29</span><a class="opname" href="../code/#os/servers/proc.s:1712"><code>REGISTER</code></a><span class="sum">Give a name to the caller&#x27;s core</span></h4>
+<h4><span class="n">29</span><a class="opname" href="../code/#os/servers/proc.s:1716"><code>REGISTER</code></a><span class="sum">Give a name to the caller&#x27;s core</span></h4>
 <p>Requests sent to the name reach the caller&#x27;s core, so it is for a process that is its core&#x27;s server. The entry leaves the registry when the process ends. A process may hold several names, and register a name it holds again. Mode 1 is for net, at the end of its start: it makes no more calls to proc, which from then on sends it CANCEL and CLEANUP.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -300,7 +300,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-30">
-<h4><span class="n">30</span><a class="opname" href="../code/#os/servers/proc.s:1927"><code>SCHED</code></a><span class="sum">The time slice and the switch rates; set the slice</span></h4>
+<h4><span class="n">30</span><a class="opname" href="../code/#os/servers/proc.s:1931"><code>SCHED</code></a><span class="sum">The time slice and the switch rates; set the slice</span></h4>
 <p>The rates are since the last SCHED read by any process.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -319,7 +319,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-31">
-<h4><span class="n">31</span><a class="opname" href="../code/#os/servers/proc.s:1988"><code>CORES</code></a><span class="sum">What every core is doing</span></h4>
+<h4><span class="n">31</span><a class="opname" href="../code/#os/servers/proc.s:1992"><code>CORES</code></a><span class="sum">What every core is doing</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -345,7 +345,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-39">
-<h4><span class="n">39</span><a class="opname" href="../code/#os/servers/proc.s:1842"><code>WHOIS</code></a><span class="sum">The pid registered under a name</span></h4>
+<h4><span class="n">39</span><a class="opname" href="../code/#os/servers/proc.s:1846"><code>WHOIS</code></a><span class="sum">The pid registered under a name</span></h4>
 <p>dev asks it before GRANT_FB (&quot;ws&quot;) and GETNET (&quot;net&quot;).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -360,7 +360,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-40">
-<h4><span class="n">40</span><a class="opname" href="../code/#os/servers/proc.s:2036"><code>GUEST</code></a><span class="sum">Start a guest OS on whole cores</span></h4>
+<h4><span class="n">40</span><a class="opname" href="../code/#os/servers/proc.s:2040"><code>GUEST</code></a><span class="sum">Start a guest OS on whole cores</span></h4>
 <p>proc gets an arena from the kernel (MEMORY), has fs load the image into its top 256 KiB (LOADIMG; 2 MiB with a pool), and asks the kernel to start the guest (GSTART) on a run of free cores, with tty as its console. Any process may ask.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -382,7 +382,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-41">
-<h4><span class="n">41</span><a class="opname" href="../code/#os/servers/proc.s:2164"><code>GUESTSTOP</code></a><span class="sum">Stop a guest</span></h4>
+<h4><span class="n">41</span><a class="opname" href="../code/#os/servers/proc.s:2168"><code>GUESTSTOP</code></a><span class="sum">Stop a guest</span></h4>
 <p>The kernel revokes the guest&#x27;s arena and resets its cores, which are StrataOS&#x27;s again; proc then sends CLEANUP for the guest&#x27;s id to tty (the console comes back if the guest had it).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -397,7 +397,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-42">
-<h4><span class="n">42</span><a class="opname" href="../code/#os/servers/proc.s:2187"><code>GUESTS</code></a><span class="sum">The guests</span></h4>
+<h4><span class="n">42</span><a class="opname" href="../code/#os/servers/proc.s:2191"><code>GUESTS</code></a><span class="sum">The guests</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -415,7 +415,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-43">
-<h4><span class="n">43</span><a class="opname" href="../code/#os/servers/proc.s:1771"><code>MORE</code></a><span class="sum">An extra arena for the caller</span></h4>
+<h4><span class="n">43</span><a class="opname" href="../code/#os/servers/proc.s:1775"><code>MORE</code></a><span class="sum">An extra arena for the caller</span></h4>
 <p>Far memory beyond the arena a program is born with (<code>sys_more</code>). The kernel keeps it as the caller&#x27;s (MEMORY mode 1): it is revoked and freed when the caller ends, unless LESS gave it back first. The caller&#x27;s c6 must be empty.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -432,7 +432,7 @@ pid 1, made by the kernel at boot, alone on core 1.
 </tbody>
 </table></div></article>
 <article class="op" id="proc-44">
-<h4><span class="n">44</span><a class="opname" href="../code/#os/servers/proc.s:1830"><code>LESS</code></a><span class="sum">Give an extra arena back</span></h4>
+<h4><span class="n">44</span><a class="opname" href="../code/#os/servers/proc.s:1834"><code>LESS</code></a><span class="sum">Give an extra arena back</span></h4>
 <p><code>sys_less</code>. The kernel revokes it (everything cut from it dies) and frees its memory.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2328,7 +2328,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 <a href="#ws-46"><span class="n">46</span><code>TITLE</code><span>Change a window&#x27;s title</span></a>
 </div>
 <article class="op" id="ws-40">
-<h4><span class="n">40</span><a class="opname" href="../code/#os/ws/ws.s:1101"><code>CREATE</code></a><span class="sum">Open a window</span></h4>
+<h4><span class="n">40</span><a class="opname" href="../code/#os/ws/ws.s:1109"><code>CREATE</code></a><span class="sum">Open a window</span></h4>
 <p>The new window takes the focus, and the tiling changes (a window shown alone is tiled again). With mode bit 0 the server SIGNALs the client&#x27;s process while events wait and no EVENT is waiting, at most every 200 ms (the window is drawn as a terminal&#x27;s).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2347,7 +2347,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-41">
-<h4><span class="n">41</span><a class="opname" href="../code/#os/ws/ws.s:1189"><code>DAMAGE</code></a><span class="sum">Copy a band of pixels into the window, or redraw part of it</span></h4>
+<h4><span class="n">41</span><a class="opname" href="../code/#os/ws/ws.s:1197"><code>DAMAGE</code></a><span class="sum">Copy a band of pixels into the window, or redraw part of it</span></h4>
 <p>With a band: its w x h pixels, from the band&#x27;s offset 0 with rows <code>stride</code> bytes apart, are copied to (x, y) of the surface, and that rectangle is redrawn on the screen. A rectangle that does not fit the surface (a band drawn for the size before a resize) is ignored, with 0. Without a band the rectangle is only redrawn.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2368,7 +2368,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-42">
-<h4><span class="n">42</span><a class="opname" href="../code/#os/ws/ws.s:1260"><code>TEXT</code></a><span class="sum">Draw text into the window</span></h4>
+<h4><span class="n">42</span><a class="opname" href="../code/#os/ws/ws.s:1268"><code>TEXT</code></a><span class="sum">Draw text into the window</span></h4>
 <p>In the 8 x 16 body font, at most 160 characters (the rest is cut).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2388,7 +2388,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-43">
-<h4><span class="n">43</span><a class="opname" href="../code/#os/ws/ws.s:1291"><code>FILL</code></a><span class="sum">Fill a rectangle of the window with a colour</span></h4>
+<h4><span class="n">43</span><a class="opname" href="../code/#os/ws/ws.s:1299"><code>FILL</code></a><span class="sum">Fill a rectangle of the window with a colour</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the window id</td></tr>
@@ -2406,7 +2406,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-44">
-<h4><span class="n">44</span><a class="opname" href="../code/#os/ws/ws.s:1311"><code>EVENT</code></a><span class="sum">Wait for the window&#x27;s next event</span></h4>
+<h4><span class="n">44</span><a class="opname" href="../code/#os/ws/ws.s:1319"><code>EVENT</code></a><span class="sum">Wait for the window&#x27;s next event</span></h4>
 <p>Events queue per window, 8 at most: keys that follow each other share an event (up to 8 bytes); a second resize is not queued (the one queued carries the latest size); a move after a move replaces it; with the queue full an event is dropped, but a close replaces the last one. Kinds: 1 key (the focused window), 2 resize (draw again at the new size), 3 close (Alt+Q: the process is killed 400 ms later), 4 focus in, 5 focus out, 6 pointer, 7 wheel. Pointer events go to the window under the pointer: presses and releases, moves while a button is held, and the wheel. One EVENT waits per window.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2429,7 +2429,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-45">
-<h4><span class="n">45</span><a class="opname" href="../code/#os/ws/ws.s:1347"><code>DESTROY</code></a><span class="sum">Close a window</span></h4>
+<h4><span class="n">45</span><a class="opname" href="../code/#os/ws/ws.s:1355"><code>DESTROY</code></a><span class="sum">Close a window</span></h4>
 <p>Answered first; the other windows close ranks, and an EVENT waiting on the window gets −1.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2443,7 +2443,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-46">
-<h4><span class="n">46</span><a class="opname" href="../code/#os/ws/ws.s:1055"><code>TITLE</code></a><span class="sum">Change a window&#x27;s title</span></h4>
+<h4><span class="n">46</span><a class="opname" href="../code/#os/ws/ws.s:1063"><code>TITLE</code></a><span class="sum">Change a window&#x27;s title</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the window id</td></tr>

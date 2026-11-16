@@ -366,9 +366,7 @@ SequenceableCollection >> with: other do: aBlock [
     1 to: self size do: [:i | aBlock value: (self at: i) value: (other at: i)] ]
 SequenceableCollection >> with: other collect: aBlock [
     "Answers a collection of the species of aBlock's values for each
-     element and the element of other at the same index. It fills the
-     result with at:put:, so for an OrderedCollection receiver it signals
-     SubscriptOutOfBounds.
+     element and the element of other at the same index.
      #(1 2) with: #(10 20) collect: [:a :b | a + b] >>> #(11 22)"
     | out | out := self species new: self size.
     1 to: self size do: [:i | out at: i put: (aBlock value: (self at: i) value: (other at: i))].
@@ -466,8 +464,7 @@ SequenceableCollection >> copyFrom: start to: stop [
     1 to: n do: [:i | out at: i put: (self at: start + i - 1)].
     ^out ]
 SequenceableCollection >> copyWith: anObject [
-    "Answers a copy one longer, anObject at the end. It fills the copy with
-     at:put:, so for an OrderedCollection it signals SubscriptOutOfBounds.
+    "Answers a copy one longer, anObject at the end.
      #(1 2) copyWith: 3 >>> #(1 2 3)"
     | out | out := self species new: self size + 1.
     1 to: self size do: [:i | out at: i put: (self at: i)].
@@ -672,15 +669,14 @@ Array >> displayOn: aStream [
     self do: [:e | e displayOn: aStream] separatedBy: [aStream space].
     aStream nextPut: $) ]
 Array >> isLiteral [
-    "Answers whether every element answers true to isLiteral (Strings,
-     Symbols, ByteArrays, such Arrays). Numbers and Characters answer
-     false here, so an Array holding one does too.
-     #('a' #b) isLiteral >>> true"
+    "Answers whether every element answers true to isLiteral (numbers,
+     Characters, Strings, Symbols, ByteArrays, such Arrays).
+     #('a' #b 3 $c) isLiteral >>> true"
     ^self allSatisfy: [:e | e isLiteral] ]
 Object >> isLiteral [
     "Answers whether the object could be written as a literal inside an
-     array literal: false here; Strings, Symbols, ByteArrays and Arrays of
-     them answer true.
+     array literal: false here; numbers, Characters, Strings, Symbols,
+     ByteArrays and Arrays of them answer true.
      Object new isLiteral >>> false"
     ^false ]
 
@@ -873,18 +869,19 @@ String >> lines [
     start <= self size ifTrue: [out add: (self copyFrom: start to: self size)].
     ^out ]
 String >> occurrencesOfString: aString [
-    "The number of occurrences of aString that do not overlap. aString must
-     not be empty (the search would not end).
+    "The number of occurrences of aString that do not overlap; 0 for an
+     empty aString.
      'abcabcab' occurrencesOfString: 'ab' >>> 3"
     | n i | n := 0. i := 1.
+    aString isEmpty ifTrue: [^0].
     [(i := self indexOfSubCollection: aString startingAt: i) > 0] whileTrue: [n := n + 1. i := i + aString size].
     ^n ]
 String >> copyReplaceAll: old with: new [
     "Answers a copy with each occurrence of old, from left to right without
-     overlap, replaced by new. old must not be empty (the search would not
-     end).
+     overlap, replaced by new; a plain copy for an empty old.
      'a-b-c' copyReplaceAll: '-' with: '+' >>> 'a+b+c'"
     | out i j |
+    old isEmpty ifTrue: [^self copy].
     out := WriteStream on: (String new: self size).
     i := 1.
     [(j := self indexOfSubCollection: old startingAt: i) > 0] whileTrue: [
@@ -958,18 +955,39 @@ Symbol class >> intern: aString [
      table (Smalltalk symbolTable, open addressing by aString hash), or
      made in far memory (basicNewFar:) and entered there.
      (Symbol intern: 'abc') == #abc >>> true"
-    | table i s n |
+    | table i s n probes |
     table := Smalltalk symbolTable.
     n := table size.
     i := (aString hash bitAnd: n - 1) + 1.
+    probes := 0.
     [(s := table at: i) == nil] whileFalse: [
         (s size = aString size and: [s sameAs: aString]) ifTrue: [^s].
-        i := i \\ n + 1].
+        i := i \\ n + 1.
+        (probes := probes + 1) >= n ifTrue: [self growTable. ^self intern: aString]].
     s := Symbol basicNewFar: aString size.
     s replaceFrom: 1 to: aString size with: aString startingAt: 1.
     table at: i put: s.
     Smalltalk noteNewSymbol.
+    probes > 8 ifTrue: [self growTableIfFull].
     ^s ]
+Symbol class >> growTableIfFull [
+    "Doubles the symbol table when it is over three quarters full: sent
+     when an intern: had to look far for a free slot."
+    | t |
+    t := Smalltalk symbolTable.
+    (t count: [:e | e notNil]) * 4 > (t size * 3) ifTrue: [self growTable] ]
+Symbol class >> growTable [
+    "Puts every Symbol into a table twice the size, which becomes the
+     symbol table (the special objects' slot 12)."
+    | old new n |
+    old := Smalltalk symbolTable.
+    n := old size * 2.
+    new := Array new: n.
+    old do: [:s | s == nil ifFalse: [ | i |
+        i := (s asString hash bitAnd: n - 1) + 1.
+        [(new at: i) == nil] whileFalse: [i := i \\ n + 1].
+        new at: i put: s]].
+    Smalltalk specialObjects at: 12 put: new ]
 Symbol class >> new: n [
     "Signals an Error (error:): Symbols are made with asSymbol or intern:."
     ^self error: 'symbols are made with asSymbol' ]
@@ -1029,7 +1047,7 @@ Symbol >> cull: anObject [
 Symbol >> numArgs [
     "The number of arguments of the selector the Symbol names.
      #at:put: numArgs >>> 2"
-    ^self asString numArgs ]
+    ^super numArgs ]
 Symbol >> shallowCopy [
     "Answers the receiver itself: a Symbol is not copied.
      #abc shallowCopy == #abc >>> true"
@@ -1210,6 +1228,17 @@ OrderedCollection >> postCopy [
      change the other.
      | a b | a := OrderedCollection withAll: #(1). b := a copy. b add: 2. a >>> OrderedCollection (1)"
     array := array copy ]
+OrderedCollection >> copyWith: anObject [
+    "Answers a copy with anObject added at the end.
+     (OrderedCollection withAll: #(1 2)) copyWith: 3 >>> OrderedCollection (1 2 3)"
+    ^self copy addLast: anObject; yourself ]
+OrderedCollection >> with: other collect: aBlock [
+    "Answers an OrderedCollection of aBlock's values for each element and
+     the element of other at the same index.
+     (OrderedCollection withAll: #(1 2)) with: #(10 20) collect: [:a :b | a + b] >>> OrderedCollection (11 22)"
+    | out | out := OrderedCollection new: self size.
+    1 to: self size do: [:i | out addLast: (aBlock value: (self at: i) value: (other at: i))].
+    ^out ]
 OrderedCollection >> reversed [
     "Answers a new OrderedCollection with the elements in reverse order.
      (OrderedCollection withAll: #(5 6 7)) reversed >>> OrderedCollection (7 6 5)"
@@ -1223,9 +1252,10 @@ SequenceableCollection class >> new: n [
 "---- Interval ------------------------------------------------------------------------"
 
 Interval class >> from: a to: b by: s [
-    "Answers the Interval from a to b by s; s must not be 0. Number to:by:
-     makes the same.
+    "Answers the Interval from a to b by s; signals an Error for a step of
+     0. Number to:by: makes the same.
      Interval from: 1 to: 10 by: 3 >>> 1 to: 10 by: 3"
+    s = 0 ifTrue: [^self error: 'the step of an Interval cannot be 0'].
     ^self basicNew setFrom: a to: b by: s ]
 Interval >> setFrom: a to: b by: s [
     "Sets the start, the stop and the step."
@@ -1268,8 +1298,9 @@ Interval >> first [
     ^start ]
 Interval >> last [
     "The last element reached from start by step, which may be before stop.
-     Not meaningful for an empty Interval (no error is signaled).
+     Signals an Error for an empty Interval.
      (1 to: 9 by: 3) last >>> 7"
+    self size = 0 ifTrue: [^self error: 'an empty Interval has no last element'].
     ^stop - ((stop - start) \\ step) ]
 
 "---- hashed collections: open addressing, the size a power of two ------------------"
@@ -1381,6 +1412,17 @@ Set >> collect: aBlock [
      once.
      ((Set withAll: #(1 2 3 4)) collect: [:e | e \\ 2]) size >>> 2"
     | out | out := Set new. self do: [:e | out add: (aBlock value: e)]. ^out ]
+Set >> = other [
+    "Answers whether other is a Set of the same class with the same
+     elements.
+     (Set withAll: #(1 2)) = (Set withAll: #(2 1)) >>> true"
+    self == other ifTrue: [^true].
+    self class == other class ifFalse: [^false].
+    self size = other size ifFalse: [^false].
+    ^self allSatisfy: [:e | other includes: e] ]
+Set >> hash [
+    "The size: equal Sets have equal hashes."
+    ^self size ]
 Set >> printOn: aStream [
     "Prints the class name and the elements, printed, in parentheses, in
      the order of the table.
@@ -1519,6 +1561,18 @@ Dictionary >> select: aBlock [
     | out | out := self class new.
     self associationsDo: [:a | (aBlock value: a value) ifTrue: [out at: a key put: a value]].
     ^out ]
+Dictionary >> = other [
+    "Answers whether other is a Dictionary of the same class with the same
+     keys, each with an equal value.
+     (Dictionary new at: 1 put: 2; yourself) = (Dictionary new at: 1 put: 2; yourself) >>> true"
+    self == other ifTrue: [^true].
+    self class == other class ifFalse: [^false].
+    self size = other size ifFalse: [^false].
+    self keysAndValuesDo: [:k :v | (other includesKey: k) ifFalse: [^false]. (other at: k) = v ifFalse: [^false]].
+    ^true ]
+Dictionary >> hash [
+    "The size: equal Dictionaries have equal hashes."
+    ^self size ]
 Dictionary >> printOn: aStream [
     "Prints the class name and the Associations, key->value, in
      parentheses, in the order of the table.

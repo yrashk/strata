@@ -83,7 +83,7 @@ Jit class >> stats [
     "A String with the number of methods compiled, the number that could not
      be compiled, and the number of activations of native code (Smalltalk
      vmStatsNative)."
-    ^'compiled ' , compiled printString , ', not compiled ' , failed printString ,
+    ^'compiled ' , (compiled ifNil: [0]) printString , ', not compiled ' , (failed ifNil: [0]) printString ,
         ', native activations ' , (Smalltalk vmStatsNative) printString ]
 Jit class >> jitCompile: aMethod [
     "Compiles aMethod, sent by the VM from inside the method's new frame when
@@ -435,9 +435,10 @@ JitCompiler >> special: k [
         self and: self t3 s: self t3 t: self t4. self branch: 34 a: self t3 b: 0 to: slow].
     k = 8 ifTrue: [
         self srai: self t3 s: self a0 imm: 1. self srai: self t4 s: self a1 imm: 1.
-        self slli: self t5 s: self t3 imm: 32. self srai: self t5 s: self t5 imm: 32.
+        "each fits 31 bits: the product fits a SmallInteger's 63"
+        self slli: self t5 s: self t3 imm: 33. self srai: self t5 s: self t5 imm: 33.
         self branch: 33 a: self t5 b: self t3 to: slow.
-        self slli: self t5 s: self t4 imm: 32. self srai: self t5 s: self t5 imm: 32.
+        self slli: self t5 s: self t4 imm: 33. self srai: self t5 s: self t5 imm: 33.
         self branch: 33 a: self t5 b: self t4 to: slow.
         self mul: self t2 s: self t3 t: self t4. self slli: self t2 s: self t2 imm: 1. self ori: self t2 s: self t2 imm: 1].
     k = 12 ifTrue: [self and: self t2 s: self a0 t: self a1].

@@ -1,0 +1,68 @@
+run: /Users/yrashk/Projects/IStrata/.claude/worktrees/smart-memory-research-4e7a72/build/asic/gf180mcu-1-mcu7t3v3-1p/runs/run
+clock target: 40 ns (25.0 MHz)
+
+== area
+die                   93.635 mm2
+core                  93.159 mm2
+SRAM macros           55.226 mm2   (267 x gf180mcu_fd_ip_sram__sram512x8m8wm1, 0.2094 mm2 each)
+standard cells         6.428 mm2   (471431 cells)
+utilisation        66.2% of the core (standard cells alone 16.9% of the area outside the macros)
+
+== standard cells by class (count, area)
+  antenna_cell                            6858      0.030 mm2
+  buffer                                 23341      0.328 mm2
+  clock_buffer                            1240      0.065 mm2
+  clock_inverter                           334      0.005 mm2
+  fill_cell                            1376658     28.303 mm2
+  inverter                               14446      0.127 mm2
+  multi_input_combinational_cell        121448      2.573 mm2
+  sequential_cell                        11642      0.690 mm2
+  tap_cell                              242874      1.066 mm2
+  tie_cell                                  86      0.001 mm2
+  timing_repair_buffer                   49162      1.543 mm2
+
+== timing, after routing (OpenSTA, parasitics from OpenRCX)
+  nom_ff_n40C_3v60     setup WNS    1.254 ns  TNS       0.00  hold WS  -1.295  -> period  38.75 ns =   25.8 MHz  reg-to-reg WNS    1.254 ns ->  38.75 ns
+  nom_tt_025C_3v30     setup WNS   -8.828 ns  TNS  -17000.27  hold WS  -1.875  -> period  48.83 ns =   20.5 MHz  reg-to-reg WNS   -8.828 ns ->  48.83 ns
+
+== critical path (nom_tt_025C_3v30)
+  from _327455_ (rising edge-triggered flip-flop clocked by clk)
+  to   g_1p.u_ls1.g_r[15].g_b[0].u_m
+  187 cells: 44.78 ns in cells, 2.95 ns in wires
+
+== run time per step (h:mm:ss)
+  01-yosys-jsonheader                           00:02:10
+  02-yosys-synthesis                            00:08:04
+  07-openroad-checkmacroinstances               00:00:01
+  08-openroad-floorplan                         00:00:08
+  09-openroad-dumprcvalues                      00:00:03
+  10-odb-checkmacroantennaproperties            00:00:01
+  11-odb-setpowerconnections                    00:00:03
+  12-odb-manualmacroplacement                   00:00:04
+  13-openroad-cutrows                           00:00:04
+  14-openroad-tapendcapinsertion                00:00:08
+  16-openroad-generatepdn                       00:02:01
+  19-openroad-globalplacementskipio             00:01:10
+  20-openroad-ioplacement                       00:00:10
+  23-openroad-globalplacement                   00:01:00
+  24-odb-writeverilogheader                     00:00:01
+  26-openroad-repairdesignpostgpl               00:02:08
+  28-openroad-detailedplacement                 00:00:20
+  29-openroad-cts                               00:01:43
+  30-openroad-stamidpnr                         00:09:11
+  31-openroad-stamidpnr-1                       00:07:46
+  32-openroad-globalrouting                     00:02:24
+  33-openroad-checkantennas                     00:00:18
+  35-openroad-repairantennas                    00:02:31
+  36-openroad-stamidpnr-2                       00:08:20
+  37-openroad-detailedrouting                   02:06:20
+  39-openroad-checkantennas-1                   00:00:16
+  41-odb-reportdisconnectedpins                 00:00:12
+  43-odb-reportwirelength                       00:00:03
+  45-openroad-fillinsertion                     00:00:41
+  46-odb-cellfrequencytables                    00:00:17
+  47-openroad-rcx                               00:02:06
+  48-openroad-stapostpnr                        00:35:54
+  49-klayout-streamout                          00:00:14
+  50-klayout-render                             00:00:05
+  total                                         3:36:14

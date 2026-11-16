@@ -48,7 +48,11 @@ Store memories raise the RTL's speed or cut its area? The answer is
 - [x] Two words ahead with one memory (`fb_nx2`), and the next word's read alternating with a `tput`'s reads: 1.78 (+1.3%); streaming examples +2.8%; the other examples at the two-store figure; the default machine's cycle counts unchanged
 - [ ] `fpga/arty/strata_arty.sv`: honour `ext_t3_rready` (needed only with `LS_1P`)
 - [x] `asic/`: `ASIC_LS1P=1` (a real single-port memory from macros), `ASIC_SRAM=ocd1024`, the floorplan for both, `ASIC_PREP=1`, `asic/area.sh`; prepared and synthesized on the host: stores 19.9 mm², die 53.5 mm² by the floorplan (REPORT.md section 11)
-- [ ] A LibreLane run of it: the container image, the 1024 x 8 macro's LEF / GDS / liberty in the run, the reports' scripts
+- [x] Placed and routed with the 512 x 8 macro and the 3.3 V cells (`asic/results/gf180mcu-1-mcu7t3v3-1p/`, REPORT.md section 12): 0 DRC violations, 23.9 MHz typical (24.5 before), the critical path now ends at a memory macro's data input
+- [ ] A LibreLane run with the 1024 x 8 macro: its LEF / GDS / liberty in the run; the pictures' scripts for the new names
+- [x] The routed run's 664 worst memory paths all end at the macros' write data: a one-word write register in front of the single-port memory (`sb_*`: a store's write goes to the memory the cycle after, before the core reads anything); cycle counts of the examples unchanged, the StrataOS session +0.5%; `make test` passes both ways
+- [x] Its routed run (`asic/results/gf180mcu-1-mcu7t3v3-1p-wr/`): the write-data paths are gone, the clock is worse (48.83 ns) through the read side in that placement and a path that is not real; the flow cannot compare two RTL versions as it stands (REPORT.md section 13)
+- [ ] Make the ASIC flow's timing comparable: `SYNTH_SHARE_RESOURCES` off, timing-driven placement or repair, a two-level read multiplexer in `asic/rtl/gf180mcu/strata_ram1.sv`; then rerun with and without the write register
 - [ ] How densely the logic places: the strip is half the die now
 - [ ] Area and clock of the change
 

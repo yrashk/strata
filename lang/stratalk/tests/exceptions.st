@@ -37,3 +37,9 @@
 [true ifTrue: 3] on: Error do: [:e | 'ok']
 [3 ifTrue: [4]] on: NonBooleanReceiver do: [:e | 'not boolean']
 [3 ifTrue: [4] ifFalse: [5]] on: NonBooleanReceiver do: [:e | e resume: false]
+[3 perform: #+ withArguments: #()] on: Error do: [:e | e messageText]
+[3 perform: #negated with: 5] on: Error do: [:e | e messageText]
+3 perform: #between:and: with: 1 with: 5
+[[Warning signal. 1] on: Warning do: [:e | e outer + 10]] on: Warning do: [:e | e resume: 5]
+| n | n := 0. [n := n + 1. 1/0] on: ZeroDivide do: [:e | n < 3 ifTrue: [e retryUsing: [n := n + 1. 1/0]] ifFalse: [n]]
+[Smalltalk vm at: 'nonsense'] on: NotFound do: [:e | e messageText]

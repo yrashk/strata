@@ -292,46 +292,79 @@ Object >> postCopy [
      3 postCopy >>> 3"
     ^self ]
 Object >> deepCopy [
-    "Answers a shallowCopy whose named slots hold copies (with copy) of the
-     receiver's. Indexed slots are not copied again: they are shared as in
-     shallowCopy.
-     | a | a := 'x' -> 'y'. a deepCopy value == a value >>> false"
+    "Answers a shallowCopy whose slots, named and indexed, hold copies (with
+     copy) of the receiver's. The bytes of a String or a ByteArray are
+     copied by shallowCopy already.
+     | a | a := Array with: 'x'. a deepCopy first == a first >>> false"
     | c |
     c := self shallowCopy.
     1 to: self class instSize do: [:i | c instVarAt: i put: (self instVarAt: i) copy].
+    self class instanceFormat = 1 ifTrue: [
+        1 to: self basicSize do: [:i | c basicAt: i put: (self basicAt: i) copy]].
     ^c ]
 
 Object >> perform: aSymbol [
-    "Sends the receiver the unary message aSymbol and answers the result. A
-     VM primitive (51); aSymbol must be a Symbol, and if the primitive
-     fails, signals an Error.
+    "Sends the receiver the unary message aSymbol and answers the result.
+     Signals an Error if aSymbol is not a Symbol or takes arguments.
      3 perform: #negated >>> -3"
-    <primitive: 51> ^self error: 'perform: needs a Symbol' ]
+    (self checkPerform: aSymbol arguments: 0) ifFalse: [^self].
+    ^self basicPerform: aSymbol ]
 Object >> perform: aSymbol with: a [
     "Sends the receiver the message aSymbol with the argument a and answers
-     the result. A VM primitive (51); if it fails, perform:withArguments:.
+     the result. Signals an Error if aSymbol is not a Symbol of one
+     argument.
      3 perform: #+ with: 4 >>> 7"
-    <primitive: 51> ^self perform: aSymbol withArguments: {a} ]
+    (self checkPerform: aSymbol arguments: 1) ifFalse: [^self].
+    ^self basicPerform: aSymbol with: a ]
 Object >> perform: aSymbol with: a with: b [
     "Sends the receiver the message aSymbol with the arguments a and b and
-     answers the result. A VM primitive (51); if it fails,
-     perform:withArguments:.
+     answers the result. Signals an Error if aSymbol is not a Symbol of two
+     arguments.
      3 perform: #between:and: with: 1 with: 5 >>> true"
-    <primitive: 51> ^self perform: aSymbol withArguments: {a. b} ]
+    (self checkPerform: aSymbol arguments: 2) ifFalse: [^self].
+    ^self basicPerform: aSymbol with: a with: b ]
 Object >> perform: aSymbol with: a with: b with: c [
     "Sends the receiver the message aSymbol with the arguments a, b and c and
-     answers the result. A VM primitive (51); if it fails,
-     perform:withArguments:.
+     answers the result. Signals an Error if aSymbol is not a Symbol of
+     three arguments.
      (Array new: 2) perform: #replaceFrom:to:with: with: 1 with: 2 with: #(7 8) >>> #(7 8)"
-    <primitive: 51> ^self perform: aSymbol withArguments: {a. b. c} ]
+    (self checkPerform: aSymbol arguments: 3) ifFalse: [^self].
+    ^self basicPerform: aSymbol with: a with: b with: c ]
 Object >> perform: aSymbol withArguments: anArray [
     "Sends the receiver the message aSymbol with the elements of anArray as
-     its arguments and answers the result. A VM primitive (52); signals an
-     Error if aSymbol is not a Symbol or anArray not an Array. The number of
-     arguments is not checked against the selector.
+     its arguments and answers the result. Signals an Error if aSymbol is
+     not a Symbol, anArray not an Array, or its size not the number of
+     arguments aSymbol takes.
      3 perform: #+ withArguments: #(4) >>> 7"
+    anArray isArray ifFalse: [^self error: 'perform:withArguments: needs an Array'].
+    (self checkPerform: aSymbol arguments: anArray size) ifFalse: [^self].
+    ^self basicPerform: aSymbol withArguments: anArray ]
+Object >> checkPerform: aSymbol arguments: n [
+    "Answers true if aSymbol is a Symbol that takes n arguments; else
+     signals an Error (and answers false if that is resumed).
+     [3 perform: #+ withArguments: #()] on: Error do: [:e | e messageText] >>> '#+ takes 1 argument(s), not 0'"
+    aSymbol isSymbol ifFalse: [self error: 'perform: needs a Symbol'. ^false].
+    aSymbol numArgs = n ifFalse: [
+        self error: aSymbol printString , ' takes ' , aSymbol numArgs printString , ' argument(s), not ' , n printString.
+        ^false].
+    ^true ]
+Object >> basicPerform: aSymbol [
+    "perform: without the checks: a VM primitive (51), which takes the
+     selector out of the arguments and sends the rest."
+    <primitive: 51> ^self error: 'perform: needs a Symbol' ]
+Object >> basicPerform: aSymbol with: a [
+    "perform:with: without the checks (primitive 51)."
+    <primitive: 51> ^self error: 'perform: needs a Symbol' ]
+Object >> basicPerform: aSymbol with: a with: b [
+    "perform:with:with: without the checks (primitive 51)."
+    <primitive: 51> ^self error: 'perform: needs a Symbol' ]
+Object >> basicPerform: aSymbol with: a with: b with: c [
+    "perform:with:with:with: without the checks (primitive 51)."
+    <primitive: 51> ^self error: 'perform: needs a Symbol' ]
+Object >> basicPerform: aSymbol withArguments: anArray [
+    "perform:withArguments: without the checks: a VM primitive (52)."
     <primitive: 52>
-    ^self error: 'perform: with the wrong number of arguments' ]
+    ^self error: 'perform: needs a Symbol and an Array' ]
 
 Object >> error: aString [
     "Signals an Error with aString as its messageText. Unhandled, it ends the
@@ -895,5 +928,6 @@ Message >> printOn: aStream [
      keyword followed by its argument's printString.
      (Message new selector: #size arguments: #()) printString >>> 'size'"
     arguments size = 0 ifTrue: [^aStream nextPutAll: selector].
-    (selector keywords) with: arguments do: [:k :a |
-        aStream nextPutAll: k; space; print: a; space] ]
+    (selector keywords) doWithIndex: [:k :i |
+        i > 1 ifTrue: [aStream space].
+        aStream nextPutAll: k; space; print: (arguments at: i)] ]

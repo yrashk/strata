@@ -6,14 +6,16 @@
 
 An OUT ending in .fs is the same tables for lang/forth/vi.fs, the Forth port,
 as Forth source: lines `CLASS kw word word ...` (words of one class, in the
-table's order) between `kw-begin` and `N kw-end` (N: 1 assembly, 2 Forth, 3 C),
+table's order) between `kw-begin` and `N kw-end` (N: 1 assembly, 2 Forth, 3 C,
+4 Stratalk, 5 Prolog),
 which vi.fs interprets once to build its tables in far memory. The class
 numbers are vi.s's H_* constants, read from os/progs/vi.s.
 
-Writes a Strata assembly include with three tables that os/progs/vi.s looks
+Writes a Strata assembly include with five tables that os/progs/vi.s looks
 words up in: Strata assembly (mnemonics by category, CSR names, x registers,
 c registers and transfer tags), Strata Forth (the defining words, the
-control words and the Strata words) and C (keywords and type names). The
+control words and the Strata words), C (keywords and type names), Stratalk
+(the pseudo-variables) and Prolog (control and the common builtins). The
 lists come from the same places as the site's highlighter and the compiler,
 so the editor and the site never disagree and neither drifts from the real
 tools:
@@ -22,7 +24,9 @@ tools:
   - lang/forth/README.md, through tools/web-code.py's forth_keywords() (the
     Strata words);
   - site/hl.js (F_DEF, F_DW, F_NAMED, F_CTL: the standard Forth words the
-    site colours, and which of them take a name or a character after them);
+    site colours, and which of them take a name or a character after them;
+    ST_PSEUDO: Stratalk's self super ...; PL_CTL and PL_BI: Prolog's control
+    and builtins);
   - lang/cc/cc.c's kw_names (the keywords cc knows; C99's _Complex and
     _Imaginary, which it does not, are added) and the typedef names of the
     headers in lang/cc/lib/include (size_t, uint8_t, FILE ...; bool).
@@ -32,7 +36,7 @@ Table format (both tables): an index of 96 halfwords, one per first byte
 end of the index, 192 bytes; the last one is the end of the table), then the entries sorted
 by first byte: {u8 length, u8 class, bytes}. Words are lower case in the
 assembly and Forth tables (vi folds case when it looks a word up there) and
-as they are in the C one (looked up as they are). The class names (H_*) are constants that
+as they are in the C, Stratalk and Prolog ones (looked up as they are). The class names (H_*) are constants that
 vi.s defines before it includes this file; a Forth class may carry
 H_NAME (the next word is a name being defined), H_CHAR (the next word is a
 character) or both (H_LOCALS: "{" opens a list of locals).
@@ -120,6 +124,21 @@ def c_table():
     return words
 
 
+def st_table():
+    hl = open(os.path.join(ROOT, "site", "hl.js"), encoding="utf-8").read()
+    return {w: "H_DIR" for w in hl_set(hl, "ST_PSEUDO")}
+
+
+def pl_table():
+    hl = open(os.path.join(ROOT, "site", "hl.js"), encoding="utf-8").read()
+    words = {}
+    for w in hl_set(hl, "PL_CTL"):           # (the site tries control first)
+        words.setdefault(w, "H_FCTL")
+    for w in hl_set(hl, "PL_BI"):
+        words.setdefault(w, "H_DIR")
+    return words
+
+
 def emit(out, label, words, what, fold=True):
     ents = sorted((w.lower() if fold else w, c) for w, c in words.items()
                   if w and 0x21 <= ord(w[0]) < 0x7f and len(w) < 256)
@@ -179,6 +198,8 @@ def main():
         emit_forth(out, asm_table(), 1, "Strata assembly", h)
         emit_forth(out, forth_table(), 2, "Strata Forth", h)
         emit_forth(out, c_table(), 3, "C", h, fold=False)
+        emit_forth(out, st_table(), 4, "Stratalk", h, fold=False)
+        emit_forth(out, pl_table(), 5, "Prolog", h, fold=False)
         with open(sys.argv[1], "w") as f:
             f.write("\n".join(out) + "\n")
         return
@@ -189,6 +210,8 @@ def main():
     emit(out, "kw_asm", asm_table(), "Strata assembly")
     emit(out, "kw_fth", forth_table(), "Strata Forth")
     emit(out, "kw_c", c_table(), "C", fold=False)
+    emit(out, "kw_st", st_table(), "Stratalk", fold=False)
+    emit(out, "kw_pl", pl_table(), "Prolog", fold=False)
     out.append("        .text                           ; back to code")
     with open(sys.argv[1], "w") as f:
         f.write("\n".join(out) + "\n")

@@ -32,7 +32,7 @@ b { color: #fff; font-weight: 600; }
 
 /* ---------------------------------------------------------------- nav */
 nav.top {
-  position: sticky; top: 0; z-index: 10;
+  position: sticky; top: 0; z-index: 100;   /* above every page's panels and drawers (20-50): its menus open over them */
   display: flex; align-items: center; justify-content: space-between;
   gap: 16px; padding: 14px 32px;
   background: rgba(7, 10, 18, 0.82);
@@ -119,8 +119,36 @@ h1 {
 .btn:hover { background: var(--amber); color: var(--bg); }
 .btn.ghost { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1px var(--edge); }
 .btn.ghost:hover { color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
-.facts { list-style: none; padding: 0; margin: 40px 0 0; display: flex; flex-wrap: wrap; gap: 10px 28px; font-family: var(--mono); font-size: 13px; color: var(--dim); }
-.facts li::before { content: "▸ "; color: var(--cyan); }
+.tagline { margin: 22px 0 0; font-size: clamp(26px, 3.6vw, 40px); line-height: 1.15; font-weight: 700; color: #fff; }
+.tagline + .lede { margin-top: 12px; font-size: clamp(17px, 1.9vw, 21px); max-width: 780px; opacity: 0.9; }
+
+/* what's inside: small linked tiles under the actions */
+.inside { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 44px 0 0; }
+.tile {
+  display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 12px 16px 13px;
+  background: rgba(9, 14, 26, 0.78); backdrop-filter: blur(4px);
+  box-shadow: inset 0 0 0 1px rgba(31, 111, 139, 0.55);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  color: var(--text); font-size: 14px; line-height: 1.4; transition: box-shadow .2s;
+}
+a.tile:hover, .tile:focus-within { box-shadow: inset 0 0 0 1px var(--cyan), 0 0 18px rgba(77, 225, 255, 0.08); color: var(--text); }
+.tile .tl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--amber); margin-bottom: 3px; }
+.tile b { font-size: 15.5px; }
+.tile > span:last-child, .tile li a span { color: var(--dim); }
+.tile.langs { grid-column: span 2; box-shadow: inset 0 0 0 1px rgba(77, 225, 255, 0.45); }
+.langs ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; }
+.langs li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.langs li a:first-child { display: flex; align-items: baseline; gap: 8px; min-width: 0; color: var(--text); white-space: nowrap; }
+.langs li a:first-child:hover b { color: var(--amber); }
+.langs .run {
+  flex: none; width: 24px; height: 20px; display: grid; place-items: center;
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+.langs .run::before { content: ""; border-left: 7px solid var(--cyan); border-top: 4.5px solid transparent; border-bottom: 4.5px solid transparent; margin-left: 2px; }
+.langs .run:hover { box-shadow: inset 0 0 0 1px var(--amber); }
+.langs .run:hover::before { border-left-color: var(--amber); }
+.games { margin: 0; display: flex; flex-wrap: wrap; gap: 0 12px; }
+.games a { font-weight: 600; white-space: nowrap; }
 
 /* ---------------------------------------------------------------- sections */
 main { max-width: 1080px; margin: 0 auto; padding: 0 32px; }
@@ -263,6 +291,12 @@ footer { margin-top: 80px; padding: 40px 32px 56px; text-align: center; color: v
   nav.top.js .menu.open .drop { display: flex; }
   nav.top.js .drop a { padding: 10px 20px 10px 36px; }
   main, .hero { padding-left: 16px; padding-right: 16px; }
+  .hero { padding-top: 48px; padding-bottom: 48px; }
+  .inside { grid-template-columns: 1fr 1fr; margin-top: 32px; }
+  .langs ul { grid-template-columns: 1fr; }
+  .cta { gap: 10px; }
+  .cta .btn { flex: 1 1 100%; text-align: center; padding: 10px 18px; }
+  .tile { padding: 10px 12px 11px; }
   .cmds div { grid-template-columns: 1fr; gap: 2px; }
   .tier { width: 100% !important; }
 }

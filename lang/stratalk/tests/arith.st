@@ -74,3 +74,9 @@ $5 digitValue
 ((2 raisedTo: 70) + 255) bitAnd: 4095
 ((2 raisedTo: 64) + 1) bitOr: 6
 (2 raisedTo: 65) bitXor: (2 raisedTo: 65)
+-5 printString: 10 length: 4
+0 lcm: 0
+[(5 to: 1) last] on: Error do: [:e | e messageText]
+[1 to: 5 by: 0] on: Error do: [:e | e messageText]
+[1 to: 5 by: 0 do: [:i | i]] on: Error do: [:e | e messageText]
+| f | Object compile: 'jitMul: a by: b [ ^a * b ]'. f := 0. 1 to: 300 do: [:i | f := 3 jitMul: -2147483648 by: -2147483648]. f

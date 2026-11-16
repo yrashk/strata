@@ -1,0 +1,27 @@
+#ok
+#ok
+#ok
+#ok
+#ok
+#ok
+#ok
+#ok
+#ok
+31
+#ok
+OrderedCollection ('3 + 4y' '10 factorialx' '(1 to: 10) collect: [:i | i * i]' 'Proc ps')
+#()
+0
+'3 + 4
+100 factorial
+(1 to: 10) collect: [:i | i * i]
+Proc ps'
+4
+OrderedCollection (1->1 4->5 7->8 9->9 11->11 14->16 18->18)
+$"
+nil->OrderedCollection (1->16 18->23)
+OrderedCollection (2->6 28->33 35->39 43->47)
+OrderedCollection (1->5 7->8 10->11 18->18 19->25 29->30)
+#('3 + 4 -> 4' '  -> 7->4')
+#('3 + 4' '  -> 7' '100 factorial')
+#('xy3 + 4')

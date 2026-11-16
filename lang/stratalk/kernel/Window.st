@@ -73,10 +73,14 @@ Window >> open: aTitle [
      the title in the request's data; the reply's result becomes the id and
      its two u64 fields the width and height. Signals an Error if there is
      no ws, or if ws refuses (4 windows open, the boot splash showing),
-     giving the register back to its own server first."
+     giving the register back to its own server first. While the window is
+     open the register is noted as lent (SystemDictionary >> lend:to:name:):
+     a message to the register's own server (Db, pipe) puts it back for the
+     message and ws again after it."
     | data r |
     register := Window freeRegister.
     server := Server named: 'ws' into: register.
+    Smalltalk lend: register to: server name: 'ws'.
     data := ByteArray new: 24.
     data putTitle: aTitle at: 16.
     r := server request: Window opCreate handle: 0 mode: 0 data: data replySize: 16.
@@ -169,7 +173,8 @@ Window >> close [
 Window >> giveBack [
     "Looks the register's own server up into it again (proc LOOKUP of proc,
      fs, tty or pipe, for register 1 to 4), undoing what open: did."
-    Smalltalk osLookup: (#('proc' 'fs' 'tty' 'pipe') at: register) into: register ]
+    Smalltalk lentRegisters removeKey: register ifAbsent: [nil].
+    Smalltalk osLookup: (OSServer ownServerOf: register) into: register ]
 Window class >> freeRegister [
     "Answers a capability register that standard input, output and error do
      not use, for ws's endpoint: 4 (pipe's), else 3 (tty's, when they are

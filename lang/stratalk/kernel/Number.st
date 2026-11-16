@@ -147,9 +147,10 @@ Number >> to: stop do: aBlock [
 Number >> to: stop by: step do: aBlock [
     "Runs aBlock with the receiver, the receiver + step, ... as long as they
      have not passed stop (counting down if step is negative). A step of 0
-     never ends unless the receiver is below stop. Answers the receiver.
+     signals an Error. Answers the receiver.
      | a | a := OrderedCollection new. 10 to: 1 by: -4 do: [:i | a add: i]. a >>> OrderedCollection (10 6 2)"
     | i |
+    step = 0 ifTrue: [^self error: 'a step of 0 never ends'].
     i := self.
     step > 0
         ifTrue: [[i <= stop] whileTrue: [aBlock value: i. i := i + step]]
@@ -202,9 +203,10 @@ Integer >> gcd: anInteger [
     [b = 0] whileFalse: [t := a \\ b. a := b. b := t].
     ^a ]
 Integer >> lcm: anInteger [
-    "Answers the least common multiple of the receiver and anInteger, >= 0.
-     Signals ZeroDivide if both are 0.
+    "Answers the least common multiple of the receiver and anInteger, >= 0;
+     0 when either is 0.
      4 lcm: 6 >>> 12"
+    (self = 0 or: [anInteger = 0]) ifTrue: [^0].
     ^(self * anInteger) abs // (self gcd: anInteger) ]
 Integer >> isPrime [
     "Answers whether the receiver is a prime, by trial division up to its
@@ -268,9 +270,10 @@ Integer >> printString: base [
     ^s contents ]
 Integer >> printString: base length: n [
     "Answers printString: base padded on the left with 0s to n characters
-     (not cut if longer). The 0s go before a minus sign too.
-     5 printString: 10 length: 4 >>> '0005'"
+     (not cut if longer), after the minus sign of a negative number.
+     -5 printString: 10 length: 4 >>> '-005'"
     | s |
+    self < 0 ifTrue: [^'-' , (self negated printString: base length: n - 1)].
     s := self printString: base.
     ^(String new: (n - s size max: 0) withAll: $0), s ]
 Integer >> hex [
@@ -782,6 +785,14 @@ Character class >> backspace [
     "The backspace (8).
      Character backspace value >>> 8"
     ^Character value: 8 ]
+Number >> isLiteral [
+    "Answers true: a number can be written inside an array literal.
+     #(1 -2) isLiteral >>> true"
+    ^true ]
+Character >> isLiteral [
+    "Answers true: a Character can be written inside an array literal.
+     $a isLiteral >>> true"
+    ^true ]
 Character >> value [
     "The receiver's code point. A VM primitive (30).
      $a value >>> 97"

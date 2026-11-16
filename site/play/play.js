@@ -23,7 +23,10 @@ const PRESETS = {
     args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
     fitScreen: true,
     sound: true,
-    about: "The boot ROM finds the disk, loads the kernel into every core's Local Stores, and StrataOS starts its servers and the shell on 12 cores. Try help, ls, ps, -n 3 mandel, or ws for the window server (click the screen; Alt+P launches programs, wdoom among them; Alt+Enter opens a terminal, Alt+F makes a window full screen, Alt+? lists the keys).",
+    about: "StrataOS on 12 cores: the boot ROM loads the kernel into every core's Local Stores, then the servers and the shell start.",
+    tries: ["help", "ls /", "ps", "cores", "-n 3 mandel", "ws"],
+    keys: [["ws", "the window server (click the screen first)"], ["Alt+P", "launch a program, wdoom among them"], ["Alt+Enter", "a new terminal"], ["Alt+F", "the window full screen"], ["Alt+?", "every key"]],
+    net: true,
   },
   osws: {
     files: ["bootrom.stx", "disk-ws.img"],
@@ -31,7 +34,9 @@ const PRESETS = {
     fitScreen: true,
     screenKeys: true,
     sound: true,
-    about: "StrataOS on 12 cores with the window server started at boot (its rc runs ws): the real ws, its terminals running the real shell. A key help comes up after the splash; any key or click dismisses it. Alt+Enter opens a terminal, Alt+P the launch palette (try wdoom), Alt+F makes the focused window full screen and Alt+Z the only tile (again: back), a click focuses a tile, the wheel scrolls a terminal back, Alt+? shows the help again.",
+    about: "StrataOS with the window server started at boot: real ws, its terminals running the real shell.",
+    keys: [["any key", "dismiss the help"], ["Alt+Enter", "a new terminal"], ["Alt+P", "launch a program (try wdoom)"], ["Alt+F", "the window full screen"], ["Alt+Z", "the only tile (again: back)"], ["click", "focus a tile"], ["wheel", "scroll a terminal back"], ["Alt+?", "the help again"]],
+    net: true,
   },
   kira: {
     files: ["bootrom.stx", "disk.img"],
@@ -40,7 +45,8 @@ const PRESETS = {
     screenKeys: true,
     sound: true,
     type: "ws kira\n",
-    about: "Princess Kira: gentle games for a small child, written in Strata assembly as a client of the StrataOS window server (the page types ws kira at the shell's first prompt). No enemies, no timer, no way to lose. Click the screen and press a key to dismiss the key help. The mouse does everything; so do the keys: the arrows walk Kira or move a hand that Space presses, 1 to 4 choose a game, M goes back to the menu. Friends: find Kira's seven animal friends in a castle and garden that are new every game, and walk them to the picnic; Space looks through Kira's eyes. Garden: sow seeds and water them into flowers. Paint: three colouring pages. Music: a xylophone, the friends' voices and four songs. The page plays the sound once you have clicked or pressed a key.",
+    about: "Gentle games for a small child, in Strata assembly: no enemies, no timer, no way to lose. Click the screen, press a key.",
+    keys: [["mouse", "does everything"], ["arrows", "walk Kira, or move the hand"], ["Space", "press with the hand; look through Kira's eyes"], ["1–4", "Friends, Garden, Paint, Music"], ["M", "back to the menu"]],
   },
   plat: {
     files: ["bootrom.stx", "disk.img"],
@@ -49,14 +55,16 @@ const PRESETS = {
     screenKeys: true,
     sound: true,
     type: "ws plat\n",
-    about: "Plat: a city-building game, written in Strata assembly as a client of the StrataOS window server (the page types ws plat at the shell's first prompt). Click the screen and press a key to dismiss the key help. Every game has new land. Lay roads and rail (over water they are bridges) and power lines, zone land for homes, shops and offices, and industry, and build police and fire stations, parks, and coal or solar power plants; once a month zones with power and a road grow while they are in demand and the place suits them, and taxes come in. M shows maps over the town (power, land value, pollution, crime, traffic, cover); G opens the budget, J the town's paper, H its history; the minimap at the left jumps the view. Hover over a button for what it does. The mouse: the left button uses the tool (drag for a line of cells), the right button drags the map, the wheel scrolls it. The keys: the arrows move a cursor, Space uses the tool, Enter puts the pen down or lifts it; B R L T I bulldozer, road, power line, rail, ask; 1 2 3 the zones; 4 5 6 police, fire station, park; P and E coal and solar plants; Z and X zoom in and out; [ and ] the tax rate; 0 pause, - and = the speed; W F A dig water, plant woods, make plain land; V the events panel (call down a fire, a flood, a storm, an earthquake, a plant's failure, or turn events by chance off); S saves the town (and keeps the year as a snapshot), Y the town's past years, C the scenarios, O the gallery of towns kept, N new land; the cursor shows green where a tool can go, red where not; Q quits.",
+    about: "A city-building game in Strata assembly: roads, rail, power, zones; the town grows when it has power, a road and demand. Click the screen, press a key.",
+    keys: [["left button", "use the tool (drag for a line)"], ["right button, wheel", "move the map"], ["B R L T", "bulldozer, road, power line, rail"], ["1 2 3", "homes, shops & offices, industry"], ["4 5 6", "police, fire station, park"], ["P E", "coal, solar plant"], ["M G J H", "maps, budget, paper, history"], ["Z X", "zoom in, out"], ["[ ]", "tax rate"], ["0 - =", "pause, slower, faster"], ["V", "events: fire, flood, storm…"], ["S Y C O N", "save, past years, scenarios, gallery, new land"], ["Q", "quit"]],
   },
   nav: {
     files: ["bootrom.stx", "disk.img"],
     args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
     fitScreen: true,
     type: "nav /src /bin\n",
-    about: "nav, the file navigator: two panels in the manner of the Norton and Midnight Commanders, for StrataOS's tag file system (the page types nav /src /bin at the shell's first prompt). The arrows move, Tab switches panels, Enter goes into a directory, Backspace up; F3 views a file, F4 edits it in vi, F5 copies it to the other panel's directory, F2 gives it that directory's tags too, F8 deletes, F9 or Ctrl-Q shows it in the other panel, F10 quits (Esc and a digit is that F-key). A directory is the set of its files' tags (/src/demo). Type anything to search the whole disk as you type: try sh, vi, or lang=asm; Ctrl-X switches typing to a command line.",
+    about: "Two-panel file navigator for StrataOS's tag file system, in the Norton/Midnight Commander tradition. Type anything to search the whole disk.",
+    keys: [["arrows, Tab", "move, switch panel"], ["Enter, Backspace", "into a directory, up"], ["F3 F4", "view, edit in vi"], ["F5 F2 F8", "copy, tag, delete"], ["typing", "search as you type (sh, lang=asm)"], ["Ctrl-X", "a command line"], ["F10", "quit (Esc+digit = F-key)"]],
   },
   cc: {
     files: ["bootrom.stx", "disk.img"],
@@ -64,21 +72,28 @@ const PRESETS = {
     fitScreen: true,
     sound: true,
     type: "cc /src/hi.c && hi\n",
-    about: "StrataOS with its C compiler: the page types cc /src/hi.c && hi at the shell's first prompt, which compiles the program on the machine and runs it. Then try cat /src/hi.c, cc -o calc /src/calc.c, cc /src/math.c, cc /src/asm.c, or write a program with vi. cc is written in C and compiles itself; cc0, the compiler in assembly that it was bootstrapped from, is on the disk too, with the source in /src/cc.c.",
+    about: "The C compiler, running on the machine: the page compiles /src/hi.c and runs it.",
+    tries: ["cat /src/hi.c", "cc -o calc /src/calc.c && calc", "cc /src/math.c && math", "ls /src/cc"],
+    link: ["The C page", "../c/"],
+    net: true,
   },
   stratalk: {
     files: ["bootrom.stx", "disk.img"],
     args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
     fitScreen: true,
     type: "stratalk -j\n",
-    about: "Stratalk, a Smalltalk for Strata, under StrataOS (the page types stratalk -j at the shell's first prompt: the REPL, with the JIT on). Type an expression and Enter: 3 + 4, 100 factorial, (1 to: 10) collect: [:i | i * i], Proc ps, Smalltalk vm. Tab completes names and selectors; the arrows recall lines. (File named: '/stratalk/examples/queens.st') fileIn runs an example; Smalltalk quit leaves. In the window server (ws), stratalk -w opens a workspace and stratalk -b a class browser.",
+    about: "A Smalltalk for Strata, its REPL with the JIT on. Tab completes; the arrows recall lines.",
+    tries: ["3 + 4", "100 factorial", "(1 to: 10) collect: [:i | i * i]", "Proc ps", "(File named: '/stratalk/examples/queens.st') fileIn"],
+    link: ["Every class and method", "../stratalk/"],
   },
   stralog: {
     files: ["bootrom.stx", "disk.img"],
     args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
     fitScreen: true,
     type: "-m 8 stralog\n",
-    about: "Stralog, a Prolog written in Strata assembly (the page types -m 8 stralog at the shell's first prompt: an 8 MiB arena). Every term lives in far memory; the data Local Store holds windows onto the tops of the heap, the trail and the choicepoint stack, and a small far cache: statistics. shows what moved. Try [queens]. then queens2(8, Qs), show(Qs). The examples are in /stralog (zebra, animals, calc, roman, primes, graph, kb, meta, sorting, sendmore, hanoi, family); after an answer, ; asks for the next one. The Prolog page has them all with Try buttons.",
+    about: "A Prolog for Strata: every term lives in far memory, worked on through windows in the Local Store. After an answer, ; asks for the next.",
+    tries: ["[queens].", "queens2(8, Qs), show(Qs).", "[family].", "ancestor(A, jim).", "statistics."],
+    link: ["Every predicate, with examples", "../stralog/"],
   },
   wdoom: {
     files: ["bootrom.stx", "disk-wdoom.img"],
@@ -86,35 +101,39 @@ const PRESETS = {
     fitScreen: true,
     screenKeys: true,
     sound: true,
-    about: "wdoom, a first-person shooter written in Strata assembly, as a client of the StrataOS window server (the rc runs ws wdoom), with art and sounds from Freedoom. Click the screen and press a key to dismiss the key help. W S or the arrows walk and turn, A D step sideways, Space fires, E opens doors and throws the exit switch, Q quits; a click fires and dragging turns. The view is drawn in ten slabs of 32 columns, because a core's data store holds 40 KiB.",
+    about: "A first-person shooter in Strata assembly, a window server client, with Freedoom's art and sounds. Click the screen, press a key.",
+    keys: [["W S, arrows", "walk and turn"], ["A D", "step sideways"], ["Space, click", "fire"], ["drag", "turn"], ["E", "open doors, the exit switch"], ["Q", "quit"]],
   },
   ws: {
     files: ["wsdemo.stx"],
     args: ["-c", "1", "wsdemo.stx"],
     fitScreen: true,
     screenKeys: true,
-    about: "The StrataOS window server's drawing code, running bare metal with a simulated OS behind it: the splash, tiled windows, the core lattice pulsing on context switches, the launch palette. Click the screen, then try Alt+P or Alt+Space (palette), Alt+1..4 or Alt+arrows (focus), Alt+Enter (new terminal), Alt+Q (close).",
+    about: "The window server's drawing code on bare metal, with a simulated OS behind it. Click the screen first.",
+    keys: [["Alt+P", "the launch palette"], ["Alt+1..4, Alt+arrows", "focus"], ["Alt+Enter", "a new terminal"], ["Alt+Q", "close"]],
   },
   gfx: {
     files: ["gfx.stx"],
     args: ["-c", "8", "gfx.stx"],
-    about: "examples/gfx.s: eight cores each own one band of the 1280x800 framebuffer through a capability and render a Mandelbrot set into it. The screen scans out memory live, like the desktop window.",
+    about: "Eight cores each own a band of the framebuffer through a capability and draw a Mandelbrot set into it.",
   },
   forth: {
     files: ["forth.stx"],
     args: ["-c", "8", "-r", "640x400", "forth.stx"],
     demos: true,
-    about: "Strata Forth on bare metal (8 cores, a 640x400 screen). Words compile to native Strata code. Type 7 dup * . or paste a demo; the gfx demo draws on the screen.",
+    about: "Strata Forth on bare metal: words compile to native code. Pick a demo, or type.",
+    tries: ["7 dup * .", "words", "see dup"],
+    link: ["Every word", "../forth/"],
   },
   hello: {
     files: ["hello.stx"],
     args: ["-c", "8", "hello.stx"],
-    about: "examples/hello.s: Local Stores, output as a transfer, a token passed down a chain of cores.",
+    about: "Local Stores, output as a transfer, and a token passed down a chain of cores.",
   },
   mandel: {
     files: ["mandel.stx"],
     args: ["-c", "8", "mandel.stx"],
-    about: "examples/mandel.s: every core renders a band of one text frame it exclusively owns; the bands are collected in order.",
+    about: "Each core renders a band of one text frame it owns exclusively; the bands are collected in order.",
   },
 };
 
@@ -567,10 +586,7 @@ async function run(key) {
   statusEl.textContent = "loading…";
   const rtl = machine() === "rtl";
   jitBox.disabled = rtl;
-  aboutEl.textContent = rtl
-    ? `On the RTL: the SystemVerilog implementation, simulated cycle by cycle (${RTL_CORES} cores, a 640x400 screen unless the program asks otherwise, no network). It is slow: expect seconds where the emulator takes milliseconds` +
-      (key === "os" || key === "osws" ? ", and about half a minute for StrataOS to reach its prompt (every command after that takes its time too)" : "") + ". " + p.about
-    : p.about;
+  showAbout(p, rtl);
   screenPanel.classList.add("collapsed");
   $("geom").textContent = "no framebuffer output yet";
   ctx.fillStyle = "#000";
@@ -602,6 +618,29 @@ async function run(key) {
   }
 }
 
+// ---------------------------------------------------------------- what is running
+// One line on what it is; things to type, as buttons that type them; the
+// keys of a program driven by keys, folded; a link to its section of the site.
+function showAbout(p, rtl) {
+  const esc = (t) => t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  let h = `<p class="about-line">${esc(p.about)}` +
+    (p.link ? ` <a class="about-link" href="${p.link[1]}">${esc(p.link[0])} →</a>` : "") + "</p>";
+  if (rtl) h += `<p class="about-rtl">On the RTL simulator: the Verilog, cycle by cycle, ${RTL_CORES} cores and no network. ` +
+    `Slow: seconds where the emulator takes milliseconds${p.net ? ", about half a minute to StrataOS's prompt" : ""}.</p>`;
+  if (p.tries) h += `<div class="tries"><span>Try</span>` +
+    p.tries.map((t) => `<button type="button" class="try" data-t="${esc(t)}" title="Type it">${esc(t)}</button>`).join("") + "</div>";
+  if (p.keys) h += `<details class="keys"><summary>Keys</summary><ul>` +
+    p.keys.map(([k, d]) => `<li><kbd>${esc(k)}</kbd><span>${esc(d)}</span></li>`).join("") + "</ul></details>";
+  aboutEl.innerHTML = h;
+  $("netnote").hidden = !p.net;
+}
+aboutEl.addEventListener("click", (e) => {
+  const b = e.target.closest(".try");
+  if (!b) return;
+  sendText(b.dataset.t + "\n");
+  term.focus();
+});
+
 // ---------------------------------------------------------------- controls
 for (const b of document.querySelectorAll(".preset")) b.addEventListener("click", () => run(b.dataset.preset));
 $("reset").addEventListener("click", () => current && run(current));
@@ -624,10 +663,10 @@ function netNote() {
   const c = netChoice();
   $("relay-wrap").hidden = c.mode !== "relay";
   $("netnote").textContent =
-    c.mode === "peer" ? "Network: the built-in test peer (ping 10.0.0.2, peer.test); other names are looked up with DNS over HTTPS (Cloudflare, else Google)." :
-    c.mode === "tab" ? "Network: a link between this page's tabs; open another tab, pick the same, and the two machines get 10.0.0.1 and 10.0.0.2." :
-    c.url ? `Network: every packet goes through the relay at ${c.url} (it is the NAT: 10.0.2.15, DNS 10.0.2.3).` :
-    "Network: enter the WebSocket URL of a relay you run (tools/netrelay, e.g. ws://localhost:8765), then Enter.";
+    c.mode === "peer" ? "Network: a test peer at 10.0.0.2 (peer.test); other names through DNS over HTTPS." :
+    c.mode === "tab" ? "Network: linked to this page in your other tabs (10.0.0.1 and 10.0.0.2)." :
+    c.url ? `Network: through your relay at ${c.url} (NAT 10.0.2.15, DNS 10.0.2.3).` :
+    "Network: the WebSocket URL of a relay you run (tools/netrelay), then Enter.";
 }
 $("net").addEventListener("change", () => { netNote(); if (current && $("net").value !== "relay") run(current); });
 $("relay").addEventListener("keydown", (e) => { if (e.key === "Enter" && current) { netNote(); run(current); } });

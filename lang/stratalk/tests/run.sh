@@ -14,7 +14,7 @@ host=0
 jit=
 if [ "${1:-}" = "-h" ]; then host=1; shift; fi
 if [ "${1:-}" = "-j" ]; then jit='-j '; shift; fi
-names=${*:-"arith blocks exceptions collections gc compiler vm os"}
+names=${*:-"arith blocks exceptions collections gc compiler ui vm os"}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 fails=0

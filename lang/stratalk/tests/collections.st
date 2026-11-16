@@ -63,3 +63,17 @@ Array with: 1 with: 2 with: 3
 #[1 2 255] size
 (3 @ 4) + (1 @ 1)
 (3 @ 4) = (3 @ 4)
+(OrderedCollection withAll: #(1 2)) copyWith: 3
+(OrderedCollection withAll: #(1 2)) with: #(10 20) collect: [:a :b | a + b]
+'abc' occurrencesOfString: ''
+'abc' copyReplaceAll: '' with: 'x'
+0 lcm: 0
+| w | w := WriteStream on: String new. w nextPutAll: 'abc'; position: 0; setToEnd. w position
+(ReadStream on: #(1 2 3)) next: 2
+#(1 $a -2 'x' #y) isLiteral
+(Set withAll: #(1 2)) = (Set withAll: #(2 1))
+(Dictionary new at: 1 put: 2; yourself) = (Dictionary new at: 1 put: 3; yourself)
+| a | a := Array with: 'x'. a deepCopy first == a first
+| t n | t := Smalltalk symbolTable size. 1 to: t do: [:i | ('zz', i printString) asSymbol]. Smalltalk symbolTable size > t
+#zz17 == ('zz', '17') asSymbol
+(Message new selector: #at:put: arguments: #(1 2)) printString

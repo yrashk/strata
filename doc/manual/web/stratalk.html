@@ -4,7 +4,9 @@
   front of the class reference and the examples, which it generates from
   lang/stratalk/kernel/ and lang/stratalk/examples/. Placeholders:
   {{classes}} {{methods}} {{examples}} {{ops}}. The playground is
-  stratalk-play.html.
+  stratalk-play.html. A code block with data-session gets a Try button
+  that runs its st> lines one by one; data-try runs the block as a file;
+  data-try-lines runs each of its lines. tests/doc.sh runs them all.
 -->
 <header class="doc-head">
   <p class="kicker">Stratalk · lang/stratalk/</p>
@@ -42,12 +44,16 @@ st> [10 / 0] on: ZeroDivide do: [:e | e messageText]
 st> Proc ps
 OrderedCollection (2 dev (core 2, blocked) 4 blk (core 2, blocked) ...)</code></pre>
 
-<p>A file:</p>
-<pre class="lst"><code class="language-stratalk">Object subclass: #Point slots: 'x y'.
-Point class >> x: ax y: ay [ ^self new setX: ax y: ay ]
-Point >> setX: ax y: ay [ x := ax. y := ay ]
-Point >> + p [ ^Point x: x + p x y: y + p y ]
-Transcript showln: (Point x: 1 y: 2) + (Point x: 3 y: 4) printString.</code></pre>
+<p>A file: a class, its methods, and a statement that uses them (the last statement's value is
+  what filing it in answers):</p>
+<pre class="lst"><code class="language-stratalk" data-try>Object subclass: #Vec slots: 'x y'.
+Vec class >> x: ax y: ay [ ^self new setX: ax y: ay ]
+Vec >> setX: ax y: ay [ x := ax. y := ay ]
+Vec >> x [ ^x ]
+Vec >> y [ ^y ]
+Vec >> + v [ ^Vec x: x + v x y: y + v y ]
+Vec >> printOn: aStream [ aStream print: x; nextPut: $@; print: y ]
+(Vec x: 1 y: 2) + (Vec x: 3 y: 4)</code></pre>
 
 <h3 id="run">Running it</h3>
 <ul>
@@ -58,11 +64,13 @@ Transcript showln: (Point x: 1 y: 2) + (Point x: 3 y: 4) printString.</code></pr
   <li><code>stratalk -e EXPR</code> prints one result; <code>stratalk -</code> reads expressions from
     a pipe; <code>stratalk FILE.st</code> files a program in.</li>
   <li><code>stratalk -j</code>: with the JIT on.</li>
-  <li>In the window server: <code>stratalk -w</code> opens a workspace (<kbd>Ctrl-P</kbd> prints
-    the current line's value, <kbd>Ctrl-D</kbd> does it, <kbd>Ctrl-O</kbd> inspects it,
-    <kbd>Ctrl-B</kbd> browses), <code>stratalk -b</code> a class browser (the classes, their
-    selectors, a method's source, which <kbd>Ctrl-S</kbd> compiles), and <code>anObject inspect</code>
-    an inspector.</li>
+  <li>In the window server: <code>stratalk -w</code> opens a workspace, its code in the colours of
+    this page (<kbd>Ctrl-P</kbd> prints the current line's value, <kbd>Ctrl-D</kbd> does it,
+    <kbd>Ctrl-O</kbd> inspects it, <kbd>Ctrl-B</kbd> browses), <code>stratalk -b</code> a class
+    browser (the classes, their selectors, a method's source, which <kbd>Ctrl-S</kbd> compiles;
+    typing in a list narrows it to what holds the text, <kbd>Backspace</kbd> takes a character
+    back, <kbd>Esc</kbd> or <kbd>Ctrl-U</kbd> clears it; <kbd>Ctrl-T</kbd> the class side), and
+    <code>anObject inspect</code> an inspector.</li>
   <li>The examples are on the disk under <code>/stratalk/examples</code>; the kernel's sources under
     <code>/stratalk</code>.</li>
 </ul>
@@ -177,10 +185,11 @@ false</code></pre>
   <code>FsServer</code>, <code>DbServer</code>, <code>WsServer</code>, ...) and two methods per
   operation, one without arguments and one that takes a Dictionary of the request's fields by their
   spec names. The reply decodes its data by the spec. Friendlier faces sit on top:</p>
-<pre class="lst"><code class="language-stratalk">Proc ps                          "the processes"
+<pre class="lst"><code class="language-stratalk" data-try-lines>Proc ps                          "the processes"
 ProcServer default info fields   "cores, memory, context switches"
 Fs statfs                        "#(blocks used files)"
 (Db tree: 'mine/notes') at: 'k' put: 'v'; at: 'k'
-(File named: '/doc/motd') contents
-(Window open: 'demo') text: 'hello' column: 2 row: 1 color: 16rFFFFFF background: 0</code></pre>
+(File named: '/doc/motd') contents</code></pre>
+<p>And a window of the window server, on a screen (the play page has one):</p>
+<pre class="lst"><code class="language-stratalk">(Window open: 'demo') text: 'hello' column: 2 row: 1 color: 16rFFFFFF background: 0</code></pre>
 </section>
