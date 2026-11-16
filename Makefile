@@ -509,19 +509,19 @@ $(BUILD)/cc/cc0.lib: $(BUILD)/cc/cc-full.stx $(BUILD)/cc/libc.stx lang/cc/lib/mk
 	python3 lang/cc/lib/mklib.py --cc $(BUILD)/cc/cc-full.stx $(BUILD)/prog/cc0 $@ $(CC_LIBIN)
 
 # Stralog: assembled whole, then split into the program and its code units
-# (lang/prolog/mkimg.py, which also checks that no jump leaves its unit)
-STRALOG_SRC := $(wildcard lang/prolog/*.s) os/lib/sys.s
-$(BUILD)/stralog/atoms.s: lang/prolog/mkatoms.py
+# (lang/stralog/mkimg.py, which also checks that no jump leaves its unit)
+STRALOG_SRC := $(wildcard lang/stralog/*.s) os/lib/sys.s
+$(BUILD)/stralog/atoms.s: lang/stralog/mkatoms.py
 	@mkdir -p $(BUILD)/stralog
-	python3 lang/prolog/mkatoms.py $@
-$(BUILD)/stralog/bootpl.s: lang/prolog/boot.pl lang/prolog/mkboot.py
+	python3 lang/stralog/mkatoms.py $@
+$(BUILD)/stralog/bootpl.s: lang/stralog/boot.pl lang/stralog/mkboot.py
 	@mkdir -p $(BUILD)/stralog
-	python3 lang/prolog/mkboot.py lang/prolog/boot.pl > $@
+	python3 lang/stralog/mkboot.py lang/stralog/boot.pl > $@
 $(BUILD)/stralog/stralog.stx: $(STRALOG_SRC) $(BUILD)/stralog/atoms.s $(BUILD)/stralog/bootpl.s $(BUILD)/sasm
-	$(BUILD)/sasm -T 0x8000 -I lang/prolog -I $(BUILD)/stralog -g $(BUILD)/stralog/stralog.map -o $@ lang/prolog/stralog.s
-$(BUILD)/prog/stralog: $(BUILD)/stralog/stralog.stx lang/prolog/mkimg.py
+	$(BUILD)/sasm -T 0x8000 -I lang/stralog -I $(BUILD)/stralog -g $(BUILD)/stralog/stralog.map -o $@ lang/stralog/stralog.s
+$(BUILD)/prog/stralog: $(BUILD)/stralog/stralog.stx lang/stralog/mkimg.py
 	@mkdir -p $(BUILD)/prog
-	python3 lang/prolog/mkimg.py $< $(BUILD)/stralog/stralog.map $@ $(BUILD)/prog/stralog.u
+	python3 lang/stralog/mkimg.py $< $(BUILD)/stralog/stralog.map $@ $(BUILD)/prog/stralog.u
 $(BUILD)/prog/stralog.u: $(BUILD)/prog/stralog
 	@touch $@
 
@@ -604,11 +604,11 @@ DISK_ARGS  += -t bin $(CC_DISK) -t src $(CC_SRCS) -t src,cc $(CC_ASRCS)
 # Stratalk: the VM, its image, and the kernel's sources (lang/stratalk)
 DISK_FILES += $(STRATALK_DISK)
 DISK_ARGS  += -t bin $(BUILD)/prog/stratalk -t stratalk $(BUILD)/stratalk/stratalk.image $(STRATALK_ST) -t stratalk,examples $(STRATALK_EX)
-# Stralog, the Prolog (lang/prolog): the program, its code units, the examples
-STRALOG_PL := $(sort $(wildcard lang/prolog/examples/*.pl))
-STRALOG_ISO := $(sort $(wildcard lang/prolog/tests/iso/*.pl))
+# Stralog, the Prolog (lang/stralog): the program, its code units, the examples
+STRALOG_PL := $(sort $(wildcard lang/stralog/examples/*.pl))
+STRALOG_ISO := $(sort $(wildcard lang/stralog/tests/iso/*.pl))
 DISK_FILES += $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u $(STRALOG_PL) $(STRALOG_ISO)
-DISK_ARGS  += -t bin $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u -t prolog $(STRALOG_PL) -t prolog,iso $(STRALOG_ISO)
+DISK_ARGS  += -t bin $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u -t stralog $(STRALOG_PL) -t stralog,iso $(STRALOG_ISO)
 
 $(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
@@ -750,12 +750,14 @@ $(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
 
 # the disk of tools/test-isolate.sh: the standard one plus dlsgap (tools/dlsgap.s),
-# which checks that no process sees what another left in its core's D-LS
-$(BUILD)/isol-test/dlsgap: tools/dlsgap.s os/lib/sys.s $(BUILD)/sasm
+# which checks that no process sees what another left in its core's D-LS, and
+# lsprot (tools/lsprot.s), which checks that user mode cannot reach the kernel's
+# part of the Local Stores
+$(BUILD)/isol-test/%: tools/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/isol-test
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
-$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap
+$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot
+	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot
 
 # the disk of tools/test-files.sh: the standard one plus 300 small files tagged
 # many (f000 .. f299, each holding its own name): more files than one window
@@ -772,6 +774,13 @@ $(BUILD)/files-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
 .PHONY: bench-store
 $(BUILD)/strata-emu-stats: emu/emu.c $(JIT_SRC) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
 	$(CC) $(CFLAGS) -DSTRATA_MSGSTATS $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
+# an emulator that counts what context switches move, and what they would
+# move with dirty-segment tracking (doc/ls-switch.md, tools/ls-stats.sh)
+$(BUILD)/strata-emu-ls: emu/emu.c $(JIT_SRC) emu/jit/jit.h emu/jit/jit_be.h asm/isa.h common/stx.h common/platform.h common/display.h common/sound.h common/net.h common/netnat.h
+	$(CC) $(CFLAGS) -DSTRATA_LSSTATS $(SDL_CFLAGS) -o $@ emu/emu.c $(JIT_SRC) $(SDL_LIBS)
+.PHONY: ls-stats
+ls-stats: $(BUILD)/strata-emu-ls $(BUILD)/bootrom.stx $(BUILD)/disk.img
+	tools/ls-stats.sh $(BUILD)/strata-emu-ls $(BUILD) $(BUILD)/disk.img
 $(BUILD)/bench/dbbench: tools/bench/dbbench.s os/lib/sys.s os/lib/kv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/bench
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
@@ -950,9 +959,9 @@ wasm: $(WEB)/strata-emu.js web-assets $(DEBUG_ASSETS) $(BUILD)/msgops.txt
 	cp $(WEB_IMAGES) $(WEB)/images/
 	cp lang/forth/demos/*.fs $(WEB)/demos/
 	ls lang/forth/demos | sed -n 's/\.fs$$//p' > $(WEB)/demos/index.txt
-	@mkdir -p $(WEB)/prolog
-	cp lang/prolog/examples/*.pl $(WEB)/prolog/
-	ls lang/prolog/examples | sed -n 's/\.pl$$//p' > $(WEB)/prolog/index.txt
+	@mkdir -p $(WEB)/stralog
+	cp lang/stralog/examples/*.pl $(WEB)/stralog/
+	ls lang/stralog/examples | sed -n 's/\.pl$$//p' > $(WEB)/stralog/index.txt
 	cp $(DEBUG_ASSETS) $(WEB)/debug/
 	cp $(patsubst %,examples/%.s,$(DEBUG_EXAMPLES)) $(WEB)/debug/src/examples/
 	cp examples/lib/*.s $(WEB)/debug/src/examples/lib/

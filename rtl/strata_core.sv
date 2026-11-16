@@ -198,6 +198,7 @@ module strata_core
   logic        held;
   assign held = rpend || (user && ipend);
   logic [5:0]  xslot;
+  logic [63:0] csr_wdata, csr_wstack, csr_wcode;   // the Local Store windows (user mode)
   logic [63:0] csr_ccr, csr_ttag, csr_tdata, csr_tgeom, csr_scratch, csr_stalls;
   logic [63:0] csr_takefrom, csr_corebase, csr_corecount;
   logic [63:0] csr_cause, csr_epc, csr_tval, csr_tvec;   // the current mode's bank
@@ -456,14 +457,38 @@ module strata_core
     .a(ra), .b(rb), .busy(div_busy), .done(div_done), .quo(div_q), .rem(div_r)
   );
 
+  // ================================================================ Local Store windows
+  // A window CSR: bit 63 enables it; bits 6:0 its first virtual unit, 14:8
+  // its units, 22:16 its first physical unit (a unit is 1/64 of the store).
+  // In user mode, while a store has a window, an address must lie in one
+  // (the D-LS: wdata first, then wstack) and is relocated by it.
+  localparam logic [63:0] WIN_BITS = 64'h8000_0000_007F_7F7F;
+  function automatic logic win_cov(input logic [63:0] w, input logic [5:0] v);
+    return w[63] && {1'b0, v} >= w[6:0] && {2'b0, v} < {1'b0, w[6:0]} + {1'b0, w[14:8]};
+  endfunction
+  function automatic logic [7:0] win_pu(input logic [63:0] w, input logic [5:0] v);   // >= 64: beyond the store
+    return {1'b0, w[22:16]} + {2'b0, v} - {1'b0, w[6:0]};
+  endfunction
+  logic dw_on, iw_on;
+  assign dw_on = user && (csr_wdata[63] || csr_wstack[63]);
+  assign iw_on = user && csr_wcode[63];
+
   // ================================================================ loads / stores
-  logic [63:0] maddr, msz, mshift, mload;
-  logic        mok;
+  logic [63:0] maddr, mpa, msz, mshift, mload;
+  logic        mok, m_wok, m_ws;
+  logic [5:0]  m_v;
+  logic [7:0]  m_pu;
   logic [7:0]  mmask;
   assign maddr  = alu_y;                                   // ra + offset
   assign msz    = 64'd1 << d.msize;
-  // aligned and below DLS_SIZE (a power of two): the whole access is inside
-  assign mok    = maddr[63:DLS_LG] == 0 && (maddr[2:0] & 3'((4'd1 << d.msize) - 4'd1)) == 0;
+  // its window: the physical address (an aligned access stays in one unit)
+  assign m_v    = maddr[DLS_LG-1 -: 6];
+  assign m_ws   = !win_cov(csr_wdata, m_v);                // (then wstack, if it covers it)
+  assign m_pu   = win_pu(m_ws ? csr_wstack : csr_wdata, m_v);
+  assign m_wok  = !dw_on || ((win_cov(csr_wdata, m_v) || win_cov(csr_wstack, m_v)) && m_pu < 8'd64);
+  assign mpa    = dw_on ? 64'({m_pu[5:0], maddr[DLS_LG-7:0]}) : maddr;
+  // aligned, below DLS_SIZE (a power of two: the whole access is inside), in a window
+  assign mok    = maddr[63:DLS_LG] == 0 && (maddr[2:0] & 3'((4'd1 << d.msize) - 4'd1)) == 0 && m_wok;
   assign mshift = {58'b0, maddr[2:0], 3'b000};
   always_comb begin
     case (d.msize)
@@ -505,6 +530,27 @@ module strata_core
   logic [7:0]  xf_fault;
   logic [63:0] xf_tval;
   assign xcap = cap_a;          // the operand of transfers, atomics, overlays (port A)
+  // the Local Store range in user mode: it begins and ends in one window,
+  // which relocates it (xls); a range of no bytes is not looked at
+  logic [LSW-1:0] x_end, xls;
+  logic [5:0]     x_v0, x_v1;
+  logic           x_code, x_on, x_ws, x_wok;
+  logic [63:0]    x_win;
+  logic [7:0]     x_pu0, x_pu1;
+  always_comb begin
+    x_code = d.xf_sub == XF_GETX;
+    x_on   = (x_code ? iw_on : dw_on) && rc != 0;
+    x_end  = ra[LSW-1:0] + rc[LSW-1:0] - 1;
+    x_v0   = x_code ? ra[ILS_LG-1 -: 6] : ra[DLS_LG-1 -: 6];
+    x_v1   = x_code ? x_end[ILS_LG-1 -: 6] : x_end[DLS_LG-1 -: 6];
+    x_ws   = !x_code && !win_cov(csr_wdata, x_v0);
+    x_win  = x_code ? csr_wcode : x_ws ? csr_wstack : csr_wdata;
+    x_pu0  = win_pu(x_win, x_v0);
+    x_pu1  = win_pu(x_win, x_v1);
+    x_wok  = !x_on || (win_cov(x_win, x_v0) && win_cov(x_win, x_v1) && x_pu1 < 8'd64 &&
+                       (x_code || x_ws == !win_cov(csr_wdata, x_v1)));
+    xls    = !x_on ? ra[LSW-1:0] : x_code ? LSW'({x_pu0[5:0], ra[ILS_LG-7:0]}) : LSW'({x_pu0[5:0], ra[DLS_LG-7:0]});
+  end
   // transfer operands: ra = LS address, rb = far offset, rc = length
   always_comb begin
     logic [5:0]     need;
@@ -521,8 +567,8 @@ module strata_core
     else if (xcap.space != SP_DEV && ((ra | rb | rc) & 7) != 0) xf_fault = C_XALIGN;
     else if (xcap.space == SP_DEV ? ge_w(rb, xcap.len)
              : (gt_w(rb, xcap.len) || gt_w(rc, xcap.len - rb[FW-1:0]))) xf_fault = C_BOUNDS;
-    else if (ra[63:LSW] != 0 || ra[LSW-1:0] > limit || rc[63:LSW] != 0 || rc[LSW-1:0] > limit - ra[LSW-1:0]) begin
-                                                             xf_fault = C_LSFAULT; xf_tval = ra; end
+    else if (ra[63:LSW] != 0 || ra[LSW-1:0] > limit || rc[63:LSW] != 0 || rc[LSW-1:0] > limit - ra[LSW-1:0] ||
+             !x_wok) begin                                xf_fault = C_LSFAULT; xf_tval = ra; end
   end
 
   // ================================================================ far atomics
@@ -561,16 +607,31 @@ module strata_core
   assign lt_sw_c    = (lt_ways[0] ? lt_set      : 64'd0) + (lt_ways[1] ? lt_set << 1 : 64'd0) +
                       (lt_ways[2] ? lt_set << 2 : 64'd0) + (lt_ways[3] ? lt_set << 3 : 64'd0);
   assign lt_ebase_c = csr_ttag + ((lt_sw_c + lt_set) << 3);
-  assign lt_ok      = lt_ways != 0 && lt_ebase[2:0] == 0 && lt_ebase <= 64'(DLS_SIZE) - lt_span;
+  // the set's entry in user mode: inside one D-LS window, which relocates it (lt_pbase)
+  logic [63:0] lt_pbase, lt_last;
+  logic [5:0]  lt_v0, lt_v1;
+  logic        lt_ws, lt_wok;
+  logic [7:0]  lt_pu0, lt_pu1;
+  assign lt_last    = lt_ebase + lt_span - 1;
+  assign lt_v0      = lt_ebase[DLS_LG-1 -: 6];
+  assign lt_v1      = lt_last[DLS_LG-1 -: 6];
+  assign lt_ws      = !win_cov(csr_wdata, lt_v0);
+  assign lt_pu0     = win_pu(lt_ws ? csr_wstack : csr_wdata, lt_v0);
+  assign lt_pu1     = win_pu(lt_ws ? csr_wstack : csr_wdata, lt_v1);
+  assign lt_wok     = !dw_on || (win_cov(lt_ws ? csr_wstack : csr_wdata, lt_v0) &&
+                                 win_cov(lt_ws ? csr_wstack : csr_wdata, lt_v1) &&
+                                 lt_ws == !win_cov(csr_wdata, lt_v1) && lt_pu1 < 8'd64);
+  assign lt_pbase   = dw_on ? 64'({lt_pu0[5:0], lt_ebase[DLS_LG-7:0]}) : lt_ebase;
+  assign lt_ok      = lt_ways != 0 && lt_ebase[2:0] == 0 && lt_ebase <= 64'(DLS_SIZE) - lt_span && lt_wok;
 
   always_comb begin
     hz_addr = '0;
     hz_len  = '0;
     if (state == S_EX && (d.kind == K_LOAD || d.kind == K_STORE)) begin
-      hz_addr = LSW'(maddr);
+      hz_addr = LSW'(mpa);
       hz_len  = LSW'(msz);
     end else if (state == S_LG && lt_ph) begin
-      hz_addr = LSW'(lt_ebase);
+      hz_addr = LSW'(lt_pbase);
       hz_len  = LSW'(lt_span);
     end
   end
@@ -578,12 +639,12 @@ module strata_core
   assign reset_flush = state == S_RQ && tu_quiet;   // the reset is taken this cycle
   strata_tu u_tu (
     .clk, .rst, .flush(reset_flush),
-    .iss_valid(tu_iss_valid), .iss_kind(d.xf_sub), .iss_tag(d.tag), .iss_ls(LSW'(ra)),
+    .iss_valid(tu_iss_valid), .iss_kind(d.xf_sub), .iss_tag(d.tag), .iss_ls(xls),
     .iss_space(xcap.space), .iss_far(xcap.base + rb[FW-1:0]), .iss_len(LSW'(rc)), .iss_ready(tu_iss_ready),
     .iss_hz(tu_iss_hz),
     .tag_busy, .idle(tu_idle), .mem_idle(tu_mem_idle), .put_idle(tu_put_idle), .cc_busy(tu_cc_busy), .quiet(tu_quiet),
     .getx_busy(tu_getx_busy), .get_beat(tu_get_beat), .put_want(tu_put_want), .ls_gnt, .ls_want, .ls_used(LS_1P && (ia_en || da_en)), .ls_denied,
-    .hz_addr, .hz_len, .hz_rd_stall, .hz_wr_stall, .hz_pc(LSW'(pc)), .hz_fetch_stall,
+    .hz_addr, .hz_len, .hz_rd_stall, .hz_wr_stall, .hz_pc(LSW'(ipc)), .hz_fetch_stall,
     .dls_en(tu_dls_en), .dls_we(tu_dls_we), .dls_addr(tu_dls_addr), .dls_wdata(tu_dls_wdata),
     .dls_rdata(tu_dls_rdata),
     .ils_en(tu_ils_en), .ils_addr(tu_ils_addr), .ils_wdata(tu_ils_wdata),
@@ -758,6 +819,9 @@ module strata_core
       CSR_SSCRATCH:  csr_rv = sscratch;
       CSR_IPEND:     csr_rv = {63'b0, ipend};
       CSR_XSLOT:     csr_rv = {58'b0, xslot};
+      CSR_WDATA:     csr_rv = csr_wdata;
+      CSR_WSTACK:    csr_rv = csr_wstack;
+      CSR_WCODE:     csr_rv = csr_wcode;
       CSR_TVAL:      csr_rv = csr_tval;
       CSR_TVEC:      csr_rv = csr_tvec;
       CSR_CCR:       csr_rv = csr_ccr;
@@ -794,21 +858,34 @@ module strata_core
   assign dom_n      = GW'(cs_cap.len >> GRAN_SHIFT);
 
   // ================================================================ Local Store port A
-  logic        lt_rd, pc_in;
+  logic        lt_rd, pc_in, if_ok, i_brk;
+  logic [5:0]  i_v;
+  logic [7:0]  i_pu;
+  logic [63:0] ipc;
   assign pc_in   = pc[63:ILS_LG] == 0;                            // pc < ILS_SIZE
+  // the code window (user mode): the pc must lie in it; the fetch is relocated
+  assign i_v     = pc[ILS_LG-1 -: 6];
+  assign i_pu    = win_pu(csr_wcode, i_v);
+  assign if_ok   = !iw_on || (win_cov(csr_wcode, i_v) && i_pu < 8'd64);
+  assign ipc     = iw_on ? 64'({i_pu[5:0], pc[ILS_LG-7:0]}) : pc;
+  // the next pc begins another unit: it goes through F0 (the window is checked there)
+  assign i_brk   = iw_on && pc4[ILS_LG-7:0] == 0;
+  // xmap in user mode: the slot's address must lie in the code window (the map keeps it as given)
+  logic xm_wok;
+  assign xm_wok  = !iw_on || (win_cov(csr_wcode, ra[ILS_LG-1 -: 6]) && win_pu(csr_wcode, ra[ILS_LG-1 -: 6]) < 8'd64);
   logic [63:0] lt_rd_a, va, ca, nv;
-  assign lt_rd_a = lt_ebase + 64'(lt_k) * 8;
-  assign va      = lt_ebase + lt_victim * 8;                         // the victim's tag word
-  assign ca      = lt_ebase + 64'(lt_ways) * 8;                      // the set's counter word
+  assign lt_rd_a = lt_pbase + 64'(lt_k) * 8;
+  assign va      = lt_pbase + lt_victim * 8;                         // the victim's tag word
+  assign ca      = lt_pbase + 64'(lt_ways) * 8;                      // the set's counter word
   assign nv      = lt_victim + 1 == 64'(lt_ways) ? 64'd0 : lt_victim + 1;
   always_comb begin
     // (LS_1P: not while the fetch waits for a core-control write, whose read
     // of the D-LS needs the memory)
     ia_en    = state == S_F0 && pc[1:0] == 0 && pc_in && !hz_fetch_stall && !(LS_1P && tu_cc_busy);
-    ia_addr  = pc[15:3];
+    ia_addr  = ipc[15:3];
     da_en    = 0;
     da_we    = '0;
-    da_addr  = maddr[15:3];
+    da_addr  = mpa[15:3];
     da_wdata = rb << mshift;
     lt_rd    = state == S_LT && !lt_ph;
     if (state == S_EX && d.kind == K_LOAD && mok && !hz_rd_stall) begin
@@ -861,7 +938,7 @@ module strata_core
   assign have2    = fb_nx2_v || (ra_infl && ra_two);
   assign need1    = !have1;
   assign need2    = RA2 && !have2;
-  assign ra_addr  = {1'b0, pc[15:3]} + (state != S_F1 && !need1 ? 14'd2 : 14'd1);
+  assign ra_addr  = {1'b0, ipc[15:3]} + (state != S_F1 && !need1 ? 14'd2 : 14'd1);
   assign ra_ok    = !tu_getx_busy && 32'(ra_addr) < ILS_WORDS;
   assign ra_any   = STREAM && ra_ok && (state == S_F1 || (st_exec && (need1 || need2)));
   assign nxt_word = fb_nxt_v ? fb_nxt : ia_rdata;
@@ -871,7 +948,7 @@ module strata_core
   assign ex_seq   = !(d.kind inside {K_JAL, K_JALR, K_XFER, K_XCALL, K_SYS}) && !(d.kind == K_BRANCH && br_taken);
   // ... and its successor is here, with no stop or reset to take first
   assign seq_ok   = !rpend && !reset_req && !(user && (ipend || stop_req));
-  assign fast_ok  = (!pc[2] || have1) && seq_ok;
+  assign fast_ok  = (!pc[2] || have1) && seq_ok && !i_brk;
   // capability-table write: csave stores the source capability
   // save-table write: csave stores the source capability, crestore of a
   // linear entry empties the slot; S_RST empties every slot
@@ -902,7 +979,7 @@ module strata_core
 `ifdef SIMULATION
       if (trace_on) sim_trace(COREID, next_pc, nir);
 `endif
-    end else if (STREAM && ex_seq && seq_ok && pc[2] && ra_go) begin   // (need1: it is the next word's read)
+    end else if (STREAM && ex_seq && seq_ok && pc[2] && ra_go && !i_brk) begin   // (need1: it is the next word's read)
       // the next word is only being read now (the read-ahead was late: a
       // data access or the Transfer Unit had the memory): F1 takes it
       // from the memory next cycle, as it does after F0
@@ -981,6 +1058,9 @@ module strata_core
     spp_user      <= 0;
     ipend         <= 0;
     xslot         <= '0;
+    csr_wdata     <= '0;
+    csr_wstack    <= '0;
+    csr_wcode     <= '0;
     csr_ccr       <= '0;
     csr_ttag      <= '0;
     csr_tdata     <= '0;
@@ -1066,7 +1146,7 @@ module strata_core
           if (rpend) state <= S_RQ;                      // a reset request: in any mode
           else if (tu_cc_busy) stall();                  // a core-control write takes effect first
           else if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end
-          else if (pc[1:0] != 0 || !pc_in) trap(C_IFAULT, pc);
+          else if (pc[1:0] != 0 || !pc_in || !if_ok) trap(C_IFAULT, pc);
           else if (hz_fetch_stall || ls_wait) stall();
           else state <= S_F1;
         end
@@ -1274,10 +1354,12 @@ module strata_core
               endcase
             end
 
-            K_CSRR: if (user && (d.imm16 == CSR_SSCRATCH || d.imm16 == CSR_IPEND)) trap(C_PRIV, {32'b0, ir});
+            K_CSRR: if (user && (d.imm16 == CSR_SSCRATCH || d.imm16 == CSR_IPEND ||
+                                 (d.imm16 >= CSR_WDATA && d.imm16 <= CSR_WCODE))) trap(C_PRIV, {32'b0, ir});
                     else begin begin xw = d.rd != 0; xv = csr_rv; end retire(pc4); end
             K_CSRW: if (user && (d.imm16 == CSR_STATUS || d.imm16 == CSR_COREBASE || d.imm16 == CSR_CORECOUNT ||
-                                 (d.imm16 >= CSR_UCAUSE && d.imm16 <= CSR_IPEND))) trap(C_PRIV, {32'b0, ir});
+                                 (d.imm16 >= CSR_UCAUSE && d.imm16 <= CSR_IPEND) ||
+                                 (d.imm16 >= CSR_WDATA && d.imm16 <= CSR_WCODE))) trap(C_PRIV, {32'b0, ir});
             else begin
               case (d.imm16)
                 CSR_CAUSE:     if (user) u_cause <= ra; else s_cause <= ra;
@@ -1292,6 +1374,9 @@ module strata_core
                 CSR_SSCRATCH:  sscratch <= ra;
                 CSR_IPEND:     ipend    <= ra[0];
                 CSR_XSLOT:     xslot    <= ra[5:0];
+                CSR_WDATA:     csr_wdata  <= ra & WIN_BITS;
+                CSR_WSTACK:    csr_wstack <= ra & WIN_BITS;
+                CSR_WCODE:     csr_wcode  <= ra & WIN_BITS;
                 CSR_CCR:       csr_ccr       <= ra;
                 CSR_TTAG:      csr_ttag      <= ra;
                 CSR_TDATA:     csr_tdata     <= ra;
@@ -1340,7 +1425,7 @@ module strata_core
               else if (!xcap.perms[P_X]) trap(C_PERM, 64'(d.cs));
               else if (ge_w(rb, xcap.len)) trap(C_BOUNDS, rb);
               else if ((xm_new_far & ~xs_hmask) != 0) trap(C_XALIGN, rb);   // not slot-aligned
-              else if (ra[1:0] != 0 || ra[63:ILS_LG] != 0) trap(C_LSFAULT, ra);
+              else if (ra[1:0] != 0 || ra[63:ILS_LG] != 0 || !xm_wok) trap(C_LSFAULT, ra);
               else begin
                 xm_v[XW'(d.rd)]   <= 1;
                 xm_sp[XW'(d.rd)]  <= xcap.space;

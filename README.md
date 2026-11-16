@@ -239,8 +239,10 @@ strata$ ws                          # the window server takes the screen
 - **Preemption with a visible cost.** The system core stops, through core
   control, every worker that has more than one runnable thread, each time
   slice: 2 ms by default, configurable from 100 µs to 100 ms (`sched`). A
-  context switch copies out the part of the Local Store a program uses and
-  reloads the next one's — the cache flush other machines hide. `ps`,
+  program keeps its slices of the Local Store while it is switched out
+  (the Local Store windows map them); when another needs the room, its
+  part is copied out and later back — the cache flush other machines
+  hide. `ps`,
   `cores`, `uptime` and `sched` show switches and kilobytes moved.
 - **Bare-metal programs run unchanged.** Inbox instructions trap in user
   mode and the dispatcher emulates them, so the examples run as
@@ -457,7 +459,7 @@ strata$ cc -o calc calc.c           # -o names the output; -h KIB sizes the heap
 ```
 
 - **Two compilers.** `cc.c` is the compiler, written in the C it compiles.
-  `cc.s` is the bootstrap compiler, 13,900 lines of Strata assembly, there
+  `cc.s` is the bootstrap compiler, 13,600 lines of Strata assembly, there
   so that `cc.c` can be compiled on a machine with no C compiler. `make
   test-cc-boot` does it inside StrataOS: the bootstrap compiler compiles
   `cc.c`, the result compiles `cc.c` again, and that one once more; the last

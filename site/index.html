@@ -11,7 +11,7 @@
 <link rel="icon" href="favicon.ico" sizes="32x32">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=__BUILD__">
 <link rel="stylesheet" href="hl.css?v=__BUILD__">
 </head>
 <body>
@@ -25,10 +25,15 @@
     <a href="arch/">Architecture</a>
     <a href="isa/">Instructions</a>
     <a href="os/">OS</a>
-    <a href="forth/">Forth</a>
-    <a href="stratalk/">Stratalk</a>
-    <a href="prolog/">Prolog</a>
-    <a href="c/">C</a>
+    <div class="menu">
+      <span class="menu-btn" tabindex="0" aria-haspopup="true">Languages</span>
+      <div class="drop">
+        <a href="forth/">Forth</a>
+        <a href="stratalk/">Stratalk</a>
+        <a href="stralog/">Stralog</a>
+        <a href="c/">C</a>
+      </div>
+    </div>
     <a href="hardware/">Hardware</a>
     <a href="play/">Play</a>
     <a href="debug/">Debug</a>
@@ -37,6 +42,7 @@
     <a class="pill ghost" href="https://github.com/yrashk/strata">GitHub</a>
   </div>
 </nav>
+<script src="nav.js?v=__BUILD__" defer></script>
 
 <header class="hero">
   <div class="bands" aria-hidden="true">
@@ -373,7 +379,7 @@ st> Smalltalk vm at: 'scavenges'
     <a href="https://github.com/yrashk/strata">github.com/yrashk/strata</a></p>
 </footer>
 
-<script src="code/syntax.js"></script>
+<script src="code/syntax.js?v=__BUILD__"></script>
 <script src="hl.js?v=__BUILD__"></script>
 </body>
 </html>

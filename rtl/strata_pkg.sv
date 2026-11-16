@@ -171,6 +171,7 @@ package strata_pkg;
   localparam logic [15:0] CSR_COREBASE = 16'd15, CSR_CORECOUNT = 16'd16;
   localparam logic [15:0] CSR_STATUS = 16'd18, CSR_UCAUSE = 16'd19, CSR_UEPC = 16'd20, CSR_UTVAL = 16'd21;
   localparam logic [15:0] CSR_UTVEC = 16'd22, CSR_SSCRATCH = 16'd23, CSR_IPEND = 16'd24, CSR_XSLOT = 16'd25;
+  localparam logic [15:0] CSR_WDATA = 16'd26, CSR_WSTACK = 16'd27, CSR_WCODE = 16'd28;
 
   // ---------------------------------------------------------------- causes
   localparam logic [7:0] C_ILLEGAL = 8'd1;   // undefined encoding

@@ -79,6 +79,26 @@ def describe(part):
     return '; '.join(bits)
 
 
+# an expression to show in a server class's comment
+EXAMPLE = {
+    'proc': '`ProcServer default info fields` answers a Dictionary: the cores, the memory, the context switches.',
+    'fs': '`FsServer default statfs fields` answers a Dictionary: the disk\'s blocks, those used, the files.',
+}
+
+
+def wrap(text, indent, width=100):
+    """text in lines of at most width, the ones after the first indented."""
+    lines, cur = [], ''
+    for w in text.split(' '):
+        if cur and len(cur) + 1 + len(w) > width - (4 if not lines else len(indent)):
+            lines.append(cur)
+            cur = w
+        else:
+            cur = (cur + ' ' + w) if cur else w
+    lines.append(cur)
+    return ('\n' + indent).join(lines)
+
+
 def generate():
     specs = []
     for fn in sorted(os.listdir(SPEC)):
@@ -101,14 +121,23 @@ def generate():
         reg, look, idx = REACH.get(key, (2, key, 0))
         out.append('OSServer subclass: #%s slots: \'\'.' % cls)
         how = sv.get('reached', '')
+        out.append(wrap('"The messages of %s (%s), as methods. A program reaches it so: %s. An instance '
+                        'is an endpoint (`%s default`); each op of os/spec/%s is two methods, `op` and '
+                        '`op: aDictionary` (the request\'s fields by their spec names, zero when not given), '
+                        'which send the request and answer the reply, an OSReply. %s' % (
+                            sv.get('title', key), comment(sv.get('role', key)), comment(how), cls, fn,
+                            comment(EXAMPLE.get(key, ''))), ' ').rstrip() + '"')
         if look:
             body = '^self register: %d lookup: %s index: %d' % (reg, st_string(look), idx)
         elif reg:
             body = '^self register: %d lookup: nil index: %d' % (reg, idx)
         else:
             body = '^self error: %s' % st_string('a program has no endpoint to ' + key)
-        out.append('%s class >> default [\n    "%s: %s"\n    %s ]' % (cls, comment(sv.get('title', key)), comment(how), body))
-        out.append('%s class >> spec [ ^%s ]' % (cls, st_string(fn)))
+        out.append('%s class >> default [\n    %s"\n    %s ]' % (
+            cls, wrap('"An instance that sends to %s (%s): %s.' % (
+                sv.get('title', key), comment(sv.get('role', key)), comment(how)), '     '), body))
+        out.append('%s class >> spec [\n    "The file of os/spec this class is made from."\n    ^%s ]' % (
+            cls, st_string(fn)))
         for op in d['op']:
             ops_total += 1
             sel = selector(op['name'])
@@ -116,14 +145,17 @@ def generate():
             doc = '%s (%d): %s. Request: %s. Reply: %s.' % (op['name'], op['num'], op.get('summary', ''),
                                                            describe(req), describe(rep))
             if op.get('from'): doc += ' From: %s.' % op['from']
-            out.append('%s >> %s [ ^self %s: Dictionary new ]' % (cls, sel, sel))
+            out.append('%s >> %s [\n    %s"\n    ^self %s: Dictionary new ]' % (
+                cls, sel, wrap('"%s: %s, with every request field zero (`%s:` with an empty Dictionary).' % (
+                    op['name'], comment(op.get('summary', '')).rstrip('.'), sel), '     '), sel))
             out.append('%s >> %s: args [\n    "%s"\n    ^self op: %d named: %s args: args request: %s reply: %s ]' % (
                 cls, sel, comment(doc), op['num'], st_string(op['name']),
                 field_list(req.get('data')), field_list(rep.get('data'))))
         out.append('')
-    out.append('OSServer class >> svcCalls [ "The svc calls (not messages): the VM makes them" ^#(%s) ]'
-               % ' '.join(st_string(n) for n in svc))
-    out.append('OSServer class >> opCount [ ^%d ]' % ops_total)
+    out.append('OSServer class >> svcCalls [\n    "The names of the svc calls, which are not messages: the VM makes '
+               'them itself."\n    ^#(%s) ]' % ' '.join(st_string(n) for n in svc))
+    out.append('OSServer class >> opCount [\n    "The number of message ops this file has methods for."\n'
+               '    ^%d ]' % ops_total)
     return '\n'.join(out) + '\n', ops_total
 
 

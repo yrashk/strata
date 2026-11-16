@@ -112,10 +112,12 @@ Not verified:
 - **Parallel agents** worked in git worktrees (`.claude/worktrees/`), each on
   its own branch, merged into main by hand after review and a full test.
   When two branches touch `os/kernel.s`, check the worker's resident code
-  still ends below K0TEXT (0x7700): it ends at 0x76D0 now, 48 bytes to spare;
+  still ends below K0TEXT (0x7700): it ends at 0x7450 now, 688 bytes to
+  spare. Workers have no kernel units; what does not fit goes into the
+  worker extension (`os/kunits/wext.s`, at most 0x900 bytes, copied over
+  core 0's code at 0x7700, 1.9 KiB used);
   core 0's own resident code (K0TEXT..0x8000) has 4 bytes to spare.
-  Anything new on the worker side should go into a kernel unit
-  (`os/kunits/`), not the resident part.
+  Anything new on the worker side has to make room for itself.
 - Commit messages end with a `Co-Authored-By:` line naming the model that
   made the commit.
 
@@ -364,6 +366,12 @@ was built from.
 - The site: `doc/manual/gen/genstratalk.py` makes stratalk/ (the prose is
   `doc/manual/web/stratalk.html`; the playground `site/stratalk/stratalk.js`
   boots StrataOS and types `stratalk -j`); the play page has a preset.
+  The descriptions on it are the kernel's comments: a class's comment is
+  the one right after its definition line, a method's the first thing in
+  its body; a comment line `EXPR >>> RESULT` is an example, and
+  `lang/stratalk/tests/doc.sh` (test `stratalk-doc`) checks every one under
+  StrataOS. `genstratalk.py --check` (test `web-stratalk`) fails if a class
+  or a method has none. `OSServers.st`'s come from `os/spec` (`osgen.py`).
 - Capability registers: the heap is c6 (an extra arena). A Window keeps
   ws's endpoint in c4 while open (pipe's; given back on close); a LOOKUP
   moves the heap to c7 for the call and then gets the clock back.
@@ -373,7 +381,7 @@ was built from.
   faster with the JIT, not more), a manual chapter.
 ## Stralog, a Prolog (added 2026-11-16)
 
-`lang/prolog/` holds Stralog, a Prolog in Strata assembly that runs as
+`lang/stralog/` holds Stralog, a Prolog in Strata assembly that runs as
 `stralog` under StrataOS: an ISO core Prolog with exceptions, assert,
 findall/bagof/setof, DCGs, files and op/3. `README.md` there has the
 language and its limits; `DESIGN.md` has the engine and how memory works.
@@ -381,19 +389,19 @@ language and its limits; `DESIGN.md` has the engine and how memory works.
 - **Memory:** terms live in the arena. The D-LS has windows onto the tops of
   the heap, the trail and the choicepoint stack, plus a far cache on
   `ltag`/`linst`. A heap collector (`gc.s`) runs between goals.
-- **Build:** the image is split by `lang/prolog/mkimg.py` into `/bin/stralog`
+- **Build:** the image is split by `lang/stralog/mkimg.py` into `/bin/stralog`
   and its code units, `/bin/stralog.u`. `mkimg.py` also checks that no jump
   leaves its 4 KiB unit. A unit function that calls another unit must itself
   be called with `xcall`.
-- **Tests:** five sessions in `make test` (`lang/prolog/tests/run.sh`):
+- **Tests:** five sessions in `make test` (`lang/stralog/tests/run.sh`):
   - `session`, `builtins`, `files`, `demos`;
   - `iso`: 596 conformance vectors from Logtalk's tests, 584 of which pass;
     the README lists the rest.
-  - `web-prolog` checks that the page describes every predicate.
-- **Web:** the page is `doc/manual/gen/genprolog.py` (prolog/ on the site),
+  - `web-stralog` checks that the page describes every predicate.
+- **Web:** the page is `doc/manual/gen/genstralog.py` (stralog/ on the site),
   with a playground that boots StrataOS and starts `stralog`
-  (`site/prolog/prolog.js`). The play page has a "Stralog" preset.
-- **Disk:** the examples are on the disk under `/prolog`; adding one moves
+  (`site/stralog/stralog.js`). The play page has a "Stralog" preset.
+- **Disk:** the examples are on the disk under `/stralog`; adding one moves
   `tools/test-sh.out` and `tools/test-http.out`.
 - **Limits it is near:**
   - the resident code ends at 0xB5xx, which leaves 4 code-cache slots;
@@ -405,15 +413,20 @@ language and its limits; `DESIGN.md` has the engine and how memory works.
 ## Open work
 
 **Waiting on a decision**
-- *User-mode Local Store protection* (an ISA change). In user mode a load,
-  store or transfer can reach any Local Store address, including the
-  dispatcher's data (D-LS 0xA000..0xDFFF) and the kernel's code (I-LS
-  0x4000..0x7FFF), so a hostile program can take over its core's kernel.
-  Capabilities themselves are safe (they never live in Local Store bytes).
-  The proposal: supervisor-only bounds registers, a user window per Local
-  Store, checked on every user-mode access and transfer range; nestable
-  (any mode may narrow, only the outer level widens, a trap restores the
-  outer window). Not started.
+- *Local Store windows: relocating code* (`doc/ls-windows.md`). Done on
+  branch `claude/zen-kalam-10f6fb` (2026-11-15): the CSRs `wdata`,
+  `wstack`, `wcode` (26..28) bound and relocate user-mode Local Store
+  addresses in the emulator (interpreter, fast loop, the three JITs), the
+  RTL and the debug engine (`conformance/tests/lswin.s`); user mode cannot
+  reach the dispatcher's data or the kernel's code (`tools/lsprot.s` in
+  `test-isolate`); threads stay resident in D-LS slices that the windows
+  relocate, so a switch between two that fit moves only their code
+  (`os/kunits/wext.s`, the worker extension, copied to I-LS 0x7700 on
+  workers). Open: relocating the code too, which needs the JITs and the
+  fast loop to translate by physical I-LS address (today a relocated code
+  window runs in `step()`); `pipe` and `db` evict each other (their
+  extents are 35 and 40 KiB); `cc` could refuse a frame larger than the
+  8 KiB stack (it now faults instead of writing over the dispatcher).
 - *ASIC with two and six cores*: scripted (`asic/run.sh N`), paused by the
   user.
 
@@ -467,13 +480,15 @@ language and its limits; `DESIGN.md` has the engine and how memory works.
 |---|---|
 | `PLAN.md` | Decisions (do not reopen), per-step history, design notes (R: revocation by address, P: Local Store sizes) |
 | `doc/strataos.md` | The OS spec, incl. guests, code paging, the switch work's numbers |
+| `doc/ls-switch.md` | What a context switch copies, measured (`make ls-stats`), and the ways to copy less |
+| `doc/ls-windows.md` | User-mode Local Store windows: protection and resident threads (design, what was done, numbers) |
 | `doc/debug-protocol.md` | The debug engine's protocol |
 | `os/PLAN-os.md` | Kernel and servers: decisions, deviations from the spec |
 | `os/progs/PLAN-sh.md` | The shell |
 | `os/ws/README.md` | The window server |
 | `lang/forth/README.md` | Forth: bare metal, StrataOS, code paging, as a guest |
 | `lang/cc/DESIGN.md`, `lang/cc/PLAN-cc.md`, `lang/cc/tests/README.md` | The C compiler: design, state and scores, the test ladder |
-| `lang/prolog/README.md`, `lang/prolog/DESIGN.md` | Stralog: the language, limits, examples, conformance; the engine and its memory |
+| `lang/stralog/README.md`, `lang/stralog/DESIGN.md` | Stralog: the language, limits, examples, conformance; the engine and its memory |
 | `emu/jit/README.md` | Native JIT |
 | `web/README.md` | Browser build: worker, fast interpreter, wasm JIT, networking |
 | `conformance/README.md`, `conformance/FINDINGS.md` | Conformance suite and what it found |

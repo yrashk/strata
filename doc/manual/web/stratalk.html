@@ -43,7 +43,7 @@ st> Proc ps
 OrderedCollection (2 dev (core 2, blocked) 4 blk (core 2, blocked) ...)</code></pre>
 
 <p>A file:</p>
-<pre class="lst"><code>Object subclass: #Point slots: 'x y'.
+<pre class="lst"><code class="language-stratalk">Object subclass: #Point slots: 'x y'.
 Point class >> x: ax y: ay [ ^self new setX: ax y: ay ]
 Point >> setX: ax y: ay [ x := ax. y := ay ]
 Point >> + p [ ^Point x: x + p x y: y + p y ]
@@ -66,6 +66,59 @@ Transcript showln: (Point x: 1 y: 2) + (Point x: 3 y: 4) printString.</code></pr
   <li>The examples are on the disk under <code>/stratalk/examples</code>; the kernel's sources under
     <code>/stratalk</code>.</li>
 </ul>
+</section>
+
+<section class="chap" id="objects" data-unfiltered>
+<h2><span class="num">The model</span>Objects</h2>
+<p>Everything a program handles is an object, and everything it does is a message sent to one: an
+  object answers a message by running the method its class has for the selector, or its
+  superclass's, up to <code>Object</code>. The class reference below is these classes, each
+  method's description first and its source after it.</p>
+<ul>
+  <li><b>An object</b> is a header word and slots. The header holds its class (as an index), its
+    format (named slots, indexed slots, bytes, compiled code or raw words), whether it is
+    immutable (literals are), its identity hash and its size. SmallIntegers and Characters are not
+    allocated: the reference itself holds the value. <code>nil</code> is the reference 0.</li>
+  <li><b>A class</b> is an object too: an instance of <code>Class</code>, with its name, its
+    superclass, the names of its slots, its format and a <code>MethodDictionary</code> from
+    selectors to methods. <code>Object subclass: #Point slots: 'x y'</code> makes one;
+    <code>variableSubclass:</code>, <code>byteSubclass:</code> and <code>wordSubclass:</code> make
+    indexed ones. Inheritance is single.</li>
+  <li><b>A metaclass</b> is the class of a class: <code>Point class</code>, whose one instance is
+    <code>Point</code>. It holds the class-side methods (<code>Point class &gt;&gt; x: ax y: ay [
+    ... ]</code>) and the class-side slots (<code>Point class slots: 'count'</code>), which stand
+    in for class variables. Every metaclass is an instance of <code>Metaclass</code>:
+    <code>3 class</code> is <code>SmallInteger</code>, <code>3 class class</code> is
+    <code>SmallInteger class</code>, and <code>3 class class class</code> is
+    <code>Metaclass</code>.</li>
+  <li><b>A block</b>, <code>[:x | x + 1]</code>, is a <code>BlockClosure</code>: the compiled
+    block, the receiver, the frame of the method it was made in, and the values it captured
+    (captured variables that are assigned live in a shared vector instead). <code>value:</code>
+    runs it; <code>^</code> inside it returns from that method, and signals
+    <code>BlockCannotReturn</code> if the method has returned already.</li>
+  <li><b>A method</b> is a <code>CompiledMethod</code>: a header (arguments, temps, literals,
+    primitive number), its literals (the last two are its selector and its class) and its
+    bytecodes. Methods are compiled from the source files by the compiler in the image
+    (<code>Compiler.st</code>), or on the host when the image is built; one that is run often is
+    compiled again to Strata code by the JIT. <code>Point &gt;&gt; #x</code> answers one.</li>
+</ul>
+<p><b>Where an object lives</b> is in its reference: a <em>near</em> object is in the core's
+  data Local Store, which the core reads and writes directly; a <em>far</em> one is in the far
+  heap, which it reaches with transfers. New objects are made near and most die there;
+  the ones that survive a nursery collection are copied out and become far. Symbols, classes,
+  methods and objects over 2&nbsp;KiB are made far from the start. <code>isNear</code> tells:</p>
+<pre class="lst"><code data-session>st&gt; (3 @ 4) isNear
+true
+st&gt; (Array new: 1000) isNear
+false
+st&gt; #foo isNear
+false
+st&gt; (Point &gt;&gt; #x) isNear
+false</code></pre>
+<p>A program never sees the difference otherwise: a near object stored into a far one is remembered
+  and goes out to the far heap at the next collection, and a far one is read through the VM's
+  cache. What it
+  costs shows in <code>Smalltalk vm</code>.</p>
 </section>
 
 <section class="chap" id="memory" data-unfiltered>
@@ -124,7 +177,7 @@ Transcript showln: (Point x: 1 y: 2) + (Point x: 3 y: 4) printString.</code></pr
   <code>FsServer</code>, <code>DbServer</code>, <code>WsServer</code>, ...) and two methods per
   operation, one without arguments and one that takes a Dictionary of the request's fields by their
   spec names. The reply decodes its data by the spec. Friendlier faces sit on top:</p>
-<pre class="lst"><code>Proc ps                          "the processes"
+<pre class="lst"><code class="language-stratalk">Proc ps                          "the processes"
 ProcServer default info fields   "cores, memory, context switches"
 Fs statfs                        "#(blocks used files)"
 (Db tree: 'mine/notes') at: 'k' put: 'v'; at: 'k'
