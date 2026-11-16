@@ -1045,7 +1045,12 @@ is the close of a written file; a long write commits every MiB. A commit
 holds the bytes of one writer at most: when another program writes, or
 anything else changes, they are committed first. So when the disk fills
 up, the file that did not fit is given up (it stays as it was, its space
-comes back when it is closed) and nothing else is lost. The
+comes back when it is closed) and nothing else is lost. A full disk is
+never stuck: a change that grows the store stops 128 free pages short,
+64 for the allocator's own trees and 64 more that only a change which
+frees space may use (UNLINK, a snapshot deleted, a program's batch of
+deletes: `fs` marks its calls with header word 48 bit 32), since a delete
+copies pages before it frees any. `df` counts those pages as free. The
 store's server, `db`, works on trees larger than its Local Stores through a
 cache of 124 pages in far memory and three page buffers in its D-LS; `fs`
 reads ahead (a walk over a tree is answered from one SCAN of up to 4 KiB of

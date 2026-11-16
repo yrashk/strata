@@ -31,7 +31,10 @@ program's DBGET, DBSCAN and DBBATCH to db as they are (REPLY to db's core: the b
 a request, its sender stamped as the program), with the core to answer in header word 56; db takes \
 that word only from a request that comes from fs's core (fs is alone there) and is not fs's own, and \
 answers the program directly (from 8 cores on; on fewer, fs shares its core and relays them, and db \
-trusts no forwarded request). Every answer to a program has header word 48 cleared."""
+trusts no forwarded request). Every answer to a program has header word 48 cleared. FULL DISK: a \
+change stops while 128 pages are free (64 kept for the allocator's trees, 64 for changes that free \
+space); fs marks the calls of such a change (UNLINK, a snapshot deleted) with header word 48 bit 32, \
+and a program's batch of deletes only is one too, so a full disk can be emptied."""
 
 [[op]]
 num = 64

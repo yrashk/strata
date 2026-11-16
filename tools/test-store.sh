@@ -554,8 +554,8 @@ echo "test-store: two programs writing a byte at a time, in turns: each file hol
 # forwarded by fs and committed alone by db: when the disk has no room for
 # it, only the batch is given up, and fs is not told of an abort: it goes
 # on reading (its trees still open) and the values put before are there.
-# (Nothing is written after: the puts take the disk down to the pages the
-# store keeps back, and then even a delete has no room.)
+# Growth stops ST_RESD pages (64) short of what a delete may use, so the
+# full disk is not stuck: a file is removed, and a new one written.
 v=$(printf 'v%.0s' $(seq 200))
 {
   for i in $(seq 1 16); do echo "seq 100000 > /t/l$i"; done
@@ -567,6 +567,9 @@ v=$(printf 'v%.0s' $(seq 200))
   echo "cat /t/l1 | wc"
   echo "db get full/t k100 | wc"
   echo "ls /t | wc"
+  echo "rm /t/l1"
+  echo "echo written > /t/after; cat /t/after"
+  echo "db del full/t k100"
   echo "echo --end"
   echo "fsck"
   echo "halt"
@@ -581,8 +584,11 @@ assert "db: refused" in puts, "no put was refused: the disk did not fill"
 assert puts.split("db: refused")[0].count("db put") >= 1, "the first put was refused"
 assert "\n1 1 201\n" in after, "a value put before the disk filled is gone"
 assert "100000 100000 588895" in after, "fs does not read a file after the program's batch was given up"
+assert "no such file" not in after, "a file could not be removed from the full disk"
+assert "\nwritten\n" in after, "no file was written after one was removed from the full disk"
+assert "refused" not in after, "a delete from the program's tree was refused on the full disk"
 assert "no problems" in end, "fsck after a program's batch did not fit"
 PYEOF
 "$b/stdb" check "$tmp/p1.img" >"$tmp/check.txt" 2>&1 || { cat "$tmp/check.txt" >&2; fail "the disk after a program's batch did not fit fails its check"; }
-echo "test-store: a program's batch the full disk has no room for is given up alone; fs goes on"
+echo "test-store: a program's batch the full disk has no room for is given up alone; fs goes on, and the full disk is emptied: a file removed, another written"
 echo "test-store: OK"

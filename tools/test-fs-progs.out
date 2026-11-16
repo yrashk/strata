@@ -24,7 +24,7 @@ strata$ ps
  # # blocked # # # # db (server)
  # # blocked # # # # fs (server)
  # # running # # # # proc (server)
- # # blocked # # # # tty (server)
+ # # ready # # # # tty (server)
  # # blocked # # # # pipe (server)
  # # blocked # # # # sh
  # # blocked # # # # forth

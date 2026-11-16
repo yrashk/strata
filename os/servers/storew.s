@@ -33,6 +33,8 @@ TT_FL   = 32                            ;   32 bit 0 used, bit 1 not yet in the 
 TT_KL   = 40                            ;   40 its catalog key's length,
 TT_KEY  = 48                            ;   48 the key: namespace (4 bytes), name
 ST_RES  = 64                            ; pages kept back for the allocator's own trees
+ST_RESD = 64                            ; and more kept back for changes that free space
+                                        ;   (st_resv: a delete may use them, growth not)
 
         .data                           ; data Local Store
         .align 8                        ; ...
@@ -51,6 +53,7 @@ st_began:  .dword 0                     ; a commit is under way
 in_ft:     .dword 0                     ; the free tree is being changed: no reading it
 in_b:      .dword 0                     ; `av` is being written back
 in_fin:    .dword 0                     ; in finalize
+st_resv:   .dword ST_RES + ST_RESD      ; free pages an allocation must leave (alloc)
 in_rel:    .dword 0                     ; in relief
 st_txfreed: .dword 0                    ; pages freed by this commit (not reusable yet)
 st_last:   .dword 0                     ; the page allocated last
@@ -1303,7 +1306,8 @@ alloc:
         ld    t0, st_nfree(zero)        ; ...
         ld    t1, st_txfreed(zero)      ; ...
         sub   t0, t0, t1                ; ...
-        addi  t1, s1, ST_RES            ; ...
+        ld    t1, st_resv(zero)         ; (ST_RES, + ST_RESD unless a delete)
+        add   t1, t1, s1                ; ...
         bltu  t0, t1, st_full           ; ...
 al_go:
         ld    t0, in_b(zero)            ; while av is written back: from its largest
