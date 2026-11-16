@@ -40,6 +40,12 @@ solve:
 
 ; ---- the next goal ---------------------------------------------------------------------
 sv_loop:
+        ld    t0, v_H(zero)             ; the heap past its mark: collect it first
+        ld    t1, v_gclim(zero)         ; (gc.s: here only the continuation and the
+        bltu  t0, t1, sv_next           ;   choicepoints refer into the heap)
+        la    t6, gc                    ; ...
+        xcall ra, c0, t6                ; ...
+sv_next:
         ld    s1, v_CONT(zero)          ; the continuation
         li    t0, END                   ; nothing left: the goal succeeded
         beq   s1, t0, sv_success        ; ...

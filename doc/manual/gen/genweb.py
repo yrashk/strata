@@ -8,7 +8,9 @@ Writes OUTDIR/isa/index.html (every instruction, with stable anchors
 platform chapter), OUTDIR/docs.css, OUTDIR/docs.js and the figures the outline
 uses. Pages are published next to the site (site/), whose style.css and
 hl.js they use. It also runs gen/genforth.py: OUTDIR/forth/index.html, the
-Strata Forth words and playground, generated from lang/forth/.
+Strata Forth words and playground, generated from lang/forth/; and
+gen/genprolog.py: OUTDIR/prolog/index.html, Stralog's predicates, examples
+and playground, from lang/prolog/.
 
 Nothing is copied by hand. The instruction entries come from the same data
 that gen/geninsns.py turns into the manual's LaTeX (geninsns.INSNS and
@@ -46,7 +48,7 @@ def insn_id(key):
 
 # ---------------------------------------------------------------- the page shell
 NAV = [("../#idea", "Idea", None), ("../arch/", "Architecture", "arch"), ("../isa/", "Instructions", "isa"), ("../os/", "OS", None),
-       ("../forth/", "Forth", "forth"), ("../c/", "C", None),
+       ("../forth/", "Forth", "forth"), ("../prolog/", "Prolog", "prolog"), ("../c/", "C", None),
        ("../hardware/", "Hardware", None), ("../play/", "Play", None),
        ("../debug/", "Debug", None), ("../code/", "Source", None)]
 
@@ -493,6 +495,9 @@ def main():
     n, k, t = genforth.write(out, page, link_sources, files)
     print("web-docs: %d Forth words (%d kernel primitives, %d in Forth; %d with an example) -> %s/forth/" % (
         n, k, n - k, t, out))
+    import genprolog  # noqa: E402  (the Stralog section: prolog/, from lang/prolog/)
+    n, k = genprolog.write(out, page, link_sources, files)
+    print("web-docs: %d Stralog predicates, %d examples -> %s/prolog/" % (n, k, out))
 
 
 if __name__ == "__main__":
