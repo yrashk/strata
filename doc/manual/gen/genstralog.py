@@ -311,7 +311,9 @@ def entry_html(e, ids):
     h = ['<article class="word" id="%s" data-name="%s" data-k="%s">' % (
         aid, esc(e["pis"][0]), esc(" ".join(e["pis"] + e["tmpl"] + [gloss(e)]).lower())),
         '<header class="word-h"><h3><a href="#%s">%s</a></h3></header>' % (aid, title)]
-    h.append('<div class="tmpl">%s</div>' % "".join('<code class="stack">%s</code>' % esc(t) for t in e["tmpl"]))
+    # a template breaks only between its arguments (a mode's - is no place to break)
+    h.append('<div class="tmpl">%s</div>' % "".join('<code class="stack">%s</code>' % ", ".join(
+        '<span class="nb">%s</span>' % esc(p) for p in t.split(", ")) for t in e["tmpl"]))
     h += ['<p class="word-d">%s</p>' % inline(p, ids) for p in e["text"]]
     if e["errors"]:
         h.append('<div class="errs"><h4>Errors</h4><dl>%s</dl></div>' % "".join(

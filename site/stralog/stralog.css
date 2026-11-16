@@ -181,14 +181,19 @@ details.wsrc pre.lst { margin: 6px 0 4px; font-size: 12.5px; line-height: 1.55; 
 article.ex .ex-title { color: var(--text); }
 article.ex .ex-edit { margin-left: auto; }
 .try { flex-wrap: wrap; }
-.try .try-n { flex: 1 0 100%; margin: -4px 0 0 64px; color: var(--dim); font: 12px var(--mono); }
+/* the note under a query: the row's full width, indented inside it (a margin
+   would add to the 100% and widen the page) */
+.try .try-n { flex: 1 0 100%; min-width: 0; box-sizing: border-box; margin-top: -4px; padding-left: 64px;
+  overflow-wrap: anywhere; color: var(--dim); font: 12px var(--mono); }
 
 /* ---------------------------------------------------------------- the reference */
 /* Prolog's operators are text: -> and >= are not to become arrows */
 code, pre, .doc-toc { font-variant-ligatures: none; }
 .word-h h3 code + code { margin-left: 14px; font-size: 0.82em; color: var(--dim); }
 .tmpl { display: flex; flex-direction: column; gap: 2px; margin: 6px 0 2px; }
-.tmpl code.stack { font-size: 14px; }
+/* a template wraps between its arguments, never inside one, with a hanging indent */
+.tmpl code.stack { font-size: 14px; overflow-wrap: normal; padding-left: 2ch; text-indent: -2ch; }
+.tmpl .nb { white-space: nowrap; }
 .errs { margin: 8px 0 4px; }
 .errs h4, .exs-h { margin: 0 0 2px; font: 600 11.5px var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
 .errs dl { display: grid; grid-template-columns: fit-content(42%) minmax(0, 1fr); gap: 3px 16px; margin: 0; }
