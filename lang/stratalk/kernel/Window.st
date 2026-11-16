@@ -1,10 +1,11 @@
 "Window.st: a window of the window server (ws), through its messages
  (os/ws/ws.s; os/spec/ws.toml). The server draws: text in its 8 x 16
  font, and filled rectangles, into the window's surface, and shows them.
- A Window keeps the endpoint to ws in register 4 while it is open
- (pipe's: files can still be read; closing gives it back)."
+ A Window keeps the endpoint to ws in a register that standard input and
+ output do not use while it is open: pipe's (4), or tty's (3) when they are
+ pipes (in a terminal of ws), or fs's (2); closing gives it back."
 
-Object subclass: #Window slots: 'server id width height title'.
+Object subclass: #Window slots: 'server id width height title register'.
 Object subclass: #WindowEvent slots: 'kind value width height'.
 
 Window class >> opCreate [ ^40 ]
@@ -22,11 +23,12 @@ Window class >> open: aTitle [
 
 Window >> open: aTitle [
     | data r |
-    server := Server named: 'ws' into: 4.
+    register := Window freeRegister.
+    server := Server named: 'ws' into: register.
     data := ByteArray new: 24.
     data putTitle: aTitle at: 16.
     r := server request: Window opCreate handle: 0 mode: 0 data: data replySize: 16.
-    r result <= 0 ifTrue: [Server restorePipe. ^Error new signal: 'ws refused the window'].
+    r result <= 0 ifTrue: [self giveBack. ^Error new signal: 'ws refused the window'].
     id := r result.
     width := r u64At: 0.
     height := r u64At: 8.
@@ -75,7 +77,17 @@ Window >> eventFrom: r [
     ^e ]
 Window >> close [
     server request: Window opDestroy handle: id mode: 0 data: nil replySize: 0.
-    Server restorePipe ]
+    self giveBack ]
+Window >> giveBack [
+    "The register's own server again."
+    Smalltalk osLookup: (#('proc' 'fs' 'tty' 'pipe') at: register) into: register ]
+Window class >> freeRegister [
+    "A register standard input, output and error do not use: 4 (pipe), 3 (tty), else 2 (fs)."
+    | used |
+    used := Smalltalk stdioRegisters.
+    #(4 3 2) do: [:r | ((used bitShift: 0 - r) bitAnd: 1) = 0 ifTrue: [^r]].
+    ^2 ]
+SystemDictionary >> stdioRegisters [ <primitive: 125> ^1 bitShift: 3 ]
 Window >> printOn: aStream [ aStream nextPutAll: 'a Window '; print: title; space; print: width; nextPut: $x; print: height ]
 
 WindowEvent >> setKind: k value: v width: w height: h [ kind := k. value := v. width := w. height := h ]
