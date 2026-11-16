@@ -9,9 +9,12 @@
 //   EX  execute; stay here while stalled
 //   CT  save-table instructions: the slot read in EX is here
 //   LD  load data returns from the D-LS
-//   LG  ltag / linst: the set's entry address (one cycle), then its checks
+//   LG  ltag / linst / a far load or store: the set's entry address (one
+//       cycle), then its checks
 //   LT  tag-lookup sequencer (one table word per two cycles)
-//   LW  second write of `linst`
+//   LW  second write of `linst`; a far store's write of the counter word
+//   FA  a far load or store that hit: its D-LS address, checked and
+//       relocated; the access (a load goes on to LD)
 //   DV  multiplication (strata_mul, 3-4 cycles) and iterative division
 //   AM  far atomic in flight
 //
@@ -149,7 +152,7 @@ module strata_core
   localparam int IAW       = ILS_LG - 3;
 
   // ================================================================ state
-  typedef enum logic [3:0] {S_RST, S_F0, S_F1, S_EX, S_CT, S_LD, S_LG, S_LT, S_LW, S_DV, S_AM, S_HALT, S_RQ} state_t;
+  typedef enum logic [3:0] {S_RST, S_F0, S_F1, S_EX, S_CT, S_LD, S_LG, S_LT, S_LW, S_DV, S_AM, S_HALT, S_RQ, S_FA} state_t;
 
   state_t      state;
   logic [63:0] pc;
@@ -244,6 +247,8 @@ module strata_core
   logic [3:0]  lt_k;
   logic        lt_ph;
   logic [63:0] lt_key, lt_set, lt_sw, lt_ebase, lt_off, lt_victim;   // lt_sw = lt_set * ways
+  logic [63:0] lt_ctr;          // the set's counter word, as read (linst, a far store)
+  logic        fa_on;           // this load / store goes through the tag table (tgeom.FA)
 
 `ifdef SIMULATION
   logic trace_on;
@@ -360,7 +365,7 @@ module strata_core
   assign da_rd    = da_en && da_we == 0;
   // the core is about to use the memory, as far as registers tell (the
   // unit holds a beat from far memory back for it: strata_tu)
-  assign ls_want = LS_1P && (state == S_F0 || (state == S_EX && d.kind == K_LOAD) ||
+  assign ls_want = LS_1P && (state == S_F0 || ((state == S_EX || state == S_FA) && d.kind == K_LOAD) ||
                              (state == S_LT && !lt_ph) || sb_v ||
                              (STREAM && (state == S_F1 || (st_exec && need1))));
   assign ls_gnt  = !LS_1P || !(ia_en || da_rd || sb_v);
@@ -496,7 +501,9 @@ module strata_core
 
   // ================================================================ loads / stores
   logic [63:0] maddr, mpa, msz, mshift, mload;
-  logic        mok, m_wok, m_ws;
+  logic        mok, m_wok, m_ws, m_al, fa_go;
+  logic [2:0]  m_lo;
+  logic [63:0] fa_da, fa_pa;      // a far access's D-LS address, and relocated (below)
   logic [5:0]  m_v;
   logic [7:0]  m_pu;
   logic [7:0]  mmask;
@@ -509,13 +516,19 @@ module strata_core
   assign m_wok  = !dw_on || ((win_cov(csr_wdata, m_v) || win_cov(csr_wstack, m_v)) && m_pu < 8'd64);
   assign mpa    = dw_on ? 64'({m_pu[5:0], maddr[DLS_LG-7:0]}) : maddr;
   // aligned, below DLS_SIZE (a power of two: the whole access is inside), in a window
-  assign mok    = maddr[63:DLS_LG] == 0 && (maddr[2:0] & 3'((4'd1 << d.msize) - 4'd1)) == 0 && m_wok;
-  assign mshift = {58'b0, maddr[2:0], 3'b000};
+  assign m_al   = (maddr[2:0] & 3'((4'd1 << d.msize) - 4'd1)) == 0;
+  assign mok    = maddr[63:DLS_LG] == 0 && m_al && m_wok;
+  // tgeom.FA: an aligned address at or past the D-LS goes through the tag
+  // table (S_LG, S_LT, S_FA) instead of faulting
+  assign fa_go  = csr_tgeom[16] && maddr[63:DLS_LG] != 0 && m_al;
+  // the access's byte in its word: after EX, a far access's is its line's
+  assign m_lo   = state != S_EX && fa_on ? fa_da[2:0] : maddr[2:0];
+  assign mshift = {58'b0, m_lo, 3'b000};
   always_comb begin
     case (d.msize)
-      2'd0: mmask = 8'b0000_0001 << maddr[2:0];
-      2'd1: mmask = 8'b0000_0011 << maddr[2:0];
-      2'd2: mmask = 8'b0000_1111 << maddr[2:0];
+      2'd0: mmask = 8'b0000_0001 << m_lo;
+      2'd1: mmask = 8'b0000_0011 << m_lo;
+      2'd2: mmask = 8'b0000_1111 << m_lo;
       default: mmask = 8'hff;
     endcase
   end
@@ -617,12 +630,14 @@ module strata_core
   // registers in its first cycle, and checks them in the next.
   logic [5:0]  lt_lsh, lt_lsets;
   logic [3:0]  lt_ways;
-  logic [63:0] lt_line, lt_set_c, lt_sw_c, lt_ebase_c, lt_span;
-  logic        lt_ok;
+  logic [63:0] lt_src, lt_line, lt_set_c, lt_sw_c, lt_ebase_c, lt_span;
+  logic        lt_ok, lt_okg, lt_far;
+  assign lt_far     = d.kind == K_LOAD || d.kind == K_STORE;   // (a far access: FA, fa_go)
   assign lt_lsh     = csr_tgeom[5:0];
   assign lt_lsets   = csr_tgeom[11:6];
   assign lt_ways    = csr_tgeom[15:12];
-  assign lt_line    = ra >> lt_lsh;
+  assign lt_src     = lt_far ? maddr : ra;                     // the address looked up
+  assign lt_line    = lt_src >> lt_lsh;
   assign lt_set_c   = lt_line & ((64'd1 << lt_lsets) - 1);
   assign lt_span    = (64'(lt_ways) + 1) * 8;
   assign lt_sw_c    = (lt_ways[0] ? lt_set      : 64'd0) + (lt_ways[1] ? lt_set << 1 : 64'd0) +
@@ -643,7 +658,24 @@ module strata_core
                                  win_cov(lt_ws ? csr_wstack : csr_wdata, lt_v1) &&
                                  lt_ws == !win_cov(csr_wdata, lt_v1) && lt_pu1 < 8'd64);
   assign lt_pbase   = dw_on ? 64'({lt_pu0[5:0], lt_ebase[DLS_LG-7:0]}) : lt_ebase;
-  assign lt_ok      = lt_ways != 0 && lt_ebase[2:0] == 0 && lt_ebase <= 64'(DLS_SIZE) - lt_span && lt_wok;
+  assign lt_okg     = lt_ways != 0 && lt_ebase[2:0] == 0 && lt_ebase <= 64'(DLS_SIZE) - lt_span;
+  assign lt_ok      = lt_okg && lt_wok;
+
+  // a far access that hit way lt_victim: the D-LS address of its bytes in
+  // the line, inside the D-LS and (user mode) a D-LS window, which relocates
+  // it. (The RTL reaches one 64-bit word per access: an access that would
+  // straddle two, possible only with a tdata that is not 8-byte aligned,
+  // faults with lsfault.)
+  logic [5:0]  fa_v;
+  logic        fa_ws, fa_wok, fa_ok;
+  logic [7:0]  fa_pu;
+  assign fa_da  = csr_tdata + ((lt_sw + lt_victim) << lt_lsh) + lt_off;
+  assign fa_v   = fa_da[DLS_LG-1 -: 6];
+  assign fa_ws  = !win_cov(csr_wdata, fa_v);
+  assign fa_pu  = win_pu(fa_ws ? csr_wstack : csr_wdata, fa_v);
+  assign fa_wok = !dw_on || ((win_cov(csr_wdata, fa_v) || win_cov(csr_wstack, fa_v)) && fa_pu < 8'd64);
+  assign fa_pa  = dw_on ? 64'({fa_pu[5:0], fa_da[DLS_LG-7:0]}) : fa_da;
+  assign fa_ok  = fa_da <= 64'(DLS_SIZE) - msz && fa_wok && {1'b0, fa_da[2:0]} + msz[3:0] <= 4'd8;
 
   always_comb begin
     hz_addr = '0;
@@ -654,6 +686,9 @@ module strata_core
     end else if (state == S_LG && lt_ph) begin
       hz_addr = LSW'(lt_pbase);
       hz_len  = LSW'(lt_span);
+    end else if (state == S_FA) begin
+      hz_addr = LSW'(fa_pa);
+      hz_len  = LSW'(msz);
     end
   end
 
@@ -914,6 +949,13 @@ module strata_core
     end else if (state == S_EX && d.kind == K_STORE && mok && !hz_wr_stall && !held) begin
       da_en = 1;                                         // (not a store that a stop or a reset
       da_we = mmask;                                     // preempts: it has not executed)
+    end else if (state == S_FA && d.kind == K_LOAD && fa_ok && !hz_rd_stall && !held) begin
+      da_en   = 1;                                       // a far load: data arrives in LD
+      da_addr = fa_pa[15:3];
+    end else if (state == S_FA && d.kind == K_STORE && fa_ok && !hz_wr_stall && !held) begin
+      da_en   = 1;                                       // a far store
+      da_we   = mmask;
+      da_addr = fa_pa[15:3];
     end else if (lt_rd) begin
       da_en   = 1;
       da_addr = lt_rd_a[15:3];
@@ -922,11 +964,12 @@ module strata_core
       da_we    = 8'hff;
       da_addr  = va[15:3];
       da_wdata = lt_key;
-    end else if (state == S_LW) begin                    // then: the replacement counter
-      da_en    = 1;
-      da_we    = 8'hff;
+    end else if (state == S_LW) begin                    // then: the counter word (linst: the next
+      da_en    = 1;                                      // index, the victim clean; a far store:
+      da_we    = 8'hff;                                  // its way dirty)
       da_addr  = ca[15:3];
-      da_wdata = nv;
+      da_wdata = lt_far ? lt_ctr | (64'd1 << (6'd32 + 6'(lt_victim)))
+                        : (lt_ctr & 64'h0000_7fff_0000_0000 & ~(64'd1 << (6'd32 + 6'(lt_victim)))) | nv;
     end
     // one memory (LS_1P): a write only needs the write register (wr_ok); a
     // read or a fetch needs the memory, which a beat from the bus or the
@@ -952,7 +995,7 @@ module strata_core
   // again) and, when that word has been used up, in any cycle of an
   // instruction; never while a tgetx is queued (the word may be about to
   // change: such a fetch waits in F0 for the transfer)
-  assign st_exec  = state inside {S_EX, S_CT, S_LD, S_LG, S_LT, S_LW, S_DV, S_AM};
+  assign st_exec  = state inside {S_EX, S_CT, S_LD, S_LG, S_LT, S_LW, S_DV, S_AM, S_FA};
   // the next word and the one after: held, or arriving now; neither held
   // nor on its way (the words are read in order, so need2 matters only
   // when the next word is taken care of)
@@ -1039,6 +1082,16 @@ module strata_core
     end
   endtask
 
+  // ltag, linst, a far load or store: the line and set of the address
+  // (lt_src) for the tag-lookup sequencer
+  task automatic tag_lookup();
+    lt_key <= (lt_line << 1) | 64'd1;
+    lt_set <= lt_set_c;
+    lt_off <= lt_src & ((64'd1 << lt_lsh) - 1);
+    lt_ph  <= 0;
+    state  <= S_LG;
+  endtask
+
   task automatic stall();
     csr_stalls <= csr_stalls + 1;
   endtask
@@ -1094,6 +1147,7 @@ module strata_core
     csr_corecount <= '0;
     lt_k          <= '0;
     lt_ph         <= 0;
+    fa_on         <= 0;
     rs_i          <= '0;
     fb_nxt_v      <= 0;
     fb_nx2_v      <= 0;
@@ -1215,13 +1269,17 @@ module strata_core
             K_LUI: begin begin xw = d.rd != 0; xv = d.imm; end retire(pc4); end
 
             K_LOAD: begin
-              if (!mok) trap(C_LSFAULT, maddr);
+              fa_on <= fa_go;
+              if (fa_go) tag_lookup();                   // tgeom.FA: through the tag table
+              else if (!mok) trap(C_LSFAULT, maddr);
               else if (hz_rd_stall) pending(maddr);
               else if (ls_blk) stall();                  // (LS_1P: a beat or the waiting write has the memory)
               else state <= S_LD;
             end
             K_STORE: begin
-              if (!mok) trap(C_LSFAULT, maddr);
+              fa_on <= fa_go;
+              if (fa_go) tag_lookup();
+              else if (!mok) trap(C_LSFAULT, maddr);
               else if (hz_wr_stall) pending(maddr);
               else if (!wr_ok) stall();                  // (LS_1P: the write register is not free)
               else retire(pc4);                       // the write happened this cycle (LS_1P: is in the register)
@@ -1442,13 +1500,7 @@ module strata_core
               end
             end
 
-            K_LTAG, K_LINST: begin
-              lt_key <= (lt_line << 1) | 64'd1;
-              lt_set <= lt_set_c;
-              lt_off <= ra & ((64'd1 << lt_lsh) - 1);
-              lt_ph  <= 0;
-              state  <= S_LG;
-            end
+            K_LTAG, K_LINST: tag_lookup();
 
             K_XMAP: begin
               if (d.rd >= 5'(NXMAP)) trap(C_ILLEGAL, {32'b0, ir});
@@ -1598,10 +1650,12 @@ module strata_core
           end
           else if (rpend) state <= S_RQ;                 // (as in EX)
           else if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end   // (as in EX)
-          else if (!lt_ok) trap(C_LSFAULT, lt_ebase);
-          else if (d.kind == K_LTAG ? hz_rd_stall : hz_wr_stall) pending(lt_ebase);
+          else if (!lt_okg) trap(C_LSFAULT, lt_ebase);
+          else if (lt_far && lt_lsh < 6'd3) trap(C_LSFAULT, maddr);   // a line must hold any aligned scalar
+          else if (!lt_wok) trap(C_LSFAULT, lt_ebase);
+          else if (d.kind == K_LTAG || d.kind == K_LOAD ? hz_rd_stall : hz_wr_stall) pending(lt_ebase);
           else begin
-            lt_k  <= d.kind == K_LTAG ? 4'd0 : lt_ways;
+            lt_k  <= d.kind == K_LINST ? lt_ways : 4'd0;  // (linst reads only the counter word)
             lt_ph <= 0;
             state <= S_LT;
           end
@@ -1612,20 +1666,36 @@ module strata_core
           end
           else begin
             lt_ph <= 0;
-            if (d.kind == K_LTAG && lt_k < lt_ways) begin
+            if (lt_far) begin                            // a far load or store
+              if (lt_k < lt_ways) begin
+                if (da_rdata == lt_key) begin            // a hit in way lt_k: on to the line
+                  lt_victim <= 64'(lt_k);
+                  if (d.kind == K_STORE) lt_k <= lt_ways;   // a store reads the counter word first
+                  else state <= S_FA;
+                end else if (lt_k == lt_ways - 4'd1) trap(C_DMISS, maddr);
+                else lt_k <= lt_k + 1;
+              end else begin                             // a store's counter word
+                lt_ctr <= da_rdata;
+                state  <= S_FA;
+              end
+            end else if (d.kind == K_LTAG && lt_k < lt_ways) begin
               if (da_rdata == lt_key) begin
                 begin xw = d.rd != 0; xv = csr_tdata + ((lt_sw + 64'(lt_k)) << lt_lsh) + lt_off; end
                 retire(pc4);
               end else lt_k <= lt_k + 1;
             end else begin
-              // da_rdata is the set's replacement counter: it names the victim way
+              // da_rdata is the set's counter word: bits 3:0 name the victim
+              // way, bit 32 + w says way w is dirty (far stores)
               logic [63:0] victim;
-              victim = da_rdata < 64'(lt_ways) ? da_rdata : 64'd0;
+              victim = da_rdata[3:0] < lt_ways ? 64'(da_rdata[3:0]) : 64'd0;
               if (d.kind == K_LTAG) begin
-                begin xw = d.rd != 0; xv = (csr_tdata + ((lt_sw + victim) << lt_lsh)) | 64'h8000_0000_0000_0000; end
+                begin xw = d.rd != 0;
+                      xv = (csr_tdata + ((lt_sw + victim) << lt_lsh)) | 64'h8000_0000_0000_0000 |
+                           (64'(da_rdata[6'd32 + 6'(victim)]) << 62); end
                 retire(pc4);
               end else begin
                 lt_victim <= victim;
+                lt_ctr    <= da_rdata;
                 lt_ph     <= 1;                          // stay: write the tag next cycle
                 state     <= S_LW;
               end
@@ -1636,6 +1706,27 @@ module strata_core
           if (!wr_ok) ;                                  // (LS_1P: not this cycle)
           else if (lt_ph) lt_ph <= 0;                    // the victim's tag is written this cycle
           else retire(pc4);                           // and the counter this one
+        end
+        // a far load or store that hit way lt_victim (a store: lt_ctr is the
+        // set's counter word). A stop or reset request may still be taken
+        // here: nothing of the instruction is done yet
+        S_FA: begin
+          if (rpend) state <= S_RQ;
+          else if (user && ipend) begin ipend <= 0; trap(C_STOP, 64'd0); end
+          else if (!fa_ok) trap(C_LSFAULT, maddr);
+          else if (d.kind == K_LOAD) begin
+            if (hz_rd_stall) pending(maddr);
+            else if (ls_blk) stall();
+            else state <= S_LD;                          // (the read was issued: da_en)
+          end else begin
+            if (hz_wr_stall) pending(maddr);
+            else if (!wr_ok) stall();
+            else if (lt_ctr[6'd32 + 6'(lt_victim)]) retire(pc4);   // the way was dirty already
+            else begin                                   // mark it dirty: S_LW writes the counter
+              lt_ph <= 0;
+              state <= S_LW;
+            end
+          end
         end
 
         S_HALT: if (rpend) state <= S_RQ;                // a reset request restarts a halted core

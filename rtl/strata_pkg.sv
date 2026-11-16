@@ -188,6 +188,7 @@ package strata_pkg;
   localparam logic [7:0] C_HALT    = 8'd12;  // a user-mode halt, delivered to the supervisor
   localparam logic [7:0] C_STOP    = 8'd13;  // stopped through the core-control capability
   localparam logic [7:0] C_SVC     = 8'd14;  // svc in user mode: a request to the supervisor
+  localparam logic [7:0] C_DMISS   = 8'd15;  // a far load / store (tgeom.FA) whose line is not in the tag table
 
   // ---------------------------------------------------------------- decoded instruction
   typedef enum logic [4:0] {

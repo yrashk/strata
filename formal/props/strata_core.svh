@@ -45,7 +45,8 @@
 //              than a trap's own, and takes nothing from the rest of the
 //              machine (no transfer issued, no gift given or taken); the
 //              only exceptions are the documented two-cycle ends (linst's
-//              first write, a far atomic's grant). In particular a trapping
+//              first write, a far store's write before its counter word's,
+//              a far atomic's grant). In particular a trapping
 //              instruction leaves no trace but the trap.
 //   privilege  in user mode: every supervisor-only instruction traps with
 //              cause priv; the supervisor's state (stvec, sscratch, status,
@@ -84,7 +85,8 @@
 //
 // Not covered: what instructions compute when they do retire (that is the
 // emulator comparison's and the conformance suite's ground), the tag
-// lookup sequencer, pending-range traps (C_PEND), capop conditions.
+// lookup sequencer (ltag, linst, far loads and stores), pending-range traps
+// (C_PEND), capop conditions.
 
   // The proof is split by group so that each induction is small (formal/core.sby):
   // 0 everything, 1 traps, 2 precision, 3 privilege, 4 linearity; any other
@@ -291,8 +293,11 @@
       else if (d.kind == K_ILLEGAL) begin f_tv = 1; f_tc = C_ILLEGAL; f_tt = {32'b0, ir}; end
       else if (user && f_priv) begin f_tv = 1; f_tc = C_PRIV; f_tt = {32'b0, ir}; end
       else case (d.kind)
+        // (with tgeom.FA an aligned address at or past the D-LS goes through
+        // the tag table instead: the tag lookup sequencer, not covered)
         K_LOAD, K_STORE:
-          if (f_maddr > 64'(DLS_SIZE) - f_msz || (f_maddr & (f_msz - 1)) != 0) begin
+          if ((f_maddr & (f_msz - 1)) != 0 ||
+              (f_maddr > 64'(DLS_SIZE) - f_msz && !(csr_tgeom[16] && f_maddr >= 64'(DLS_SIZE)))) begin
             f_tv = 1; f_tc = C_LSFAULT; f_tt = f_maddr;
           end
         K_XFER: if (f_xf != 0) begin f_tv = 1; f_tc = f_xf; f_tt = f_xf == C_LSFAULT ? ra : rb; end
@@ -395,8 +400,10 @@
       assert (!$past(give_valid && give_ack));
       assert (!$past(take_pop));
       // the Local Store is written only by a store that retires, or by
-      // linst's first write (it retires two cycles later, come what may)
-      if ($past(da_we) != 0) assert ($past(state) == S_LW && state == S_LW);
+      // linst's first write (it retires two cycles later, come what may), or
+      // by a far store to a clean way (S_FA: its counter word is written
+      // next, in S_LW, which retires)
+      if ($past(da_we) != 0) assert (($past(state) == S_LW || $past(state) == S_FA) && state == S_LW);
       // pc moves only by a trap; the mode only to supervisor
       if (pc != $past(pc)) assert (pc == $past(s_tvec) || pc == $past(u_tvec));
       if (pc != $past(pc)) assert ((s_epc == $past(pc) && !user) || (u_epc == $past(pc) && user && $past(user)));
@@ -431,7 +438,7 @@
       assert (!$past(ct_we) && !$past(dom_req));
       if (!user) begin
         assert (s_epc == $past(pc) && spp_user && !f_ret);
-        assert (s_cause >= 64'd1 && s_cause <= 64'd14);
+        assert (s_cause >= 64'd1 && s_cause <= 64'd15);
         assert (state == S_HALT ? $past(s_tvec) == 0 : (pc == $past(s_tvec) && state == S_F0));
       end else begin
         assert (s_epc == $past(s_epc) && s_cause == $past(s_cause) && s_tval == $past(s_tval));
