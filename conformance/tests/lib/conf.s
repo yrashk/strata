@@ -61,6 +61,7 @@ C_PRIV    = 11                          ; supervisor-only operation in user mode
 C_HALT    = 12                          ; halt in user mode
 C_STOP    = 13                          ; core-control stop taken in user mode
 C_SVC     = 14                          ; svc in user mode
+C_DMISS   = 15                          ; far load/store (tgeom.FA) whose line is not in the tag table
 UEXIT     = 0x5ec                       ; a7 value: `svc` that leaves user mode
 
 ; ---- capability permission bits and spaces (cperms = space << 8 | perms) ----

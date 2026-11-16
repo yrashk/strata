@@ -51,7 +51,7 @@ enum { SP_NONE = 0, SP_T2 = 2, SP_T3 = 3, SP_DEV = 4, SP_CORE = 5, SP_EP = 6 };
 enum { P_R = 1, P_W = 2, P_X = 4, P_A = 8, P_D = 16, P_V = 32 };
 enum {
   C_ILLEGAL = 1, C_LSFAULT, C_CAPINV, C_PERM, C_BOUNDS, C_XALIGN, C_IFAULT, C_XMISS, C_PEND, C_CAPOP,
-  C_PRIV, C_HALT, C_STOP, C_SVC,
+  C_PRIV, C_HALT, C_STOP, C_SVC, C_DMISS,
 };
 
 typedef struct {
@@ -931,6 +931,45 @@ static uint64_t tag_busy(const Core *c) {
 
 static void dec_invalidate(Core *c, uint64_t ls, uint64_t len); /* the fast loop's decode cache, below */
 
+/* A far load or store (tgeom.FA set, addr at or past the D-LS): looks addr
+ * up in the tag table as ltag does. A hit gives the D-LS address of the
+ * bytes in *pa (relocated by the windows) and, for a store, marks the way
+ * dirty in the set's counter word. Returns 0 on a hit, 1 if it trapped
+ * (lsfault for a bad table or line, dmiss for a line that is not there),
+ * -1 if the table is still arriving from a device read (wait). */
+static int far_ls(Core *c, uint64_t addr, uint64_t sz, bool store, uint64_t *pa) {
+  unsigned lsh = c->tgeom & 63, lsets = (c->tgeom >> 6) & 63, ways = (c->tgeom >> 12) & 15;
+  uint64_t line = addr >> lsh, set = line & ((1ull << lsets) - 1), span = ((uint64_t)ways + 1) * 8;
+  uint64_t eb = c->ttag + set * span, key = line << 1 | 1;
+  if (!ways || (eb & 7) || eb > dls_size - span) { trap(c, C_LSFAULT, eb); return 1; }
+  if (lsh < 3) { trap(c, C_LSFAULT, addr); return 1; } /* a line must hold any aligned scalar */
+  uint64_t veb = eb;
+  if (!win_range(c, false, &eb, span)) { trap(c, C_LSFAULT, veb); return 1; }
+  for (int i = 0; i < NPEND; i++)
+    if (c->pend[i].on && eb < c->pend[i].ls + c->pend[i].len && c->pend[i].ls < eb + span) {
+      if (c->ccr & 1) { trap(c, C_PEND, veb); return 1; }
+      return -1;
+    }
+  unsigned w = 0;
+  while (w < ways && rd64(c->dls + eb + 8ull * w) != key) w++;
+  if (w == ways) { trap(c, C_DMISS, addr); return 1; }
+  uint64_t da = c->tdata + ((set * ways + w) << lsh) + (addr & ((1ull << lsh) - 1));
+  if (da > dls_size - sz) { trap(c, C_LSFAULT, addr); return 1; }
+  uint64_t p = da + (uint64_t)c->drel[da / (dls_size / 64)];
+  if (p >= dls_size) { trap(c, C_LSFAULT, addr); return 1; }
+  for (int i = 0; i < NPEND; i++)
+    if (c->pend[i].on && p < c->pend[i].ls + c->pend[i].len && c->pend[i].ls < p + sz) {
+      if (c->ccr & 1) { trap(c, C_PEND, addr); return 1; }
+      return -1;
+    }
+  if (store) {
+    uint64_t ctr = rd64(c->dls + eb + 8ull * ways);
+    if (!(ctr >> (32 + w) & 1)) wr64(c->dls + eb + 8ull * ways, ctr | 1ull << (32 + w));
+  }
+  *pa = p;
+  return 0;
+}
+
 /* Executes one instruction. Returns false if the core is blocked (nothing happened). */
 static bool step(Core *c) {
   if (c->user && c->ipend) { c->ipend = false; trap(c, C_STOP, 0); return true; }
@@ -974,10 +1013,19 @@ static bool step(Core *c) {
                    : op == OP_LD ? 3 : op <= OP_LWU ? 2 : op <= OP_LHU ? 1 : 0;
     uint64_t sz = 1ull << lg;
     uint64_t base = store ? c->x[rs1] : a;
-    uint64_t addr = base + simm;
-    if (addr > dls_size - sz || (addr & (sz - 1))) { trap(c, C_LSFAULT, addr); return true; }
-    uint64_t pa = addr + (uint64_t)c->drel[addr / (dls_size / 64)]; /* (relocated by its window) */
-    if (pa >= dls_size) { trap(c, C_LSFAULT, addr); return true; }
+    uint64_t addr = base + simm, pa;
+    if (addr & (sz - 1)) { trap(c, C_LSFAULT, addr); return true; }
+    if (addr >= dls_size && (c->tgeom >> 16 & 1)) {
+      /* tgeom.FA: a far load or store, through the tag table (the software
+       * cache's lines in the D-LS): a hit reaches the line, a miss traps */
+      int r = far_ls(c, addr, sz, store, &pa);
+      if (r < 0) return false; /* the table is still arriving */
+      if (r > 0) return true;  /* trapped */
+    } else {
+      if (addr > dls_size - sz) { trap(c, C_LSFAULT, addr); return true; }
+      pa = addr + (uint64_t)c->drel[addr / (dls_size / 64)]; /* (relocated by its window) */
+      if (pa >= dls_size) { trap(c, C_LSFAULT, addr); return true; }
+    }
     for (int i = 0; i < NPEND; i++)
       if (c->pend[i].on && pa < c->pend[i].ls + c->pend[i].len && c->pend[i].ls < pa + sz) {
         if (c->ccr & 1) { trap(c, C_PEND, addr); return true; } /* CCR.PTRAP: trap instead of waiting */
@@ -1396,9 +1444,12 @@ static bool step(Core *c) {
         if (c->ccr & 1) { trap(c, C_PEND, veb); return true; }
         return false;
       }
-    uint64_t ctr = rd64(c->dls + eb + 8ull * ways), victim = ctr < ways ? ctr : 0;
+    /* the set's counter word: the replacement index in bits 3:0, way w's
+     * dirty bit (set by far stores) in bit 32 + w */
+    uint64_t ctr = rd64(c->dls + eb + 8ull * ways), victim = (ctr & 15) < ways ? ctr & 15 : 0;
     if (op == OP_LTAG) {
-      uint64_t res = c->tdata + ((set * ways + victim) << lsh) | 0x8000000000000000ull;
+      uint64_t res = c->tdata + ((set * ways + victim) << lsh) | 0x8000000000000000ull |
+                     (ctr >> (32 + victim) & 1) << 62; /* (bit 62: the victim is dirty) */
       for (unsigned w = 0; w < ways; w++)
         if (rd64(c->dls + eb + 8ull * w) == key) {
           res = c->tdata + ((set * ways + w) << lsh) + (a & ((1ull << lsh) - 1));
@@ -1410,7 +1461,8 @@ static bool step(Core *c) {
       lss_store(c, eb, 8ull * ways + 8);
 #endif
       wr64(c->dls + eb + 8 * victim, key);
-      wr64(c->dls + eb + 8ull * ways, victim + 1 == ways ? 0 : victim + 1);
+      uint64_t dirty = ctr & 0x7fff00000000ull & ~(1ull << (32 + victim)); /* the victim's goes */
+      wr64(c->dls + eb + 8ull * ways, dirty | (victim + 1 == ways ? 0 : victim + 1));
     }
     break;
   }

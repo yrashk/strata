@@ -17,11 +17,11 @@ typedef struct {
 
 static const char *const stx_cause_names[] = {
   "none", "illegal", "lsfault", "capinv", "perm", "bounds", "xalign", "ifault", "xmiss", "pend", "capop",
-  "priv", "halt", "stop", "svc",
+  "priv", "halt", "stop", "svc", "dmiss",
 };
 
 static inline const char *stx_cause_name(int c) {
-  return c >= 0 && c <= 14 ? stx_cause_names[c] : "?";
+  return c >= 0 && c <= 15 ? stx_cause_names[c] : "?";
 }
 
 static inline uint32_t stx_rd32(FILE *f) {

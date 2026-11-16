@@ -1845,7 +1845,7 @@ static void dbg_request(const char *line, size_t len, JW *w) {
         const char *cs = json_str(json_get(rq, "cause"), NULL);
         b->arg = -1;
         if (cs)
-          for (int i = 0; i <= 14; i++)
+          for (int i = 0; i <= 15; i++)
             if (!strcmp(cs, stx_cause_name(i))) b->arg = i;
         if (cs && b->arg < 0 && strcmp(cs, "any")) snprintf(err, sizeof err, "unknown trap cause %s", cs);
         snprintf(b->desc, sizeof b->desc, "trap %s", cs ? cs : "any");
