@@ -189,9 +189,10 @@
 : m-sz ( n b -- ) swap bl m-chr m-dec m+"  lines," bl m-chr m-dec m+"  bytes" ; \ " N lines, B bytes"
 : m-size ( -- ) nl @ buf-bytes m-sz ;
 : zlen ( a max -- a u ) over swap 0 ?do dup c@ 0= if leave then 1+ loop over - ;
-: syn-detect ( -- )                             \ highlighting by the name (.s .fs .c .h), else by the tags
-  1 dall !  0 syn !  1 ck-n !  0 hs-n !  0 hs-s ! \   (src forth)
-  fnl @ 3 < 0= if fname fnl @ + 3 - 3 s" .fs" str= if 2 syn ! exit then then
+: syn-detect ( -- )                             \ highlighting by the name (.s .fs .c .h .st .pl), else by
+  1 dall !  0 syn !  1 ck-n !  0 hs-n !  0 hs-s ! \   the tags (src forth)
+  fnl @ 3 < 0= if fname fnl @ + 3 - 3 2dup s" .fs" str= if 2drop 2 syn ! exit then
+    2dup s" .st" str= if 2drop 4 syn ! exit then  s" .pl" str= if 5 syn ! exit then then
   fnl @ 2 < 0= if fname fnl @ + 2 - 2 2dup s" .s" str= if 2drop 1 syn ! exit then
     2dup s" .c" str= >r s" .h" str= r> or if 3 syn ! exit then then
   fnl @ 0= if exit then
