@@ -201,10 +201,12 @@ UIApp >> keys: aString [
     "Handles the bytes of a key event, as a terminal sends them, after what
      an earlier event left of an escape sequence: an escape sequence goes to
      escape:, any other character to key:. A sequence cut short is kept in
-     pending for the next event; one cut short, then another one, lost its
-     rest (ws's queue was full) and is dropped: it is not an Esc."
+     pending for the next event; one cut short, then another one (or an
+     ESC, then what cannot follow it in a sequence), lost its rest (ws's
+     queue was full) and is dropped: it is not an Esc."
     | s c start |
-    (pending notNil and: [aString notEmpty and: [aString first value = 27]]) ifTrue: [pending := nil].
+    (pending notNil and: [aString notEmpty and: [aString first value = 27
+        or: [pending size = 1 and: [aString first ~= $[]]]]) ifTrue: [pending := nil].
     s := ReadStream on: (pending == nil ifTrue: [aString] ifFalse: [pending , aString]).
     pending := nil.
     [s atEnd] whileFalse: [
