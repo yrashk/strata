@@ -31,6 +31,13 @@ the reference. Three backends, chosen at build time: arm64 and x86-64
   would have.
 - **Invalidation.** `tgetx` over translated code flushes that range of the
   core's cache.
+- **Local Store windows.** Every load and store adds the core's `drel`
+  entry for its 1/64 of the D-LS (0 in supervisor mode or without
+  windows; a value that puts the address past the store outside them)
+  and checks the result against the D-LS size. A block, or a wasm region,
+  keeps to one 1/64 of the I-LS and starts by checking that its unit's
+  `irel` entry is 0: inside the code window and not relocated. Code in a
+  relocated code window is left to the interpreter.
 - **Pending device reads.** The WebAssembly backend checks the hazard
   range of a core's in-flight device reads in its loads and stores, so it
   keeps translating. The native backends do not: a core with a device read
