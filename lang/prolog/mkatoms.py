@@ -121,6 +121,7 @@ ATOMS = [
     ('p_preds', '$preds', []), ('p_stats', '$stats', []), ('p_now', '$now', []),
     ('p_choice', '$choice', []), ('p_is_builtin', '$is_builtin', []),
     ('p_atom_stream', '$atom_stream', []),
+    ('priority', 'priority', []),
 ]
 
 

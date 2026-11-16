@@ -70,27 +70,32 @@
         )
     ).
 
-% The answer: Name = Value for each bound variable; variables bound to each
-% other as X = Y; true if there is nothing to say.
+% The answer: Name = Value for each variable that is bound, with the query's
+% variables in the values written by their names and other variables as _A,
+% _B, ...; true if there is nothing to say.
 '$bindings'(Vs) :-
-    '$binds'(Vs, [], false, Any),
-    (   Any == false -> write(true) ; true ).
+    \+ \+ ( '$name_vars'(Vs),
+            term_variables(Vs, Fresh), '$name_fresh'(Fresh, 0),
+            '$binds'(Vs, false, Any),
+            ( Any == false -> write(true) ; true ) ).
 
-'$binds'([], _, Any, Any).
-'$binds'([N=V|Vs], Seen, Any0, Any) :-
-    (   var(V)
-    ->  (   '$seen_var'(Seen, V, M)
-        ->  '$sep'(Any0), write(M), write(' = '), write(N),
-            Any1 = true, Seen1 = Seen
-        ;   Any1 = Any0, Seen1 = [N-V|Seen]
-        ),
-        '$binds'(Vs, Seen1, Any1, Any)
-    ;   '$sep'(Any0), write(N), write(' = '), writeq(V),
-        '$binds'(Vs, Seen, true, Any)
+'$name_vars'([]).
+'$name_vars'([N=V|Vs]) :- ( var(V) -> V = '$VAR'(N) ; true ), '$name_vars'(Vs).
+
+'$name_fresh'([], _).
+'$name_fresh'([V|Vs], I) :-
+    L is 0'A + I mod 26, J is I // 26,
+    (   J =:= 0 -> atom_codes(N, [0'_, L]) ; number_codes(J, Js), atom_codes(N, [0'_, L|Js]) ),
+    V = '$VAR'(N), I1 is I + 1, '$name_fresh'(Vs, I1).
+
+'$binds'([], Any, Any).
+'$binds'([N=V|Vs], Any0, Any) :-
+    (   V == '$VAR'(N)
+    ->  '$binds'(Vs, Any0, Any)
+    ;   '$sep'(Any0), write(N), write(' = '),
+        write_term(V, [quoted(true), numbervars(true), priority(699)]),
+        '$binds'(Vs, true, Any)
     ).
-
-'$seen_var'([M-W|_], V, M) :- W == V, !.
-'$seen_var'([_|Ss], V, M) :- '$seen_var'(Ss, V, M).
 
 '$sep'(false) :- !.
 '$sep'(true) :- write(', ').
@@ -171,6 +176,26 @@ once(G) :- call(G), !.
 ignore(G) :- ( call(G) -> true ; true ).
 forall(C, A) :- \+ ( call(C), \+ call(A) ).
 _ ^ G :- call(G).
+
+% ---- lambdas: [X1, ...]>>Goal, called with call/N ------------------------------
+% The lambda is copied for each call (its variables are its own, as with
+% yall's default), its parameters unified with the arguments; arguments beyond
+% the parameters are added to the goal.
+'>>'(Ps, B) :- copy_term(Ps-B, _-B1), call(B1).
+'>>'(Ps, B, A1) :- '$lambda'(Ps, B, [A1]).
+'>>'(Ps, B, A1, A2) :- '$lambda'(Ps, B, [A1, A2]).
+'>>'(Ps, B, A1, A2, A3) :- '$lambda'(Ps, B, [A1, A2, A3]).
+'>>'(Ps, B, A1, A2, A3, A4) :- '$lambda'(Ps, B, [A1, A2, A3, A4]).
+'>>'(Ps, B, A1, A2, A3, A4, A5) :- '$lambda'(Ps, B, [A1, A2, A3, A4, A5]).
+
+'$lambda'(Ps, B, As) :-
+    copy_term(Ps-B, Ps1-B1),
+    '$lambda_bind'(Ps1, As, Rest),
+    (   Rest == [] -> call(B1) ; G =.. [call, B1|Rest], call(G) ).
+
+'$lambda_bind'([], As, As) :- !.
+'$lambda_bind'([P|Ps], [A|As], Rest) :- !, P = A, '$lambda_bind'(Ps, As, Rest).
+'$lambda_bind'(_, [], []).
 
 % ---- the database ------------------------------------------------------------------
 clause(H, B) :- '$clauses'(H, Rs), '$member'(R, Rs), '$clause'(R, H, B).
