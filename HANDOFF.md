@@ -330,6 +330,36 @@ measure. The server `db` is built to `build/sys/db` (`build/prog/db` is
 the program); the debugger takes a server's symbols from `build/sys/` first
 (`sys/db:label` in a breakpoint).
 
+## Stratalk (added 2026-11-16)
+
+`lang/stratalk/` is a Smalltalk for StrataOS: `stratalk` at the shell (a
+REPL with Tab completion), `stratalk FILE.st`, `stratalk -w` (a workspace
+window in `ws`), `stratalk -b` (a class browser). `lang/stratalk/README.md`
+has the design and the formats; `doc/stratalk-proposal.md` the proposal it
+was built from.
+- The VM is `vm*.s` (Strata assembly, 22 KiB of I-LS, 38 KiB of D-LS: the
+  D-LS is nearly full). The image is built on the host by
+  `lang/stratalk/host/stratalk.py build` from `kernel/*.st` (`LOAD` gives
+  the order) and read into an extra arena (c6) at start.
+- Two compilers: `host/stc.py` (builds the image) and `kernel/Compiler.st`
+  (the REPL's). They must give the same bytes; `stratalk-check` compares
+  every method. A change to one is a change to both.
+- `kernel/OSServers.st` is generated from `os/spec/*.toml` by
+  `host/osgen.py` (a class per server, two methods per op): when a spec
+  changes, run `python3 lang/stratalk/host/osgen.py
+  lang/stratalk/kernel/OSServers.st` (`stratalk-check` fails until then).
+- `host/stratalk.py run IMAGE` is a reference interpreter of the image
+  (everything far, nothing collected): `tests/run.sh -h` runs the test
+  vectors on it, `STRATALK_WATCH=N` prints the frames after N seconds.
+- Tests: `stratalk` (the vectors under StrataOS), `stratalk-host`,
+  `stratalk-check`. The vectors' expected outputs were worked out by hand
+  and with Python, not by Stratalk.
+- Capability registers: the heap is c6 (an extra arena). A Window keeps
+  ws's endpoint in c4 while open (pipe's; given back on close); a LOOKUP
+  moves the heap to c7 for the call and then gets the clock back.
+- Not done: floats, a JIT, `become:`, class variables (class-side slots
+  only), class-side slots for classes made at run time.
+
 ## Open work
 
 **Waiting on a decision**

@@ -52,6 +52,13 @@ exists today, what is known to be missing or rough, and what is planned.
   cores as words; on the bare machine, as a StrataOS program (new code in
   code units the kernel pages) and as a StrataOS guest. Network words and an
   HTTP server, 22 of the utilities ported, and `vi.fs`, the editor in Forth.
+- Stratalk, a Smalltalk (`lang/stratalk`): a VM in Strata assembly whose
+  object memory follows the machine (new objects in a nursery in the core's
+  data store, survivors written out to far memory in one transfer, far
+  objects through a software cache, frames paged to a far stack), a
+  compiler written in Stratalk, a REPL with completion, files, classes for
+  every StrataOS server's messages, and a workspace, class browser and
+  inspector as windows of the window server.
 - Eleven commented example programs.
 
 **On the web**

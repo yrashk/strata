@@ -287,10 +287,14 @@ StParser >> methodSource [
     ^StMethod selector: (sp at: 1) arguments: (sp at: 2) temps: temps primitive: prim statements: stmts line: line ]
 StParser >> methodEither [
     "A pattern and a body, the body in brackets (as in a file) or not."
-    | start |
+    | start node |
     start := index.
     self pattern.
-    (self peek is: #'[') ifTrue: [index := start. ^self methodDef].
+    (self peek is: #'[') ifTrue: [
+        "the brackets around the whole body, or a body that begins with a block?"
+        index := start.
+        node := [self methodDef] on: CompileError do: [:e | e return: nil].
+        (node notNil and: [self peek is: #eof]) ifTrue: [^node]].
     index := start.
     ^self methodSource ]
 StParser >> doIt [

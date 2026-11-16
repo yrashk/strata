@@ -66,10 +66,12 @@ File write: 'hello' to: 'note'
 
 ## The VM (`vm.s`, `vm-mem.s`, `vm-prim.s`, `vm-data.s`)
 
-A bytecode interpreter in Strata assembly (20 KiB of the program's 32 KiB
-of I-LS; 37 KiB of its 40 KiB of D-LS). Not C: `cc` keeps every variable
-in memory, and the paged model makes every call an `xcall`; the
-interpreter keeps ip, fp, self and the caches' bases in registers.
+A bytecode interpreter in Strata assembly (22 KiB of the program's 32 KiB
+of I-LS; 38 KiB of its 40 KiB of D-LS). Not C: the interpreter's loop must
+stay resident in the I-LS with ip, fp, hp, self, the nursery's pointers
+and the caches' bases in registers for the whole run, which a C function's
+register allocation does not give, and a C program larger than the I-LS
+pays an `xcall` at every call.
 
 ### Object memory: near and far
 
