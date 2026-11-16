@@ -954,7 +954,7 @@ static int far_ls(Core *c, uint64_t addr, uint64_t sz, bool store, uint64_t *pa)
   while (w < ways && rd64(c->dls + eb + 8ull * w) != key) w++;
   if (w == ways) { trap(c, C_DMISS, addr); return 1; }
   uint64_t da = c->tdata + ((set * ways + w) << lsh) + (addr & ((1ull << lsh) - 1));
-  if (da > dls_size - sz) { trap(c, C_LSFAULT, addr); return 1; }
+  if ((da & (sz - 1)) || da > dls_size - sz) { trap(c, C_LSFAULT, addr); return 1; } /* (tdata misaligned) */
   uint64_t p = da + (uint64_t)c->drel[da / (dls_size / 64)];
   if (p >= dls_size) { trap(c, C_LSFAULT, addr); return 1; }
   for (int i = 0; i < NPEND; i++)
