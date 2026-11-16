@@ -9,7 +9,7 @@
 16 constant max-devs
 32 constant /entry
 : kind#     ( e -- n ) w@ ;                     \ 1 memory, 2 console, 3 platform, 4 block, 5 fb,
-: index     ( e -- n ) 2 + w@ ;                 \ 6 timer, 7 pointer, 8 net, 9 sound
+: index     ( e -- n ) 2 + w@ ;                 \ 6 timer, 7 pointer, 8 net, 9 sound, 10 pagemap
 : addr-space ( e -- n ) 4 + w@ ;
 : info      ( e -- u ) 8 + @ ;
 : base-addr ( e -- a ) 16 + @ ;
@@ -25,8 +25,8 @@ create tab  max-devs /entry * allot
   max-devs min  tab over /entry * msg> ;
 
 : kind ( n -- a u )                             \ its name, 9 columns
-  dup 10 u< 0= if drop 0 then
-  9 * s" ?        memory   console  platform block    fb       timer    pointer  net      sound    " drop + 9 ;
+  dup 11 u< 0= if drop 0 then
+  9 * s" ?        memory   console  platform block    fb       timer    pointer  net      sound    pagemap  " drop + 9 ;
 : entry. ( e -- )
   dup kind# kind type  dup index .u  ."  space " dup addr-space .u  ."  base 0x" dup base-addr 16 hex.
   ."  size " dup size .u  ."  info " info .u cr ;

@@ -59,7 +59,7 @@ cp "$DISK" $T/disk.img
 printf "ws wdoom\n$W$W$W$W $W $W${W}q$W$W${W}echo wdoom-q-ok > wdmark\n$W${AQ}cat wdmark\n" > $T/keys2
 $BUILD/strata-emu -c 12 -g none -m 40000000000 -A $T/sound.wav -d $T/disk.img -i $T/keys2 "$ROM" > $T/out2.txt 2>&1 || {
   echo "test-wdoom: FAILED: the emulator exited with an error (sound)"; tail -5 $T/out2.txt; exit 1; }
-grep -q '^platform: 12 cores, 10 entries' $T/out2.txt || fail "the platform table has no sound device" out2
+grep -q '^platform: 12 cores, 11 entries' $T/out2.txt || fail "the platform table has no sound device" out2
 grep -q '^  sound    0 space 4 base 0x0000000000004300' $T/out2.txt || fail "the boot ROM did not list the sound device" out2
 grep -q '^wdoom-q-ok' $T/out2.txt || fail "q did not end wdoom (no terminal took the command after it)" out2
 grep -q '^ws: stopped' $T/out2.txt || fail "ws did not quit to the shell" out2

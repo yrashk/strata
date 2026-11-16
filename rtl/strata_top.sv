@@ -134,8 +134,25 @@ module strata_top
   logic [GW-1:0]              gt_idx;
   logic [16:0]                gt_wd;
 
+  // ================================================================ written pages
+  // Every write to T3 crosses the bus: a burst's write beats (pm_a: the beat's
+  // address) and an atomic (at its start). u_dev's written-page map records
+  // their pages.
+  logic        pm_t3, pm_set;
+  logic [63:0] pm_a;
+  logic [31:0] pm_page;
+  always_ff @(posedge clk) begin
+    if (rst) pm_t3 <= 0;
+    else if (|t_start) begin
+      pm_t3 <= t_start[0] && t_we && !t_amo;   // a write burst to T3
+      pm_a  <= t_addr;
+    end else if (pm_t3 && t_wvalid && t_wready[0]) pm_a <= pm_a + 64'd8;
+  end
+  assign pm_set  = (t_start[0] && t_amo) || (pm_t3 && t_wvalid && t_wready[0]);
+  assign pm_page = 32'((t_start[0] ? t_addr : pm_a) >> 12);
+
   assign m_rready[2*NCORES] = 1;       // (the block device's DMA engine always takes its beats)
-  strata_dev #(.NCORES(NCORES), .DISK_WORDS(DISK_WORDS), .DISK_INIT(DISK_INIT),
+  strata_dev #(.NCORES(NCORES), .T3_W(T3_W), .DISK_WORDS(DISK_WORDS), .DISK_INIT(DISK_INIT),
                 .PLAT_INIT(PLAT_INIT), .UART_DIV(UART_DIV), .CLK_MHZ(CLK_MHZ)) u_dev (
     .clk, .rst,
     .start(t_start[2]), .master(t_master), .we(t_we), .addr(t_addr), .beats(t_beats), .wvalid(t_wvalid),
@@ -150,6 +167,7 @@ module strata_top
     .wake(dev_wake),
     .give_valid(g_valid[NCORES]), .give_dst(g_dst[NCORES]), .give_cap(g_cap[NCORES]),
     .give_ack(g_ack[NCORES]),
+    .pm_set, .pm_page,
     .uart_txd, .uart_rxd
   );
   assign m_amo[2*NCORES]   = 0;

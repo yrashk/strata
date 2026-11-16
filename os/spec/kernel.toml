@@ -25,10 +25,13 @@ image at 0xD0000 above the layout base (the base of the arena's top MiB). The ke
 image's STX headers, chooses the cores and slots, and starts the threads. A StrataOS program (code \
 word 1 "SYS2") with 0 threads is one thread without a core window; a bare-metal program, or any \
 program with N threads, gets N threads on N contiguous worker cores seen through its core window. \
-A StrataOS program that is not a server also gets its console ring (RINGS) in c6."""
+A StrataOS program that is not a server also gets its console ring (RINGS) in c6. \
+The image area above the image need not be zeroed (MEMORY mode 2): every section, its header \
+included, must end within the image's length, which the kernel takes from the mode word."""
 
 [op.request]
-attachment = "the arena, whole, as MEMORY gave it"
+attachment = "the arena, whole, as MEMORY gave it (mode 0 or 2)"
+mode = "the image's length: the bytes fs loaded at 0xD0000"
 data = [
   { type = "u64", name = "pid", note = "new and not 0: proc allocates pids" },
   { type = "u64", name = "threads", note = "0: one; at most 6" },
@@ -50,7 +53,7 @@ data = [{ type = "u64", name = "first core", note = "its (first) core" }]
 attachments = { c6 = "for a server: a send-only endpoint to its core; on failure: the arena, given back" }
 
 [op.errors]
-"-1" = "no arena came with it, it is not a whole arena MEMORY gave out, the pid is 0 or in use, or the image is not a program (bad STX headers, no code). The arena comes back unless it was missing"
+"-1" = "no arena came with it, it is not a whole arena MEMORY gave out, the pid is 0 or in use, or the image is not a program (bad STX headers, no code, a section that ends beyond the image's length). The arena comes back unless it was missing"
 "-5" = "more than 6 threads, a pin core of 0, or no core with room (a free slot and job record, the server and solo rules, the pinned core and the ones after it)"
 
 [[op]]
@@ -75,14 +78,17 @@ num = 3
 name = "MEMORY"
 summary = "A fresh, zeroed arena"
 note = """The arena is the first run of free 256 KiB granules that is long enough; its capability \
-is fresh (every older one based there is revoked) and its bytes are zeroed. With mode 1 it is an \
-extra arena of the process named by the handle (proc's MORE): that process's until FREE gives it \
-back, and revoked and freed with it when the process ends."""
+is fresh (every older one based there is revoked) and its bytes are zeroed (with the written-page \
+map, only the pages written since they were last zeroed are written). With mode 1 it is an extra \
+arena of the process named by the handle (proc's MORE): that process's until FREE gives it back, \
+and revoked and freed with it when the process ends. With mode 2 it is for CREATE: its image area \
+[0xD0000, 0xF0000) and the gap [0xFC000, 0xFF000) above the layout base are left as they are, and \
+only CREATE or FREE take it."""
 
 [op.request]
 handle = "with mode 1: the pid whose extra arena it is (not checked)"
 length = "the size wanted in bytes: rounded up to whole 256 KiB granules, 1 MiB at least (0: 1 MiB)"
-modes = { "0" = "an arena for the sender, to make a process of (CREATE) or a guest (GSTART)", "1" = "an extra arena of the process the handle names" }
+modes = { "0" = "an arena for the sender, to make a process of (CREATE) or a guest (GSTART)", "1" = "an extra arena of the process the handle names", "2" = "an arena for an image (CREATE), not zeroed where nothing reads; with bit 0 set it is ignored" }
 
 [op.reply]
 result = "0"
@@ -158,7 +164,7 @@ summary = "Give an arena back to the pool"
 note = "The arena is revoked (every capability cut from it dies) and its granules are free again."
 
 [op.request]
-attachment = "the arena, whole: one MEMORY gave out and was not used, one that came with EXITED, or an extra arena (mode 1)"
+attachment = "the arena, whole: one MEMORY gave out and was not used (mode 0 or 2), one that came with EXITED, or an extra arena (mode 1)"
 
 [op.reply]
 result = "0"
