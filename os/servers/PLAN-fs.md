@@ -250,8 +250,15 @@ was tagged with, could not tell `/src/x` from `/src/demo/x`.)
 - [x] Boot: the kernel makes dev, blk, db, fs, proc; mkdisk's boot objects
       (`/sys` only); StrataOS as a guest (6 cores) boots with them
 - [x] Specs (`os/spec/db.toml`, `blk.toml`), the site and the manual
+- [x] Round trips cut: busy/solo placement, a value cache in `fs`, value
+      items (VDEL, short VWRITE, a move) after a call's data
+- [x] Forwarding: `fs` forwards programs' DBGET/DBSCAN/DBBATCH to `db`,
+      which answers the program; `kv_get`/`kv_scan` go to `db` directly;
+      a program's batch only forwarded (between two of `fs`'s requests),
+      committed alone, given up without an abort counted against `fs`
 - [ ] Transactions for clients other than fs (a guest's): a client's
-      changes in the middle of another's request (today fs is db's only
-      writer; a guest's batch would commit fs's half-done change)
+      changes in the middle of another's request (a program's batch is
+      safe now only because `fs` forwards it at a boundary)
+- [ ] READ forwarded: `db` fills the program's buffer and answers it
 - [x] The debugger's symbols for the server `db` (`sys/NAME.map` first; on main)
 

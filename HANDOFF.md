@@ -317,8 +317,13 @@ cache), `db` (`os/servers/db.s` with the store files, `dbsnap.s`,
 boot manifest, the store for programs) and `fs` (the file system; its
 store calls are messages, `dbcall.s`, with a read-ahead and puts sent
 later in batches). Programs see the same ops. The kernel keeps up to four
-servers per core (`w_srv`, header word 48 names one); `db` and `blk` are
-the second servers of `dev`'s and `pipe`'s cores, so 6 cores still do.
+servers per core (`w_srv`, header word 48 names one); `blk` and `db` are
+the second servers of `dev`'s and `pipe`'s cores, so 6 cores still do;
+`fs` is alone on core 3. `fs` forwards programs' DBGET/DBSCAN/DBBATCH to
+`db`, which answers the program (REPLY to another core is forwarding; `db`
+trusts the core in word 56 only from `fs`'s core), and `kv_get`/`kv_scan`
+go to `db` directly through c4. `fs` also caches small values and sends
+short writes, deletes and renames as items after its next call.
 `doc/fs-split.md` has the interfaces, the numbers before and after and
 the recommendation; `make bench-store` and `tools/bench/store-test.sh`
 measure. The server `db` is built to `build/sys/db` (`build/prog/db` is

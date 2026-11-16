@@ -114,8 +114,10 @@ num = 30
 name = "GETDISK"
 summary = "The block device's ports and an endpoint to its node"
 from = "blk (dev does not check: any program that asks gets them)"
+note = "blk sits on dev's core and asks twice, mode 1 then 2: an answer to dev's own core carries one capability, as a core's inbox holds two gifts from each sender (the attachment and the buffer)."
 
 [op.request]
+mode = "0 both, 1 the window alone, 2 the endpoint alone (in c6)"
 
 [op.reply]
 result = "0"

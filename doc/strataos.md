@@ -448,9 +448,10 @@ greater length.
     images; a client of `db`.
   - `db` — the store (pid 5): the page cache, the trees, commits,
     snapshots, the boot manifest, the store for programs. Reaches the
-    disk through `blk` only. The second server of `dev`'s core.
+    disk through `blk` only. The second server of `pipe`'s core, so that
+    programs reach it through their endpoint for `pipe` (DBGET, DBSCAN).
   - `blk` — the block device (pid 4): runs of blocks into and out of a
-    lent buffer, no cache. The second server of `pipe`'s core.
+    lent buffer, no cache. The second server of `dev`'s core.
     (`doc/fs-split.md`: the interfaces, and what the split costs.)
   - `tty` — the console server. Owns the console device (output, input,
     break). Line discipline (cooked/raw), the foreground process, Ctrl-C.
@@ -464,9 +465,9 @@ greater length.
 - **Boot order.** The kernel itself loads `dev`, `blk`, `db`, `fs` and
   `proc` from the disk (with the firmware's block routines: `fs`, and the
   store under it, must exist before anything can be loaded through it) and
-  creates them: `proc` on core 1, `dev` and `db` on core 2, `fs` on core
-  3, `blk` on core 5 (`db` and `blk` as their core's second server, index
-  1). One that sends to another before that one runs asks again until it
+  creates them: `proc` on core 1, `dev` and `blk` on core 2, `fs` alone
+  on core 3, `db` on core 5 (`blk` and `db` as their core's second server,
+  index 1). One that sends to another before that one runs asks again until it
   does (a request to a server that is not there yet comes back -1).
   `proc` then starts `tty` and `pipe` as servers on the next cores without
   a server (4 and 5), then `sh -l` (restarted, with the console back in
@@ -483,9 +484,22 @@ greater length.
   requests go back with -1 when it ends. A server of index 1..3 does not
   keep a server of index 0 away from its core, nor count as a process when
   a program is placed (servers mostly wait). A busy server (CREATE flag
-  bit 14: fs and db) does count, heavily: a program goes to its core only
-  when no other core has room, so the servers that answer most requests
-  are not also time-shared with the programs that send them.
+  bit 14: db) does count, heavily: a program goes to its core only when
+  no other core has room. `fs` is alone on its core (no program is ever
+  placed there), which is what lets `db` trust a request coming from it.
+- **Forwarding.** A server may pass a request it holds on to another
+  server instead of answering it: REPLY with the other server's core as
+  the token gives the buffer there, where it is a request like any other
+  (its sender stamped from the buffer: the program, not the server that
+  forwarded it; header word 48 names the server). The forwarding server
+  does not wait. Who answers, and to which core, is the two servers'
+  agreement: `fs` forwards a program's DBGET, DBSCAN and DBBATCH to `db`
+  with the program's core in header word 56, and `db` takes that word
+  only from a request that comes from `fs`'s core (where nothing else
+  runs) and is not `fs`'s own, then answers the program itself: three
+  messages and no copy where a relay is four and two copies. A forwarded
+  request that finds the other server's queue full comes back to the
+  forwarding core and is sent on again until there is room.
 - **Every process time-shares worker cores**, preemptively; there are no
   exclusive cores. A StrataOS program (second code word `"SYS2"`) is one
   thread with no core window. A **multi-threaded process** (`-n N`, and
@@ -1088,7 +1102,11 @@ answered from the index (only the files with that value are read), while
 programs.** A program can keep data of its own in the store, beside the
 file system: in a namespace of its own, in named trees of keys and values
 (bytes, in key order; a key up to 480 bytes, a value up to about 1,000,
-with 4 KiB pages). Three fs calls do it; each request's data starts with
+with 4 KiB pages). Three calls of `db` do it, sent to `fs`, which
+forwards them to `db` (`db` answers the program), or, for DBGET and
+DBSCAN, to `db` itself through the endpoint for `pipe`'s core with header
+word 48 = `0x53 << 56 | 1` (DBBATCH only through `fs`: it then falls
+between two of `fs`'s requests); each request's data starts with
 {u8 namespace name length, u8 tree name length, u16 key length, u32 0} and
 the two names: 64 DBGET (then the key) → the value; 65 DBSCAN (then a key;
 mode 0 from it on, 1 after it) → as many records {u16 key length, u16

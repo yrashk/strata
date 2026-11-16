@@ -588,9 +588,10 @@ ud_z:
 ; ---- u_servers: load and create dev (pid 2), blk (4), db (5), fs (3) and proc (1) -----------
 ; The kernel reads the disk itself only here: fs (and the store under it, db
 ; and blk) must exist before anything else can be loaded. They are pinned:
-; proc to core 1, dev to 2, fs to 3; db is the second server of core 2 and
-; blk the second of core 5 (where proc puts pipe), each index 1 (a request
-; names it in header word 48: doc/fs-split.md). Those an earlier one sends to
+; proc to core 1, dev to 2, fs to 3 (alone there); blk is the second server
+; of core 2 and db the second of core 5 (where proc puts pipe, so programs
+; reach db through their endpoint for pipe), each index 1 (a request names
+; it in header word 48: doc/fs-split.md). Those an earlier one sends to
 ; may not run yet when it starts: blk, db and fs ask again until they do.
 u_servers:
         addi  sp, sp, -16               ; frame
@@ -608,7 +609,7 @@ u_servers:
         la    a0, n_blk                 ; blk: the block device
         li    a1, 3                     ; ...
         li    a2, 4                     ; pid 4
-        li    a3, 5                     ; core 5, index 1
+        li    a3, 2                     ; core 2, index 1 (beside dev, which runs least)
         li    a4, F_SERVER | 1 << SIDX_SH ; ...
         li    a5, 0xffffff02            ; c1 dev (2)
         li    a6, 5                     ; its a0: db's pid (the one that may write)
@@ -618,10 +619,10 @@ u_servers:
         la    a0, n_db                  ; db: the store
         li    a1, 2                     ; ...
         li    a2, 5                     ; pid 5
-        li    a3, 2                     ; core 2, index 1
+        li    a3, 5                     ; core 5, index 1
         li    a4, F_SERVER | F_BUSY | 1 << SIDX_SH ; ...
-        li    a5, 0xffffff05            ; c1 blk's core (5)
-        li    a6, 0x0301                ; its a0: blk's index | fs's pid << 8
+        li    a5, 0xffffff02            ; c1 blk's core (2)
+        li    a6, 0x030301              ; its a0: blk's index | fs's pid << 8 | fs's core << 16
         li    a7, 0                     ; ...
         la    t5, u_loadsrv             ; ...
         xcall ra, c12, t5               ; ...
@@ -629,8 +630,8 @@ u_servers:
         li    a1, 2                     ; ...
         li    a2, 3                     ; pid 3
         li    a3, 3                     ; core 3
-        li    a4, F_SERVER | F_BUSY     ; ...
-        li    a5, 0xffff0502            ; c1 db's core (2), c2 blk's (5)
+        li    a4, F_SERVER | F_SOLO     ; alone: db trusts what comes from its core
+        li    a5, 0xffff0205            ; c1 db's core (5), c2 blk's (2)
         li    a6, 0x0101                ; its a0: db's index | blk's index << 8
         li    a7, 0                     ; ...
         la    t5, u_loadsrv             ; ...
@@ -641,7 +642,7 @@ u_servers:
         li    a3, 1                     ; core 1
         li    a4, F_SERVER | F_PRIV | F_SOLO ; it mints endpoints; alone on its core
         li    a5, 0x00ff0300            ; c1 kernel (0), c2 fs (3), c3 c4 none
-        li    a6, 0x05020302            ; its a0: dev core | fs core << 8 | db << 16 | blk << 24
+        li    a6, 0x02050302            ; its a0: dev core | fs core << 8 | db << 16 | blk << 24
         li    a7, 0x04050302            ; its a1: dev pid | fs pid << 8 | db << 16 | blk << 24
         la    t5, u_loadsrv             ; ...
         xcall ra, c12, t5               ; ...

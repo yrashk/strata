@@ -613,10 +613,22 @@ through its device capability, lends the device the buffer it was lent with the 
 (\texttt{db}'s page frames, or a program's arena) with \insn{csend} through the endpoint to the
 device's node, and waits with WAIT\_REPLY for the buffer's base. Program images are read straight
 into the arena \texttt{proc} lends, passed on from \texttt{fs} to \texttt{db} to \texttt{blk}; the data
-never passes through a server's Local Store. \texttt{db} and \texttt{blk} are the second servers of
+never passes through a server's Local Store. \texttt{blk} and \texttt{db} are the second servers of
 \texttt{dev}'s and \texttt{pipe}'s cores: a request names a core's server by header word 48
-($\texttt{0x53} \ll 56 \mid$ index; anything else is index 0). \texttt{fs} and \texttt{db} are
-created as busy servers (CREATE flag bit 14), so programs are placed on other cores when there is room.
+($\texttt{0x53} \ll 56 \mid$ index; anything else is index 0). \texttt{db} is
+created as a busy server (CREATE flag bit 14), so programs are placed on other cores when there is room;
+\texttt{fs} is alone on its core.
+
+\paragraph{Forwarding.} A server may pass a request it holds on to another server instead of
+answering it: REPLY with the other server's core as the token gives the buffer there, where it is a
+request like any other, its sender stamped from the buffer (the program, not the forwarding server),
+header word 48 naming the server. The forwarding server does not wait. Who answers, and to which
+core, is the two servers' agreement: \texttt{fs} forwards a program's DBGET, DBSCAN and DBBATCH to
+\texttt{db} with the program's core in header word 56; \texttt{db} takes that word only from a
+request that comes from \texttt{fs}'s core (where nothing else runs) and is not \texttt{fs}'s own,
+and answers the program itself: three messages and no copy where a relay is four and two copies. A
+DBBATCH is taken only forwarded, so it falls between two of \texttt{fs}'s requests; DBGET and DBSCAN
+may also go to \texttt{db} directly, through a program's endpoint for \texttt{pipe}'s core.
 
 \texttt{fs} saves round trips to \texttt{db} three ways: it reads ahead (a walk over a tree is
 answered from one SCAN of up to 4~KiB of records), it keeps a cache of the small values it has asked

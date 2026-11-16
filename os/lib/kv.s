@@ -6,9 +6,11 @@
 ; "The store for programs"): in a namespace, in named trees of keys and
 ; values (bytes, in key order; a key of 1 to 480 bytes, a value of up to
 ; about 1,000, with 4 KiB pages). A namespace and a tree are made by the
-; first write to them. These are the calls DBGET, DBSCAN and DBBATCH, sent
-; to the file server, which hands them to the store's server, db
-; (os/servers/dbprog.s), for one tree at a time:
+; first write to them. These are the calls DBGET, DBSCAN and DBBATCH of the
+; store's server, db (os/servers/dbprog.s), for one tree at a time. DBGET
+; and DBSCAN go to db itself (the second server of pipe's core: through c4,
+; header word 48 = KV_DBSEL); DBBATCH goes to fs, which forwards it to db
+; between two of its own requests, and db answers us:
 ;
 ;   kv_open(text, length)     the tree "NAMESPACE/TREE" is the one at work ->
 ;                             a0 = 0, or -1 (no "/", a name too long)
@@ -33,9 +35,10 @@
 
 KV_KEY  = 480                           ; a key's most bytes
 KV_VAL  = 1024                          ; room for a value
-OP_DBGET   = 64                         ; fs: a value
-OP_DBSCAN  = 65                         ; fs: records in key order
-OP_DBBATCH = 66                         ; fs: puts and deletes, one commit
+OP_DBGET   = 64                         ; db: a value
+OP_DBSCAN  = 65                         ; db: records in key order
+OP_DBBATCH = 66                         ; fs (forwarded to db): puts and deletes, one commit
+KV_DBSEL   = 0x53 << 56 | 1             ; header word 48: db, index 1 on pipe's core
 
         .data                           ; D-LS
         .align 8                        ; dwords
@@ -149,12 +152,17 @@ kv_ask:
         la    a0, kv_rq                 ; ...
         ld    a1, 40(sp)                ; ...
         call  sys_put                   ; ...
-        li    a0, 2                     ; fs
+        la    t0, sys_hdr               ; to db
+        li    t1, KV_DBSEL              ; ...
+        sd    t1, 48(t0)                ; ...
+        li    a0, 4                     ; (pipe's core)
         ld    a1, 16(sp)                ; ...
         li    a2, 0                     ; ...
         ld    a3, 40(sp)                ; ...
         ld    a4, 24(sp)                ; ...
         call  sys_msg                   ; a0 = the value's length / records
+        la    t0, sys_hdr               ; (the next message names no server)
+        sd    zero, 48(t0)              ; ...
         blez  a0, kva_ret               ; ...
         sd    a0, 16(sp)                ; ...
         la    t0, sys_hdr               ; the data's bytes

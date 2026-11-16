@@ -464,7 +464,7 @@
 <a href="#dev-67"><span class="n">67</span><code>TIME</code><span>The wall clock: the timer&#x27;s EPOCH and ZONE</span></a>
 </div>
 <article class="op" id="dev-21">
-<h4><span class="n">21</span><a class="opname" href="../code/#os/servers/dev.s:259"><code>GETPTR</code></a><span class="sum">A window on the pointer&#x27;s ports</span></h4>
+<h4><span class="n">21</span><a class="opname" href="../code/#os/servers/dev.s:262"><code>GETPTR</code></a><span class="sum">A window on the pointer&#x27;s ports</span></h4>
 <p>For <code>tty</code>, which reads the pointer&#x27;s events and hands them to <code>ws</code>. Not checked: any program that asks gets it.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -479,7 +479,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-22">
-<h4><span class="n">22</span><a class="opname" href="../code/#os/servers/dev.s:256"><code>GETSND</code></a><span class="sum">A window on the sound device&#x27;s ports</span></h4>
+<h4><span class="n">22</span><a class="opname" href="../code/#os/servers/dev.s:259"><code>GETSND</code></a><span class="sum">A window on the sound device&#x27;s ports</span></h4>
 <p>For any program that asks: the samples of all holders join the device&#x27;s one queue in the order they arrive.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -494,7 +494,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-23">
-<h4><span class="n">23</span><a class="opname" href="../code/#os/servers/dev.s:156"><code>DEVS</code></a><span class="sum">The platform table&#x27;s entries</span></h4>
+<h4><span class="n">23</span><a class="opname" href="../code/#os/servers/dev.s:159"><code>DEVS</code></a><span class="sum">The platform table&#x27;s entries</span></h4>
 <p>The entries as the device&#x27;s platform table gives them, without its 32-byte header. The types: 1 memory, 2 console, 3 platform table, 4 block device, 5 framebuffer, 6 timer, 7 pointer, 8 network interface, 9 sound (only on a machine that has it). <code>info</code>: console 1 output | 2 input; platform table 1; block device its capacity in blocks; framebuffer width | height &lt;&lt; 16 | stride &lt;&lt; 32 | format &lt;&lt; 48 (1 = XRGB8888); timer ticks per second (1000000); pointer buttons (bits 0..7) | wheels &lt;&lt; 8 (0x0307); network interface the MTU (1500); sound the samples its queue holds (16384).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -513,7 +513,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-24">
-<h4><span class="n">24</span><a class="opname" href="../code/#os/servers/dev.s:200"><code>HALT</code></a><span class="sum">Stop the machine</span></h4>
+<h4><span class="n">24</span><a class="opname" href="../code/#os/servers/dev.s:203"><code>HALT</code></a><span class="sum">Stop the machine</span></h4>
 <p>dev asks the kernel (HALT), which stops every core; there is no reply. Not checked: any program that asks stops the machine.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -527,7 +527,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-26">
-<h4><span class="n">26</span><a class="opname" href="../code/#os/servers/dev.s:293"><code>GRANT_FB</code></a><span class="sum">The framebuffer memory and the controller&#x27;s ports</span><span class="from">the process registered as &quot;ws&quot;</span></h4>
+<h4><span class="n">26</span><a class="opname" href="../code/#os/servers/dev.s:306"><code>GRANT_FB</code></a><span class="sum">The framebuffer memory and the controller&#x27;s ports</span><span class="from">the process registered as &quot;ws&quot;</span></h4>
 <p>dev asks <code>proc</code> who holds the name &quot;ws&quot; (WHOIS) and compares that pid with the sender&#x27;s, then asks the kernel for the memory (FBLEND for that pid): every older capability to it is revoked and the caller holds it until it ends, when the kernel revokes it again. There is no operation to give it back. If the caller dies while dev waits, there is no reply.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -545,10 +545,11 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-30">
-<h4><span class="n">30</span><a class="opname" href="../code/#os/servers/dev.s:272"><code>GETDISK</code></a><span class="sum">The block device&#x27;s ports and an endpoint to its node</span><span class="from">blk (dev does not check: any program that asks gets them)</span></h4>
+<h4><span class="n">30</span><a class="opname" href="../code/#os/servers/dev.s:275"><code>GETDISK</code></a><span class="sum">The block device&#x27;s ports and an endpoint to its node</span><span class="from">blk (dev does not check: any program that asks gets them)</span></h4>
+<p>blk sits on dev&#x27;s core and asks twice, mode 1 then 2: an answer to dev&#x27;s own core carries one capability, as a core&#x27;s inbox holds two gifts from each sender (the attachment and the buffer).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
-<tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
+<tr><td class="k">mode</td><td class="at"></td><td class="ty"></td><td>0 both, 1 the window alone, 2 the endpoint alone (in c6)</td></tr>
 </tbody>
 <tbody class="reply"><tr class="sec"><th colspan="4">reply</th></tr>
 <tr><td class="k">result</td><td class="at"></td><td class="ty"></td><td>0</td></tr>
@@ -560,7 +561,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-31">
-<h4><span class="n">31</span><a class="opname" href="../code/#os/servers/dev.s:211"><code>GETCON</code></a><span class="sum">The console&#x27;s ports</span><span class="from">tty (dev does not check: any program that asks gets them)</span></h4>
+<h4><span class="n">31</span><a class="opname" href="../code/#os/servers/dev.s:214"><code>GETCON</code></a><span class="sum">The console&#x27;s ports</span><span class="from">tty (dev does not check: any program that asks gets them)</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -571,7 +572,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-46">
-<h4><span class="n">46</span><a class="opname" href="../code/#os/servers/dev.s:225"><code>RINGS</code></a><span class="sum">The console rings in T2</span><span class="from">tty, at its start (the kernel gives them once: a later caller gets −1)</span></h4>
+<h4><span class="n">46</span><a class="opname" href="../code/#os/servers/dev.s:228"><code>RINGS</code></a><span class="sum">The console rings in T2</span><span class="from">tty, at its start (the kernel gives them once: a later caller gets −1)</span></h4>
 <p>dev asks the kernel (RINGS, op 14) while the request waits, and lends what comes back.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -587,7 +588,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-59">
-<h4><span class="n">59</span><a class="opname" href="../code/#os/servers/dev.s:364"><code>GETNET</code></a><span class="sum">The network interface&#x27;s ports</span><span class="from">the process registered as &quot;net&quot;</span></h4>
+<h4><span class="n">59</span><a class="opname" href="../code/#os/servers/dev.s:377"><code>GETNET</code></a><span class="sum">The network interface&#x27;s ports</span><span class="from">the process registered as &quot;net&quot;</span></h4>
 <p>dev asks <code>proc</code> who holds the name &quot;net&quot; (WHOIS) and compares that pid with the sender&#x27;s.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -603,7 +604,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="dev-67">
-<h4><span class="n">67</span><a class="opname" href="../code/#os/servers/dev.s:176"><code>TIME</code></a><span class="sum">The wall clock: the timer&#x27;s EPOCH and ZONE</span></h4>
+<h4><span class="n">67</span><a class="opname" href="../code/#os/servers/dev.s:179"><code>TIME</code></a><span class="sum">The wall clock: the timer&#x27;s EPOCH and ZONE</span></h4>
 <p>A program adds its clock&#x27;s NOW (c7, which covers only NOW and FREQ) to EPOCH: it asks dev once (<code>sys_time</code> keeps the record), not at every reading.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1090,7 +1091,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-64">
-<h4><span class="n">64</span><a class="opname" href="../code/#os/servers/fsops.s:813"><code>DBGET</code></a><span class="sum">A value from a program&#x27;s tree</span></h4>
+<h4><span class="n">64</span><a class="opname" href="../code/#os/servers/fsops.s:818"><code>DBGET</code></a><span class="sum">A value from a program&#x27;s tree</span></h4>
 <p>The store for programs: trees of keys and values (bytes, compared unsigned) in namespaces of their own. Namespaces made by DBBATCH are public; <code>fs</code> is private and refused. db answers these: fs hands the request&#x27;s data to it and its answer back.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1113,7 +1114,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-65">
-<h4><span class="n">65</span><a class="opname" href="../code/#os/servers/fsops.s:814"><code>DBSCAN</code></a><span class="sum">Records of a program&#x27;s tree, in key order</span></h4>
+<h4><span class="n">65</span><a class="opname" href="../code/#os/servers/fsops.s:819"><code>DBSCAN</code></a><span class="sum">Records of a program&#x27;s tree, in key order</span></h4>
 <p>The first record is the nearest on the mode&#x27;s side of the key; those after it follow in key order, as many as fit. Ask again with the last key and mode 1.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1148,7 +1149,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="fs-66">
-<h4><span class="n">66</span><a class="opname" href="../code/#os/servers/fsops.s:811"><code>DBBATCH</code></a><span class="sum">Puts and deletes in a program&#x27;s tree, in one commit</span></h4>
+<h4><span class="n">66</span><a class="opname" href="../code/#os/servers/fsops.s:815"><code>DBBATCH</code></a><span class="sum">Puts and deletes in a program&#x27;s tree, in one commit</span></h4>
 <p>Every item is checked before any is done: all of them reach the disk, or none. The namespace and the tree are made by the first write (a namespace or tree made by a refused batch stays, empty).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1192,12 +1193,12 @@
     hands programs' calls of the store for programs on to it.</p>
 <!-- ops:db -->
 <div class="facts2">
-<div><b>core</b>core 2, beside dev (its server of index 1)</div>
+<div><b>core</b>core 5, beside pipe (its server of index 1)</div>
 <div><b>holds</b>an endpoint to blk&#x27;s core (c1); a 512 KiB I/O buffer with the page cache: 124 frames of 4 KiB (c5)</div>
-<div><b>reached by</b>fs holds an endpoint to its core (index 1, header word 48); programs reach the store for programs through fs</div>
+<div><b>reached by</b>fs holds an endpoint to its core (index 1, header word 48); programs send DBGET and DBSCAN through their endpoint for pipe&#x27;s core, and DBBATCH to fs, which forwards it</div>
 <div><b>source</b><a class="srcpath" href="../code/#os/servers/db.s">os/servers/db.s</a>, <a class="srcpath" href="../code/#os/servers/dbsnap.s">os/servers/dbsnap.s</a>, <a class="srcpath" href="../code/#os/servers/dbprog.s">os/servers/dbprog.s</a>, <a class="srcpath" href="../code/#os/servers/store.s">os/servers/store.s</a>, <a class="srcpath" href="../code/#os/servers/storew.s">os/servers/storew.s</a>, <a class="srcpath" href="../code/#os/servers/sblob.s">os/servers/sblob.s</a></div>
 </div>
-<p class="srvnote">pid 5, made by the kernel at boot. The disk is a store (doc/strata-fs-proposal.md): copy-on-write B+trees in namespaces, a change on the disk whole or not at all; db keeps it (the page cache, three page buffers in its D-LS) and reaches the disk through blk only (a run of blocks per BREAD; a commit&#x27;s writes and its flushes in WRITEVs). fs is the file system on top (doc/fs-split.md). A tree is named by a handle: its entry in db&#x27;s table of open trees (TREE), or one of a snapshot&#x27;s (SNAPT). The calls by handle, COMMIT, ABORT, SNAP and BOOT are taken from fs only (its pid); the store for programs (64..66) from anyone that reaches db, and fs hands programs&#x27; calls on. Every reply&#x27;s word 56 is the commit under way | the count of aborts &lt;&lt; 48. A call that fills the disk answers −1 and one whose page fails its checksum (or that the device refuses) −5; either gives up the commit under way, and the count of aborts says so. A request from fs may carry a batch of writes after its data (header word 48 bits 16..31: its bytes; items {u8 kind, u8 flag, u16 key length, u16 value length, u16 the extents&#x27; tree, u64 tree, key, value}, each padded to 8 bytes): db applies it first, in order. Kinds: 1 PUT, 2 DEL, 3 VDEL (a value and its extents), 4 VWRITE (the item&#x27;s value is {u64 offset, the bytes}; flag 1: a stream even when short), 5 a value moved (the key&#x27;s value goes and the value under the key that is the item&#x27;s value moves to it, as VDEL, VSIZE, PUT, DEL would). fs sends its puts, deletes, writes of at most 512 bytes and renames of a file&#x27;s contents this way, so a file made by <code>echo &gt; f</code> costs one GET and the COMMIT. A request names db by header word 48 = 0x53 &lt;&lt; 56 | 1.</p>
+<p class="srvnote">pid 5, made by the kernel at boot. The disk is a store (doc/strata-fs-proposal.md): copy-on-write B+trees in namespaces, a change on the disk whole or not at all; db keeps it (the page cache, three page buffers in its D-LS) and reaches the disk through blk only (a run of blocks per BREAD; a commit&#x27;s writes and its flushes in WRITEVs). fs is the file system on top (doc/fs-split.md). A tree is named by a handle: its entry in db&#x27;s table of open trees (TREE), or one of a snapshot&#x27;s (SNAPT). The calls by handle, COMMIT, ABORT, SNAP and BOOT are taken from fs only (its pid); the store for programs (64..66) from anyone that reaches db, and fs hands programs&#x27; calls on. Every reply&#x27;s word 56 is the commit under way | the count of aborts &lt;&lt; 48. A call that fills the disk answers −1 and one whose page fails its checksum (or that the device refuses) −5; either gives up the commit under way, and the count of aborts says so. A request from fs may carry a batch of writes after its data (header word 48 bits 16..31: its bytes; items {u8 kind, u8 flag, u16 key length, u16 value length, u16 the extents&#x27; tree, u64 tree, key, value}, each padded to 8 bytes): db applies it first, in order. Kinds: 1 PUT, 2 DEL, 3 VDEL (a value and its extents), 4 VWRITE (the item&#x27;s value is {u64 offset, the bytes}; flag 1: a stream even when short), 5 a value moved (the key&#x27;s value goes and the value under the key that is the item&#x27;s value moves to it, as VDEL, VSIZE, PUT, DEL would). fs sends its puts, deletes, writes of at most 512 bytes and renames of a file&#x27;s contents this way, so a file made by <code>echo &gt; f</code> costs one GET and the COMMIT. A request names db by header word 48 = 0x53 &lt;&lt; 56 | 1. FORWARDING: fs forwards a program&#x27;s DBGET, DBSCAN and DBBATCH to db as they are (REPLY to db&#x27;s core: the buffer arrives there as a request, its sender stamped as the program), with the core to answer in header word 56; db takes that word only from a request that comes from fs&#x27;s core (fs is alone there) and is not fs&#x27;s own, and answers the program directly. Every answer to a program has header word 48 cleared.</p>
 <div class="opindex">
 <a href="#db-64"><span class="n">64</span><code>DBGET</code><span>A value from a program&#x27;s tree</span></a>
 <a href="#db-65"><span class="n">65</span><code>DBSCAN</code><span>Records of a program&#x27;s tree, in key order</span></a>
@@ -1223,8 +1224,8 @@
 <a href="#db-88"><span class="n">88</span><code>FLUSH</code><span>Nothing but the batch that comes with it</span></a>
 </div>
 <article class="op" id="db-64">
-<h4><span class="n">64</span><a class="opname" href="../code/#os/servers/dbprog.s:113"><code>DBGET</code></a><span class="sum">A value from a program&#x27;s tree</span></h4>
-<p>The store for programs: trees of keys and values (bytes, compared unsigned) in namespaces of their own. Namespaces made by DBBATCH are public; <code>fs</code> is private and refused. Programs send these to fs, which hands them to db.</p>
+<h4><span class="n">64</span><a class="opname" href="../code/#os/servers/dbprog.s:116"><code>DBGET</code></a><span class="sum">A value from a program&#x27;s tree</span></h4>
+<p>The store for programs: trees of keys and values (bytes, compared unsigned) in namespaces of their own. Namespaces made by DBBATCH are public; <code>fs</code> is private and refused. Programs send DBGET and DBSCAN to db (os/lib/kv.s: through c4, pipe&#x27;s core, header word 48 = 0x53 &lt;&lt; 56 | 1), or to fs, which forwards them.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">length</td><td class="at"></td><td class="ty"></td><td>the data&#x27;s bytes (8..4032)</td></tr>
@@ -1246,7 +1247,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-65">
-<h4><span class="n">65</span><a class="opname" href="../code/#os/servers/dbprog.s:134"><code>DBSCAN</code></a><span class="sum">Records of a program&#x27;s tree, in key order</span></h4>
+<h4><span class="n">65</span><a class="opname" href="../code/#os/servers/dbprog.s:137"><code>DBSCAN</code></a><span class="sum">Records of a program&#x27;s tree, in key order</span></h4>
 <p>The first record is the nearest on the mode&#x27;s side of the key; those after it follow in key order, as many as fit. Ask again with the last key and mode 1.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1281,8 +1282,8 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-66">
-<h4><span class="n">66</span><a class="opname" href="../code/#os/servers/dbprog.s:199"><code>DBBATCH</code></a><span class="sum">Puts and deletes in a program&#x27;s tree, in one commit</span></h4>
-<p>Every item is checked before any is done: all of them reach the disk, or none. The namespace and the tree are made by the first write (a namespace or tree made by a refused batch stays, empty).</p>
+<h4><span class="n">66</span><a class="opname" href="../code/#os/servers/dbprog.s:202"><code>DBBATCH</code></a><span class="sum">Puts and deletes in a program&#x27;s tree, in one commit</span></h4>
+<p>Taken only as fs forwards it (a program sends it to fs): it then lands between two of fs&#x27;s requests, never inside one. What fs had not committed is committed first; the batch is one commit of its own. Every item is checked before any is done: all of them reach the disk, or none; a batch the disk has no room for is given up alone (fs loses nothing and is not told of an abort). The namespace and the tree are made by the first write (a namespace or tree made by a refused batch stays, empty).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the items</td></tr>
@@ -1313,7 +1314,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-70">
-<h4><span class="n">70</span><a class="opname" href="../code/#os/servers/db.s:427"><code>TREE</code></a><span class="sum">A handle to a tree of a namespace</span><span class="from">fs only</span></h4>
+<h4><span class="n">70</span><a class="opname" href="../code/#os/servers/db.s:471"><code>TREE</code></a><span class="sum">A handle to a tree of a namespace</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the namespace&#x27;s id</td></tr>
@@ -1330,7 +1331,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-71">
-<h4><span class="n">71</span><a class="opname" href="../code/#os/servers/db.s:441"><code>GET</code></a><span class="sum">A value by its key</span><span class="from">fs only</span></h4>
+<h4><span class="n">71</span><a class="opname" href="../code/#os/servers/db.s:485"><code>GET</code></a><span class="sum">A value by its key</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the tree</td></tr>
@@ -1347,7 +1348,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-72">
-<h4><span class="n">72</span><a class="opname" href="../code/#os/servers/db.s:456"><code>SEEK</code></a><span class="sum">The nearest record on one side of a key</span><span class="from">fs only</span></h4>
+<h4><span class="n">72</span><a class="opname" href="../code/#os/servers/db.s:500"><code>SEEK</code></a><span class="sum">The nearest record on one side of a key</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the tree</td></tr>
@@ -1371,7 +1372,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-73">
-<h4><span class="n">73</span><a class="opname" href="../code/#os/servers/db.s:490"><code>PUT</code></a><span class="sum">A record in, or replaced</span><span class="from">fs only</span></h4>
+<h4><span class="n">73</span><a class="opname" href="../code/#os/servers/db.s:534"><code>PUT</code></a><span class="sum">A record in, or replaced</span><span class="from">fs only</span></h4>
 <p>fs sends its puts in batches with its other calls instead (see the note above); the call is there for any other client.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1393,7 +1394,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-74">
-<h4><span class="n">74</span><a class="opname" href="../code/#os/servers/db.s:512"><code>DEL</code></a><span class="sum">A record out</span><span class="from">fs only</span></h4>
+<h4><span class="n">74</span><a class="opname" href="../code/#os/servers/db.s:556"><code>DEL</code></a><span class="sum">A record out</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the tree</td></tr>
@@ -1408,7 +1409,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-75">
-<h4><span class="n">75</span><a class="opname" href="../code/#os/servers/db.s:767"><code>VSIZE</code></a><span class="sum">A value&#x27;s length, whatever its size</span><span class="from">fs only</span></h4>
+<h4><span class="n">75</span><a class="opname" href="../code/#os/servers/db.s:811"><code>VSIZE</code></a><span class="sum">A value&#x27;s length, whatever its size</span><span class="from">fs only</span></h4>
 <p>The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1425,7 +1426,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-76">
-<h4><span class="n">76</span><a class="opname" href="../code/#os/servers/db.s:779"><code>VREAD</code></a><span class="sum">Part of a value, by offset</span><span class="from">fs only</span></h4>
+<h4><span class="n">76</span><a class="opname" href="../code/#os/servers/db.s:823"><code>VREAD</code></a><span class="sum">Part of a value, by offset</span><span class="from">fs only</span></h4>
 <p>The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8). The value may be any length: a file&#x27;s contents are one.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1442,7 +1443,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-77">
-<h4><span class="n">77</span><a class="opname" href="../code/#os/servers/db.s:796"><code>VWRITE</code></a><span class="sum">Part of a value written, by offset</span><span class="from">fs only</span></h4>
+<h4><span class="n">77</span><a class="opname" href="../code/#os/servers/db.s:840"><code>VWRITE</code></a><span class="sum">Part of a value written, by offset</span><span class="from">fs only</span></h4>
 <p>The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8). The value is made when it is not there; a short one stays in the tree.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1460,7 +1461,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-78">
-<h4><span class="n">78</span><a class="opname" href="../code/#os/servers/db.s:812"><code>VTRUNC</code></a><span class="sum">A value cut or grown to a length</span><span class="from">fs only</span></h4>
+<h4><span class="n">78</span><a class="opname" href="../code/#os/servers/db.s:856"><code>VTRUNC</code></a><span class="sum">A value cut or grown to a length</span><span class="from">fs only</span></h4>
 <p>The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1475,7 +1476,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-79">
-<h4><span class="n">79</span><a class="opname" href="../code/#os/servers/db.s:821"><code>VDEL</code></a><span class="sum">A value out, its extents freed</span><span class="from">fs only</span></h4>
+<h4><span class="n">79</span><a class="opname" href="../code/#os/servers/db.s:865"><code>VDEL</code></a><span class="sum">A value out, its extents freed</span><span class="from">fs only</span></h4>
 <p>The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1489,7 +1490,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-80">
-<h4><span class="n">80</span><a class="opname" href="../code/#os/servers/db.s:827"><code>VLOAD</code></a><span class="sum">A whole value into a lent arena</span><span class="from">fs only</span></h4>
+<h4><span class="n">80</span><a class="opname" href="../code/#os/servers/db.s:871"><code>VLOAD</code></a><span class="sum">A whole value into a lent arena</span><span class="from">fs only</span></h4>
 <p>The key is in header word 56 when it is 8 bytes or shorter, else at the start of the data (padded to 8). A stream&#x27;s pages go from the disk straight into the arena, whole pages.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1508,7 +1509,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-81">
-<h4><span class="n">81</span><a class="opname" href="../code/#os/servers/db.s:840"><code>COMMIT</code></a><span class="sum">Everything changed, on the disk</span><span class="from">fs only</span></h4>
+<h4><span class="n">81</span><a class="opname" href="../code/#os/servers/db.s:884"><code>COMMIT</code></a><span class="sum">Everything changed, on the disk</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -1521,7 +1522,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-82">
-<h4><span class="n">82</span><a class="opname" href="../code/#os/servers/db.s:844"><code>ABORT</code></a><span class="sum">Back to the last commit</span><span class="from">fs only</span></h4>
+<h4><span class="n">82</span><a class="opname" href="../code/#os/servers/db.s:888"><code>ABORT</code></a><span class="sum">Back to the last commit</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -1534,7 +1535,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-83">
-<h4><span class="n">83</span><a class="opname" href="../code/#os/servers/db.s:853"><code>INFO</code></a><span class="sum">The store&#x27;s sizes</span><span class="from">fs only</span></h4>
+<h4><span class="n">83</span><a class="opname" href="../code/#os/servers/db.s:897"><code>INFO</code></a><span class="sum">The store&#x27;s sizes</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -1616,7 +1617,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-87">
-<h4><span class="n">87</span><a class="opname" href="../code/#os/servers/db.s:521"><code>SCAN</code></a><span class="sum">Records in key order, as many as fit</span><span class="from">fs only</span></h4>
+<h4><span class="n">87</span><a class="opname" href="../code/#os/servers/db.s:565"><code>SCAN</code></a><span class="sum">Records in key order, as many as fit</span><span class="from">fs only</span></h4>
 <p>fs reads ahead with it: a walk over a tree (SEEK after SEEK, GET after GET of growing keys) is answered from one SCAN, until it changes something.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1644,7 +1645,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="db-88">
-<h4><span class="n">88</span><a class="opname" href="../code/#os/servers/db.s:276"><code>FLUSH</code></a><span class="sum">Nothing but the batch that comes with it</span><span class="from">fs only</span></h4>
+<h4><span class="n">88</span><a class="opname" href="../code/#os/servers/db.s:308"><code>FLUSH</code></a><span class="sum">Nothing but the batch that comes with it</span><span class="from">fs only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -1667,7 +1668,7 @@
     or empties itself. It keeps no cache.</p>
 <!-- ops:blk -->
 <div class="facts2">
-<div><b>core</b>core 5, beside pipe (its server of index 1)</div>
+<div><b>core</b>core 2, beside dev (its server of index 1)</div>
 <div><b>holds</b>a window on the block device&#x27;s ports (c1) and an endpoint to its node (c2), from dev (GETDISK); in a guest StrataOS the RAM disk (c1)</div>
 <div><b>reached by</b>db holds an endpoint to its core (index 1, header word 48); fs too, for READBLK</div>
 <div><b>source</b><a class="srcpath" href="../code/#os/servers/blk.s">os/servers/blk.s</a></div>
@@ -1682,7 +1683,7 @@
 <a href="#blk-33"><span class="n">33</span><code>READBLK</code><span>A raw block of the disk</span></a>
 </div>
 <article class="op" id="blk-1">
-<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/blk.s:165"><code>BREAD</code></a><span class="sum">A run of blocks into the lent buffer</span><span class="from">db only</span></h4>
+<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/blk.s:177"><code>BREAD</code></a><span class="sum">A run of blocks into the lent buffer</span><span class="from">db only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the first block</td></tr>
@@ -1699,7 +1700,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="blk-2">
-<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/blk.s:165"><code>BWRITE</code></a><span class="sum">A run of blocks out of the lent buffer</span><span class="from">db only</span></h4>
+<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/blk.s:177"><code>BWRITE</code></a><span class="sum">A run of blocks out of the lent buffer</span><span class="from">db only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the first block</td></tr>
@@ -1716,7 +1717,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="blk-3">
-<h4><span class="n">3</span><a class="opname" href="../code/#os/servers/blk.s:216"><code>FLUSH</code></a><span class="sum">What the device holds back, to the disk</span><span class="from">db only</span></h4>
+<h4><span class="n">3</span><a class="opname" href="../code/#os/servers/blk.s:228"><code>FLUSH</code></a><span class="sum">What the device holds back, to the disk</span><span class="from">db only</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -1729,7 +1730,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="blk-4">
-<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/blk.s:226"><code>INFO</code></a><span class="sum">The disk&#x27;s size</span></h4>
+<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/blk.s:238"><code>INFO</code></a><span class="sum">The disk&#x27;s size</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k"></td><td class="at"></td><td class="ty"></td><td>nothing</td></tr>
@@ -1742,7 +1743,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="blk-5">
-<h4><span class="n">5</span><a class="opname" href="../code/#os/servers/blk.s:181"><code>WRITEV</code></a><span class="sum">Several runs of blocks out of the lent buffer, then a flush</span><span class="from">db only</span></h4>
+<h4><span class="n">5</span><a class="opname" href="../code/#os/servers/blk.s:193"><code>WRITEV</code></a><span class="sum">Several runs of blocks out of the lent buffer, then a flush</span><span class="from">db only</span></h4>
 <p>db lists the writes of a commit (its dirty page frames) and sends them in one request with the flush that follows them.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1763,7 +1764,7 @@
 </tbody>
 </table></div></article>
 <article class="op" id="blk-33">
-<h4><span class="n">33</span><a class="opname" href="../code/#os/servers/blk.s:242"><code>READBLK</code></a><span class="sum">A raw block of the disk</span></h4>
+<h4><span class="n">33</span><a class="opname" href="../code/#os/servers/blk.s:254"><code>READBLK</code></a><span class="sum">A raw block of the disk</span></h4>
 <p>fs passes its READBLK on to blk and the block back (<code>db</code>, <code>wdb</code> and <code>fsck</code> read the store so).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>

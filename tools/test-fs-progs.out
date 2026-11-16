@@ -11,7 +11,7 @@ strata$ cores
 core #: system
 core #: running #, # runnable, # processes, server, solo; # switches, # KiB moved, # slots free
 core #: idle, # runnable, # processes, server; # switches, # KiB moved, # slots free
-core #: idle, # runnable, # processes, server; # switches, # KiB moved, # slots free
+core #: idle, # runnable, # processes, server, solo; # switches, # KiB moved, # slots free
 core #: idle, # runnable, # processes, server, solo; # switches, # KiB moved, # slots free
 core #: idle, # runnable, # processes, server; # switches, # KiB moved, # slots free
 core #: idle, # runnable, # processes; # switches, # KiB moved, # slots free
@@ -25,7 +25,7 @@ strata$ ps
  # # blocked # # # # fs (server)
  # # running # # # # proc (server)
  # # blocked # # # # tty (server)
- # # blocked # # # pipe (server)
+ # # blocked # # # # pipe (server)
  # # blocked # # # # sh
  # # blocked # # # # forth
 ==== sched

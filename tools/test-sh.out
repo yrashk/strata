@@ -174,7 +174,7 @@ tfile                          11
 f1                             15 
 s1                             33 
 f2                              6 
-f3                              0 
+f3                              1 
 n1                              6 
 doc/
 etc/
@@ -192,7 +192,7 @@ tfile                          11
 f1                             15 
 s1                             33 
 f2                              6 
-f3                              0 
+f3                              1 
 doc/
 etc/
 sys/
@@ -258,7 +258,7 @@ tfile                          11
 f1                             15 
 s1                             33 
 f2                              6 
-f3                              0 
+f3                              1 
 n3                              6 
 doc/
 etc/
@@ -397,7 +397,7 @@ tfile                          11
 f1                             15 
 s1                             33 
 f2                              6 
-f3                              0 
+f3                              1 
 p1b                             4 
 doc/
 etc/

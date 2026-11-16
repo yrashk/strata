@@ -42,9 +42,16 @@ gives `fs` and `db` the indexes of the servers they call. The room in the
 worker's resident code came from gp-relative loads in place of `la` + `add`
 (16 bytes are left).
 
-Placement (any core count from 6): `proc` 1, `dev` 2 and `db` 2 (index 1),
-`fs` 3, `tty` 4, `pipe` 5 and `blk` 5 (index 1): `fs`, `db` and `blk` on
-three cores, beside the servers that run least. A server of index 1..3 is
+Placement (any core count from 6): `proc` 1, `dev` 2 and `blk` 2 (index
+1), `fs` 3 (alone), `tty` 4, `pipe` 5 and `db` 5 (index 1): `fs`, `db` and
+`blk` on three cores, beside the servers that run least. `db` is on
+`pipe`'s core because every program holds an endpoint for it (c4): a
+program reaches `db` with header word 48 = `0x53 << 56 | 1` and no new
+capability. `blk` asks `dev` for the disk (GETDISK) from `dev`'s own core,
+so it asks twice, one capability per answer: a core's inbox holds two
+gifts from each sender, its own included, and an answer of three (two
+attachments and the buffer) to one's own core waits on a dispatcher that
+is the one sending it. A server of index 1..3 is
 a core flag of its own (16): it does not keep a server of index 0 away (so
 `proc` still puts `pipe` on core 5) and does not count when a program is
 placed (or the login shell would land on core 6 and leave a guest no run
@@ -52,13 +59,14 @@ of empty cores). The boot servers are made in the order dev, blk, db, fs,
 proc; one that sends to another that does not run yet gets -1 and asks
 again a tick later.
 
-`fs` and `db` are made busy servers too (CREATE flag bit 14, core flag
-32): a busy server's core counts three more when a program is placed, so a
-program shares a core with the servers it waits on only when every other
-core is as full. A core with no server counts two more, so that on 8 cores
+`db` is made a busy server (CREATE flag bit 14, core flag 32): a busy
+server's core counts three more when a program is placed, so a program
+shares a core with the server it waits on only when every other core is
+as full. `fs` is solo (no program is ever placed on core 3): forwarding
+needs it (below). A core with no server counts two more, so that on 8 cores
 the two empty ones stay free for a guest (`guest -d gdemo 2 8`): programs
-go beside `pipe` and `blk` on core 5 first, which costs `cat` 2% and the
-program store 5% against putting them on an empty core. Before, the login shell sat on core 2 beside `db` and
+go beside `dev` and `blk` on core 2 first, which costs `cat` about 2%
+against putting them on an empty core. Before, the login shell sat on core 2 beside `db` and
 every request it made while `db` worked swapped the two.
 
 ## Interfaces
@@ -122,7 +130,7 @@ and some 6,000 to 8,000 instructions in all.
 | creating a small file (OPEN, WRITE, CLOSE) | 6, a commit | 6 + about 22 (`fs` ↔ `db`), + 4 (`db` ↔ `blk`: the commit's WRITEVs); with the value cache and the value items, 6 + 4 (a GET of the new name, the COMMIT) + 4 |
 | LOADIMG | 2; the device writes the arena | 2 + 8 (lookups, VLOAD) + 2 per run of pages read; the device still writes the arena |
 | a listing of 300 files | 4 (two parts) | 4 + about 34 (SCANs of the index and of the records, 4 KiB each) |
-| DBGET | 2 | 4 |
+| DBGET | 2 | 4 relayed by `fs`; 3 forwarded; 2 sent to `db` directly (`kv_get`) |
 | a cache miss in the store | a device command | + 2 messages (`db` → `blk`) |
 
 ## Measurements
@@ -233,10 +241,74 @@ earlier columns put programs on the empty cores, which broke `guest`). The
 100 files went from 3,090 messages to 1,606 (664 with one `fs`) and
 from 606 context switches to 204. What is left is mostly the program store
 reached through `fs` (DBGET, DBBATCH: two hops where there was one), the
-lookups of a listing and of a path, and boot. The next steps of the plan:
-DBGET and DBSCAN sent to `db` directly, SCAN answered into a region the
-caller lends, and forwarding a request from `fs` to `db` so that `db`
-answers the program itself.
+lookups of a listing and of a path, and boot.
+
+## Forwarding, and the program store reached directly
+
+A server may pass a request it holds on to another server instead of
+answering it. No new kernel call: REPLY's token is a core, and a REPLY
+with another server's core gives the buffer there, where the dispatcher
+takes it for a request like any other (a 4 KiB buffer that is not one of
+its own processes'), queues it for the server header word 48 names and
+stamps its sender from the buffer's arena: the program, not the server
+that forwarded it, so the forwarding server lends no authority of its own.
+The forwarding server does not wait for it.
+
+Who answers, and to which core, is the two servers' agreement. `fs`
+forwards a program's DBGET, DBSCAN and DBBATCH (`fsops.s`, `op_dbget`):
+header word 48 names `db`, word 56 is the program's core (from `fs`'s
+RECEIVE token). `db` (`db.s`, `loop`) takes word 56 only from a request
+that arrives from `fs`'s core and is not `fs`'s own; `fs` is alone on its
+core, so nothing but `fs` sends from there. `db` then answers the
+program's core, and clears word 48 in every answer to a program (a
+program's next message goes out with the header it got back). A relayed
+call was 4 messages and two copies of the data through `fs`'s Local
+Store, with `fs` waiting; forwarded it is 3 messages, no copy, and `fs`
+takes its next request at once.
+
+DBBATCH is taken only forwarded. A batch commits, and `db` cannot see
+where `fs` is inside one of its own requests; forwarded, the batch is
+queued after `fs`'s last call for the request before and ahead of the
+first for the next one. `fs` commits a writer's bytes and sends its queued
+writes first; `db` commits whatever is still uncommitted, keeps a copy of
+its table of open trees (in its I/O buffer's scratch) and runs the batch
+as a commit of its own. If the disk has no room for it, `db` gives that
+commit up without counting an abort (fs had nothing in it) and puts the
+table of open trees back, so `fs`'s handles stay good and `fs` is not
+told: before, `fs` saw the -1 of its own relayed call.
+
+DBGET and DBSCAN do not change anything, so a program sends them to `db`
+directly (`os/lib/kv.s`: through c4, `pipe`'s core, word 48 = `0x53 << 56
+| 1`): 2 messages, as with one `fs`. Programs that call `fs` (the Forth
+words, `db.fs`) are forwarded.
+
+What it does not cover: a forwarded request that finds `db`'s queue full
+is refused back to `fs`'s core, which has no server of index 1 and refuses
+it back to `db`'s core, until there is room (the dispatchers pass it to
+and fro; no server runs for it). If `db` ended, that would not stop; `db`
+does not end while the system runs. A REPLY of the kernel's own could give
+the answer to the program's core without the agreement and without the
+solo core, but the workers' resident code has 16 bytes left.
+
+| workload | before (one fs) | value items | + direct reads, forwarding | / before |
+|---|---:|---:|---:|---:|
+| boot to the shell | 9,000 | 15,000 | 15,000 | 1.67 |
+| cat /src/cc.c | 81,897 | 89,503 | 89,461 | 1.09 |
+| ls /many (300 files) | 18,196 | 27,718 | 27,723 | 1.52 |
+| 100 small files (echo >) | 282,875 | 340,326 | 342,463 | 1.21 |
+| dbbench 200 | 210,758 | 271,705 | 245,901 | 1.17 |
+| — 200 DBBATCH puts (forwarded) | 170,757 | 225,094 | 214,459 | 1.26 |
+| — 200 DBGETs (direct) | 33,312 | 38,870 | 24,272 | 0.73 |
+| — a DBSCAN of 200 (direct) | 4,861 | 5,113 | 4,530 | 0.93 |
+
+dbbench sends 1,903 messages (2,515 relayed, 883 with one `fs`). Reads
+of the program store are now faster than with one `fs`: a DBGET no longer
+waits behind the file system's requests. Boot sends 353 messages (523).
+
+The next steps of the plan: SCAN answered into a region the caller lends,
+and the same for READ of a file's contents: `fs` sends `db` the program's
+buffer with the value's handle and offset, and `db` fills it and answers
+the program (a new call of `fs`'s, since VREAD is taken from `fs` only).
 
 ## Recommendation
 

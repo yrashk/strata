@@ -5,9 +5,12 @@
 ; DBGET (64), DBSCAN (65), DBBATCH (66): trees of keys and values in
 ; namespaces of their own, made by the first write; such namespaces are
 ; public, and "fs" is not (doc/strataos.md, "The store for programs").
-; Programs send them to fs, which hands them on; db answers them for anyone
-; that reaches it. A batch is one commit (what fs had not committed yet goes
-; in it too: fs commits a writer's bytes before it hands a batch on).
+; Programs send DBGET and DBSCAN to db (through their endpoint for pipe's
+; core, header word 48 naming db) or to fs, which forwards them; db answers
+; them for anyone. DBBATCH is taken only as fs forwards it (db.s: fwd), so
+; that it lands between two of fs's requests: what fs had not committed yet
+; is committed first, and the batch is one commit of its own; if that fails,
+; fs is not told of an abort and its trees are open as they were (st_fail).
 
         .text                           ; instruction Local Store
 
@@ -197,7 +200,17 @@ odb_done:
         j     reply                     ; ...
 
 op_dbbatch:
-                li    a0, 1                     ; ...
+        ld    t0, fwd(zero)             ; only as fs forwards it: between two of fs's
+        beqz  t0, bad                   ;   requests, never inside one
+        call  st_commit                 ; what fs has not committed is committed first,
+        la    t0, tt                    ;   so that the batch's commit holds only the
+        li    t1, TTSAVE                ;   batch: if it fails, nothing of fs's is lost
+        li    t2, NTT * TT_SIZE         ;   and fs's trees are as they were (st_fail)
+        tput  tg1, t0, c5, t1, t2       ; ...
+        twait 1 << 1                    ; ...
+        li    t0, 1                     ; ...
+        sd    t0, pb_on(zero)           ; ...
+        li    a0, 1                     ; ...
         call  db_parse                  ; ...
         bltz  a0, reply                 ; ...
         la    t0, rqd                   ; s2 = the first item: at a multiple of 8

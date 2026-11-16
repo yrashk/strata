@@ -5,7 +5,7 @@ key = "blk"
 title = "blk"
 role = "the block device"
 reached = "db holds an endpoint to its core (index 1, header word 48); fs too, for READBLK"
-core = "core 5, beside pipe (its server of index 1)"
+core = "core 2, beside dev (its server of index 1)"
 holds = "a window on the block device's ports (c1) and an endpoint to its node (c2), from dev (GETDISK); in a guest StrataOS the RAM disk (c1)"
 sources = ["os/servers/blk.s"]
 dispatch = { file = "os/servers/blk.s", first = ";\\s*dispatch", last = "^bad:" }
