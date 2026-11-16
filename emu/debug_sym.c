@@ -8,7 +8,8 @@
  *     and covers I-LS 0x0000..0x3FFF;
  *   - with --os DIR: DIR/kernel.map for the resident kernel (I-LS
  *     0x4000..0x7FFF) and its code units (far; core 0 runs them from its
- *     code cache through the overlay map), and DIR/prog/NAME.map for the
+ *     code cache through the overlay map), and DIR/prog/NAME.map (a server:
+ *     DIR/sys/NAME.map first, when it is there) for the
  *     program a core runs in user mode (NAME: the process's name in proc's
  *     table), loaded when first needed.
  * Code reached through the overlay map (xcall) is looked up at its far
@@ -117,7 +118,9 @@ static Map *map_load(const char *path, int scope, const char *prog) {
   return m;
 }
 
-/* The map of program `name` (StrataOS), loaded on first use. */
+/* The map of program `name` (StrataOS), loaded on first use: DIR/prog/NAME.map,
+ * or DIR/NAME.map for a name with a directory in it (sys/NAME: a server built
+ * apart from a program of its name, os_map_name). */
 static Map *map_prog(const char *name) {
   if (!name || !name[0] || !os_dir) return NULL;
   for (int i = 0; i < nmaps; i++)
@@ -125,7 +128,7 @@ static Map *map_prog(const char *name) {
   for (int i = 0; i < nprog_missing; i++)
     if (!strcmp(prog_missing[i], name)) return NULL;
   char path[2048];
-  snprintf(path, sizeof path, "%s/prog/%s.map", os_dir, name);
+  snprintf(path, sizeof path, strchr(name, '/') ? "%s/%s.map" : "%s/prog/%s.map", os_dir, name);
   Map *m = map_load(path, SC_PROG, name);
   if (!m && nprog_missing < NMAPS) snprintf(prog_missing[nprog_missing++], 24, "%s", name);
   return m;
@@ -330,6 +333,21 @@ static const char *os_name_of(int pid) {
     if (os_procs[i].pid == pid) return os_procs[i].name[0] ? os_procs[i].name : NULL;
   return NULL;
 }
+/* The name of process pid's map: sys/NAME for a server (the kernel's
+ * F_SERVER, 2) when DIR/sys/NAME.map is there (a server may share its name
+ * with a program: the server db and the program db), else its name. */
+static const char *os_map_name(int pid) {
+  static char buf[24];
+  const char *nm = os_name_of(pid);
+  if (!nm) return NULL;
+  for (int i = 0; i < os_nprocs; i++)
+    if (os_procs[i].pid == pid && (os_procs[i].flags & 2)) {
+      snprintf(buf, sizeof buf, "sys/%s", nm);
+      if (map_prog(buf)) return buf;
+      break;
+    }
+  return nm;
+}
 static int os_pid_named(const char *name) {
   os_read_procs();
   for (int i = 0; i < os_nprocs; i++)
@@ -369,7 +387,7 @@ static Where where_code(const Core *c, uint64_t pc) {
   if (os_aware) {
     if (c->user && pc >= 0x8000) {
       int pid = os_cur_pid(c->id);
-      w.map = map_prog(os_name_of(pid));
+      w.map = map_prog(os_map_name(pid));
       return forth_kernel(w);
     }
     if (pc < 0x4000 && hit < 0) { w.map = map_scope(SC_IMAGE); return w; }
@@ -441,7 +459,7 @@ static bool line_code(const Core *c, uint64_t pc, const char **file, int *line, 
 /* "name" or "name+off" for a D-LS address of core c (its program's data). */
 static void sym_data(const Core *c, uint64_t a, char *out, size_t n) {
   out[0] = 0;
-  Map *m = os_aware && c->user ? map_prog(os_name_of(os_cur_pid(c->id))) : os_aware ? map_scope(SC_KERNEL) : map_scope(SC_IMAGE);
+  Map *m = os_aware && c->user ? map_prog(os_map_name(os_cur_pid(c->id))) : os_aware ? map_scope(SC_KERNEL) : map_scope(SC_IMAGE);
   const MSym *s = map_sym_at(m, MS_DATA, a);
   if (!s || a - s->addr > 4096) return;
   if (a == s->addr) snprintf(out, n, "%s", s->name);
