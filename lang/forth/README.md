@@ -111,6 +111,28 @@ address (a 16-bit literal) was folded into the load and the store, and
 `1+` is one `addi`: the body is three instructions. The numbers in the
 disassembly are hex.
 
+## How the Forth here is written
+
+- **Names for records and requests.** A server's request is a constant
+  named after its spec (`op-open`, `op-cores`: `os/spec/*.toml`), and a
+  record's field is a word that fetches it (`: running ( r -- pid ) 1+ c@
+  ;`), so code reads `dup running` rather than `dup 1+ c@`. sys.fs names
+  what several ports share; a program names the rest itself.
+- **Short definitions**, one job each, each with a stack comment. A comment
+  says what a record holds or why something is done, not what is on the
+  stack.
+- **Plain stack use.** A value that a loop or several words need is a
+  variable; the return stack holds a value across a call or a loop inside
+  one definition (`>r ... r>`), not more, and `pick` is rare.
+- **Code words** (sys.fs's byte loops, vi.fs's scanners) are assembly
+  written in Forth: named opcodes (`lbu,` `bgeu,`), a comment per step.
+- **What names cost.** Under StrataOS a name takes 16 to 32 bytes of the
+  16 KiB of data space, and a program's text is read and interpreted at
+  every start (some 50 K instructions a KiB). So `progs.pk` is packed
+  without its comments, and vi.fs, whose dictionary is full (about 300
+  bytes of data space left), keeps vi.s's short names, described where
+  they are declared.
+
 ## Design
 
 ### Threading model and registers
