@@ -662,10 +662,9 @@ module strata_core
   assign lt_ok      = lt_okg && lt_wok;
 
   // a far access that hit way lt_victim: the D-LS address of its bytes in
-  // the line, inside the D-LS and (user mode) a D-LS window, which relocates
-  // it. (The RTL reaches one 64-bit word per access: an access that would
-  // straddle two, possible only with a tdata that is not 8-byte aligned,
-  // faults with lsfault.)
+  // the line, a multiple of the access size (else lsfault: possible only
+  // with a tdata that is not), inside the D-LS and (user mode) a D-LS
+  // window, which relocates it
   logic [5:0]  fa_v;
   logic        fa_ws, fa_wok, fa_ok;
   logic [7:0]  fa_pu;
@@ -675,7 +674,7 @@ module strata_core
   assign fa_pu  = win_pu(fa_ws ? csr_wstack : csr_wdata, fa_v);
   assign fa_wok = !dw_on || ((win_cov(csr_wdata, fa_v) || win_cov(csr_wstack, fa_v)) && fa_pu < 8'd64);
   assign fa_pa  = dw_on ? 64'({fa_pu[5:0], fa_da[DLS_LG-7:0]}) : fa_da;
-  assign fa_ok  = fa_da <= 64'(DLS_SIZE) - msz && fa_wok && {1'b0, fa_da[2:0]} + msz[3:0] <= 4'd8;
+  assign fa_ok  = (fa_da[2:0] & 3'(msz - 1)) == 0 && fa_da <= 64'(DLS_SIZE) - msz && fa_wok;
 
   always_comb begin
     hz_addr = '0;
