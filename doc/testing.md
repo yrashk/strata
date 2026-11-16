@@ -57,6 +57,12 @@ the last summary is `build/test/summary.txt`. `tools/run-tests.sh -n ...`
 says what would be built and run and does neither; `-j N` (or `JOBS=N` with
 make) sets how many tests run at once (default: one per processor).
 
+The machine has test slots, shared by every checkout (`~/.cache/strata/slots`,
+one per processor; `STRATA_SLOTS=N` sets how many): a test runs only while it
+holds one, so the runs of several checkouts together never run more tests at
+a time than there are slots. A test that waits for a slot does not count the
+wait in its time. A slot whose holder has died is taken back.
+
 ## What changed
 
 `make test-changed` (`tools/run-tests.sh -c -g [BASE]`) takes the files

@@ -47,7 +47,11 @@ details (the tiers, the selection, the caches, how to add a test).
   `make formal` are not part of `make test` (only the StrataOS half of
   `test-forth` is: `forth-os`): run them when you change `lang/forth/` or
   the RTL that the proofs cover.
-- Tests run at the same time, yours and those of other checkouts. A test
+- Tests run at the same time, yours and those of other checkouts. All of
+  them share the machine's test slots (one per processor, `doc/testing.md`),
+  so starting more runs makes each one wait, not the machine thrash; still,
+  run one test run at a time yourself, and the full `make test` only before
+  landing. A test
   you add keeps its scratch files in its own `mktemp -d`, copies the disk
   before booting from it, and takes host ports from a range of its own. It
   goes into `tools/tests.sh` (one line), not into the `Makefile`.
