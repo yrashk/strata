@@ -892,6 +892,12 @@ class VM:
                 if not (rcvr & 7 or rcvr == 0): h.setword(rcvr, h.hdr(rcvr) | IMM_BIT)
                 return rcvr
             if p == 111: return self.specials
+            if p == 113: return rcvr
+            if p == 114:
+                self.out.flush()
+                b = os.read(0, 512)
+                return self.new_string(b) if b else 0
+            if p == 115: return self.false
             if p == 112:
                 m = args[0]
                 if m & 7 or m == 0 or h.ci(m) != CI['CompiledMethod']: return None

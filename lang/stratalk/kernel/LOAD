@@ -7,4 +7,5 @@ Block.st
 Exception.st
 System.st
 Compiler.st
+LineEditor.st
 Init.st
