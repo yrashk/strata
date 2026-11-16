@@ -10,13 +10,13 @@ b="$here/${BUILD:-build}"
 t="$here/lang/stratalk/tests"
 host=0
 if [ "${1:-}" = "-h" ]; then host=1; shift; fi
-names=${*:-"arith blocks exceptions collections gc compiler vm"}
+names=${*:-"arith blocks exceptions collections gc compiler vm os"}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 fails=0
 if [ $host = 1 ]; then
   for n in $names; do
-    [ "$n" = vm ] && continue
+    case $n in vm|os) continue ;; esac
     python3 "$here/lang/stratalk/host/stratalk.py" run "$b/stratalk/stratalk.image" - < "$t/$n.st" > "$tmp/$n.out" 2>&1
     if cmp -s "$t/$n.out" "$tmp/$n.out"; then echo "stratalk-host $n ok"
     else echo "stratalk-host $n FAIL"; diff "$t/$n.out" "$tmp/$n.out" | head -20; fails=1; fi

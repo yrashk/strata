@@ -61,7 +61,8 @@ Compiler >> fileIn: aString [
             (cls notNil and: [cls isClass]) ifFalse: [^CompileError new signal: 'no class ', (it at: 2)].
             (it at: 3) ifTrue: [cls := cls class].
             m := Compiler new compileMethod: (it at: 4) in: cls.
-            cls addSelector: (it at: 4) selector asSymbol withMethod: m].
+            cls addSelector: (it at: 4) selector asSymbol withMethod: m.
+            MethodSource note: (it at: 5) class: cls selector: m selector].
         (it at: 1) = #expr ifTrue: [
             | node |
             node := StMethod selector: 'DoIt' arguments: #() temps: #() primitive: 0

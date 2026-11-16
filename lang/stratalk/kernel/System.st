@@ -66,6 +66,8 @@ Stratalk class >> start [
         self evaluateAndPrint: ((args copyFrom: 2 to: args size) inject: '' into: [:a :b | a isEmpty ifTrue: [b] ifFalse: [a, ' ', b]]).
         ^Smalltalk quit: 0].
     args first = '-' ifTrue: [^self repl].
+    args first = '-w' ifTrue: [Workspace open. ^Smalltalk quit: 0].
+    args first = '-b' ifTrue: [ClassBrowser open. ^Smalltalk quit: 0].
     ^self fileIn: args first arguments: (args copyFrom: 2 to: args size) ]
 Stratalk class >> banner [
     Transcript showln: Smalltalk version, ': type an expression; "Smalltalk quit" or an end of input to leave' ]

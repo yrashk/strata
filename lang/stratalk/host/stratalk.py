@@ -149,6 +149,7 @@ class Builder:
         self.symbols = {}          # name -> oop
         self.globals = {}          # name -> association oop
         self.doits = []            # (file, line, node)
+        self.files = []            # the kernel's source files, in order
         self.ci_next = FIRST_FREE_CI
 
     # -- reading the sources
@@ -159,6 +160,8 @@ class Builder:
             if line: self.read(os.path.join(base, line))
 
     def read(self, path):
+        if 'kernel' in os.path.dirname(os.path.abspath(path)).split(os.sep)[-1:]:
+            self.files.append(path)
         src = open(path, encoding='utf-8').read()
         try:
             items = stc.Parser(src).items()
@@ -347,6 +350,9 @@ class Builder:
         self.specials = self.array(specials)
         # the globals and the symbols: made last, every name is known by now
         for n in ('Smalltalk', 'Transcript', 'Processor'): self.global_assoc(n)
+        # the kernel's files, for the browser (on the disk under /stratalk)
+        h.setword(self.global_assoc('SourceFiles') + 16,
+                  self.array([self.string(os.path.basename(p)) for p in self.files], True))
         self.finish_tables()
 
     def finish_tables(self):
@@ -426,7 +432,7 @@ FL_BLOCK, FL_ENSURE, FL_HANDLER, FL_DONE, FL_DISABLED = 1, 2, 4, 8, 16
 
 class Frame:
     __slots__ = ('method', 'bc', 'base', 'lits', 'ip', 'temps', 'stack', 'self_', 'rcvr',
-                 'sender', 'serial', 'flags', 'hdr')
+                 'sender', 'serial', 'flags', 'hdr', 'depth')
 
 
 class Quit(Exception):
@@ -577,6 +583,7 @@ class VM:
             elif p == 199: f.flags |= FL_HANDLER
         f.stack = []
         f.sender = f0
+        f.depth = getattr(f0, 'depth', 0) + 1
         self.serial += 1
         f.serial = self.serial
         self.frame = f
@@ -584,11 +591,9 @@ class VM:
 
     def depth_check(self):
         """Deeper than the VM's paged stack goes: Stratalk stackOverflow."""
-        n = 0
-        f = self.frame
-        while f: n += 1; f = f.sender
-        if n < 50000: self.in_ovf = False
-        if n > 100000 and not getattr(self, 'in_ovf', False):
+        n = self.frame.depth
+        if n < 10000: self.in_ovf = False
+        if n > 20000 and not getattr(self, 'in_ovf', False):
             self.in_ovf = True
             st = self.frame.stack
             st.append(self.h.slot(self.specials, SP_START_RCVR))

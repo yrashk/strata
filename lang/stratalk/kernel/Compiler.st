@@ -4,7 +4,7 @@
 
 Object subclass: #StToken slots: 'kind value start stop line'.
 Object subclass: #StScanner slots: 'source pos line tokens'.
-Object subclass: #StParser slots: 'tokens index'.
+Object subclass: #StParser slots: 'tokens index source'.
 Object subclass: #StNode slots: 'line'.
 StNode subclass: #StLiteral slots: 'value'.
 StNode subclass: #StVariable slots: 'name'.
@@ -220,7 +220,8 @@ StMethod >> statements [ ^statements ]
 
 "---- the parser -------------------------------------------------------------------"
 
-StParser class >> on: aString [ ^self new setTokens: (StScanner scan: aString) ]
+StParser class >> on: aString [ ^self new setTokens: (StScanner scan: aString) source: aString ]
+StParser >> setTokens: t source: aString [ tokens := t. index := 1. source := aString ]
 StParser >> setTokens: t [ tokens := t. index := 1 ]
 StParser >> peek [ ^tokens at: (index min: tokens size) ]
 StParser >> peek: k [ ^tokens at: (index + k min: tokens size) ]
@@ -238,10 +239,14 @@ StParser >> items [
             ifFalse: [
                 self isMethodDef
                     ifTrue: [
+                        | from |
                         cls := self next value. meta := false.
                         ((self peek is: #ident) and: [self peek value = 'class']) ifTrue: [self next. meta := true].
                         self next.
-                        out add: (Array with: #method with: cls with: meta with: self methodDef)]
+                        from := self peek start.
+                        t := self methodDef.
+                        out add: (Array with: #method with: cls with: meta with: t
+                            with: (source copyFrom: from to: (tokens at: index - 1) stop - 1))]
                     ifFalse: [
                         line := self peek line.
                         e := self expression.
@@ -280,6 +285,14 @@ StParser >> methodSource [
             ifFalse: [(self atBin: '<') ifTrue: [prim := self pragma]]].
     stmts := self statements: #eof.
     ^StMethod selector: (sp at: 1) arguments: (sp at: 2) temps: temps primitive: prim statements: stmts line: line ]
+StParser >> methodEither [
+    "A pattern and a body, the body in brackets (as in a file) or not."
+    | start |
+    start := index.
+    self pattern.
+    (self peek is: #'[') ifTrue: [index := start. ^self methodDef].
+    index := start.
+    ^self methodSource ]
 StParser >> doIt [
     "Statements, with temporaries first: what the REPL compiles."
     | temps stmts |
@@ -545,13 +558,14 @@ Compiler >> compileDoIt: aString for: aClass [
     node setSelector: 'DoIt' arguments: #() temps: node temps primitive: 0 statements: stmts.
     ^self compileMethod: node in: aClass ]
 Compiler >> compile: aString in: aClass [
-    "Compile a method (its pattern and body) and install it."
+    "Compile a method (its pattern and body, the body in brackets or not) and install it."
     | m |
     m := self compileSource: aString in: aClass.
     aClass addSelector: m selector asSymbol withMethod: m.
+    MethodSource note: aString class: aClass selector: m selector.
     ^m ]
 Compiler >> compileSource: aString in: aClass [
-    ^self compileMethod: (StParser on: aString) methodSource in: aClass ]
+    ^self compileMethod: (StParser on: aString) methodEither in: aClass ]
 Compiler >> compileMethod: aNode in: aClass [
     ivars := aClass allInstVarNames asArray.
     methodClass := aClass.

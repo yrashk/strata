@@ -71,3 +71,6 @@ $a value
 $a < $b
 $z asUppercase
 $5 digitValue
+((2 raisedTo: 70) + 255) bitAnd: 4095
+((2 raisedTo: 64) + 1) bitOr: 6
+(2 raisedTo: 65) bitXor: (2 raisedTo: 65)

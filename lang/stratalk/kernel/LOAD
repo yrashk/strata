@@ -10,4 +10,7 @@ Compiler.st
 LineEditor.st
 File.st
 OS.st
+OSServers.st
+Window.st
+UI.st
 Init.st

@@ -324,9 +324,18 @@ LargePositiveInteger >> negative [ ^self isNegative ]
 LargePositiveInteger >> bitShift: n [
     n >= 0 ifTrue: [^self * (2 raisedTo: n)].
     ^self // (2 raisedTo: 0 - n) ]
-LargePositiveInteger >> bitAnd: n [ ^self error: 'bitAnd: of large integers is not supported' ]
-LargePositiveInteger >> bitOr: n [ ^self error: 'bitOr: of large integers is not supported' ]
-LargePositiveInteger >> bitXor: n [ ^self error: 'bitXor: of large integers is not supported' ]
+LargePositiveInteger >> bitOp: n with: aBlock [
+    "Byte by byte, for integers >= 0."
+    | a b r |
+    (self negative or: [n negative]) ifTrue: [^self error: 'bitwise operations of negative large integers are not supported'].
+    a := self digits. b := (LargePositiveInteger fromInteger: n) digits.
+    r := Array new: (a size max: b size).
+    1 to: r size do: [:i |
+        r at: i put: (aBlock value: (i <= a size ifTrue: [a at: i] ifFalse: [0]) value: (i <= b size ifTrue: [b at: i] ifFalse: [0]))].
+    ^LargePositiveInteger digits: r negative: false ]
+LargePositiveInteger >> bitAnd: n [ ^self bitOp: n with: [:x :y | x bitAnd: y] ]
+LargePositiveInteger >> bitOr: n [ ^self bitOp: n with: [:x :y | x bitOr: y] ]
+LargePositiveInteger >> bitXor: n [ ^self bitOp: n with: [:x :y | x bitXor: y] ]
 LargePositiveInteger >> printString: base [
     | digits n s qr |
     digits := OrderedCollection new.
