@@ -6,12 +6,13 @@
 # Then the typeahead: "seqx" (no match), Backspace ("seq": the class
 # SequenceableCollection), Esc (the filter cleared, the class still
 # selected, the list whole); in the selectors "zzz", Ctrl-U, "do:" (the
-# selector do:); Esc with no filter does not close the browser (a stray
-# Esc must not); Ctrl-Q does.
+# selector do:); Esc in the classes, with no filter, closes the browser.
 # The REPL that opened it prints what was selected. Then the REPL's line
 # editor on the console: the up arrow brings the line back; Delete and
 # Ctrl+arrows (ESC [ 3 ~, ESC [ 1 ; 5 C) are dropped whole, nothing of
-# them typed into the line.
+# them typed into the line. Last a raw READ of the console while an arrow
+# comes a byte at a time (tty reads the device a byte at a time): it gets
+# the whole ESC [ A, not an ESC that would be the Esc key.
 set -u
 here=$(cd "$(dirname "$0")/../../.." && pwd)
 b="$here/${BUILD:-build}"
@@ -38,10 +39,10 @@ typed() {                               # typed TEXT: a key at a time
   printf "\t\t$W"
   typed seqx; printf "\177$W\033$W$W"
   printf "\t$W"; typed zzz; printf "\025$W"; typed 'do:'
-  printf "\t\t$W\033$W$W\021$W$W$W"
+  printf "\t\t$W\033$W$W$W"
   printf "Smalltalk quit\r$W$W$W${AQ}"
   printf 'cat out.txt\n'
-  printf 'stratalk\n1 + 1\r\033[A\033[3~\033[1;5C\r\033[1;5Dx := 6 * 7\rSmalltalk quit\r'
+  printf 'stratalk\n1 + 1\r\033[A\033[3~\033[1;5C\r\033[1;5Dx := 6 * 7\r(Smalltalk consoleMode: 1; readKeys) asArray collect: [:c | c value]\r\033[ASmalltalk quit\r'
   printf 'echo ==editor done\n'
   printf 'halt\n'
 } > "$tmp/in.txt"
@@ -60,7 +61,7 @@ if "#('SequenceableCollection' '' true 'do:')" not in out:
 b = raw.index('strata$ stratalk\n')
 ed = raw[b:raw.index('==editor done', b)]
 res = [l.split('st> ')[-1] for l in ed.split('\n') if l.startswith('st> ') or not l.startswith(('strata', 'Stratalk'))]
-if res.count('2') != 2 or '42' not in res or 'Error' in ed or '~' in ed:
+if res.count('2') != 2 or '42' not in res or 'Error' in ed or '~' in ed or '#(27 91 65)' not in ed:
     print('the line editor:\n' + ed); sys.exit(1)
 PY
 echo "stratalk-browser: ok    the arrows through the lists; the typeahead"

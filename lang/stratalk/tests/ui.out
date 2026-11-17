@@ -7,11 +7,14 @@
 #ok
 #ok
 #ok
+#ok
+#ok
+#ok
 31
 #ok
 OrderedCollection ('3 + 4y' '10 factorialx' '(1 to: 10) collect: [:i | i * i]' 'Proc ps')
-#()
-0
+true
+#('z3 + 4' '1!00 factorial')
 '3 + 4
 100 factorial
 (1 to: 10) collect: [:i | i * i]

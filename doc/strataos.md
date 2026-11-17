@@ -1633,8 +1633,12 @@ shell):
   Alt+Shift+W makes the server ignore the keyboard for a second (for
   scripted input in tests and demos); Alt+? shows the key help. Every
   other key is an event for the focused window: Esc followed by a key is
-  Esc and then that key, whatever the timing (an ESC with nothing after it
-  for 100 ms is the Esc key, not the start of ESC [); an Alt+key the server
+  Esc and then that key, whatever the timing (tty gives raw input in whole
+  keys: an ESC [ is never cut between two reads, and an ESC with nothing
+  after it for 50 ms goes alone; so an ESC that ends a read is the Esc
+  key). A key's bytes reach the window in one event, and the Esc key ends
+  its event: a client takes an ESC that ends an event for the Esc key,
+  with no timing of its own. An Alt+key the server
   does not bind reaches the window as ESC and the key (as a terminal's
   "meta sends escape"), Alt+Home, End, Delete, Page Up or Down as the key
   alone. Ctrl-C closes the palette, or SIGNALs the focused

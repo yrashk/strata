@@ -121,7 +121,8 @@ num = 44
 name = "EVENT"
 summary = "Wait for the window's next event"
 note = """Events queue per window, 8 at most: keys that follow each other share an event (up to 8 \
-bytes); a second resize is not queued (the one queued carries the latest size); a move after a \
+bytes); a key's bytes (an escape sequence) are never split between two events, and the Esc key \
+ends its event, so an ESC that ends a key event is the Esc key; a second resize is not queued (the one queued carries the latest size); a move after a \
 move replaces it; with the queue full an event is dropped, but a close replaces the last one. \
 Kinds: 1 key (the focused window), 2 resize (draw again at the new size), 3 close (Alt+Q: the \
 process is killed 400 ms later), 4 focus in, 5 focus out, 6 pointer, 7 wheel. Pointer events go \

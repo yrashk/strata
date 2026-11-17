@@ -9,8 +9,9 @@
 ; Alt+ an arrow, Home or End ESC [ 1 ; 3 X, Alt+ Delete, Page Up or Down
 ; ESC [ n ; 3 ~. So an ESC followed by a key is the Esc key and then that
 ; key, whatever the timing; only an ESC with nothing after it yet is
-; undecided (it may start a sequence): the caller decides it by time, and
-; then clears kp_st.
+; undecided (it may start a sequence): the caller decides it, and then
+; clears kp_st (ws: an ESC that ends tty's read is the Esc key, since tty
+; gives raw input in whole keys and holds a sequence's start for its rest).
 ;
 ;   kp_byte(a0 = byte) -> a0 = KP_*, a1, a3 (below); a2 = 1: this byte was
 ;                         not used up, give it again (after an Esc, or a

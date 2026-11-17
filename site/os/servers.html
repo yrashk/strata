@@ -1833,7 +1833,7 @@ pid 6, made by <code>proc</code> at boot, alone on core 4.
 <a href="#tty-20"><span class="n">20</span><code>ATTACH</code><span>Give the console&#x27;s input to a guest until it comes back</span></a>
 </div>
 <article class="op" id="tty-1">
-<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/tty.s:898"><code>READ</code></a><span class="sum">Read from the console</span></h4>
+<h4><span class="n">1</span><a class="opname" href="../code/#os/servers/tty.s:925"><code>READ</code></a><span class="sum">Read from the console</span></h4>
 <p>Cooked mode (the default): input is echoed and edited (Backspace erases), and a READ returns one line with its newline (at most 255 characters; more are ignored), or what was typed before Ctrl-D; a Ctrl-D on an empty line is the end of input (0). Raw mode: no echo, whatever bytes are there, at least one; a READ that does not block and finds nothing has one byte read ahead, so a program that polls sees the rest of an escape sequence (<code>vi</code> telling Esc from ESC [ A). CR becomes LF in both. A reader waits while there is nothing (up to 8 readers, answered in turn); a guest&#x27;s READ waits while StrataOS has the console, and StrataOS&#x27;s while a guest has it. With mode bit 1 (raw mode, the window server) the READ is also answered when pointer events wait: they come after the data at offset 32 and the reply&#x27;s mode word says how many, so such a READ gives at most 32 key bytes. Without a pointer, bit 1 is ignored. A cooked READ shorter than the line takes its start; the rest is given only once another line is typed.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1860,7 +1860,7 @@ pid 6, made by <code>proc</code> at boot, alone on core 4.
 </tbody>
 </table></div></article>
 <article class="op" id="tty-2">
-<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/tty.s:853"><code>WRITE</code></a><span class="sum">Write to the console</span></h4>
+<h4><span class="n">2</span><a class="opname" href="../code/#os/servers/tty.s:880"><code>WRITE</code></a><span class="sum">Write to the console</span></h4>
 <p>Output is written for anyone, guests too, whoever has the console&#x27;s input. A program&#x27;s library sends a WRITE only when its console ring cannot take the bytes (doc/strataos.md 2.3): before acting on any request, tty writes out every ring. An empty WRITE wakes tty when a ring says it sleeps.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1876,7 +1876,7 @@ pid 6, made by <code>proc</code> at boot, alone on core 4.
 </tbody>
 </table></div></article>
 <article class="op" id="tty-4">
-<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/tty.s:1141"><code>CLOSE</code></a><span class="sum">Close the console (it stays open)</span></h4>
+<h4><span class="n">4</span><a class="opname" href="../code/#os/servers/tty.s:1290"><code>CLOSE</code></a><span class="sum">Close the console (it stays open)</span></h4>
 <p>From the guest the console is attached to, it gives the console back to StrataOS (Forth&#x27;s <code>bye</code>): the ATTACH is answered with 1. From anyone else nothing happens.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -1887,7 +1887,7 @@ pid 6, made by <code>proc</code> at boot, alone on core 4.
 </tbody>
 </table></div></article>
 <article class="op" id="tty-18">
-<h4><span class="n">18</span><a class="opname" href="../code/#os/servers/tty.s:883"><code>SETFG</code></a><span class="sum">Make a process the foreground: Ctrl-C interrupts it</span></h4>
+<h4><span class="n">18</span><a class="opname" href="../code/#os/servers/tty.s:910"><code>SETFG</code></a><span class="sum">Make a process the foreground: Ctrl-C interrupts it</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the pid (not checked)</td></tr>
@@ -1897,7 +1897,7 @@ pid 6, made by <code>proc</code> at boot, alone on core 4.
 </tbody>
 </table></div></article>
 <article class="op" id="tty-19">
-<h4><span class="n">19</span><a class="opname" href="../code/#os/servers/tty.s:890"><code>CONMODE</code></a><span class="sum">Cooked or raw input</span></h4>
+<h4><span class="n">19</span><a class="opname" href="../code/#os/servers/tty.s:917"><code>CONMODE</code></a><span class="sum">Cooked or raw input</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>bit 0: 0 cooked, 1 raw</td></tr>
@@ -1907,7 +1907,7 @@ pid 6, made by <code>proc</code> at boot, alone on core 4.
 </tbody>
 </table></div></article>
 <article class="op" id="tty-20">
-<h4><span class="n">20</span><a class="opname" href="../code/#os/servers/tty.s:1157"><code>ATTACH</code></a><span class="sum">Give the console&#x27;s input to a guest until it comes back</span><span class="from">a StrataOS process (the <code>guest</code> command)</span></h4>
+<h4><span class="n">20</span><a class="opname" href="../code/#os/servers/tty.s:1306"><code>ATTACH</code></a><span class="sum">Give the console&#x27;s input to a guest until it comes back</span><span class="from">a StrataOS process (the <code>guest</code> command)</span></h4>
 <p>Only that guest&#x27;s READs are answered meanwhile. The request waits, and is answered when the console comes back: Ctrl-] typed (echoed <code>^]</code>), the guest&#x27;s CLOSE, the guest stopped (proc&#x27;s CLEANUP for its id), or the attaching process interrupted or ended. The id is checked only to be in the guests&#x27; range, not to name a running guest.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2328,7 +2328,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 <a href="#ws-46"><span class="n">46</span><code>TITLE</code><span>Change a window&#x27;s title</span></a>
 </div>
 <article class="op" id="ws-40">
-<h4><span class="n">40</span><a class="opname" href="../code/#os/ws/ws.s:1109"><code>CREATE</code></a><span class="sum">Open a window</span></h4>
+<h4><span class="n">40</span><a class="opname" href="../code/#os/ws/ws.s:1088"><code>CREATE</code></a><span class="sum">Open a window</span></h4>
 <p>The new window takes the focus, and the tiling changes (a window shown alone is tiled again). With mode bit 0 the server SIGNALs the client&#x27;s process while events wait and no EVENT is waiting, at most every 200 ms (the window is drawn as a terminal&#x27;s).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2347,7 +2347,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-41">
-<h4><span class="n">41</span><a class="opname" href="../code/#os/ws/ws.s:1197"><code>DAMAGE</code></a><span class="sum">Copy a band of pixels into the window, or redraw part of it</span></h4>
+<h4><span class="n">41</span><a class="opname" href="../code/#os/ws/ws.s:1176"><code>DAMAGE</code></a><span class="sum">Copy a band of pixels into the window, or redraw part of it</span></h4>
 <p>With a band: its w x h pixels, from the band&#x27;s offset 0 with rows <code>stride</code> bytes apart, are copied to (x, y) of the surface, and that rectangle is redrawn on the screen. A rectangle that does not fit the surface (a band drawn for the size before a resize) is ignored, with 0. Without a band the rectangle is only redrawn.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2368,7 +2368,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-42">
-<h4><span class="n">42</span><a class="opname" href="../code/#os/ws/ws.s:1268"><code>TEXT</code></a><span class="sum">Draw text into the window</span></h4>
+<h4><span class="n">42</span><a class="opname" href="../code/#os/ws/ws.s:1247"><code>TEXT</code></a><span class="sum">Draw text into the window</span></h4>
 <p>In the 8 x 16 body font, at most 160 characters (the rest is cut).</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2388,7 +2388,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-43">
-<h4><span class="n">43</span><a class="opname" href="../code/#os/ws/ws.s:1299"><code>FILL</code></a><span class="sum">Fill a rectangle of the window with a colour</span></h4>
+<h4><span class="n">43</span><a class="opname" href="../code/#os/ws/ws.s:1278"><code>FILL</code></a><span class="sum">Fill a rectangle of the window with a colour</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the window id</td></tr>
@@ -2406,8 +2406,8 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-44">
-<h4><span class="n">44</span><a class="opname" href="../code/#os/ws/ws.s:1319"><code>EVENT</code></a><span class="sum">Wait for the window&#x27;s next event</span></h4>
-<p>Events queue per window, 8 at most: keys that follow each other share an event (up to 8 bytes); a second resize is not queued (the one queued carries the latest size); a move after a move replaces it; with the queue full an event is dropped, but a close replaces the last one. Kinds: 1 key (the focused window), 2 resize (draw again at the new size), 3 close (Alt+Q: the process is killed 400 ms later), 4 focus in, 5 focus out, 6 pointer, 7 wheel. Pointer events go to the window under the pointer: presses and releases, moves while a button is held, and the wheel. One EVENT waits per window.</p>
+<h4><span class="n">44</span><a class="opname" href="../code/#os/ws/ws.s:1298"><code>EVENT</code></a><span class="sum">Wait for the window&#x27;s next event</span></h4>
+<p>Events queue per window, 8 at most: keys that follow each other share an event (up to 8 bytes); a key&#x27;s bytes (an escape sequence) are never split between two events, and the Esc key ends its event, so an ESC that ends a key event is the Esc key; a second resize is not queued (the one queued carries the latest size); a move after a move replaces it; with the queue full an event is dropped, but a close replaces the last one. Kinds: 1 key (the focused window), 2 resize (draw again at the new size), 3 close (Alt+Q: the process is killed 400 ms later), 4 focus in, 5 focus out, 6 pointer, 7 wheel. Pointer events go to the window under the pointer: presses and releases, moves while a button is held, and the wheel. One EVENT waits per window.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the window id</td></tr>
@@ -2429,7 +2429,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-45">
-<h4><span class="n">45</span><a class="opname" href="../code/#os/ws/ws.s:1355"><code>DESTROY</code></a><span class="sum">Close a window</span></h4>
+<h4><span class="n">45</span><a class="opname" href="../code/#os/ws/ws.s:1334"><code>DESTROY</code></a><span class="sum">Close a window</span></h4>
 <p>Answered first; the other windows close ranks, and an EVENT waiting on the window gets −1.</p>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
@@ -2443,7 +2443,7 @@ pid 7, made by <code>proc</code> at boot, on core 5.
 </tbody>
 </table></div></article>
 <article class="op" id="ws-46">
-<h4><span class="n">46</span><a class="opname" href="../code/#os/ws/ws.s:1063"><code>TITLE</code></a><span class="sum">Change a window&#x27;s title</span></h4>
+<h4><span class="n">46</span><a class="opname" href="../code/#os/ws/ws.s:1042"><code>TITLE</code></a><span class="sum">Change a window&#x27;s title</span></h4>
 <div class="optable"><table>
 <tbody class="request"><tr class="sec"><th colspan="4">request</th></tr>
 <tr><td class="k">handle</td><td class="at"></td><td class="ty"></td><td>the window id</td></tr>

@@ -1,6 +1,9 @@
 Object subclass: #FakeWindow slots: 'events drawn'. #ok
 FakeWindow compile: 'events: c [ events := OrderedCollection new. drawn := OrderedCollection new. c do: [:k | self add: k] ]'. #ok
-FakeWindow compile: 'add: k [ k isString ifFalse: [^events add: k]. 1 to: k size by: 8 do: [:i | events add: (WindowEvent bytes: (k copyFrom: i to: (i + 7 min: k size)))] ]'. #ok
+FakeWindow class compile: 'keyEnd: k from: i [ | j | ((k at: i) value = 27 and: [i < k size and: [(k at: i + 1) = $[]]) ifFalse: [^i]. j := i + 2. [j < k size and: [(k at: j) value < 64]] whileTrue: [j := j + 1]. ^j ]'. #ok
+FakeWindow class compile: 'keysOf: k [ | r i j | r := OrderedCollection new. i := 1. [i <= k size] whileTrue: [j := self keyEnd: k from: i. r add: (k copyFrom: i to: j). i := j + 1]. ^r ]'. #ok
+FakeWindow compile: 'put: ev [ ev isEmpty ifFalse: [events add: (WindowEvent bytes: ev)]. ^'''' ]'. #ok
+FakeWindow compile: 'add: k [ | v | k isString ifFalse: [^events add: k]. v := ''''. (FakeWindow keysOf: k) do: [:x | v size + x size > 8 ifTrue: [v := self put: v]. v := v , x. x = E ifTrue: [v := self put: v]]. self put: v ]'. #ok
 WindowEvent class compile: 'bytes: s [ ^self new setKind: 1 value: ((1 to: s size) inject: 0 into: [:v :i | v + ((s at: i) value bitShift: 8 * (i - 1))]) width: s size height: 0 ]'. #ok
 FakeWindow compile: 'columns [ ^80 ]'. FakeWindow compile: 'rows [ ^24 ]'. FakeWindow compile: 'clear: c [ ^self ]'. FakeWindow compile: 'drawn [ ^drawn ]'. #ok
 FakeWindow compile: 'text: s column: c row: r color: f background: b [ drawn add: (Array with: s with: c with: r with: f) ]'. #ok
@@ -10,8 +13,8 @@ Smalltalk at: #E put: (String with: (Character value: 27)). Smalltalk at: #CQ pu
 Smalltalk at: #Keys put: E , '[B' , E , '[C' , E , '[C' , E , '[3~' , E , '[F' , 'x' , E , '[H' , E , '[1;5D' , 'y' , E , '[A' , CQ. Keys size
 Smalltalk at: #Run put: [:evs | | w ws | w := FakeWindow new. w events: evs. ws := Workspace new. ws openIn: w. ws textPane text]. #ok
 (Run value: (Array with: Keys)) lines
-| one | one := Run value: (Array with: Keys). (1 to: Keys size - 1) select: [:k | (Run value: (Array with: (Keys copyFrom: 1 to: k) with: (Keys copyFrom: k + 1 to: Keys size))) ~= one]
-| one | one := Run value: (Array with: Keys). (1 to: Keys size - 1) inject: 0 into: [:n :k | n + ((Run value: ((1 to: Keys size) collect: [:i | String with: (Keys at: i)])) = one ifTrue: [0] ifFalse: [1])]
+(Run value: (FakeWindow keysOf: Keys) asArray) = (Run value: (Array with: Keys))
+((Run value: (Array with: E , 'z' , E , '[B!' , E with: CQ)) lines first: 2) asArray
 Run value: (Array with: (String with: (Character value: 27)) with: (String with: (Character value: 17)))
 (Run value: (Array with: (String with: (Character value: 27) with: (Character value: 27)) , '[A' with: (String with: (Character value: 17)))) lines size
 | r | r := OrderedCollection new. StHighlight runsOf: '^x := #(1 2) at: 2' open: nil into: r. r collect: [:e | (e at: 1) -> (e at: 2)]

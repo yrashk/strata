@@ -14,14 +14,12 @@
  list tells what was selected (a class's selectors, a method's source)
  once, after them."
 
-Object subclass: #UIApp slots: 'window panes focus done status pending batch stale chosen cutFull'.
+Object subclass: #UIApp slots: 'window panes focus done status batch stale chosen'.
 "A tool in a Window of ws: panes of character cells, the one with the
  focus taking the keys, a status line at the bottom, and an event loop.
  window is the Window, panes the Panes in Tab order, focus the pane with
  the focus, done true once the loop should end, status the status line's
- text, pending the start of an escape sequence an event cut short,
- cutFull true when the event that cut it was full (8 bytes), batch
- true while the keys of several events are handled together, stale true
+ text, batch true while the keys of several events are handled together, stale true
  when the window is to be drawn after them, chosen the lists whose
  selection changed meanwhile. A subclass lays its panes out (layout) and
  may take keys first (command:). Keys every tool shares: Tab the next
@@ -81,8 +79,8 @@ UIApp subclass: #ClassBrowser slots: 'classes selectors source meta target'.
  shows the class's definition or the selected method's source, from
  MethodSource, in colours. Typing in a list narrows it (typeahead).
  Ctrl-T toggles the class side (meta); Ctrl-S compiles the source pane's
- text into the class; Ctrl-Q closes it (Esc only clears what was typed:
- a stray one, from a key held on a busy machine, closes nothing). target, when set (on:), is a name it starts at: a class, a
+ text into the class; Esc (in a list with nothing typed) and Ctrl-Q
+ close it. target, when set (on:), is a name it starts at: a class, a
  Class>>selector, or a selector, whose implementors the classes list is
  narrowed to. ClassBrowser open, Smalltalk browse, Smalltalk browse:
  'name', or stratalk -b [NAME]."
@@ -167,26 +165,20 @@ UIApp >> add: aPane [
     panes add: aPane. ^aPane ]
 UIApp >> loop [
     "The event loop: waits for the window's events (ws EVENT) until done,
-     and hands each to handle:. While an escape sequence waits for its
-     rest, waits 40 ms at most: if nothing came, its ESC was the Esc key."
-    | e |
-    [done] whileFalse: [
-        e := pending == nil ifTrue: [window nextEvent] ifFalse: [window nextEventWait: 40000].
-        (e == nil and: [pending notNil]) ifTrue: [self flushPending].
-        e == nil ifFalse: [self handle: e]] ]
+     and hands each to handle:."
+    [done] whileFalse: [self handle: window nextEvent] ]
 UIApp >> handle: e [
     "A close ends the loop; a resize lays the panes out again and redraws;
      keys go to keys:, with those of the key events already waiting (ws
-     EVENT without blocking), taken together (batch:); a pointer event with
-     a button held to click:row:, in cells."
-    | ks more |
+     EVENT without blocking), each event's keys apart but drawn once
+     (batch:); a pointer event with a button held to click:row:, in cells."
+    | more |
     e isClose ifTrue: [done := true].
     e isResize ifTrue: [panes := OrderedCollection new. self layout. focus := panes first. self drawAll].
     e isKey ifTrue: [
-        ks := e keys.
-        cutFull := e width >= 8.
-        [(more := window pollEvent) notNil and: [more isKey]] whileTrue: [ks := ks , more keys. cutFull := more width >= 8].
-        self batch: [self keys: ks].
+        self batch: [
+            self keys: e keys.
+            [(more := window pollEvent) notNil and: [more isKey]] whileTrue: [self keys: more keys]].
         more == nil ifFalse: [self handle: more]].
     (e isPointer and: [e buttons ~= 0]) ifTrue: [self click: e x // Window cellWidth row: e y // Window cellHeight] ]
 UIApp >> batch: aBlock [
@@ -204,38 +196,34 @@ UIApp >> selectionChanged: aList [
     chosen == nil ifTrue: [^aList changed].
     (chosen includes: aList) ifFalse: [chosen add: aList] ]
 UIApp >> keys: aString [
-    "Handles the bytes of a key event, as a terminal sends them, after what
-     an earlier event left of an escape sequence: an escape sequence goes to
-     escape:, any other character to key:. A sequence cut short is kept in
-     pending for the next event; one cut short, then another one (or an
-     ESC, then what cannot follow it in a sequence), lost its rest (ws's
-     queue was full) and is dropped: it is not an Esc."
-    | s c start |
-    (pending notNil and: [aString notEmpty and: [aString first value = 27
-        or: [pending size = 1 and: [aString first ~= $[]]]]) ifTrue: [pending := nil].
-    s := ReadStream on: (pending == nil ifTrue: [aString] ifFalse: [pending , aString]).
-    pending := nil.
+    "Handles the bytes of a key event, as a terminal sends them: an escape
+     sequence goes to escape:, any other character to key:. ws never splits
+     a key between two events (tty gives it whole, and ws keeps its bytes
+     in one event), and the Esc key ends its event: so an ESC with nothing
+     after it in the event is the Esc key, at once, and a sequence the
+     event ends before its end (one longer than an event) is dropped."
+    | s c |
+    s := ReadStream on: aString.
     [s atEnd] whileFalse: [
-        start := s position.
         c := s next.
         c value = 27
-            ifTrue: [(self escape: s) ifFalse: [
-                pending := s collection copyFrom: start + 1 to: s collection size.
-                ^self]]
+            ifTrue: [s atEnd
+                ifTrue: [self key: c]
+                ifFalse: [(self escape: s) ifFalse: [^self]]]
             ifFalse: [self key: c]] ]
 UIApp >> escape: s [
     "Reads the rest of an escape sequence from the stream s, after its ESC,
      and hands it on: ESC [ A, B, C, D, H, F (the arrows, Home, End; also
      with modifiers, ESC [ 1 ; 5 D) and ESC [ n ~ or ESC [ n ; m ~ (Home,
      Insert, Delete, End, Page Up, Page Down) to special: as a Symbol (#up,
-     #pageDown, ...; #none for another); ESC and another key to key:.
-     Answers false, having done
-     nothing, when the stream ends before the sequence does. A sequence
-     whose end never came (a dropped event) is dropped, and the key after
-     it is a key."
+     #pageDown, ...; #none for another). An ESC and another key is Alt and
+     that key, as terminals send it: the key alone goes to key:, not the
+     Esc key. Answers false when the stream ends before the sequence does.
+     A sequence whose end never came (a dropped event) is dropped, and the
+     key after it is a key."
     | c n |
     s atEnd ifTrue: [^false].
-    s peek = $[ ifFalse: [self key: (Character value: 27). ^true].
+    s peek = $[ ifFalse: [s peek value = 27 ifFalse: [self key: s next]. ^true].
     s next.
     s atEnd ifTrue: [^false].
     c := s next.
@@ -251,16 +239,6 @@ UIApp >> escape: s [
     self special: (c = $A ifTrue: [#up] ifFalse: [c = $B ifTrue: [#down] ifFalse: [c = $C ifTrue: [#right] ifFalse: [
         c = $D ifTrue: [#left] ifFalse: [c = $H ifTrue: [#home] ifFalse: [c = $F ifTrue: [#end] ifFalse: [#none]]]]]]).
     ^true ]
-UIApp >> flushPending [
-    "No more came: an ESC alone was the Esc key, unless it ended a full event
-     (8 bytes: ws cut a sequence there, and dropped the rest, its queue
-     full); a sequence begun (ESC [ ...) lost its rest the same way. Both
-     are dropped: taking them for Esc would close a tool while an arrow is
-     held."
-    | p |
-    p := pending.
-    pending := nil.
-    (p size = 1 and: [cutFull ~~ true]) ifTrue: [self key: (Character value: 27)] ]
 UIApp >> key: c [
     "Handles the character c: the tool's own keys first (command:; the
      Workspace's Tab completes), then Tab moves the focus to the next pane,
@@ -932,10 +910,9 @@ ClassBrowser >> selectorList [
     "The pane of the selected class's selectors."
     ^selectors ]
 ClassBrowser >> quitsOnEscape [
-    "Answers false: Esc does not close the browser (Ctrl-Q does). An Esc
-     that ws made of a key held on a busy machine closed it in the middle
-     of the browsing; here an Esc only clears a list's typeahead."
-    ^false ]
+    "Answers whether Esc closes the browser: not while the source pane has
+     the focus."
+    ^focus ~~ source ]
 ClassBrowser >> currentClass [
     "The selected class, or its metaclass on the class side; nil when no
      class is selected."
