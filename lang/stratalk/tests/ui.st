@@ -29,3 +29,6 @@ Run value: (Array with: (String with: (Character value: 27)) with: (String with:
 ((Run value: (Array with: E , '[B' , E , '[B' , E , '[B' , E , '[F. Transcr' , (String with: Character tab))) lines last: 1) asArray
 ((Run value: (Array with: E , '[F. 3 printS' , (String with: Character tab) , E , '[B' , E , '[F x prin' , (String with: Character tab))) lines first: 2) asArray
 | w ws | w := FakeWindow new. w events: (Array with: E , '[B' , E , '[C' , E , '[C' , E , '[C' , E , '[C' , E , '[C'). ws := Workspace new. ws openIn: w. ws textPane wordAtCursor
+((Run value: (Array with: E , '[F. ''say "hi"''' , (String with: (Character value: 16)))) lines first: 2) asArray
+((Run value: (Array with: E , '[F foo' , (String with: (Character value: 16)))) lines first: 2) asArray
+Compiler evaluate: ((Run value: (Array with: E , '[F. ''a "b"''' , (String with: (Character value: 16)))) lines first: 2) first , ' ' , ((Run value: (Array with: E , '[F. ''a "b"''' , (String with: (Character value: 16)))) lines at: 2)

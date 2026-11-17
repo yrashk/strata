@@ -65,7 +65,8 @@ Vec >> printOn: aStream [ aStream print: x; nextPut: $@; print: y ]
     a pipe; <code>stratalk FILE.st</code> files a program in.</li>
   <li><code>stratalk -j</code>: with the JIT on.</li>
   <li>In the window server: <code>stratalk -w</code> opens a workspace, its code in the colours of
-    this page (<kbd>Ctrl-P</kbd> prints the current line's value, <kbd>Ctrl-D</kbd> does it,
+    this page (<kbd>Ctrl-P</kbd> prints the current line's value under it as a comment,
+    <code>"7"</code>, so the text still runs as it did; <kbd>Ctrl-D</kbd> does it,
     <kbd>Ctrl-O</kbd> inspects it; <kbd>Tab</kbd> completes a name as the REPL does, and lists the
     choices on the status line; <kbd>Ctrl-B</kbd> browses the name under the cursor: a class, or
     a selector's method, or its implementors when there are several), <code>stratalk -b</code> a

@@ -66,8 +66,9 @@ Object subclass: #StHighlight slots: ''.
 
 UIApp subclass: #Workspace slots: 'text last'.
 "A UIApp of one editable TextPane of code. The cursor's line is the code:
- Ctrl-P evaluates it and prints the result under it ('  -> ' and the
- printString), Ctrl-D evaluates it, Ctrl-O evaluates it and inspects the
+ Ctrl-P evaluates it and prints the result under it as a comment (its
+ printString in double quotes, a quote in it doubled; an error the same
+ way), so the text stays Stratalk that runs again as it did, Ctrl-D evaluates it, Ctrl-O evaluates it and inspects the
  result, Ctrl-B opens a ClassBrowser in the same window on the name under
  the cursor, Tab completes a name as the REPL does, Ctrl-Q quits.
  Esc does not quit it. text is the TextPane, last the last value
@@ -814,20 +815,37 @@ Workspace >> browseAtCursor [
     self relayout ]
 Workspace >> evaluate: print [
     "Evaluates the cursor's line and keeps the value in last; with print
-     true, inserts '  -> ' and its printString as the next line. A line
-     that is such a result is not evaluated. The status line says ok, or
-     the error's messageText. Answers whether a value came."
+     true, inserts its printString as the next line, as a comment
+     (commentFor:), and an error's text the same way. A line that is a
+     comment alone (such a result) is not evaluated. The status line says
+     ok, or the error's messageText. Answers whether a value came."
     | code r |
-    code := text currentLine.
-    (code beginsWith: '  -> ') ifTrue: [self status: 'a result: put the cursor on the code'. ^false].
-    r := [Compiler evaluate: code] on: Error do: [:e | self status: 'Error: ' , e messageText. ^false].
+    code := text currentLine trimSeparators.
+    (code size >= 2 and: [code first = $" and: [code last = $" and: [(code copyFrom: 2 to: code size - 1) allSatisfy: [:ch | ch ~= $"]]]])
+        ifTrue: [self status: 'a comment: put the cursor on the code'. ^false].
+    r := [Compiler evaluate: text currentLine] on: Error do: [:e |
+        self status: 'Error: ' , e messageText.
+        print ifTrue: [self printBelow: 'Error: ' , e messageText].
+        ^false].
     last := r.
-    print ifTrue: [
-        text insertLine: '  -> ' , r printString after: text row.
-        text moveTo: text row + 1 column: 0.
-        text drawBody].
+    print ifTrue: [self printBelow: r printString].
     self status: 'ok'.
     ^true ]
+Workspace >> printBelow: aString [
+    "Inserts aString, as a comment (commentFor:), as the line under the
+     cursor's, and puts the cursor at its start."
+    text insertLine: (self commentFor: aString) after: text row.
+    text moveTo: text row + 1 column: 0.
+    text drawBody ]
+Workspace >> commentFor: aString [
+    "Answers aString as a Stratalk comment: in double quotes, each double
+     quote in it doubled (so it does not end the comment)."
+    | s |
+    s := WriteStream on: String new.
+    s nextPut: $".
+    aString do: [:ch | ch = $" ifTrue: [s nextPut: $"]. s nextPut: ch].
+    s nextPut: $".
+    ^s contents ]
 
 "---- ClassBrowser: classes, their selectors, a method's source ----------------"
 
