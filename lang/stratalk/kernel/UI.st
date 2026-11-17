@@ -70,18 +70,22 @@ UIApp subclass: #Workspace slots: 'text last'.
 "A UIApp of one editable TextPane of code. The cursor's line is the code:
  Ctrl-P evaluates it and prints the result under it ('  -> ' and the
  printString), Ctrl-D evaluates it, Ctrl-O evaluates it and inspects the
- result, Ctrl-B opens a ClassBrowser in the same window, Ctrl-Q quits.
+ result, Ctrl-B opens a ClassBrowser in the same window on the name under
+ the cursor, Tab completes a name as the REPL does, Ctrl-Q quits.
  Esc does not quit it. text is the TextPane, last the last value
  evaluated. Workspace open, or stratalk -w."
 
-UIApp subclass: #ClassBrowser slots: 'classes selectors source meta'.
+UIApp subclass: #ClassBrowser slots: 'classes selectors source meta target'.
 "A UIApp of three panes: the classes (a ListPane), the selected class's
  selectors (a ListPane) and a source pane (an editable TextPane) that
  shows the class's definition or the selected method's source, from
  MethodSource, in colours. Typing in a list narrows it (typeahead).
  Ctrl-T toggles the class side (meta); Ctrl-S compiles the source pane's
  text into the class; Esc (in a list with nothing typed) and Ctrl-Q
- close it. ClassBrowser open, Smalltalk browse, or stratalk -b."
+ close it. target, when set (on:), is a name it starts at: a class, a
+ Class>>selector, or a selector, whose implementors the classes list is
+ narrowed to. ClassBrowser open, Smalltalk browse, Smalltalk browse:
+ 'name', or stratalk -b [NAME]."
 
 UIApp subclass: #Inspector slots: 'object stack list detail'.
 "A UIApp that shows an object's slots: a ListPane of name: value lines
@@ -258,13 +262,14 @@ UIApp >> flushPending [
     pending := nil.
     (p size = 1 and: [cutFull ~~ true]) ifTrue: [self key: (Character value: 27)] ]
 UIApp >> key: c [
-    "Handles the character c: Tab moves the focus to the next pane, Ctrl-Q
-     quits, Esc quits where quitsOnEscape; otherwise command: may take it,
-     and if it does not the focused pane gets it."
+    "Handles the character c: the tool's own keys first (command:; the
+     Workspace's Tab completes), then Tab moves the focus to the next pane,
+     Ctrl-Q quits, Esc quits where quitsOnEscape; else the focused pane
+     gets it."
+    (c value ~= 27 and: [self command: c]) ifTrue: [^self].
     c value = 9 ifTrue: [^self nextPane].
     c value = 17 ifTrue: [^done := true].
     (c value = 27 and: [focus takesEscape not and: [self quitsOnEscape]]) ifTrue: [^done := true].
-    (self command: c) ifTrue: [^self].
     focus key: c ]
 UIApp >> quitsOnEscape [
     "Answers whether Esc quits the tool: true here."
@@ -603,6 +608,26 @@ TextPane >> special: aSymbol [
     aSymbol == #pageUp ifTrue: [self moveTo: row - self bodyRows column: col].
     aSymbol == #pageDown ifTrue: [self moveTo: row + self bodyRows column: col].
     self drawBody ]
+TextPane >> insert: aString [
+    "Inserts aString at the cursor, which goes after it; redraws the line."
+    | l |
+    l := lines at: row.
+    lines at: row put: (l copyFrom: 1 to: col) , aString , (l copyFrom: col + 1 to: l size).
+    col := col + aString size.
+    self redrawRow ]
+TextPane >> wordAtCursor [
+    "Answers the name under the cursor (or just before it): letters, digits,
+     _ and colons, so a keyword keeps its colon; '' when there is none."
+    | l a b ok |
+    l := lines at: row.
+    ok := [:i | (i between: 1 and: l size) and: [(l at: i) isAlphaNumeric or: [(l at: i) = $_ or: [(l at: i) = $:]]]].
+    a := col + 1.
+    (ok value: a) ifFalse: [a := col].
+    (ok value: a) ifFalse: [^''].
+    b := a.
+    [ok value: a - 1] whileTrue: [a := a - 1].
+    [ok value: b + 1] whileTrue: [b := b + 1].
+    ^l copyFrom: a to: b ]
 TextPane >> deleteForward [
     "Deletes the character under the cursor, or at the line's end joins
      the next line to it."
@@ -757,7 +782,7 @@ Workspace >> layout [
     | old |
     old := text.
     text := self add: (TextPane new app: self x: 0 y: 0 w: self columns h: self rows - 1
-        title: 'Workspace   Ctrl-P print it  Ctrl-D do it  Ctrl-O inspect it  Ctrl-B browse  Ctrl-Q quit').
+        title: 'Workspace   Ctrl-P print it  Ctrl-D do it  Ctrl-O inspect it  Ctrl-B browse it  Tab complete  Ctrl-Q quit').
     text editable: true; highlight: true.
     text setText: '3 + 4' , (String with: Character cr) , '100 factorial' , (String with: Character cr) ,
         '(1 to: 10) collect: [:i | i * i]' , (String with: Character cr) , 'Proc ps'.
@@ -776,15 +801,39 @@ Workspace >> relayout [
 Workspace >> command: c [
     "Takes the Workspace's keys: Ctrl-P prints it, Ctrl-D does it, Ctrl-O
      inspects it (an Inspector in the same window; nothing when it failed),
-     Ctrl-B opens a ClassBrowser in the same window. Answers whether c was
-     one of them."
+     Ctrl-B opens a ClassBrowser in the same window on the name under the
+     cursor (browseAtCursor), Tab completes the name before the cursor
+     (complete). Answers whether c was one of them."
+    (c value = 9 and: [focus == text]) ifTrue: [self complete. ^true].
     c value = 16 ifTrue: [self evaluate: true. ^true].
     c value = 4 ifTrue: [self evaluate: false. ^true].
     c value = 15 ifTrue: [
         (self evaluate: false) ifTrue: [(Inspector on: last) openOn: last in: window. self relayout].
         ^true].
-    c value = 2 ifTrue: [ClassBrowser new openIn: window. self relayout. ^true].
+    c value = 2 ifTrue: [self browseAtCursor. ^true].
     ^false ]
+Workspace >> complete [
+    "Tab: completes the name that ends at the cursor as the REPL does (a
+     global after a capital letter, a selector of the receiver when the
+     line shows it, else any): the part all the candidates share is
+     typed in; when that is nothing, the status line lists them."
+    | before r word cands prefix |
+    before := text currentLine copyFrom: 1 to: text column.
+    r := LineEditor new completionsOf: before.
+    word := r first. cands := r last.
+    cands isEmpty ifTrue: [^self status: 'no completion'].
+    prefix := cands first.
+    cands do: [:k | prefix := LineEditor new common: prefix with: k].
+    prefix size > word size ifTrue: [
+        text insert: (prefix copyFrom: word size + 1 to: prefix size).
+        ^self status: (cands size = 1 ifTrue: [''] ifFalse: [cands size printString , ' completions'])].
+    self status: (cands inject: '' into: [:a :k | a isEmpty ifTrue: [k] ifFalse: [a , '  ' , k]]) ]
+Workspace >> browseAtCursor [
+    "Ctrl-B: opens a ClassBrowser in the window on the name under the cursor
+     (ClassBrowser on:): a class, or a selector's implementors; just the
+     browser when there is no name there."
+    ClassBrowser new on: text wordAtCursor; openIn: window.
+    self relayout ]
 Workspace >> evaluate: print [
     "Evaluates the cursor's line and keeps the value in last; with print
      true, inserts '  -> ' and its printString as the next line. A line
@@ -835,8 +884,47 @@ ClassBrowser >> layout [
     selectors items: #().
     selectors onSelect: [:s | self showMethod].
     self status: Smalltalk allClasses size printString , ' classes   type to find one'.
+    (target notNil and: [wasClass == nil]) ifTrue: [^self goTo: target].
     wasClass == nil ifFalse: [classes select: ((classes items indexOf: wasClass) max: 1)].
     wasSelector == nil ifFalse: [selectors select: (selectors items indexOf: wasSelector)] ]
+ClassBrowser >> on: aString [
+    "Makes the browser start at aString (see goTo:) when it opens; answers
+     the receiver."
+    target := (aString isNil or: [aString isEmpty]) ifFalse: [aString].
+    ^self ]
+ClassBrowser >> goTo: aString [
+    "Selects what aString names: Class or Class>>selector; else a selector
+     (or a keyword, at: for at:put:, when no method is named exactly so):
+     its one implementor's method, or the classes list narrowed to its
+     implementors. The status line says what it found."
+    | i cls sel impls |
+    i := aString indexOfSubCollection: '>>'.
+    i > 0
+        ifTrue: [cls := aString copyFrom: 1 to: i - 1. sel := aString copyFrom: i + 2 to: aString size]
+        ifFalse: [(aString first isUppercase and: [(Smalltalk at: aString asSymbol ifAbsent: [nil]) isClass])
+            ifTrue: [cls := aString] ifFalse: [sel := aString]].
+    cls == nil ifTrue: [
+        impls := self implementorsOf: sel.
+        impls isEmpty ifTrue: [^self status: 'nothing named ' , aString].
+        sel := impls first value.
+        impls size > 1 ifTrue: [classes items: (impls collect: [:a | a key]) asArray].
+        cls := impls first key].
+    classes select: (classes items indexOf: cls).
+    classes selection = 0 ifTrue: [^self status: 'no class named ' , cls].
+    sel == nil ifFalse: [selectors select: (selectors items indexOf: sel)].
+    (impls notNil and: [impls size > 1]) ifTrue: [self status: impls size printString , ' implementors of ' , aString] ]
+ClassBrowser >> implementorsOf: aString [
+    "Answers className -> selector Associations of the classes that define
+     the selector aString (or, when none does, the selectors that begin with
+     it, for a keyword such as at:).
+     (ClassBrowser new implementorsOf: 'isArray') size >= 2 >>> true"
+    | out |
+    out := OrderedCollection new.
+    Smalltalk allClasses do: [:c | (c selectors includes: aString asSymbol) ifTrue: [out add: c name asString -> aString]].
+    (out isEmpty and: [aString last = $:]) ifTrue: [
+        Smalltalk allClasses do: [:c |
+            c selectors do: [:s | (s beginsWith: aString) ifTrue: [out add: c name asString -> s asString]]]].
+    ^out ]
 ClassBrowser >> classList [
     "The pane of the classes' names."
     ^classes ]
@@ -990,6 +1078,12 @@ SystemDictionary >> browse [
     "Opens a ClassBrowser in a new window of ws, until it is closed;
      answers the browser."
     ^ClassBrowser open ]
+SystemDictionary >> browse: aString [
+    "Opens a ClassBrowser at what aString names: a class, Class>>selector,
+     or a selector's implementors (ClassBrowser >> goTo:); answers it."
+    | w |
+    w := Window open: ClassBrowser title.
+    ^[ClassBrowser new on: aString; openIn: w] ensure: [w close] ]
 
 "---- method sources: the kernel's files on the disk, and what was compiled here ----"
 

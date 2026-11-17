@@ -66,8 +66,11 @@ Vec >> printOn: aStream [ aStream print: x; nextPut: $@; print: y ]
   <li><code>stratalk -j</code>: with the JIT on.</li>
   <li>In the window server: <code>stratalk -w</code> opens a workspace, its code in the colours of
     this page (<kbd>Ctrl-P</kbd> prints the current line's value, <kbd>Ctrl-D</kbd> does it,
-    <kbd>Ctrl-O</kbd> inspects it, <kbd>Ctrl-B</kbd> browses), <code>stratalk -b</code> a class
-    browser (the classes, their selectors, a method's source, which <kbd>Ctrl-S</kbd> compiles;
+    <kbd>Ctrl-O</kbd> inspects it; <kbd>Tab</kbd> completes a name as the REPL does, and lists the
+    choices on the status line; <kbd>Ctrl-B</kbd> browses the name under the cursor: a class, or
+    a selector's method, or its implementors when there are several), <code>stratalk -b</code> a
+    class browser (<code>stratalk -b NAME</code>, or <code>Smalltalk browse: 'NAME'</code>, opens
+    it at a class, <code>Class&gt;&gt;selector</code> or a selector; the classes, their selectors, a method's source, which <kbd>Ctrl-S</kbd> compiles;
     typing in a list narrows it to what holds the text, <kbd>Backspace</kbd> takes a character
     back, <kbd>Esc</kbd> or <kbd>Ctrl-U</kbd> clears it; <kbd>Ctrl-T</kbd> the class side), and
     <code>anObject inspect</code> an inspector.</li>

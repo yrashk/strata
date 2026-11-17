@@ -168,7 +168,8 @@ Stratalk class >> start [
      standard output, resets the JIT (on with -j), then by the arguments:
      none, the interactive REPL; -e and an expression, prints its value; -,
      the REPL on standard input without a prompt; -w the Workspace; -b the
-     ClassBrowser; else files in the named file, with the other arguments in
+     ClassBrowser (-b NAME: at a class, Class>>selector or a selector's
+     implementors); else files in the named file, with the other arguments in
      the global Arguments (quitting with 1 if an unhandled error ended it)."
     | args |
     Smalltalk at: #Transcript put: (StdioStream handle: 1).
@@ -182,7 +183,9 @@ Stratalk class >> start [
         ^Smalltalk quit: 0].
     args first = '-' ifTrue: [^self repl].
     args first = '-w' ifTrue: [Workspace open. ^Smalltalk quit: 0].
-    args first = '-b' ifTrue: [ClassBrowser open. ^Smalltalk quit: 0].
+    args first = '-b' ifTrue: [
+        args size > 1 ifTrue: [Smalltalk browse: (args at: 2)] ifFalse: [ClassBrowser open].
+        ^Smalltalk quit: 0].
     self fileIn: args first arguments: (args copyFrom: 2 to: args size).
     "back here only when an unhandled error ended the file-in"
     Transcript flush.

@@ -342,8 +342,9 @@ the program); the debugger takes a server's symbols from `build/sys/` first
 
 `lang/stratalk/` is a Smalltalk for StrataOS: `stratalk` at the shell (a
 REPL with Tab completion), `stratalk FILE.st`, `stratalk -w` (a workspace
-window in `ws`, its code coloured as the site colours it), `stratalk -b` (a
-class browser whose lists filter as you type). `lang/stratalk/README.md`
+window in `ws`, its code coloured as the site colours it, Tab completing a
+name and Ctrl-B browsing the one under the cursor), `stratalk -b [NAME]` (a
+class browser whose lists filter as you type, opened at NAME if given). `lang/stratalk/README.md`
 has the design and the formats; `doc/stratalk-proposal.md` the proposal it
 was built from.
 - The VM is `vm*.s` (Strata assembly, 22 KiB of I-LS, 38 KiB of D-LS: the

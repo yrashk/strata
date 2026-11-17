@@ -22,6 +22,19 @@ LineEditor >> setUp [
      standard input is the console."
     history := OrderedCollection new. pending := ReadStream on: ''.
     console := Smalltalk stdinIsConsole ]
+LineEditor >> line: aString [
+    "Makes aString the line typed so far: completions are for its end (the
+     Workspace asks with the text before its cursor).
+     (LineEditor new line: '3 fact'; candidatesFor: 'fact') asArray >>> #('factorial')"
+    line := aString ]
+LineEditor >> completionsOf: aString [
+    "Answers {the word at the end of aString. its completions, sorted}: what
+     Tab offers after aString.
+     (LineEditor new completionsOf: 'Transcr') last asArray >>> #('Transcript')"
+    | w |
+    line := aString.
+    w := self wordBefore.
+    ^Array with: w with: (self candidatesFor: w) ]
 LineEditor >> raw: aBoolean [
     "Puts the console in raw mode (true) or back in cooked mode (false), with
      tty's CONMODE; nothing if standard input is not the console. The console
