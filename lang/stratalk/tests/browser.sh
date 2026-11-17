@@ -6,7 +6,8 @@
 # Then the typeahead: "seqx" (no match), Backspace ("seq": the class
 # SequenceableCollection), Esc (the filter cleared, the class still
 # selected, the list whole); in the selectors "zzz", Ctrl-U, "do:" (the
-# selector do:); Esc in the classes, with no filter, closes the browser.
+# selector do:); Esc with no filter does not close the browser (a stray
+# Esc must not); Ctrl-Q does.
 # The REPL that opened it prints what was selected. Then the REPL's line
 # editor on the console: the up arrow brings the line back; Delete and
 # Ctrl+arrows (ESC [ 3 ~, ESC [ 1 ; 5 C) are dropped whole, nothing of
@@ -37,7 +38,7 @@ typed() {                               # typed TEXT: a key at a time
   printf "\t\t$W"
   typed seqx; printf "\177$W\033$W$W"
   printf "\t$W"; typed zzz; printf "\025$W"; typed 'do:'
-  printf "\t\t$W\033$W$W$W"
+  printf "\t\t$W\033$W$W\021$W$W$W"
   printf "Smalltalk quit\r$W$W$W${AQ}"
   printf 'cat out.txt\n'
   printf 'stratalk\n1 + 1\r\033[A\033[3~\033[1;5C\r\033[1;5Dx := 6 * 7\rSmalltalk quit\r'

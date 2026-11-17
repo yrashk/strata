@@ -81,8 +81,8 @@ UIApp subclass: #ClassBrowser slots: 'classes selectors source meta target'.
  shows the class's definition or the selected method's source, from
  MethodSource, in colours. Typing in a list narrows it (typeahead).
  Ctrl-T toggles the class side (meta); Ctrl-S compiles the source pane's
- text into the class; Esc (in a list with nothing typed) and Ctrl-Q
- close it. target, when set (on:), is a name it starts at: a class, a
+ text into the class; Ctrl-Q closes it (Esc only clears what was typed:
+ a stray one, from a key held on a busy machine, closes nothing). target, when set (on:), is a name it starts at: a class, a
  Class>>selector, or a selector, whose implementors the classes list is
  narrowed to. ClassBrowser open, Smalltalk browse, Smalltalk browse:
  'name', or stratalk -b [NAME]."
@@ -932,9 +932,10 @@ ClassBrowser >> selectorList [
     "The pane of the selected class's selectors."
     ^selectors ]
 ClassBrowser >> quitsOnEscape [
-    "Answers whether Esc closes the browser: not while the source pane has
-     the focus."
-    ^focus ~~ source ]
+    "Answers false: Esc does not close the browser (Ctrl-Q does). An Esc
+     that ws made of a key held on a busy machine closed it in the middle
+     of the browsing; here an Esc only clears a list's typeahead."
+    ^false ]
 ClassBrowser >> currentClass [
     "The selected class, or its metaclass on the class side; nil when no
      class is selected."
