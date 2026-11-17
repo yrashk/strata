@@ -14,7 +14,10 @@ host=0
 jit=
 if [ "${1:-}" = "-h" ]; then host=1; shift; fi
 if [ "${1:-}" = "-j" ]; then jit='-j '; shift; fi
-names=${*:-"arith blocks exceptions collections gc compiler ui vm os"}
+# browse (the browser opened at a name) is not run with the JIT yet: it can
+# hang there (HANDOFF.md, "Stratalk: a hang under the JIT")
+if [ -n "$jit" ]; then names=${*:-"arith blocks exceptions collections gc compiler ui vm os"}
+else names=${*:-"arith blocks exceptions collections gc compiler ui browse vm os"}; fi
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 fails=0

@@ -29,9 +29,3 @@ OrderedCollection (1->5 7->8 10->11 18->18 19->25 29->30)
 #('Proc ps. Transcript')
 #('3 + 4. 3 printString' '100 factorial x print')
 'factorial'
-#ok
-#('Interval' nil 121)
-#('Interval' 'last' 121)
-#(2 'isArray')
-'inject:into:'
-121

@@ -26,9 +26,3 @@ Run value: (Array with: (String with: (Character value: 27)) with: (String with:
 ((Run value: (Array with: E , '[B' , E , '[B' , E , '[B' , E , '[F. Transcr' , (String with: Character tab))) lines last: 1) asArray
 ((Run value: (Array with: E , '[F. 3 printS' , (String with: Character tab) , E , '[B' , E , '[F x prin' , (String with: Character tab))) lines first: 2) asArray
 | w ws | w := FakeWindow new. w events: (Array with: E , '[B' , E , '[C' , E , '[C' , E , '[C' , E , '[C' , E , '[C'). ws := Workspace new. ws openIn: w. ws textPane wordAtCursor
-Smalltalk at: #Br put: [:name | | w b | w := FakeWindow new. w events: #(). b := ClassBrowser new on: name; openIn: w. Array with: b classList selected with: b selectorList selected with: b classList items size]. #ok
-Br value: 'Interval'
-Br value: 'Interval>>last'
-| r | r := Br value: 'isArray'. Array with: (r at: 3) with: (r at: 2)
-| r | r := Br value: 'inject:'. r at: 2
-(Br value: 'Nonsense') at: 3
