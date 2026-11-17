@@ -386,18 +386,16 @@ was built from.
   a message to that register's own server (Db, pipe) puts it back for the
   message. A LOOKUP moves the heap to c7 for the call and then gets the
   clock back.
-- Open: a hang under the JIT (the vector `tests/browse.st` is not run by
-  `run.sh -j` because of it). With the JIT on, a far heap nearly full and
-  the browser opened at a method, the program spins in `at:` on a byte
-  object, for good. To see it: under `stratalk -j -`, the `ui.st` set-up
-  lines (FakeWindow), `Br value: 'Interval'`, then `Smalltalk at: #G put:
-  ((1 to: 3800) collect: [:i | String new: 900]). Smalltalk at: #G put:
-  nil` and `Br value: 'Interval>>last'` (the lines of `browse.st`). It
-  goes away without the JIT, and comes or goes with what was allocated and
-  compiled before (compiling the six blocks of `LineEditor >>
-  candidatesFor:` brings it; each alone does not), which points at the
-  heap left wrong around a full collection with native code about. Fixed:
-  `browse` back into `run.sh -j`'s list.
+- The VM's helpers keep their links and temporaries in fixed D-LS slots
+  (`v_ra*`, `v_tmp*`). A helper that allocates may get a scavenge, and
+  the scavenge a full collection, which finds the running method again
+  (`reload_entry`, `mc_get`): those two must use slots of their own
+  (`v_rlra`, `v_rlip`) and a helper must not keep `v_tmp6`, `v_tmp7` or
+  `v_ra5` (mc_get's) across an allocation. A clash once sent `ostore`
+  (a store into a far object with the remembered set full) back into
+  the collector, round and round: a hang when a full collection came
+  just then (a full far heap, mostly under the JIT). `tests/gc.st` has
+  the case.
 - Not done: floats, `become:`, class variables (class-side slots only),
   class-side slots for classes made at run time, inline caches in native
   code (a send from it takes the interpreter's path: `24 fibx` is 1.4x

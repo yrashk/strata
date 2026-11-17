@@ -9,3 +9,6 @@
 (1 to: 10000) inject: 0 into: [:a :b | a + b]
 | arr | arr := (1 to: 200) asArray. 1 to: 50 do: [:k | arr := arr collect: [:e | e + 1]]. arr last
 | m | m := (1 to: 400) collect: [:i | i -> i squared]. Smalltalk scavenge. (m at: 400) value
+Smalltalk at: #Keep put: ((1 to: 4200) collect: [:i | String new: 900]). Smalltalk at: #Far put: (Array basicNewFar: 100). #ok
+| n | n := 0. 1 to: 3000 do: [:r | 1 to: 100 do: [:i | Far at: i put: i printString]. n := n + (Far at: 100) size]. n
+Smalltalk at: #Keep put: nil. Smalltalk at: #Far put: nil. #done
