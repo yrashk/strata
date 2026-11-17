@@ -58,6 +58,16 @@ const PRESETS = {
     about: "A city-building game in Strata assembly: roads, rail, power, zones; the town grows when it has power, a road and demand. Click the screen, press a key.",
     keys: [["left button", "use the tool (drag for a line)"], ["right button, wheel", "move the map"], ["B R L T", "bulldozer, road, power line, rail"], ["1 2 3", "homes, shops & offices, industry"], ["4 5 6", "police, fire station, park"], ["P E", "coal, solar plant"], ["M G J H", "maps, budget, paper, history"], ["Z X", "zoom in, out"], ["[ ]", "tax rate"], ["0 - =", "pause, slower, faster"], ["V", "events: fire, flood, storm…"], ["S Y C O N", "save, past years, scenarios, gallery, new land"], ["Q", "quit"]],
   },
+  sushi: {
+    files: ["bootrom.stx", "disk.img"],
+    args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],
+    fitScreen: true,
+    screenKeys: true,
+    sound: true,
+    type: "ws sushi\n",
+    about: "A conveyor-belt sushi bar in Strata assembly: give each customer's order to a cook before their patience runs out, and sweep the stale plates off the belt. Click the screen, press a key.",
+    keys: [["Space", "open the bar"], ["1 2 3", "give the chosen order to a cook"], ["arrows", "choose another order"], ["click", "a bubble, then a cook; a plate to sweep it off"], ["Z", "sweep the oldest stale plate off"], ["Q", "quit"]],
+  },
   nav: {
     files: ["bootrom.stx", "disk.img"],
     args: ["-c", "12", "-d", "disk.img", "bootrom.stx"],

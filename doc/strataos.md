@@ -1769,6 +1769,23 @@ window whose process ends is removed.
   are synthesised (`tools/kira-assets.py`), and both are in a data file,
   `/ws/kira.dat`. `kira demo N` plays recorded keys and clicks one tic a
   frame. `os/progs/kira.s`, `os/progs/kira/`, `os/progs/PLAN-kira.md`.
+- **`sushi`**: SushiBelt, a conveyor-belt sushi bar. Three cooks stand
+  behind a counter inside a belt that runs round them; customers sit
+  behind the belt, and each wants a piece of sushi at a time (a bubble
+  shows which, a bar under it their patience). The player gives every
+  order to a cook (1 2 3, or a click on the bubble and then on the cook);
+  each cook makes the orders in their queue and puts the plates on the
+  belt, and a customer takes the piece they want as it passes, eats and
+  pays the plate's price and a tip. A customer who waits too long goes;
+  a plate that rides too long goes stale, and a stale plate sends its
+  customer away without paying, unless it is swept off first (a click on
+  it, or Z). An evening runs from 17:00 to 22:00 on a clock in the bar
+  and ends with the results. It draws as `kira` does (320 x 200 in slabs,
+  scaled by a whole factor; the belt's slats are drawn by the program and
+  move with the plates). Its art is drawn by `tools/sushi-art.py`, its
+  sounds are synthesised by `tools/sushi-assets.py`, both in
+  `/ws/sushi.dat`. `sushi demo N` plays recorded keys and clicks.
+  `os/progs/sushi.s`, `os/progs/sushi/`, `os/progs/PLAN-sushi.md`.
 - **`plat`**: Plat, a city-building game: a map of 128 x 128 cells seen
   from above, new land for every game (a river, lakes and woods from a
   seed), roads and rail (bridges over the water), power lines, zones for

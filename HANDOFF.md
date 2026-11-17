@@ -224,6 +224,27 @@ Garden (kept in `/ws/kira.sav`), Paint, Music.
   play page built here); the sounds are checked only as samples in a WAV
   file, not by ear.
 
+## sushi (added 2026-11-17)
+
+`sushi` (`os/progs/sushi.s`, `os/progs/sushi/`, plan, decisions and sizes in
+`os/progs/PLAN-sushi.md`) is SushiBelt: a conveyor-belt sushi bar as a
+window-server client, on the ordinary disk (`ws sushi`, or `sushi` from the
+palette) and a preset on the play page. Part 1 of three is built: one
+evening (three cooks, five kinds of sushi, customers who wait, eat and pay
+or leave, stale plates and sweeping, the results). Parts 2 (rush hours,
+sets, VIPs) and 3 (days and upgrades, kept in a file) are open.
+- The art is drawn by `tools/sushi-art.py` into `os/progs/sushi/art/` (the
+  specification is `SPEC.md` there, with the rectangles the program relies
+  on: the belt's lanes, the seats, the cooks' stations, the bar's boxes);
+  `tools/sushi-assets.py` converts it and synthesises the sounds; `make
+  sushi-dat` runs both. The art for parts 2 and 3 (three more kinds of
+  sushi, the black plate, plate stacks) is drawn already.
+- `tools/test-sushi.sh` (in `make test`) compares the last frame of each
+  `sushi demo N` (N is 1..8; its header says what each plays). A change of
+  art, of drawing, of the rules or of the order in which random numbers are
+  drawn needs new checksums, and may need the demos' clicks moved.
+- Limits: 29.5 of the 40 KiB of D-LS, 18 of the 32 KiB of code.
+
 ## wdoom and the sound device (added 2026-11-13, not yet deployed)
 
 `wdoom` (`os/progs/wdoom.s`, `os/progs/wdoom/`, plan and measurements in

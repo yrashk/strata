@@ -412,6 +412,21 @@ kira-dat:
 	python3 tools/kira-art.py
 	python3 tools/kira-assets.py
 
+# sushi, SushiBelt, a conveyor-belt sushi bar in a window (os/progs/sushi.s,
+# os/progs/sushi/): the program, and its data file, which tools/sushi-assets.py
+# makes from the art that tools/sushi-art.py draws into os/progs/sushi/art (the
+# converted file is in the tree: os/progs/sushi/sushi.dat; `make sushi-dat`
+# makes both again)
+SUSHI_DAT := os/progs/sushi/sushi.dat
+$(BUILD)/prog/sushi: os/progs/sushi.s $(wildcard os/progs/sushi/*.s) os/progs/wdoom/sound.s os/lib/wsclient.s os/lib/sys.s $(BUILD)/sasm
+	@mkdir -p $(BUILD)/prog
+	$(BUILD)/sasm -T 0x8000 -r -n -I os/lib -g $@.map -o $@ $<
+
+.PHONY: sushi-dat
+sushi-dat:
+	python3 tools/sushi-art.py
+	python3 tools/sushi-assets.py
+
 # plat, a city-building game in a window (os/progs/plat.s, os/progs/plat/): the
 # program, and its data file, which tools/plat-assets.py makes from the art
 # that tools/plat-art.py draws into os/progs/plat/art (the converted file is
@@ -621,6 +636,10 @@ DISK_ARGS := -t doc $(filter-out %/rc %/resolv,$(OS_FILES)) -t etc $(filter %/rc
 DISK_FILES += $(BUILD)/prog/kira $(KIRA_DAT)
 DISK_ARGS  += -t bin $(BUILD)/prog/kira -t ws $(KIRA_DAT)
 
+# sushi and its data (tagged ws: the program opens /ws/sushi.dat)
+DISK_FILES += $(BUILD)/prog/sushi $(SUSHI_DAT)
+DISK_ARGS  += -t bin $(BUILD)/prog/sushi -t ws $(SUSHI_DAT)
+
 # plat and its data (tagged ws: the program opens /ws/plat.dat)
 DISK_FILES += $(BUILD)/prog/plat $(PLAT_DAT)
 DISK_ARGS  += -t bin $(BUILD)/prog/plat -t ws $(PLAT_DAT)
@@ -701,6 +720,11 @@ boot-wdoom: $(BUILD)/strata-emu $(BUILD)/bootrom.stx $(BUILD)/disk-wdoom.img
 .PHONY: test-kira
 test-kira: $(BUILD)/strata-emu os
 	BUILD=$(BUILD) ./tools/test-kira.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
+
+# test-sushi: SushiBelt's demos (their last frames' checksums), the pointer, sound and q (part of make test)
+.PHONY: test-sushi
+test-sushi: $(BUILD)/strata-emu os
+	BUILD=$(BUILD) ./tools/test-sushi.sh $(BUILD)/bootrom.stx $(BUILD)/disk.img
 
 # test-wdoom: the game's demo (its last frame's checksum), its sound and q (part of make test)
 .PHONY: test-wdoom
