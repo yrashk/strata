@@ -71,6 +71,19 @@ BUILD   := build
 # through a cache shared by every checkout (tools/build-cache.sh: keyed by
 # the contents of their sources and of this file; STRATA_CACHE= turns it off)
 CACHED  := ./tools/build-cache.sh
+# A rule whose recipe is the variable V (a define) lists $(call recipe-stamp,V)
+# among its prerequisites: $(BUILD)/recipe/V, the recipe as make expands it
+# when it reads this file ($@ and $< empty), rewritten only when that text
+# changes. An edit of the recipe, or of a variable it reads (DISK_ARGS, the
+# mkdisk tags), remakes what that rule makes and nothing else, without a
+# dependency on this whole file.
+define nl
+
+
+endef
+recipe-stamp = $(shell mkdir -p $(BUILD)/recipe; f=$(BUILD)/recipe/$1; \
+  printf '%s\n' '$(subst $(nl),\n,$(subst ','\'',$($1)))' >$$f.$$$$; \
+  if cmp -s $$f.$$$$ $$f; then rm -f $$f.$$$$; else mv -f $$f.$$$$ $$f; fi)$(BUILD)/recipe/$1
 RTL     := rtl/strata_pkg.sv rtl/strata_decode.sv rtl/strata_alu.sv rtl/strata_div.sv rtl/strata_mul.sv \
            rtl/strata_ram.sv rtl/strata_ram1.sv rtl/strata_uart.sv rtl/strata_tu.sv rtl/strata_bus.sv \
            rtl/strata_mem.sv rtl/strata_dev.sv rtl/strata_core.sv rtl/strata_top.sv
@@ -348,10 +361,13 @@ FORTH_GUEST := $(BUILD)/guest/forth.g
 # disk with the servers and a few programs, one image (tools/mkguestos.py)
 GOS_PROGS := proc dev fs blk db tty pipe sh ls cat rm cp mv touch ps cores free uptime seq grep wc hello tag tags df
 GOS_FILES := os/guests/strataos/rc os/guests/strataos/motd $(patsubst %,$(BUILD)/prog/%,$(filter-out db,$(GOS_PROGS))) $(BUILD)/sys/db
-$(BUILD)/guest-os/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(GOS_FILES)
-	@mkdir -p $(BUILD)/guest-os
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx -b 6144 -t etc os/guests/strataos/rc -t doc os/guests/strataos/motd \
-	  -t sys $(patsubst %,$(BUILD)/prog/%,proc dev fs blk) $(BUILD)/sys/db $(patsubst %,$(BUILD)/prog/%,tty pipe) -t bin $(patsubst %,$(BUILD)/prog/%,$(filter-out proc dev fs blk db tty pipe,$(GOS_PROGS)))
+define GOSDISK_CMD
+@mkdir -p $(BUILD)/guest-os
+$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx -b 6144 -t etc os/guests/strataos/rc -t doc os/guests/strataos/motd \
+  -t sys $(patsubst %,$(BUILD)/prog/%,proc dev fs blk) $(BUILD)/sys/db $(patsubst %,$(BUILD)/prog/%,tty pipe) -t bin $(patsubst %,$(BUILD)/prog/%,$(filter-out proc dev fs blk db tty pipe,$(GOS_PROGS)))
+endef
+$(BUILD)/guest-os/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(GOS_FILES) $(call recipe-stamp,GOSDISK_CMD)
+	$(GOSDISK_CMD)
 $(BUILD)/guest/strataos.g: tools/mkguestos.py $(BUILD)/kernel.stx $(BUILD)/guest-os/disk.img
 	@mkdir -p $(BUILD)/guest
 	python3 tools/mkguestos.py $(BUILD)/kernel.stx $(BUILD)/guest-os/disk.img $@
@@ -526,37 +542,46 @@ $(BUILD)/prog/stralog.u: $(BUILD)/prog/stralog
 	@touch $@
 
 # Every source on the disk carries a copy of the library after the program.
-$(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s
-	@mkdir -p $(BUILD)/src
-	grep -v '^[[:space:]]*\.include' $< > $@
-	cat os/lib/sys.s >> $@
+define USRC_CMD
+@mkdir -p $(BUILD)/src
+grep -v '^[[:space:]]*\.include' $< > $@
+cat os/lib/sys.s >> $@
+endef
+$(USRCS): $(BUILD)/src/%.s: os/progs/%.s os/lib/sys.s $(call recipe-stamp,USRC_CMD)
+	$(USRC_CMD)
 
 # vi's source: its two includes (at the top: their labels come first) in place
-$(BUILD)/src/vi.s: os/progs/vi.s os/lib/sys.s $(BUILD)/vi-syntax.s
-	@mkdir -p $(BUILD)/src
-	awk '/^[[:space:]]*\.include "\.\.\/lib\/sys\.s"/ { system("cat os/lib/sys.s"); next } \
-	     /^[[:space:]]*\.include "vi-syntax\.s"/ { system("cat $(BUILD)/vi-syntax.s"); next } { print }' $< > $@
+define VISRC_CMD
+@mkdir -p $(BUILD)/src
+awk '/^[[:space:]]*\.include "\.\.\/lib\/sys\.s"/ { system("cat os/lib/sys.s"); next } \
+     /^[[:space:]]*\.include "vi-syntax\.s"/ { system("cat $(BUILD)/vi-syntax.s"); next } { print }' $< > $@
+endef
+$(BUILD)/src/vi.s: os/progs/vi.s os/lib/sys.s $(BUILD)/vi-syntax.s $(call recipe-stamp,VISRC_CMD)
+	$(VISRC_CMD)
 
 # (the examples, units and as are built with -r -n: their sources end with
 # .resident and .near, so that `as`, which has no command line, assembles
 # them the same way inside StrataOS)
 RN_LINES := '        .resident                       ; no paged code (sasm -r)\n        .near                           ; no far data (sasm -n)\n'
-$(BUILD)/src/units.s: os/progs/units.s examples/lib/print.s
-	@mkdir -p $(BUILD)/src
-	grep -v '^[[:space:]]*\.include' $< > $@
-	cat examples/lib/print.s >> $@
-	printf $(RN_LINES) >> $@
+define EXSRC_CMD
+@mkdir -p $(BUILD)/src
+grep -v '^[[:space:]]*\.include' $< > $@
+cat examples/lib/print.s >> $@
+printf $(RN_LINES) >> $@
+endef
+$(BUILD)/src/units.s: os/progs/units.s examples/lib/print.s $(call recipe-stamp,EXSRC_CMD)
+	$(EXSRC_CMD)
 
-$(BUILD)/src/%.s: examples/%.s examples/lib/print.s
-	@mkdir -p $(BUILD)/src
-	grep -v '^[[:space:]]*\.include' $< > $@
-	cat examples/lib/print.s >> $@
-	printf $(RN_LINES) >> $@
+$(BUILD)/src/%.s: examples/%.s examples/lib/print.s $(call recipe-stamp,EXSRC_CMD)
+	$(EXSRC_CMD)
 
-$(BUILD)/src/as.s: os/progs/as.s
-	@mkdir -p $(BUILD)/src
-	cp $< $@
-	printf $(RN_LINES) >> $@
+define ASSRC_CMD
+@mkdir -p $(BUILD)/src
+cp $< $@
+printf $(RN_LINES) >> $@
+endef
+$(BUILD)/src/as.s: os/progs/as.s $(call recipe-stamp,ASSRC_CMD)
+	$(ASSRC_CMD)
 
 # Strata Forth as a StrataOS program (its rules are in the Forth section below):
 # `forth`, the files it loads on demand (tools.fs, see.fs), core.fs to read, the demos
@@ -617,8 +642,11 @@ STRALOG_ISO := $(sort $(wildcard lang/stralog/tests/iso/*.pl))
 DISK_FILES += $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u $(STRALOG_PL) $(STRALOG_ISO)
 DISK_ARGS  += -t bin $(BUILD)/prog/stralog $(BUILD)/prog/stralog.u -t stralog $(STRALOG_PL) -t stralog,iso $(STRALOG_ISO)
 
-$(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
+define DISK_CMD
+$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
+endef
+$(BUILD)/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST) $(call recipe-stamp,DISK_CMD)
+	$(DISK_CMD)
 
 os: $(BUILD)/bootrom.stx $(BUILD)/disk.img $(BUILD)/msgops.txt
 
@@ -630,14 +658,20 @@ $(BUILD)/msgops.txt: tools/osspec.py os/spec/*.toml os/lib/sys.s
 # the same disk with an rc that starts the window server (make boot-ws)
 DISK_WS_ARGS := $(subst os/files/rc,os/files-ws/rc,$(DISK_ARGS))
 
-$(BUILD)/disk-ws.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) os/files-ws/rc
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WS_ARGS)
+define DISKWS_CMD
+$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WS_ARGS)
+endef
+$(BUILD)/disk-ws.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) os/files-ws/rc $(call recipe-stamp,DISKWS_CMD)
+	$(DISKWS_CMD)
 
 # ... and with one that starts the window server with wdoom in it (make boot-wdoom)
 DISK_WDOOM_ARGS := $(subst os/files/rc,os/files-wdoom/rc,$(DISK_ARGS))
 
-$(BUILD)/disk-wdoom.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) os/files-wdoom/rc
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WDOOM_ARGS)
+define DISKWDOOM_CMD
+$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_WDOOM_ARGS)
+endef
+$(BUILD)/disk-wdoom.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) os/files-wdoom/rc $(call recipe-stamp,DISKWDOOM_CMD)
+	$(DISKWDOOM_CMD)
 
 # the emulator boots StrataOS with 12 cores and the sound device (-a: the RTL
 # has none, so the sessions compared with it run without); the RTL with NCORES
@@ -749,12 +783,15 @@ test-cc-boot: $(CC_TEST_DEPS) $(BUILD)/disk.img
 
 # the disk of tools/test-http.sh: the standard one plus two requests as a
 # browser sends them (CR LF; a 3 KB Cookie header), which the console cannot type
-$(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
-	@mkdir -p $(BUILD)/http-test
-	printf 'GET /www/style.css HTTP/1.1\r\nHost: localhost:8080\r\nUser-Agent: Mozilla/5.0 (test)\r\nAccept: text/css,*/*;q=0.1\r\nAccept-Language: en\r\nConnection: keep-alive\r\n\r\n' >$(BUILD)/http-test/browser.req
-	{ printf 'GET /doc/about?x=1 HTTP/1.1\r\nHost: localhost:8080\r\nCookie: '; for i in $$(seq 1 80); do printf 'c%s=0123456789abcdef0123456789abcdef; ' $$i; done; \
-	  printf '\r\nAccept: */*\r\n\r\n'; } >$(BUILD)/http-test/cookie.req
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
+define HTTPDISK_CMD
+@mkdir -p $(BUILD)/http-test
+printf 'GET /www/style.css HTTP/1.1\r\nHost: localhost:8080\r\nUser-Agent: Mozilla/5.0 (test)\r\nAccept: text/css,*/*;q=0.1\r\nAccept-Language: en\r\nConnection: keep-alive\r\n\r\n' >$(BUILD)/http-test/browser.req
+{ printf 'GET /doc/about?x=1 HTTP/1.1\r\nHost: localhost:8080\r\nCookie: '; for i in $$(seq 1 80); do printf 'c%s=0123456789abcdef0123456789abcdef; ' $$i; done; \
+  printf '\r\nAccept: */*\r\n\r\n'; } >$(BUILD)/http-test/cookie.req
+$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t test $(BUILD)/http-test/browser.req $(BUILD)/http-test/cookie.req
+endef
+$(BUILD)/http-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(call recipe-stamp,HTTPDISK_CMD)
+	$(HTTPDISK_CMD)
 
 # the disk of tools/test-isolate.sh: the standard one plus dlsgap (tools/dlsgap.s),
 # which checks that no process sees what another left in its core's D-LS or
@@ -780,28 +817,40 @@ $(BUILD)/paged-test/%: os/progs/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/paged-test
 	$(BUILD)/sasm -T 0x8000 -o $@ $<
 PAGED_ARGS = $(foreach w,$(DISK_ARGS),$(if $(filter $(addprefix $(BUILD)/prog/,$(PAGED_NAMES)),$(w)),$(BUILD)/paged-test/$(notdir $(w)),$(w)))
-$(BUILD)/paged-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST) $(PAGED_PROGS)
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(PAGED_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
+define PAGEDDISK_CMD
+$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(PAGED_ARGS) -t guest $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST)
+endef
+$(BUILD)/paged-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(GUESTIMG) $(FORTH_GUEST) $(GOS_GUEST) $(PAGED_PROGS) $(call recipe-stamp,PAGEDDISK_CMD)
+	$(PAGEDDISK_CMD)
 
 # far loads and stores (tgeom.FA): tools/fardata.s, the dispatcher's dmiss service
 $(BUILD)/far-test/%: tools/%.s os/lib/sys.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/far-test
 	$(BUILD)/sasm -T 0x8000 -r -n -o $@ $<
-$(BUILD)/far-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/far-test/fardata
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/far-test/fardata
+define FARDISK_CMD
+$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/far-test/fardata
+endef
+$(BUILD)/far-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/far-test/fardata $(call recipe-stamp,FARDISK_CMD)
+	$(FARDISK_CMD)
 $(BUILD)/isol-test/dlsgapcut: $(BUILD)/isol-test/dlsgap
 	head -c $$(( $$(wc -c <$<) - 8 )) $< >$@
-$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot $(BUILD)/isol-test/dlsgapcut
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot $(BUILD)/isol-test/dlsgapcut
+define ISOLDISK_CMD
+$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t bin $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot $(BUILD)/isol-test/dlsgapcut
+endef
+$(BUILD)/isol-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(BUILD)/isol-test/dlsgap $(BUILD)/isol-test/lsprot $(BUILD)/isol-test/dlsgapcut $(call recipe-stamp,ISOLDISK_CMD)
+	$(ISOLDISK_CMD)
 
 # the disk of tools/test-files.sh: the standard one plus 300 small files tagged
 # many (f000 .. f299, each holding its own name): more files than one window
 # of the file server's directory, or one DIR message, holds
 MANY := $(shell i=0; while [ $$i -lt 300 ]; do printf '$(BUILD)/files-test/many/f%03d ' $$i; i=$$((i + 1)); done)
-$(BUILD)/files-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES)
-	@mkdir -p $(BUILD)/files-test/many
-	@for f in $(MANY); do basename $$f > $$f; done
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) 2>&1 | cut -c1-200
+define FILESDISK_CMD
+@mkdir -p $(BUILD)/files-test/many
+@for f in $(MANY); do basename $$f > $$f; done
+$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) 2>&1 | cut -c1-200
+endef
+$(BUILD)/files-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(call recipe-stamp,FILESDISK_CMD)
+	$(FILESDISK_CMD)
 
 # make bench-store: what the file system and the store cost (tools/bench-store.sh,
 # doc/fs-split.md): an emulator that counts messages, and a disk with the
@@ -819,19 +868,25 @@ ls-stats: $(BUILD)/strata-emu-ls $(BUILD)/bootrom.stx $(BUILD)/disk.img
 $(BUILD)/bench/dbbench: tools/bench/dbbench.s os/lib/sys.s os/lib/kv.s $(BUILD)/sasm
 	@mkdir -p $(BUILD)/bench
 	$(BUILD)/sasm -T 0x8000 -r -n -o $@ $<
-$(BUILD)/bench/disk.img: $(BUILD)/files-test/disk.img $(BUILD)/bench/dbbench
-	@i=0; while [ $$i -lt 100 ]; do echo "echo $$i > /sm/f$$i"; i=$$((i + 1)); done > $(BUILD)/bench/small
-	@$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) -t bin $(BUILD)/bench/dbbench \
-	  -t bench $(BUILD)/bench/small 2>&1 | cut -c1-200
+define BENCHDISK_CMD
+@i=0; while [ $$i -lt 100 ]; do echo "echo $$i > /sm/f$$i"; i=$$((i + 1)); done > $(BUILD)/bench/small
+@$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t many $(MANY) -t bin $(BUILD)/bench/dbbench \
+  -t bench $(BUILD)/bench/small 2>&1 | cut -c1-200
+endef
+$(BUILD)/bench/disk.img: $(BUILD)/files-test/disk.img $(BUILD)/bench/dbbench $(call recipe-stamp,BENCHDISK_CMD)
+	$(BENCHDISK_CMD)
 bench-store: $(BUILD)/strata-emu-stats $(BUILD)/bootrom.stx $(BUILD)/bench/disk.img
 	tools/bench-store.sh $(BUILD)/strata-emu-stats $(BUILD) $(BUILD)/bench/disk.img
 
 # the disk of `make test-forth`: the standard one plus the test files
+define FORTHDISK_CMD
+@mkdir -p $(BUILD)/forth-test
+$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t forth $(wildcard lang/forth/tests/*.fs) \
+  -t httptest $(wildcard lang/forth/tests/http/*)
+endef
 $(BUILD)/forth-test/disk.img: $(BUILD)/kernel.stx $(BUILD)/mkdisk $(DISK_FILES) $(wildcard lang/forth/tests/*.fs) \
-                              $(wildcard lang/forth/tests/http/*)
-	@mkdir -p $(BUILD)/forth-test
-	$(BUILD)/mkdisk -o $@ -k $(BUILD)/kernel.stx $(DISK_ARGS) -t forth $(wildcard lang/forth/tests/*.fs) \
-	  -t httptest $(wildcard lang/forth/tests/http/*)
+                              $(wildcard lang/forth/tests/http/*) $(call recipe-stamp,FORTHDISK_CMD)
+	$(FORTHDISK_CMD)
 
 forth: $(BUILD)/strata-emu $(BUILD)/forth.stx
 	@$(EMU) $(BUILD)/forth.stx
