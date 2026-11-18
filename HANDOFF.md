@@ -240,10 +240,10 @@ sets, VIPs) and 3 (days and upgrades, kept in a file) are open.
   sushi-dat` runs both. The art for parts 2 and 3 (three more kinds of
   sushi, the black plate, plate stacks) is drawn already.
 - `tools/test-sushi.sh` (in `make test`) compares the last frame of each
-  `sushi demo N` (N is 1..8; its header says what each plays). A change of
+  `sushi demo N` (N is 1..9, then a..d; its header says what each plays). A change of
   art, of drawing, of the rules or of the order in which random numbers are
   drawn needs new checksums, and may need the demos' clicks moved.
-- Limits: 29.5 of the 40 KiB of D-LS, 18 of the 32 KiB of code.
+- Limits: 31 of the 40 KiB of D-LS, 21 of the 32 KiB of code.
 
 ## wdoom and the sound device (added 2026-11-13, not yet deployed)
 

@@ -55,16 +55,33 @@ player is the head of the kitchen:
   behind it as they go (sprites are clipped at row 70), so no walking is
   drawn. The plates on the top lane are behind the cooks' heads, those on
   the bottom lane in front of the counter.
-- **One chosen order at a time**: there is always one (the first not yet
-  given to a cook, unless the player chose another; its bubble is framed
-  and bobs), so the keyboard needs only 1 2 3 and the arrows. An order
-  given shows the cook's number on its bubble; it can be given again (a
-  second plate is a gamble on the belt).
+- **One chosen order at a time**: the first not yet given to a cook,
+  unless the player chose another (its customer has a gold frame, its
+  bubble bobs), so the keyboard needs only 1 2 3 and the arrows. When every
+  order is given none is chosen, so a key pressed twice does not give one
+  twice by mistake; an arrow or a click chooses an order given already, to
+  give it again (a second plate is a gamble on the belt). An order given
+  shows the cook's number on its bubble; if somebody else takes the plate
+  made for it, it is no one's again.
 - **What is going on is shown where it happens**: the cooks' numbers are
   painted on the wall beside them and on their boxes in the bar; the piece
   a cook is making stands beside them with how far it is made under it.
-  Before the evening a card says how to play, in three pictures and seven
-  lines.
+  Before the evening two pages say how to play: three pictures and seven
+  lines, then the three cooks.
+- **The cooks have names and cards**: Hiro the owner (fast nigiri, slow
+  rolls), Aiko (fast rolls, slow nigiri), Taro (even at both). A click on a
+  cook's face in the bar, or I, opens their card: their times, what they
+  are fast and slow at, their queue. A click on the money opens how you
+  earn: the plates' prices by colour, the tip, the pieces in a row, what a
+  tired or stale plate and a sweep cost. The evening waits while a card is
+  open. The cards' text about times is made by the asset tool from the
+  times themselves, so it cannot disagree with them.
+- **What a customer pays is shown**: when they have eaten, the price, the
+  tip and what the pieces in a row added rise over them, and the bar counts
+  the pieces served in a row (ROW N).
+- **The evening ends cleanly**: after 22:00 nobody orders another piece
+  (last orders); at 22:30 whoever is still eating pays and whoever still
+  waits counts as gone.
 - **Text is sprites**: two fonts from the art (6 x 8, and 10 x 14 digits
   for the money), and `$` in a string is the yen mark.
 - **Sounds are synthesised** by the asset tool (the door bell, the knife,
@@ -88,7 +105,8 @@ palette): there is no boot image of its own.
       sounds, the sushi and the cooks' times, the demos
 - [x] Part 1: **one evening**: three cooks, five kinds of sushi, customers
       who come, wait, eat, pay or leave; stale plates and sweeping; the
-      title, how to play, and the results; sound; `sushi demo`; on the disk, `ws sushi`,
+      title, how to play, the cooks' and the money's cards, what was paid
+      rising, and the results; sound; `sushi demo`; on the disk, `ws sushi`,
       the palette, the shell's help; `tools/test-sushi.sh` in `make test`;
       the play page's preset
 - [ ] Part 2: **rush hours** (the day in parts, a sign over the door and a
@@ -108,10 +126,10 @@ already sitting there), how many pieces they want and which.
 
 ## Sizes
 
-The program is 47 KiB on the disk: 18 KiB of code (of the 32 KiB a
-program may have; about 2,750 lines of assembly of its own, the frame
-much as kira's) and 29.5 KiB of D-LS data (of 40 KiB): the library 13
-KiB, the resident block of `sushi.dat` 5 KiB, the slab 5.4 KiB, a 3 KiB
+The program is 51 KiB on the disk: 21 KiB of code (of the 32 KiB a
+program may have; about 3,500 lines of assembly of its own, the frame
+much as kira's) and 31 KiB of D-LS data (of 40 KiB): the library 13
+KiB, the resident block of `sushi.dat` 5.6 KiB, the slab 5.4 KiB, a 3 KiB
 buffer for a coded picture slab. `sushi.dat` is 235 KiB: 213 sprites,
 ten sounds, the room and the title coded, the bar. The art has 64
 colours, and so has the palette.

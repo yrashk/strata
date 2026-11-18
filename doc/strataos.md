@@ -1779,8 +1779,13 @@ window whose process ends is removed.
   pays the plate's price and a tip. A customer who waits too long goes;
   a plate that rides too long goes stale, and a stale plate sends its
   customer away without paying, unless it is swept off first (a click on
-  it, or Z). An evening runs from 17:00 to 22:00 on a clock in the bar
-  and ends with the results. It draws as `kira` does (320 x 200 in slabs,
+  it, or Z). The three cooks are fast at different things (Hiro at
+  nigiri, Aiko at rolls, Taro even at both): a click on a cook's face in
+  the bar, or I, opens their card, and a click on the money a card of how
+  you earn; what a customer pays (price, tip, the pieces served in a row)
+  rises over them. Two pages before the evening say how to play. An
+  evening runs from 17:00 to 22:00 on a clock in the bar and ends with the
+  results. It draws as `kira` does (320 x 200 in slabs,
   scaled by a whole factor; the belt's slats are drawn by the program and
   move with the plates). Its art is drawn by `tools/sushi-art.py`, its
   sounds are synthesised by `tools/sushi-assets.py`, both in

@@ -66,7 +66,7 @@ const PRESETS = {
     sound: true,
     type: "ws sushi\n",
     about: "A conveyor-belt sushi bar in Strata assembly: give each customer's order to a cook before their patience runs out, and sweep the stale plates off the belt. Click the screen, press a key.",
-    keys: [["Space", "open the bar"], ["1 2 3", "give the chosen order to a cook"], ["arrows", "choose another order"], ["click", "a bubble, then a cook; a plate to sweep it off"], ["Z", "sweep the oldest stale plate off"], ["Q", "quit"]],
+    keys: [["Space", "how to play, then open the bar"], ["1 2 3", "give the chosen order to a cook"], ["arrows", "choose another order"], ["click", "a bubble, then a cook; a plate to sweep it off"], ["Z", "sweep the oldest stale plate off"], ["I", "how you earn, the cooks' cards"], ["click the bar", "the money or a cook's face: their card"], ["Q", "quit"]],
   },
   nav: {
     files: ["bootrom.stx", "disk.img"],

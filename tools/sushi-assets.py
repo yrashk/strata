@@ -56,6 +56,8 @@ COOK_FRAMES = ['idle_0', 'idle_1', 'slice_0', 'slice_1', 'rice_0', 'rice_1', 'ro
 # tics each cook takes for each way of making: the owner is quick with nigiri, the
 # woman in the red headscarf with rolls, the young cook is even
 COOK_TICS = [(105, 200, 190), (165, 110, 125), (140, 145, 150)]
+COOK_NAMES = [('HIRO', 'THE OWNER'), ('AIKO', 'THE ROLL EXPERT'), ('TARO', 'THE NEW COOK')]
+CTEXT = 24                              # bytes of a line of a cook's text (R_CTEXT)
 CUSTS = ['office', 'granny', 'student', 'tourist', 'artist', 'builder', 'kid', 'chef_fan']
 CUST_FRAMES = ['sit_0', 'sit_1', 'want', 'eat_0', 'eat_1', 'happy', 'angry']
 SMALL = ['cursor', 'select_cook', 'select_seat', 'fly_0', 'fly_1', 'stink_0', 'stink_1',
@@ -70,16 +72,20 @@ FONT_B = '0123456789+-x:$'
 DEMOS = {
     1: "5 .",                                       # the title
     2: "3  ,5 .",                                   # how to play
-    3: "3  ,2  ,400 _",                             # the evening starts: customers come in and sit
-    4: "3  ,2  ,300 _,1 1,2 2,2 3,150 _",           # orders given by keys: the cooks make them, a plate rides
-    5: "3  ,2  ,300 _,2 @208:24,2 @160:96,120 _,2 @240:24,2 @282:184,700 _",   # ... by clicks: a bubble, a cook, a cook's box
-    6: "3  ,2  ,300 _,1 1,1 1,130 _,1 @76:146,4 _",     # a plate swept off the belt by a click
-    7: "3  ,2  ,300 _,1 1,1 1,1 1,1 >,2390 _,1 >,10 _,1 z,5 _",   # plates nobody takes go stale; Z sweeps one off
-    8: "3  ,2  ,1 >,1460 _,1 >,10 _",               # left alone: the first customer waits too long and goes
-    9: "3  ,2  ,1 >,1 {220,1 1,1 2,1 3,30 _,1 },1 >,200 _",   # a whole evening, every order given at once: the results
+    3: "3  ,2  ,5 .",                               # ... its second page: the cooks
+    4: "3  ,2  ,2  ,400 _",                         # the evening starts: customers come in and sit
+    5: "3  ,2  ,2  ,300 _,1 1,2 2,2 3,150 _",       # orders given by keys: the cooks make them, a plate rides
+    6: "3  ,2  ,2  ,300 _,2 @208:24,2 @160:96,120 _,2 @240:24,2 @282:184,700 _",   # ... by clicks: a bubble, a cook, a cook's box
+    7: "3  ,2  ,2  ,300 _,1 1,1 R,1 1,130 _,1 @76:146,4 _",     # one order given twice; a plate swept off by a click
+    8: "3  ,2  ,2  ,300 _,1 1,1 R,1 1,1 R,1 1,1 >,2390 _,1 >,10 _,1 z,5 _",   # plates nobody takes go stale; Z sweeps one off
+    9: "3  ,2  ,2  ,1 >,1460 _,1 >,10 _",           # left alone: the first customer waits too long and goes
+    10: "3  ,2  ,2  ,1 >,1 {220,1 1,1 2,1 3,30 _,1 },1 >,200 _",   # a whole evening, every order given at once: the results
+    11: "3  ,2  ,2  ,300 _,1 1,1 1,60 _,1 i,1 i,3 _",   # I: how you earn, then the owner's card with his queue
+    12: "3  ,2  ,2  ,300 _,1 1,2 2,2 3,300 _,2 @92:184,30 _,2 .,2 @40:184,3 _",   # a click on a face: a card that holds the evening; one on the money
+    13: "3  ,2  ,2  ,300 _,1 1,2 2,2 3,545 _",      # a customer pays: what for, rising over them
 }
 KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '}': 0xfc, '~': 0xfa, '>': 0xf9, '_': 0}
-NDEMO = 9
+NDEMO = 13
 
 
 def make_sounds():
@@ -256,6 +262,29 @@ def build(art, outdir):
 
     kinds = b''.join(struct.pack('<BBH', p, how, price) for _, p, how, price in KINDS)
     cooks = b''.join(struct.pack('<HHH', *t) + b'\0\0' for t in COOK_TICS)
+    # each cook's lines of text, from their times: their card (name, role, how
+    # long nigiri and rolls take, fast or slow among the three) and their two
+    # lines on the second page of how to play
+    ctext = bytearray()
+
+    def line(t):
+        assert len(t) < CTEXT and all(ch in FONT_S for ch in t), t
+        return t.encode() + bytes(CTEXT - len(t))
+    for i, ((name, role), tics) in enumerate(zip(COOK_NAMES, COOK_TICS)):
+        word = []
+        for how in (0, 1):
+            ts = [c[how] for c in COOK_TICS]
+            word.append('FAST' if tics[how] == min(ts) else 'SLOW' if tics[how] == max(ts) else '')
+        secs = ['%d.%d S' % divmod(round(t * 10 / 35), 10) for t in tics[:2]]
+        if word[0] == 'FAST':
+            sum1, sum2 = name + ': FAST NIGIRI', word[1] and word[1] + ' ROLLS' or ''
+        elif word[1] == 'FAST':
+            sum1, sum2 = name + ': FAST ROLLS', word[0] and word[0] + ' NIGIRI' or ''
+        else:
+            sum1, sum2 = name + ': EVEN AT BOTH', 'NEVER FAST NEVER SLOW'
+        ctext += b''.join(line(t) for t in (
+            '%d %s' % (i + 1, name), role, ('NIGIRI ' + secs[0] + ' ' + word[0]).strip(),
+            ('ROLLS  ' + secs[1] + ' ' + word[1]).strip(), sum1, sum2))
     fonts = bytearray(256)
     for i, ch in enumerate(FONT_S):
         fonts[ord(ch)] = i
@@ -292,6 +321,8 @@ def build(art, outdir):
              ('R_PIC', bytes(picdir), 'pictures: ten slabs each: u32 far offset, u16 coded bytes, u16 0'),
              ('R_KIND', pad8(kinds), 'the sushi: u8 plate colour, u8 how it is made (0 nigiri, 1 roll, 2 gunkan), u16 price'),
              ('R_COOK', cooks, 'the cooks: u16 tics for nigiri, a roll, gunkan; u16 0'),
+             ('R_CTEXT', pad8(bytes(ctext)), 'the cooks\' text: six lines of CTEXT bytes each, NUL-padded: '
+              'number and name, role, nigiri, rolls; the two lines of how to play'),
              ('R_FONT', bytes(fonts), 'characters to glyphs: 128 of the small font, 128 of the big one (255: none)'),
              ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: NDEMO u16 offsets from here, then '
               'u8 tics, u8 key (1..4: up, down, left, right; 0xfe: a click, x / 2 and y follow; 0xfb: a loop '
@@ -316,6 +347,7 @@ def build(art, outdir):
     equ('NCOOKF', len(COOK_FRAMES) + 1, 'sprites per cook: the frames, then the face')
     equ('NCUSTF', len(CUST_FRAMES), 'sprites per customer')
     equ('NDEMO', NDEMO, 'demos')
+    equ('CTEXT', CTEXT, 'bytes of a line of a cook\'s text')
     equ('SND_RATE', SND_RATE, 'samples per second')
     for n in ('ink', 'black', 'white', 'slate_d', 'slate', 'patience_green', 'patience_yellow',
               'patience_red', 'progress', 'gold', 'select', 'walnut_d', 'grey_d'):

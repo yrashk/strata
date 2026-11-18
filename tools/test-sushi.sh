@@ -14,26 +14,34 @@
 #    expected checksum.
 #      demo 1  the title
 #      demo 2  how to play: a card over the room
-#      demo 3  the evening begins: the first customers come in and sit down
-#      demo 4  orders given to the three cooks with 1 2 3: the cooks make
-#              them (the piece in hand beside each cook), the first plate
-#              rides the belt; the bubbles show which cook has their order
-#      demo 5  ... with the mouse: a bubble, then a cook in the kitchen; a
-#              bubble, then a cook's box in the bar; customers served, paid
-#      demo 6  one order given twice; the first plate is swept off the belt
-#              by a click as it leaves the cook (a cloud of dust)
-#      demo 7  one order given three times: the plates nobody takes ride on,
+#      demo 3  ... its second page: the three cooks, what each is fast at
+#      demo 4  the evening begins: the first customers come in and sit down
+#      demo 5  orders given to the cooks with 1 2 3: the cooks make them
+#              (the piece in hand beside each cook), the first plate rides
+#              the belt; the bubbles show which cook has their order
+#      demo 6  ... with the mouse: a bubble, then a cook in the kitchen; a
+#              bubble, then a cook's queue in the bar; customers served, paid
+#      demo 7  one order given twice (the second time chosen with an arrow);
+#              the first plate is swept off the belt by a click as it leaves
+#              the cook (a cloud of dust)
+#      demo 8  one order given three times: the plates nobody takes ride on,
 #              tire and go stale (flies); Z sweeps the oldest off
-#      demo 8  nobody is served: the first customer waits too long and goes,
+#      demo 9  nobody is served: the first customer waits too long and goes,
 #              cross (steam)
-#      demo 9  a whole evening with every order given to every cook at once:
+#      demo a  a whole evening with every order given to every cook at once:
 #              the bar closes at 22:00 and the results are shown
+#      demo b  I: the card of how you earn, I again: the owner's card, with
+#              his times and his queue (the evening waits behind it)
+#      demo c  a click on a cook's face in the bar opens their card, a key
+#              closes it; a click on the money opens how you earn
+#      demo d  a customer pays: the price and the tip rise over them, and
+#              the bar counts the pieces served in a row
 #    (A demo's random numbers start from a fixed seed, so its customers and
 #    their orders are always the same.)
 # 2. `ws sushi` on a machine with the sound device (-A: what it plays goes
 #    to a WAV file) and a pointer (-P): a click on the title shows how to
-#    play, a second starts the evening, 1 gives the first order to a cook, q
-#    ends the program; the
+#    play, two more turn its page and start the evening, 1 gives the first
+#    order to a cook, q ends the program; the
 #    window server then opens a terminal, where a command leaves a file;
 #    Alt+Shift+Q, and the shell shows the file. Checked: the file, and that
 #    the WAV holds the sounds (the door bell, the cook's knife).
@@ -46,7 +54,7 @@ set -e
 BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
-SUSHI_CRC="1:f629bc31:6 2:85458871:6 3:fb8f03d5:6 4:b52ab476:8 5:834cb777:12 6:99bd2672:6 7:58ed88c0:6 8:120a22f5:6 9:7c30863a:6"
+SUSHI_CRC="1:c4ad2efb:6 2:6a9ad6a4:6 3:b3bd9d3e:6 4:729a8d4e:6 5:3f72ea15:8 6:bef84dff:12 7:2a672591:6 8:1a8bd89e:6 9:1a4dafd0:6 a:4c4aca08:6 b:ebd402a7:8 c:1b842428:8 d:1e5a54ac:8"
 T=$(mktemp -d "${TMPDIR:-/tmp}/test-sushi.XXXXXX")
 OUT=$BUILD/test-sushi
 mkdir -p $OUT
@@ -87,8 +95,8 @@ cp "$DISK" $T/disk.img
 START="ws sushi\n$W$W$W$W $W"
 printf "$START$W$W${W}1$W$W${W}q$W$W${W}echo sushi-q-ok > smark\n$W${AQ}cat smark\n" > $T/keys
 N=$(printf "$START" | wc -c | tr -d ' ')
-N1=$((N + 10))                          # (one Alt+Shift+W later)
-printf "k$N move 640 416\nk$N down 0\nk$N up 0\nk$N1 down 0\nk$N1 up 0\n" > $T/ptr   # the title: how to play; the evening
+N1=$((N + 10)) N2=$((N + 20))           # (one Alt+Shift+W later, and two)
+printf "k$N move 640 416\nk$N down 0\nk$N up 0\nk$N1 down 0\nk$N1 up 0\nk$N2 down 0\nk$N2 up 0\n" > $T/ptr   # the title, how to play's two pages: the evening
 $BUILD/strata-emu -c 12 -g none -m 40000000000 -A $OUT/sound.wav -P $T/ptr -d $T/disk.img -i $T/keys "$ROM" > $OUT/outp.txt 2>&1 || {
   echo "test-sushi: FAILED: the emulator exited with an error (pointer, sound)"; tail -5 $OUT/outp.txt; exit 1; }
 grep -q '^sushi-q-ok' $OUT/outp.txt || fail "q did not end sushi (no terminal took the command after it)" outp
