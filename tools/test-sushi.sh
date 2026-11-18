@@ -43,8 +43,17 @@
 #              banner on the floor, the clock on red, every seat taken
 #      demo g  later in it: a set (two pieces) in a bubble and a cook's
 #              queue, VIPs' stars, plates stacked beside those who ate
+#      demo h  the restaurant's file is used: a whole evening as in demo a,
+#              then the shop: the tea station and the eel bought from the
+#              till, the inside-out roll chosen (what it does is shown)
 #    (A demo's random numbers start from a fixed seed, so its customers and
 #    their orders are always the same.)
+#    In section 3 these run after demo h on its disk, in the same session
+#    (ws quit with Alt+Shift+Q, then started again), so the file it wrote
+#    is there:
+#      demo i  the title: day 2, the till, N for a new bar
+#      demo j  day 2: straight into the evening (no pages of how to play);
+#              eel on the menu, on a gold plate
 # 2. `ws sushi` on a machine with the sound device (-A: what it plays goes
 #    to a WAV file) and a pointer (-P): a click on the title shows how to
 #    play, two more turn its page and start the evening, 1 gives the first
@@ -61,7 +70,8 @@ set -e
 BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
-SUSHI_CRC="1:c4ad2efb:6 2:6a9ad6a4:6 3:b3bd9d3e:6 4:729a8d4e:6 5:3f72ea15:8 6:bef84dff:12 7:2a672591:6 8:4f2adf89:6 9:bdeb65f7:6 a:0cc49cf8:6 b:ebd402a7:8 c:1b842428:8 d:0d6d0441:8 e:d933f36a:6 f:89fd7df0:6 g:66f50181:6"
+SUSHI_CRC="1:c4ad2efb:6 2:6a9ad6a4:6 3:b3bd9d3e:6 4:729a8d4e:6 5:3f72ea15:8 6:bef84dff:12 7:2a672591:6 8:4f2adf89:6 9:bdeb65f7:6 a:0cc49cf8:6 b:ebd402a7:8 c:1b842428:8 d:0d6d0441:8 e:d933f36a:6 f:89fd7df0:6 g:66f50181:6 h:97a324d9:8"
+SUSHI_CRC2="i:77333980 j:c17606ce"
 T=$(mktemp -d "${TMPDIR:-/tmp}/test-sushi.XXXXXX")
 OUT=$BUILD/test-sushi
 mkdir -p $OUT
@@ -118,4 +128,26 @@ loud = sum(1 for v in s if abs(v) > 1000)
 print("sound: %d Hz, %d samples, %d of them loud" % (w.getframerate(), len(s), loud))
 sys.exit(0 if w.getframerate() == 11025 and w.getnchannels() == 1 and loud > 1000 else 1)
 PY
+
+# ---- 3. the restaurant kept: demo h writes /ws/sushi.sav, demos i and j read it
+for d in $SUSHI_CRC2; do
+  n=${d%%:*} crc=${d#*:}
+  cp "$DISK" $T/disk.img
+  printf "ws sushi demo h\n$W$W$W$W $W$W$W$W$W$W${W}q$W$W$W${AQ}ws sushi demo $n\n$W$W$W$W $W$W$W$W$W$W$W$W${AH}" > $T/keys
+  $BUILD/strata-emu -c 12 -g none -m 40000000000 -F $OUT/frame$n.ppm -d $T/disk.img -i $T/keys "$ROM" > $OUT/out$n.txt 2>&1 || {
+    echo "test-sushi: FAILED: the emulator exited with an error (demo $n)"; tail -5 $OUT/out$n.txt; exit 1; }
+  [ "$(grep -c '^sushi: demo: [0-9]* frames in ' $OUT/out$n.txt)" = 2 ] || fail "demo h, then demo $n, did not play to their ends" out$n
+  grep -q '^ws: stopped' $OUT/out$n.txt || fail "ws did not quit between the demos" out$n
+  if grep -q 'fault\|panic' $OUT/out$n.txt; then fail "a fault was reported" out$n; fi
+  python3 - $OUT/frame$n.ppm $crc $n <<'PY' || fail "the last frame of demo $n is not the expected picture" out$n
+import sys, zlib
+b = open(sys.argv[1], 'rb').read()
+p = b.split(b'\n', 3)
+w, h = map(int, p[1].split())
+px = p[3]
+crc = zlib.crc32(b''.join(px[((116 + y) * w + 160) * 3:((116 + y) * w + 160 + 960) * 3] for y in range(600)))
+print("demo %s (after h): frame %dx%d: game picture crc %08x (expected %s)" % (sys.argv[3], w, h, crc, sys.argv[2]))
+sys.exit(0 if (w, h) == (1280, 800) and "%08x" % crc == sys.argv[2] else 1)
+PY
+done
 echo "test-sushi: ok"

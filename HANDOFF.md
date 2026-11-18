@@ -229,22 +229,29 @@ Garden (kept in `/ws/kira.sav`), Paint, Music.
 `sushi` (`os/progs/sushi.s`, `os/progs/sushi/`, plan, decisions and sizes in
 `os/progs/PLAN-sushi.md`) is SushiBelt: a conveyor-belt sushi bar as a
 window-server client, on the ordinary disk (`ws sushi`, or `sushi` from the
-palette) and a preset on the play page. Parts 1 and 2 of three are built:
-one evening (three cooks, five kinds of sushi, customers who wait, eat and
+palette) and a preset on the play page. All three parts are built: an
+evening (three cooks, five kinds of sushi, customers who wait, eat and
 pay or leave, stale plates and sweeping, the results), with two rush hours,
 sets (kinds of their own after the eight pieces: `SET0`, `R_SETP`), VIPs
-and plate stacks. Part 3 (days and upgrades, kept in a file) is open.
+and plate stacks; days, with a till and a shop of seven upgrades between
+evenings (`os/progs/sushi/days.s`), kept in `/ws/sushi.sav`.
 - The art is drawn by `tools/sushi-art.py` into `os/progs/sushi/art/` (the
   specification is `SPEC.md` there, with the rectangles the program relies
   on: the belt's lanes, the seats, the cooks' stations, the bar's boxes);
   `tools/sushi-assets.py` converts it and synthesises the sounds; `make
-  sushi-dat` runs both. The art for parts 2 and 3 (three more kinds of
-  sushi) is drawn already.
+  sushi-dat` runs both. All the art is in use.
 - `tools/test-sushi.sh` (in `make test`) compares the last frame of each
-  `sushi demo N` (N is 1..9, then a..g; its header says what each plays). A change of
+  `sushi demo N` (N is 1..9, then a..j; its header says what each plays). A change of
   art, of drawing, of the rules or of the order in which random numbers are
   drawn needs new checksums, and may need the demos' clicks moved.
-- Limits: 31 of the 40 KiB of D-LS, 22 of the 32 KiB of code.
+- The file is read before the window opens (reading it with the window
+  open did not work) and written while it is open, through `fs` looked
+  up into the window server's endpoint. What a test writes is lost when
+  the machine halts, so a test that reads it back runs in the same
+  session (test-sushi, section 3).
+- A halfword or word table after strings must be aligned: an unaligned
+  load freezes the program without a fault (it happened twice here).
+- Limits: 32 of the 40 KiB of D-LS, 23 of the 32 KiB of code.
 
 ## wdoom and the sound device (added 2026-11-13, not yet deployed)
 

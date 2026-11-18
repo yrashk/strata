@@ -73,7 +73,7 @@ FONT_B = '0123456789+-x:$'
 
 # ---- the demos (`sushi demo N`): (tics to wait, key), one tic a frame -------------
 # Keys: U D L R the arrows, _ none (a wait), > the tics after it are not drawn
-# (until the next >), other characters themselves; @X:Y a click there. tools/test-sushi.sh compares the last frame of each.
+# (until the next >), F the restaurant's file is used, other characters themselves; @X:Y a click there. tools/test-sushi.sh compares the last frame of each.
 DEMOS = {
     1: "5 .",                                       # the title
     2: "3  ,5 .",                                   # how to play
@@ -91,9 +91,13 @@ DEMOS = {
     14: "3  ,2  ,2  ,1 >,1205 _,1 >,2 _",           # 18:00: the first rush, and the card of the busy hours
     15: "3  ,2  ,2  ,1 >,1 {38,1 1,1 2,1 3,30 _,1 },1 >,40 _",   # the rush: the sign, the banner, the clock on red, a crowd
     16: "3  ,2  ,2  ,1 >,1 {48,1 1,1 2,1 3,30 _,1 },1 >,30 _",   # later in it: sets, a VIP, plates stacked
+    # the restaurant's file is used (F) from here on: tools/test-sushi.sh plays h, then i and j on its disk
+    17: "1 F,3  ,2  ,2  ,1 >,1 {220,1 1,1 2,1 3,30 _,1 },1 >,200 _,2  ,3 1,3 b,3 6,3 b,3 D,10 _",   # the evening's end, then the shop: tea and eel bought
+    18: "1 F,30 _",                                   # the next run: the title says day 2, and the till
+    19: "1 F,3  ,1 >,1 {40,1 1,1 2,1 3,30 _,1 },1 >,20 _",   # day 2: straight into the evening; eel on the menu
 }
-KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '}': 0xfc, '~': 0xfa, '>': 0xf9, '_': 0}
-NDEMO = 16
+KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '}': 0xfc, '~': 0xfa, '>': 0xf9, 'F': 0xf8, '_': 0}
+NDEMO = 19
 
 
 def make_sounds():
@@ -340,7 +344,7 @@ def build(art, outdir):
              ('R_DEMO', pad8(bytes(demodir) + bytes(demos)), 'the demos: NDEMO u16 offsets from here, then '
               'u8 tics, u8 key (1..4: up, down, left, right; 0xfe: a click, x / 2 and y follow; 0xfb: a loop '
               'begins, its count and 0 follow; 0xfc: it ends; 0xfa: the random numbers start over; 0xf9: the tics '
-              'after it are not drawn, until the next) each; 0 ends one')]
+              'after it are not drawn, until the next; 0xf8: the restaurant\'s file is used) each; 0 ends one')]
     res = bytearray()
     lines = ['; dat.s: the layout of sushi.dat. Written by tools/sushi-assets.py: do not edit.', '']
 

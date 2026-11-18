@@ -1791,7 +1791,13 @@ window whose process ends is removed.
   by one cook) and some are VIPs (a star: double pay, half the
   patience); the first rush opens a card that says so, and a click on
   the clock opens it again. The plates a customer has eaten from stand
-  stacked beside them. It draws as `kira` does (320 x 200 in slabs,
+  stacked beside them. What each evening takes goes into the till, and
+  after the results a shop sells seven things for it, each once: a tea
+  station (more patience), a rice cooker (quicker cooks), a fast belt, a
+  chilled belt (plates fresh longer) and three new fish for the menu.
+  Each day is a little busier. The restaurant is kept in
+  `/ws/sushi.sav`; the title shows its day and till, and N there starts
+  a new one. It draws as `kira` does (320 x 200 in slabs,
   scaled by a whole factor; the belt's slats are drawn by the program and
   move with the plates). Its art is drawn by `tools/sushi-art.py`, its
   sounds are synthesised by `tools/sushi-assets.py`, both in

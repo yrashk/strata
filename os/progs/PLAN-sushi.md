@@ -100,6 +100,19 @@ player is the head of the kitchen:
   quick at both pieces (a pair of nigiri: Hiro; of rolls: Aiko).
 - **A VIP is marked by a star** by their head, pays double (the tip, too,
   as it is a part of the price) and has half the patience.
+- **No fourth cook**: the room has three stations and the bar three
+  boxes, both drawn; a fourth would need new art and a new layout. The
+  shop's seven things change the rules instead: patience (tea), every
+  cook's times (rice cooker), the belt's speed (a step more every other
+  tic, the plates no older for it), how fast plates age (chilled: every
+  other tic), and the menu (each fish bought joins the five kinds).
+- **The restaurant is read before the window opens and written while it
+  is open** (looking `fs` up into the window server's endpoint and `ws`
+  back, as kira's garden does); reading with the window open did not
+  work. It is written when an evening ends and when something is
+  bought. A demo uses the file only if its first step says so (F); since
+  what is written is gone when the machine halts, the test plays the
+  demo that writes it and the one that reads it in one session.
 - **`sushi demo N`** plays recorded keys and clicks one tic a frame, as
   kira's demos do; a `>` in a demo runs the tics after it without drawing
   them, so a whole evening is a test of a second.
@@ -127,10 +140,13 @@ palette): there is no boot image of its own.
       clock on red), customers who order a set of pieces at once, and
       VIPs who pay double and wait half as long; the plates a customer
       has eaten stacked beside them; the card of the busy hours
-- [ ] Part 3: **days and upgrades**: the takings spent between evenings
-      (a faster belt, a fourth cook, a rice cooker, a tea station, a new
-      fish: unagi, ikura, uramaki are drawn already), the restaurant kept
-      in a file
+- [x] Part 3: **days and upgrades**: each evening's takings go into the
+      till, and after the results the shop sells seven things, each once
+      (a tea station, a rice cooker, a fast belt, a chilled belt, and
+      three new fish: ikura, unagi, uramaki); every day comes a little
+      busier; the restaurant (day, till, what was bought) kept in
+      `/ws/sushi.sav`; on the title, past the first day, the day and the
+      till, and N for a new bar
 
 ## What chance decides
 
@@ -140,8 +156,8 @@ already sitting there), how many pieces they want and which.
 
 ## Sizes
 
-The program is 53 KiB on the disk: 22 KiB of code (of the 32 KiB a
-program may have; about 3,800 lines of assembly of its own, the frame
+The program is 56 KiB on the disk: 23 KiB of code (of the 32 KiB a
+program may have; about 4,300 lines of assembly of its own, the frame
 much as kira's) and 31 KiB of D-LS data (of 40 KiB): the library 13
 KiB, the resident block of `sushi.dat` 5.6 KiB, the slab 5.4 KiB, a 3 KiB
 buffer for a coded picture slab. `sushi.dat` is 235 KiB: 213 sprites,
