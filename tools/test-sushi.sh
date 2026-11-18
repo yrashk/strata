@@ -24,10 +24,11 @@
 #      demo 7  one order given twice (the second time chosen with an arrow);
 #              the first plate is swept off the belt by a click as it leaves
 #              the cook (a cloud of dust)
-#      demo 8  one order given three times: the plates nobody takes ride on,
-#              tire and go stale (flies); Z sweeps the oldest off
+#      demo 8  one order given six times: the plates nobody takes ride on,
+#              tire and go stale (flies) through the first rush; Z sweeps
+#              the oldest off
 #      demo 9  nobody is served: the first customer waits too long and goes,
-#              cross (steam)
+#              cross (steam), as the first rush brings a crowd
 #      demo a  a whole evening with every order given to every cook at once:
 #              the bar closes at 22:00 and the results are shown
 #      demo b  I: the card of how you earn, I again: the owner's card, with
@@ -36,6 +37,12 @@
 #              closes it; a click on the money opens how you earn
 #      demo d  a customer pays: the price and the tip rise over them, and
 #              the bar counts the pieces served in a row
+#      demo e  18:00, the first rush: the card of the busy hours opens over
+#              the evening (the sign by the door, sets, VIPs)
+#      demo f  the rush once the card is closed: RUSH by the door, the
+#              banner on the floor, the clock on red, every seat taken
+#      demo g  later in it: a set (two pieces) in a bubble and a cook's
+#              queue, VIPs' stars, plates stacked beside those who ate
 #    (A demo's random numbers start from a fixed seed, so its customers and
 #    their orders are always the same.)
 # 2. `ws sushi` on a machine with the sound device (-A: what it plays goes
@@ -54,7 +61,7 @@ set -e
 BUILD=${BUILD:-build}
 ROM=${1:-$BUILD/bootrom.stx}
 DISK=${2:-$BUILD/disk.img}
-SUSHI_CRC="1:c4ad2efb:6 2:6a9ad6a4:6 3:b3bd9d3e:6 4:729a8d4e:6 5:3f72ea15:8 6:bef84dff:12 7:2a672591:6 8:1a8bd89e:6 9:1a4dafd0:6 a:4c4aca08:6 b:ebd402a7:8 c:1b842428:8 d:1e5a54ac:8"
+SUSHI_CRC="1:c4ad2efb:6 2:6a9ad6a4:6 3:b3bd9d3e:6 4:729a8d4e:6 5:3f72ea15:8 6:bef84dff:12 7:2a672591:6 8:4f2adf89:6 9:bdeb65f7:6 a:0cc49cf8:6 b:ebd402a7:8 c:1b842428:8 d:0d6d0441:8 e:d933f36a:6 f:89fd7df0:6 g:66f50181:6"
 T=$(mktemp -d "${TMPDIR:-/tmp}/test-sushi.XXXXXX")
 OUT=$BUILD/test-sushi
 mkdir -p $OUT

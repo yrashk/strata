@@ -50,6 +50,11 @@ BELT = [(16, 71, 303, 82), (16, 141, 303, 152), (3, 84, 14, 139), (305, 84, 316,
 PLATES = ['green', 'blue', 'red', 'gold', 'black']
 KINDS = [('salmon', 1, 0, 150), ('tuna', 2, 0, 200), ('tamago', 0, 0, 100), ('ebi', 1, 0, 150),
          ('kappa', 0, 1, 100), ('ikura', 2, 2, 200), ('unagi', 3, 0, 300), ('uramaki', 3, 1, 300)]
+# Sets (from the first rush hour on): two pieces on a black plate, made by one
+# cook (the time of both); kinds NKIND .. NKIND + NSET - 1. The price is the
+# pieces' and SET_BONUS more.
+SETS = [(0, 1), (4, 4), (2, 4)]         # salmon and tuna; two kappa; tamago and kappa
+SET_BONUS = 50
 COOKS = ['cook0', 'cook1', 'cook2']
 COOK_FRAMES = ['idle_0', 'idle_1', 'slice_0', 'slice_1', 'rice_0', 'rice_1', 'roll_0', 'roll_1',
                'place_0', 'place_1', 'cheer', 'oops']
@@ -77,15 +82,18 @@ DEMOS = {
     5: "3  ,2  ,2  ,300 _,1 1,2 2,2 3,150 _",       # orders given by keys: the cooks make them, a plate rides
     6: "3  ,2  ,2  ,300 _,2 @208:24,2 @160:96,120 _,2 @240:24,2 @282:184,700 _",   # ... by clicks: a bubble, a cook, a cook's box
     7: "3  ,2  ,2  ,300 _,1 1,1 R,1 1,130 _,1 @76:146,4 _",     # one order given twice; a plate swept off by a click
-    8: "3  ,2  ,2  ,300 _,1 1,1 R,1 1,1 R,1 1,1 >,2390 _,1 >,10 _,1 z,5 _",   # plates nobody takes go stale; Z sweeps one off
-    9: "3  ,2  ,2  ,1 >,1460 _,1 >,10 _",           # left alone: the first customer waits too long and goes
+    8: "3  ,2  ,2  ,300 _,1 1,1 R,1 1,1 R,1 1,1 R,1 2,1 R,1 2,1 R,1 2,1 >,900 _,1 .,1490 _,1 >,10 _,1 z,5 _",   # plates nobody takes go stale; Z sweeps one off
+    9: "3  ,2  ,2  ,1 >,1210 _,1 .,250 _,1 >,10 _",   # left alone: the first customer waits too long and goes
     10: "3  ,2  ,2  ,1 >,1 {220,1 1,1 2,1 3,30 _,1 },1 >,200 _",   # a whole evening, every order given at once: the results
     11: "3  ,2  ,2  ,300 _,1 1,1 1,60 _,1 i,1 i,3 _",   # I: how you earn, then the owner's card with his queue
     12: "3  ,2  ,2  ,300 _,1 1,2 2,2 3,300 _,2 @92:184,30 _,2 .,2 @40:184,3 _",   # a click on a face: a card that holds the evening; one on the money
     13: "3  ,2  ,2  ,300 _,1 1,2 2,2 3,545 _",      # a customer pays: what for, rising over them
+    14: "3  ,2  ,2  ,1 >,1205 _,1 >,2 _",           # 18:00: the first rush, and the card of the busy hours
+    15: "3  ,2  ,2  ,1 >,1 {38,1 1,1 2,1 3,30 _,1 },1 >,40 _",   # the rush: the sign, the banner, the clock on red, a crowd
+    16: "3  ,2  ,2  ,1 >,1 {48,1 1,1 2,1 3,30 _,1 },1 >,30 _",   # later in it: sets, a VIP, plates stacked
 }
 KEYS = {'U': 1, 'D': 2, 'L': 3, 'R': 4, '}': 0xfc, '~': 0xfa, '>': 0xf9, '_': 0}
-NDEMO = 13
+NDEMO = 16
 
 
 def make_sounds():
@@ -261,6 +269,9 @@ def build(art, outdir):
     nsnd = len(snddir) // 8
 
     kinds = b''.join(struct.pack('<BBH', p, how, price) for _, p, how, price in KINDS)
+    kinds += b''.join(struct.pack('<BBH', PLATES.index('black'), 3, KINDS[a][3] + KINDS[b][3] + SET_BONUS)
+                      for a, b in SETS)
+    setp = b''.join(bytes(p) for p in SETS)
     cooks = b''.join(struct.pack('<HHH', *t) + b'\0\0' for t in COOK_TICS)
     # each cook's lines of text, from their times: their card (name, role, how
     # long nigiri and rolls take, fast or slow among the three) and their two
@@ -319,7 +330,9 @@ def build(art, outdir):
              ('R_SPR', bytes(sprdir), 'sprites: u32 far offset, u16 w, h, s16 ox, oy, u16 column bytes, u16 0'),
              ('R_SND', pad8(bytes(snddir)), 'sounds: u32 far offset, u32 samples'),
              ('R_PIC', bytes(picdir), 'pictures: ten slabs each: u32 far offset, u16 coded bytes, u16 0'),
-             ('R_KIND', pad8(kinds), 'the sushi: u8 plate colour, u8 how it is made (0 nigiri, 1 roll, 2 gunkan), u16 price'),
+             ('R_KIND', pad8(kinds), 'the sushi: u8 plate colour, u8 how it is made (0 nigiri, 1 roll, 2 gunkan, '
+              '3 a set), u16 price; the kinds, then the sets'),
+             ('R_SETP', pad8(setp), 'the sets: u8, u8 the two pieces'),
              ('R_COOK', cooks, 'the cooks: u16 tics for nigiri, a roll, gunkan; u16 0'),
              ('R_CTEXT', pad8(bytes(ctext)), 'the cooks\' text: six lines of CTEXT bytes each, NUL-padded: '
               'number and name, role, nigiri, rolls; the two lines of how to play'),
@@ -343,6 +356,9 @@ def build(art, outdir):
     equ('NSPR', nspr[0], 'sprites')
     equ('NSND', nsnd, 'sounds')
     equ('NKIND', len(KINDS), 'kinds of sushi')
+    equ('SET0', len(KINDS), 'the first set (a kind of its own)')
+    equ('NSET', len(SETS), 'sets')
+    equ('SET_BONUS', SET_BONUS, 'yen a set costs more than its pieces')
     equ('NCUST', len(CUSTS), 'kinds of customer')
     equ('NCOOKF', len(COOK_FRAMES) + 1, 'sprites per cook: the frames, then the face')
     equ('NCUSTF', len(CUST_FRAMES), 'sprites per customer')

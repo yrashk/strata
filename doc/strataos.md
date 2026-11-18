@@ -1785,7 +1785,13 @@ window whose process ends is removed.
   you earn; what a customer pays (price, tip, the pieces served in a row)
   rises over them. Two pages before the evening say how to play. An
   evening runs from 17:00 to 22:00 on a clock in the bar and ends with the
-  results. It draws as `kira` does (320 x 200 in slabs,
+  results. From 18:00 to 18:40 and from 19:30 to 20:30 are rush hours
+  (RUSH by the door, the clock on red): customers come in crowds. From
+  the first rush on some order a set (two pieces on a black plate, made
+  by one cook) and some are VIPs (a star: double pay, half the
+  patience); the first rush opens a card that says so, and a click on
+  the clock opens it again. The plates a customer has eaten from stand
+  stacked beside them. It draws as `kira` does (320 x 200 in slabs,
   scaled by a whole factor; the belt's slats are drawn by the program and
   move with the plates). Its art is drawn by `tools/sushi-art.py`, its
   sounds are synthesised by `tools/sushi-assets.py`, both in

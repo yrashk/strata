@@ -87,6 +87,19 @@ player is the head of the kitchen:
 - **Sounds are synthesised** by the asset tool (the door bell, the knife,
   a plate set down, coins, a grumble, a sweep, a gong at closing time)
   and played through wdoom's mixer.
+- **The busy hours come in the middle of the evening**: the first hour is
+  calm, to learn in; the first rush (18:00) brings sets and VIPs with it,
+  and opens a card that says what they are (once a run; a click on the
+  clock, or I after the cooks' cards, opens it again). Sets and VIPs
+  draw no random numbers before it, so the first hour of a demo is what
+  it was before part 2.
+- **A set is a kind of sushi of its own** (after the eight pieces): one
+  order, one cook, one black plate with both pieces on it; the cook takes
+  the time of both, and it costs the pieces' prices and fifty yen more.
+  So the choice is still one key, and the question is which cook is
+  quick at both pieces (a pair of nigiri: Hiro; of rolls: Aiko).
+- **A VIP is marked by a star** by their head, pays double (the tip, too,
+  as it is a part of the price) and has half the patience.
 - **`sushi demo N`** plays recorded keys and clicks one tic a frame, as
   kira's demos do; a `>` in a demo runs the tics after it without drawing
   them, so a whole evening is a test of a second.
@@ -109,10 +122,11 @@ palette): there is no boot image of its own.
       rising, and the results; sound; `sushi demo`; on the disk, `ws sushi`,
       the palette, the shell's help; `tools/test-sushi.sh` in `make test`;
       the play page's preset
-- [ ] Part 2: **rush hours** (the day in parts, a sign over the door and a
-      crowd when a rush begins), customers who order a set of pieces at
-      once, and VIPs who pay double and wait half as long; the plates a
-      customer has eaten stacked beside them
+- [x] Part 2: **rush hours** (18:00 to 18:40 and 19:30 to 20:30: a sign
+      by the door, SOON before, a banner and a crowd when one begins, the
+      clock on red), customers who order a set of pieces at once, and
+      VIPs who pay double and wait half as long; the plates a customer
+      has eaten stacked beside them; the card of the busy hours
 - [ ] Part 3: **days and upgrades**: the takings spent between evenings
       (a faster belt, a fourth cook, a rice cooker, a tea station, a new
       fish: unagi, ikura, uramaki are drawn already), the restaurant kept
@@ -126,8 +140,8 @@ already sitting there), how many pieces they want and which.
 
 ## Sizes
 
-The program is 51 KiB on the disk: 21 KiB of code (of the 32 KiB a
-program may have; about 3,500 lines of assembly of its own, the frame
+The program is 53 KiB on the disk: 22 KiB of code (of the 32 KiB a
+program may have; about 3,800 lines of assembly of its own, the frame
 much as kira's) and 31 KiB of D-LS data (of 40 KiB): the library 13
 KiB, the resident block of `sushi.dat` 5.6 KiB, the slab 5.4 KiB, a 3 KiB
 buffer for a coded picture slab. `sushi.dat` is 235 KiB: 213 sprites,

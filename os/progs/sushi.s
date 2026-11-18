@@ -108,9 +108,11 @@ g_sel:    .dword 0                      ; the chosen order: its seat (-1: none)
 g_flash:  .dword 0                      ; the cook given an order last
 g_flasht: .dword 0                      ; ... lit up for so many tics more
 g_selman: .dword 0                      ; the order was chosen by the player (not given yet)
+g_rusht:  .dword 0                      ; a rush hour has begun: its banner shows so many tics more
 g_evend:                                ; (the end of the evening's globals)
 g_card:   .dword -1                     ; the card open over the evening (game.s: card_open; -1 none)
 g_page:   .dword 0                      ; how to play: its page
+g_seen:   .dword 0                      ; the card of the busy hours has been shown (once a run)
 s_dmsg:   .ascii "sushi: demo: "        ; what is said at the demo's end
 s_dnum:   .space 40                     ; ... "N frames in N ms\n"
 s_dfr:    .ascii " frames in \0"        ; (its pieces)
